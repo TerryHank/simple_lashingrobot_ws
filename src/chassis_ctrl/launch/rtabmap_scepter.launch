@@ -1,0 +1,95 @@
+<launch>
+    <arg name="start_scepter_camera" default="false" />
+    <arg name="start_imu_node" default="false" />
+    <arg name="publish_odom_tf" default="true" />
+    <arg name="publish_base_to_camera_tf" default="true" />
+
+    <arg name="imu_port" default="/dev/ttyUSB0" />
+    <arg name="imu_topic" default="/imu/data" />
+    <arg name="imu_frame_id" default="Scepter_ir_frame" />
+    <arg name="imu_publish_rate_hz" default="50.0" />
+    <arg name="imu_reader_period_ms" default="40.0" />
+    <arg name="wait_imu_to_init" default="false" />
+
+    <arg name="odom_topic" default="/vehicle/odom" />
+    <arg name="odom_frame_id" default="odom" />
+    <arg name="base_frame_id" default="base_link" />
+    <arg name="camera_mount_frame" default="Scepter_frame" />
+
+    <arg name="camera_x" default="0.0" />
+    <arg name="camera_y" default="0.0" />
+    <arg name="camera_z" default="0.0" />
+    <arg name="camera_roll" default="0.0" />
+    <arg name="camera_pitch" default="0.0" />
+    <arg name="camera_yaw" default="0.0" />
+
+    <arg name="frame_id" default="$(arg base_frame_id)" />
+    <arg name="rgb_topic" default="/Scepter/color/image_raw" />
+    <arg name="depth_topic" default="/Scepter/transformedDepth/image_raw" />
+    <arg name="camera_info_topic" default="/Scepter/color/camera_info" />
+    <arg name="depth_camera_info_topic" default="/Scepter/transformedDepth/camera_info" />
+    <arg name="database_path" default="$(env HOME)/.ros/rtabmap_scepter.db" />
+    <arg name="delete_db_on_start" default="false" />
+    <arg name="approx_sync" default="true" />
+    <arg name="queue_size" default="30" />
+    <arg name="rtabmap_viz" default="true" />
+    <arg name="rviz" default="false" />
+    <arg name="namespace" default="rtabmap" />
+    <arg name="rtabmap_args" default="" />
+    <arg if="$(arg delete_db_on_start)" name="effective_rtabmap_args" default="--delete_db_on_start $(arg rtabmap_args)" />
+    <arg unless="$(arg delete_db_on_start)" name="effective_rtabmap_args" default="$(arg rtabmap_args)" />
+
+    <include if="$(arg start_scepter_camera)" file="$(find ScepterROS)/launch/scepter_camera.launch" />
+
+    <node if="$(arg publish_odom_tf)"
+          name="odom_tf_bridge"
+          pkg="chassis_ctrl"
+          type="odom_tf_bridge.py"
+          output="screen">
+        <param name="odom_topic" value="$(arg odom_topic)" />
+        <param name="odom_frame_id" value="$(arg odom_frame_id)" />
+        <param name="base_frame_id" value="$(arg base_frame_id)" />
+    </node>
+
+    <node if="$(arg publish_base_to_camera_tf)"
+          name="base_to_scepter_tf"
+          pkg="tf2_ros"
+          type="static_transform_publisher"
+          args="$(arg camera_x) $(arg camera_y) $(arg camera_z) $(arg camera_yaw) $(arg camera_pitch) $(arg camera_roll) $(arg base_frame_id) $(arg camera_mount_frame)" />
+
+    <node if="$(arg start_imu_node)"
+          name="tiltImuNode"
+          pkg="chassis_ctrl"
+          type="tiltImuNode"
+          output="screen">
+        <param name="port" value="$(arg imu_port)" />
+        <param name="frame_id" value="$(arg imu_frame_id)" />
+        <param name="topic_name" value="$(arg imu_topic)" />
+        <param name="publish_rate_hz" value="$(arg imu_publish_rate_hz)" />
+        <param name="reader_period_ms" value="$(arg imu_reader_period_ms)" />
+        <param name="invert_roll" value="true" />
+    </node>
+
+    <include file="$(find rtabmap_launch)/launch/rtabmap.launch">
+        <arg name="namespace" value="$(arg namespace)" />
+        <arg name="frame_id" value="$(arg frame_id)" />
+        <arg name="rgb_topic" value="$(arg rgb_topic)" />
+        <arg name="depth_topic" value="$(arg depth_topic)" />
+        <arg name="camera_info_topic" value="$(arg camera_info_topic)" />
+        <arg name="depth_camera_info_topic" value="$(arg depth_camera_info_topic)" />
+        <arg name="approx_sync" value="$(arg approx_sync)" />
+        <arg name="topic_queue_size" value="$(arg queue_size)" />
+        <arg name="sync_queue_size" value="$(arg queue_size)" />
+        <arg name="visual_odometry" value="false" />
+        <arg name="odom_topic" value="$(arg odom_topic)" />
+        <arg name="imu_topic" value="$(arg imu_topic)" />
+        <arg name="wait_imu_to_init" value="$(arg wait_imu_to_init)" />
+        <arg name="database_path" value="$(arg database_path)" />
+        <arg name="cfg" value="$(find chassis_ctrl)/config/rtabmap_scepter.ini" />
+        <arg name="args" value="$(arg effective_rtabmap_args)" />
+        <arg name="rtabmap_viz" value="$(arg rtabmap_viz)" />
+        <arg name="rviz" value="$(arg rviz)" />
+        <arg name="publish_tf_map" value="true" />
+        <arg name="wait_for_transform" value="0.5" />
+    </include>
+</launch>

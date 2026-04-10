@@ -1,0 +1,28 @@
+<launch>
+    <arg name="slam_mode" default="fused" />
+    <arg name="slam_start_scepter_camera" default="false" />
+    <arg name="slam_rtabmap_viz" default="true" />
+    <arg name="slam_planar" default="true" />
+    <arg name="slam_realtime_capture" default="true" />
+
+    <param if="$(arg slam_realtime_capture)" name="/pointAINode/slam/capture_on_process_service" value="false" />
+
+    <node name="suoquNode" pkg="chassis_ctrl" type="suoquNode" output="log"></node>
+
+    <include if="$(eval arg('slam_mode') == 'rgbd')" file="$(find chassis_ctrl)/launch/rtabmap_scepter.launch">
+        <arg name="start_scepter_camera" value="$(arg slam_start_scepter_camera)" />
+        <arg name="rtabmap_viz" value="$(arg slam_rtabmap_viz)" />
+    </include>
+
+    <include if="$(eval arg('slam_mode') == 'fused')" file="$(find chassis_ctrl)/launch/rtabmap_scepter_fused.launch">
+        <arg name="start_scepter_camera" value="$(arg slam_start_scepter_camera)" />
+        <arg name="rtabmap_viz" value="$(arg slam_rtabmap_viz)" />
+        <arg name="planar_slam" value="$(arg slam_planar)" />
+    </include>
+
+    <include if="$(eval arg('slam_mode') == 'cloud')" file="$(find chassis_ctrl)/launch/rtabmap_scepter_cloud.launch">
+        <arg name="start_scepter_camera" value="$(arg slam_start_scepter_camera)" />
+        <arg name="rtabmap_viz" value="$(arg slam_rtabmap_viz)" />
+        <arg name="planar_slam" value="$(arg slam_planar)" />
+    </include>
+</launch>

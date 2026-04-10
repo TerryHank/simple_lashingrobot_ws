@@ -1,5 +1,30 @@
 <launch>
-    <node name="suoquNode" pkg="chassis_ctrl" type="suoquNode"  output="log"></node>
-    <node name="moduanNode" pkg="chassis_ctrl" type="moduanNode"  output="log" ></node>
-    <node name="pointAINode" pkg="chassis_ctrl" type="pointAI.py"  output="log"></node> 
+    <arg name="start_slam" default="false" />
+    <arg name="slam_mode" default="fused" />
+    <arg name="slam_start_scepter_camera" default="false" />
+    <arg name="slam_rtabmap_viz" default="true" />
+
+    <node name="suoquNode" pkg="chassis_ctrl" type="suoquNode" output="log"></node>
+    <node name="moduanNode" pkg="chassis_ctrl" type="moduanNode" output="log"></node>
+    <node name="pointAINode" pkg="chassis_ctrl" type="pointAI.py" output="log">
+        <param name="slam/pause_service" value="/rtabmap/pause" />
+        <param name="slam/resume_service" value="/rtabmap/resume" />
+    </node>
+
+    <group if="$(arg start_slam)">
+        <include if="$(eval arg('slam_mode') == 'rgbd')" file="$(find chassis_ctrl)/launch/rtabmap_scepter.launch">
+            <arg name="start_scepter_camera" value="$(arg slam_start_scepter_camera)" />
+            <arg name="rtabmap_viz" value="$(arg slam_rtabmap_viz)" />
+        </include>
+
+        <include if="$(eval arg('slam_mode') == 'fused')" file="$(find chassis_ctrl)/launch/rtabmap_scepter_fused.launch">
+            <arg name="start_scepter_camera" value="$(arg slam_start_scepter_camera)" />
+            <arg name="rtabmap_viz" value="$(arg slam_rtabmap_viz)" />
+        </include>
+
+        <include if="$(eval arg('slam_mode') == 'cloud')" file="$(find chassis_ctrl)/launch/rtabmap_scepter_cloud.launch">
+            <arg name="start_scepter_camera" value="$(arg slam_start_scepter_camera)" />
+            <arg name="rtabmap_viz" value="$(arg slam_rtabmap_viz)" />
+        </include>
+    </group>
 </launch>

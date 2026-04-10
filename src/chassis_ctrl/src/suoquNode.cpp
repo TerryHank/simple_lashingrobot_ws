@@ -23,6 +23,7 @@
 #include <omp.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
+#include <nav_msgs/Odometry.h>
 #include <chassis_ctrl/motion.h>
 #include "chassis_ctrl/cabin_upload.h" //用于上传索驱模块反馈
 #include "chassis_ctrl/MotionControl.h"
@@ -116,6 +117,7 @@ ros::Publisher pub;
 ros::Publisher pub_forced_stop;
 //  索驱状态获取的发布者对象
 ros::Publisher pub_cabin_data_upload;
+ros::Publisher pub_vehicle_odom;
 ros::Publisher pub_test;
 
 // 索驱状态被发布的全局变量
@@ -146,6 +148,15 @@ typedef struct {
     float cabin_y_gesture;
 } Cabin_State;
 Cabin_State cabin_state;
+Cabin_State odom_last_state = {};
+ros::Time odom_last_stamp;
+bool odom_has_last_state = false;
+bool odom_use_abc_as_rpy = false;
+bool odom_abc_in_degrees = true;
+double odom_position_scale = 0.001;
+double odom_stop_velocity_threshold = 0.0005;
+std::string odom_frame_id = "odom";
+std::string odom_child_frame_id = "base_link";
 
 // 机器人姿态反馈的结构体
 // typedef struct {
@@ -172,6 +183,120 @@ void getSuoquTestTimeTxt(float pos)
 
     fclose(fp);
     return;
+}
+
+geometry_msgs::Quaternion quaternionFromRPY(double roll, double pitch, double yaw)
+{
+    const double cy = std::cos(yaw * 0.5);
+    const double sy = std::sin(yaw * 0.5);
+    const double cp = std::cos(pitch * 0.5);
+    const double sp = std::sin(pitch * 0.5);
+    const double cr = std::cos(roll * 0.5);
+    const double sr = std::sin(roll * 0.5);
+
+    geometry_msgs::Quaternion q;
+    q.w = cr * cp * cy + sr * sp * sy;
+    q.x = sr * cp * cy - cr * sp * sy;
+    q.y = cr * sp * cy + sr * cp * sy;
+    q.z = cr * cp * sy - sr * sp * cy;
+    return q;
+}
+
+void fillDiagonalCovariance(boost::array<double, 36> &covariance,
+                            double xx, double yy, double zz,
+                            double rr, double pp, double yaw)
+{
+    std::fill(covariance.begin(), covariance.end(), 0.0);
+    covariance[0] = xx;
+    covariance[7] = yy;
+    covariance[14] = zz;
+    covariance[21] = rr;
+    covariance[28] = pp;
+    covariance[35] = yaw;
+}
+
+void publishVehicleOdom(const Cabin_State &state)
+{
+    nav_msgs::Odometry odom_msg;
+    const ros::Time current_stamp = ros::Time::now();
+    odom_msg.header.stamp = current_stamp;
+    odom_msg.header.frame_id = odom_frame_id;
+    odom_msg.child_frame_id = odom_child_frame_id;
+
+    odom_msg.pose.pose.position.x = state.X * odom_position_scale;
+    odom_msg.pose.pose.position.y = state.Y * odom_position_scale;
+    odom_msg.pose.pose.position.z = state.Z * odom_position_scale;
+
+    double roll = 0.0;
+    double pitch = 0.0;
+    double yaw = 0.0;
+    if (odom_use_abc_as_rpy) {
+        roll = state.A;
+        pitch = state.B;
+        yaw = state.C;
+        if (odom_abc_in_degrees) {
+            roll = roll * M_PI / 180.0;
+            pitch = pitch * M_PI / 180.0;
+            yaw = yaw * M_PI / 180.0;
+        }
+        odom_msg.pose.pose.orientation = quaternionFromRPY(roll, pitch, yaw);
+    } else {
+        odom_msg.pose.pose.orientation.w = 1.0;
+    }
+
+    fillDiagonalCovariance(
+        odom_msg.pose.covariance,
+        0.0025, 0.0025, 0.01,
+        odom_use_abc_as_rpy ? 0.05 : 1e6,
+        odom_use_abc_as_rpy ? 0.05 : 1e6,
+        odom_use_abc_as_rpy ? 0.05 : 1e6
+    );
+
+    fillDiagonalCovariance(
+        odom_msg.twist.covariance,
+        0.01, 0.01, 0.04,
+        odom_use_abc_as_rpy ? 0.1 : 1e6,
+        odom_use_abc_as_rpy ? 0.1 : 1e6,
+        odom_use_abc_as_rpy ? 0.1 : 1e6
+    );
+
+    if (odom_has_last_state) {
+        const double dt = (current_stamp - odom_last_stamp).toSec();
+        if (dt > 1e-6) {
+            double vx = (state.X - odom_last_state.X) * odom_position_scale / dt;
+            double vy = (state.Y - odom_last_state.Y) * odom_position_scale / dt;
+            double vz = (state.Z - odom_last_state.Z) * odom_position_scale / dt;
+
+            if (state.motion_status == 0) {
+                if (std::abs(vx) < odom_stop_velocity_threshold) vx = 0.0;
+                if (std::abs(vy) < odom_stop_velocity_threshold) vy = 0.0;
+                if (std::abs(vz) < odom_stop_velocity_threshold) vz = 0.0;
+            }
+
+            odom_msg.twist.twist.linear.x = vx;
+            odom_msg.twist.twist.linear.y = vy;
+            odom_msg.twist.twist.linear.z = vz;
+
+            if (odom_use_abc_as_rpy) {
+                double last_roll = odom_last_state.A;
+                double last_pitch = odom_last_state.B;
+                double last_yaw = odom_last_state.C;
+                if (odom_abc_in_degrees) {
+                    last_roll = last_roll * M_PI / 180.0;
+                    last_pitch = last_pitch * M_PI / 180.0;
+                    last_yaw = last_yaw * M_PI / 180.0;
+                }
+                odom_msg.twist.twist.angular.x = (roll - last_roll) / dt;
+                odom_msg.twist.twist.angular.y = (pitch - last_pitch) / dt;
+                odom_msg.twist.twist.angular.z = (yaw - last_yaw) / dt;
+            }
+        }
+    }
+
+    pub_vehicle_odom.publish(odom_msg);
+    odom_last_state = state;
+    odom_last_stamp = current_stamp;
+    odom_has_last_state = true;
 }
 
 // 索驱全局移动函数声明：实现连续移动
@@ -1305,6 +1430,7 @@ bool startGlobalWork(chassis_ctrl::MotionControl::Request &req,
 void read_cabin_state(Cabin_State *cab_state) {    
     float x_gesture,y_gesture;
     uint16_t check_sum=0;
+    Cabin_State odom_state_snapshot = {};
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100)); //防止固定锁
         {
@@ -1365,6 +1491,7 @@ void read_cabin_state(Cabin_State *cab_state) {
                 cab_state->Y = 0;
             if(std::abs(cab_state->Z) < 1e-6)
                 cab_state->Z = 0;
+            odom_state_snapshot = *cab_state;
         }
         // printCurrentTime();
         // printf("Cabin_log: 现在索驱的位置坐标为(%f,%f,%f),运动状态为", cab_state->X,cab_state->Y,cab_state->Z);
@@ -1377,6 +1504,7 @@ void read_cabin_state(Cabin_State *cab_state) {
         cabin_data_upload.motion_status = cab_state->motion_status;
         cabin_data_upload.device_alarm = cab_state->device_alarm;
         cabin_data_upload.internal_calc_error = cab_state->internal_calc_error;
+        publishVehicleOdom(odom_state_snapshot);
 
         // if((abs(x_gesture)>=1.0||abs(y_gesture)>=1.0)&&cab_state->motion_status==0)
         // {
@@ -1473,6 +1601,12 @@ int main(int argc, char **argv)
     setlocale(LC_ALL, "");
     ros::init(argc, argv, "suoquNode");
     ros::NodeHandle nh;
+    nh.param("odom/use_abc_as_rpy", odom_use_abc_as_rpy, false);
+    nh.param("odom/abc_in_degrees", odom_abc_in_degrees, true);
+    nh.param("odom/position_scale", odom_position_scale, 0.001);
+    nh.param("odom/stop_velocity_threshold", odom_stop_velocity_threshold, 0.0005);
+    nh.param("odom/frame_id", odom_frame_id, std::string("odom"));
+    nh.param("odom/child_frame_id", odom_child_frame_id, std::string("base_link"));
     printCurrentTime();
     printf("<--- suoquNode Started --->\n");
     
@@ -1497,6 +1631,7 @@ int main(int argc, char **argv)
     // save_image_client = nh.serviceClient<std_srvs::Trigger>("/save_depth_image");
     // 急停信息发布者对象(当前逻辑不考虑在索驱内部发送急停信号)
     // pub_forced_stop = nh.advertise<std_msgs::Float32>("/forced_stop", 5);
+    pub_vehicle_odom = nh.advertise<nav_msgs::Odometry>("/vehicle/odom", 10);
     // 索驱数据反馈的发布话题声明
     // pub_cabin_data_upload = nh.advertise<chassis_ctrl::cabin_upload>("/cabin/cabin_data_upload", 5);
     // pub_test=nh.advertise<std_msgs::Float32>("/test", 5);

@@ -1,0 +1,97 @@
+<launch>
+    <arg name="start_scepter_camera" default="false" />
+    <arg name="publish_odom_tf" default="true" />
+    <arg name="publish_base_to_camera_tf" default="true" />
+    <arg name="odom_topic" default="/vehicle/odom" />
+    <arg name="planar_slam" default="true" />
+    <arg name="planar_odom_topic" default="/vehicle/odom_planar" />
+    <arg name="planar_stamp_offset_sec" default="0.0" />
+    <arg name="odom_frame_id" default="odom" />
+    <arg name="base_frame_id" default="base_link" />
+    <arg name="camera_mount_frame" default="Scepter_frame" />
+    <arg name="camera_x" default="0.0" />
+    <arg name="camera_y" default="0.0" />
+    <arg name="camera_z" default="0.0" />
+    <arg name="camera_roll" default="0.0" />
+    <arg name="camera_pitch" default="0.0" />
+    <arg name="camera_yaw" default="0.0" />
+    <arg name="rtabmap_viz" default="true" />
+    <arg name="rviz" default="false" />
+    <arg name="database_path" default="$(env HOME)/.ros/rtabmap_scepter_fused.db" />
+    <arg name="delete_db_on_start" default="false" />
+    <arg name="rtabmap_args" default="" />
+    <arg if="$(arg planar_slam)" name="planar_rtabmap_args" default="--Reg/Force3DoF true --Optimizer/Slam2D true" />
+    <arg unless="$(arg planar_slam)" name="planar_rtabmap_args" default="" />
+    <arg if="$(arg planar_slam)" name="slam_odom_topic" default="$(arg planar_odom_topic)" />
+    <arg unless="$(arg planar_slam)" name="slam_odom_topic" default="$(arg odom_topic)" />
+    <arg if="$(arg planar_slam)" name="effective_rtabmap_args" default="$(arg planar_rtabmap_args) $(arg rtabmap_args)" />
+    <arg unless="$(arg planar_slam)" name="effective_rtabmap_args" default="$(arg rtabmap_args)" />
+
+    <arg name="fusion_color_topic" default="/Scepter/color/image_raw" />
+    <arg name="fusion_ir_topic" default="/Scepter/ir/image_raw" />
+    <arg name="fusion_depth_topic" default="/Scepter/transformedDepth/image_raw" />
+    <arg name="fusion_camera_info_topic" default="/Scepter/color/camera_info" />
+    <arg name="fusion_output_topic" default="/Scepter/fusion/image_raw" />
+    <arg name="fusion_output_camera_info_topic" default="/Scepter/fusion/camera_info" />
+    <arg name="fusion_output_depth_topic" default="/Scepter/fusion/depth/image_raw" />
+    <arg name="fusion_ir_weight" default="0.72" />
+    <arg name="fusion_rgb_weight" default="0.28" />
+    <arg name="fusion_sync_slop" default="0.08" />
+    <arg name="fusion_debug" default="false" />
+
+    <include if="$(arg start_scepter_camera)" file="$(find ScepterROS)/launch/scepter_camera.launch" />
+
+    <node if="$(arg planar_slam)"
+          name="planar_odom_projector"
+          pkg="chassis_ctrl"
+          type="planar_odom_projector.py"
+          output="screen">
+        <param name="input_topic" value="$(arg odom_topic)" />
+        <param name="output_topic" value="$(arg planar_odom_topic)" />
+        <param name="odom_frame_id" value="$(arg odom_frame_id)" />
+        <param name="base_frame_id" value="$(arg base_frame_id)" />
+        <param name="stamp_offset_sec" value="$(arg planar_stamp_offset_sec)" />
+    </node>
+
+    <node name="scepter_rgb_ir_fusion"
+          pkg="chassis_ctrl"
+          type="scepter_rgb_ir_fusion.py"
+          output="screen">
+        <param name="color_topic" value="$(arg fusion_color_topic)" />
+        <param name="ir_topic" value="$(arg fusion_ir_topic)" />
+        <param name="depth_topic" value="$(arg fusion_depth_topic)" />
+        <param name="camera_info_topic" value="$(arg fusion_camera_info_topic)" />
+        <param name="fused_topic" value="$(arg fusion_output_topic)" />
+        <param name="fused_camera_info_topic" value="$(arg fusion_output_camera_info_topic)" />
+        <param name="depth_relay_topic" value="$(arg fusion_output_depth_topic)" />
+        <param name="ir_weight" value="$(arg fusion_ir_weight)" />
+        <param name="rgb_weight" value="$(arg fusion_rgb_weight)" />
+        <param name="sync_slop" value="$(arg fusion_sync_slop)" />
+        <param name="publish_debug" value="$(arg fusion_debug)" />
+    </node>
+
+    <include file="$(find chassis_ctrl)/launch/rtabmap_scepter.launch">
+        <arg name="start_scepter_camera" value="false" />
+        <arg name="publish_odom_tf" value="$(arg publish_odom_tf)" />
+        <arg name="publish_base_to_camera_tf" value="$(arg publish_base_to_camera_tf)" />
+        <arg name="odom_topic" value="$(arg slam_odom_topic)" />
+        <arg name="odom_frame_id" value="$(arg odom_frame_id)" />
+        <arg name="base_frame_id" value="$(arg base_frame_id)" />
+        <arg name="camera_mount_frame" value="$(arg camera_mount_frame)" />
+        <arg name="camera_x" value="$(arg camera_x)" />
+        <arg name="camera_y" value="$(arg camera_y)" />
+        <arg name="camera_z" value="$(arg camera_z)" />
+        <arg name="camera_roll" value="$(arg camera_roll)" />
+        <arg name="camera_pitch" value="$(arg camera_pitch)" />
+        <arg name="camera_yaw" value="$(arg camera_yaw)" />
+        <arg name="rgb_topic" value="$(arg fusion_output_topic)" />
+        <arg name="depth_topic" value="$(arg fusion_output_depth_topic)" />
+        <arg name="camera_info_topic" value="$(arg fusion_output_camera_info_topic)" />
+        <arg name="depth_camera_info_topic" value="$(arg fusion_output_camera_info_topic)" />
+        <arg name="database_path" value="$(arg database_path)" />
+        <arg name="delete_db_on_start" value="$(arg delete_db_on_start)" />
+        <arg name="rtabmap_args" value="$(arg effective_rtabmap_args)" />
+        <arg name="rtabmap_viz" value="$(arg rtabmap_viz)" />
+        <arg name="rviz" value="$(arg rviz)" />
+    </include>
+</launch>

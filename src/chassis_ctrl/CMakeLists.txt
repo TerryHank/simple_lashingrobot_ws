@@ -5,6 +5,9 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
   message_generation
   actionlib_msgs
 )
@@ -60,7 +63,7 @@ generate_messages(
 )
 
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy std_msgs message_runtime actionlib_msgs
+  CATKIN_DEPENDS roscpp rospy std_msgs sensor_msgs geometry_msgs nav_msgs message_runtime actionlib_msgs
 )
 
 include_directories(
@@ -76,6 +79,7 @@ add_executable(moduanNode_show src/moduanNode_show.cpp)
 add_executable(client src/client.cpp)
 add_executable(suoquNode src/suoquNode.cpp)
 add_executable(topictransNode src/topics_transfer.cpp)
+add_executable(tiltImuNode src/tiltImuNode.cpp)
 # 链接库（简化重复的链接设置）
 set(COMMON_LIBS
   ${catkin_LIBRARIES}
@@ -89,3 +93,4 @@ target_link_libraries(moduanNode_show ${COMMON_LIBS})
 target_link_libraries(client ${COMMON_LIBS})
 target_link_libraries(suoquNode ${COMMON_LIBS} -fopenmp)
 target_link_libraries(topictransNode ${COMMON_LIBS})
+target_link_libraries(tiltImuNode ${catkin_LIBRARIES})

@@ -1,0 +1,86 @@
+<launch>
+    <arg name="start_scepter_camera" default="false" />
+    <arg name="publish_odom_tf" default="true" />
+    <arg name="publish_base_to_camera_tf" default="true" />
+    <arg name="odom_topic" default="/vehicle/odom" />
+    <arg name="planar_slam" default="true" />
+    <arg name="planar_odom_topic" default="/vehicle/odom_planar" />
+    <arg name="planar_stamp_offset_sec" default="0.0" />
+    <arg name="odom_frame_id" default="odom" />
+    <arg name="base_frame_id" default="base_link" />
+    <arg name="camera_mount_frame" default="Scepter_frame" />
+    <arg name="camera_x" default="0.0" />
+    <arg name="camera_y" default="0.0" />
+    <arg name="camera_z" default="0.0" />
+    <arg name="camera_roll" default="0.0" />
+    <arg name="camera_pitch" default="0.0" />
+    <arg name="camera_yaw" default="0.0" />
+    <arg name="namespace" default="rtabmap" />
+    <arg name="database_path" default="$(env HOME)/.ros/rtabmap_scepter_cloud.db" />
+    <arg name="delete_db_on_start" default="false" />
+    <arg name="scan_cloud_topic" default="/Scepter/depthCloudPoint/cloud_points" />
+    <arg name="scan_cloud_max_points" default="0" />
+    <arg name="queue_size" default="30" />
+    <arg name="rtabmap_viz" default="true" />
+    <arg name="rviz" default="false" />
+    <arg name="rtabmap_args" default="" />
+    <arg if="$(arg planar_slam)" name="planar_rtabmap_args" default="--Reg/Force3DoF true --Optimizer/Slam2D true" />
+    <arg unless="$(arg planar_slam)" name="planar_rtabmap_args" default="" />
+    <arg if="$(arg planar_slam)" name="slam_odom_topic" default="$(arg planar_odom_topic)" />
+    <arg unless="$(arg planar_slam)" name="slam_odom_topic" default="$(arg odom_topic)" />
+    <arg if="$(arg delete_db_on_start)" name="effective_rtabmap_args" default="--delete_db_on_start $(arg rtabmap_args)" />
+    <arg unless="$(arg delete_db_on_start)" name="effective_rtabmap_args" default="$(arg rtabmap_args)" />
+    <arg if="$(arg planar_slam)" name="effective_xy_rtabmap_args" default="$(arg planar_rtabmap_args) $(arg effective_rtabmap_args)" />
+    <arg unless="$(arg planar_slam)" name="effective_xy_rtabmap_args" default="$(arg effective_rtabmap_args)" />
+
+    <include if="$(arg start_scepter_camera)" file="$(find ScepterROS)/launch/scepter_camera.launch" />
+
+    <node if="$(arg planar_slam)"
+          name="planar_odom_projector"
+          pkg="chassis_ctrl"
+          type="planar_odom_projector.py"
+          output="screen">
+        <param name="input_topic" value="$(arg odom_topic)" />
+        <param name="output_topic" value="$(arg planar_odom_topic)" />
+        <param name="odom_frame_id" value="$(arg odom_frame_id)" />
+        <param name="base_frame_id" value="$(arg base_frame_id)" />
+        <param name="stamp_offset_sec" value="$(arg planar_stamp_offset_sec)" />
+    </node>
+
+    <node if="$(arg publish_odom_tf)"
+          name="odom_tf_bridge"
+          pkg="chassis_ctrl"
+          type="odom_tf_bridge.py"
+          output="screen">
+        <param name="odom_topic" value="$(arg slam_odom_topic)" />
+        <param name="odom_frame_id" value="$(arg odom_frame_id)" />
+        <param name="base_frame_id" value="$(arg base_frame_id)" />
+    </node>
+
+    <node if="$(arg publish_base_to_camera_tf)"
+          name="base_to_scepter_tf"
+          pkg="tf2_ros"
+          type="static_transform_publisher"
+          args="$(arg camera_x) $(arg camera_y) $(arg camera_z) $(arg camera_yaw) $(arg camera_pitch) $(arg camera_roll) $(arg base_frame_id) $(arg camera_mount_frame)" />
+
+    <include file="$(find rtabmap_launch)/launch/rtabmap.launch">
+        <arg name="namespace" value="$(arg namespace)" />
+        <arg name="frame_id" value="$(arg base_frame_id)" />
+        <arg name="odom_topic" value="$(arg slam_odom_topic)" />
+        <arg name="database_path" value="$(arg database_path)" />
+        <arg name="cfg" value="$(find chassis_ctrl)/config/rtabmap_scepter.ini" />
+        <arg name="args" value="$(arg effective_xy_rtabmap_args)" />
+        <arg name="depth" value="false" />
+        <arg name="subscribe_rgb" value="false" />
+        <arg name="visual_odometry" value="false" />
+        <arg name="subscribe_scan_cloud" value="true" />
+        <arg name="scan_cloud_topic" value="$(arg scan_cloud_topic)" />
+        <arg name="scan_cloud_max_points" value="$(arg scan_cloud_max_points)" />
+        <arg name="topic_queue_size" value="$(arg queue_size)" />
+        <arg name="sync_queue_size" value="$(arg queue_size)" />
+        <arg name="rtabmap_viz" value="$(arg rtabmap_viz)" />
+        <arg name="rviz" value="$(arg rviz)" />
+        <arg name="publish_tf_map" value="true" />
+        <arg name="wait_for_transform" value="0.5" />
+    </include>
+</launch>

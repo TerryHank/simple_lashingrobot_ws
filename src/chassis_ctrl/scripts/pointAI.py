@@ -5,6 +5,7 @@
 """
 import warnings
 warnings.filterwarnings("ignore", message="The value of the smallest subnormal for")
+import threading
 from cv2.ppf_match_3d import Pose3D
 import rospy
 import json
@@ -18,7 +19,7 @@ from fast_image_solve.msg import PointsArray,PointCoords
 import math
 from chassis_ctrl.msg import motion
 from fast_image_solve.srv import ProcessImage, ProcessImageResponse ,PlaneDetection, PlaneDetectionResponse
-from std_srvs.srv import Trigger, TriggerResponse
+from std_srvs.srv import Trigger, TriggerResponse, Empty
 import time
 from std_msgs.msg import Int32 ,Float32
 from cv2 import ximgproc
@@ -94,6 +95,15 @@ class ImageProcessor:
         self.image_infrared = None
         self.result_display_points = []
         self.last_detection_debug = {}
+        self.slam_capture_on_process_service = rospy.get_param('~slam/capture_on_process_service', True)
+        self.slam_service_wait_sec = rospy.get_param('~slam/service_wait_sec', 0.5)
+        self.slam_capture_warmup_sec = rospy.get_param('~slam/capture_warmup_sec', 0.0)
+        self.slam_capture_cooldown_sec = rospy.get_param('~slam/capture_cooldown_sec', 0.0)
+        self.slam_pause_service_name = rospy.get_param('~slam/pause_service', '/rtabmap/pause')
+        self.slam_resume_service_name = rospy.get_param('~slam/resume_service', '/rtabmap/resume')
+        self.slam_pause_proxy = rospy.ServiceProxy(self.slam_pause_service_name, Empty)
+        self.slam_resume_proxy = rospy.ServiceProxy(self.slam_resume_service_name, Empty)
+        self.slam_control_lock = threading.Lock()
         
         rospy.Subscriber('/Scepter/worldCoord/world_coord', Image, self.image_callback)
         rospy.Subscriber('/Scepter/worldCoord/raw_world_coord', Image, self.image_raw_world_callback)
@@ -155,6 +165,50 @@ class ImageProcessor:
 
         print("pointAI node initialized!")
         print("calibration_offset_x={}, calibration_offset_y={}, calibration_offset_z={}, height_threshold={}".format(self.calibration_offset_x, self.calibration_offset_y, self.calibration_offset_z, self.height_threshold))
+        threading.Thread(target=self.pause_slam_when_ready, daemon=True).start()
+
+    def call_slam_control_service(self, service_proxy, service_name, warn_on_missing=True):
+        if not self.slam_capture_on_process_service:
+            return False
+
+        try:
+            rospy.wait_for_service(service_name, timeout=self.slam_service_wait_sec)
+        except rospy.ROSException:
+            if warn_on_missing:
+                rospy.logwarn_throttle(5.0, f"SLAM control service unavailable: {service_name}")
+            return False
+
+        try:
+            service_proxy()
+            return True
+        except rospy.ServiceException as exc:
+            rospy.logwarn(f"Failed to call SLAM control service {service_name}: {exc}")
+            return False
+
+    def set_slam_capture_enabled(self, enabled):
+        service_proxy = self.slam_resume_proxy if enabled else self.slam_pause_proxy
+        service_name = self.slam_resume_service_name if enabled else self.slam_pause_service_name
+
+        with self.slam_control_lock:
+            if self.call_slam_control_service(service_proxy, service_name):
+                delay = self.slam_capture_warmup_sec if enabled else self.slam_capture_cooldown_sec
+                if delay > 0.0:
+                    rospy.sleep(delay)
+
+    def pause_slam_when_ready(self):
+        if self.slam_capture_on_process_service:
+            retry_sleep = max(0.2, self.slam_service_wait_sec)
+            while not rospy.is_shutdown():
+                with self.slam_control_lock:
+                    if self.call_slam_control_service(
+                        self.slam_pause_proxy,
+                        self.slam_pause_service_name,
+                        warn_on_missing=False,
+                    ):
+                        if self.slam_capture_cooldown_sec > 0.0:
+                            rospy.sleep(self.slam_capture_cooldown_sec)
+                        return
+                rospy.sleep(retry_sleep)
 
     def fixed_z_value_callback(self, msg):
         """
@@ -844,10 +898,15 @@ class ImageProcessor:
         return TriggerResponse(success=saved, message="Detected: {}, Saved: {}".format(detected, saved))            
 
     def handle_process_image(self, req):
+        slam_capture_started = False
         try:
             if self.image is None:
                 print("Input Image is None")
                 return ProcessImageResponse(count=0, PointCoordinatesArray=[])
+
+            if self.slam_capture_on_process_service:
+                self.set_slam_capture_enabled(True)
+                slam_capture_started = True
 
             # 调用pre_img处理图像
             point_coords = self.pre_img()
@@ -864,6 +923,9 @@ class ImageProcessor:
             rospy.logerr(f"Error in handle_process_image: {str(e)}")
             # 发生错误时返回空响应
             return ProcessImageResponse(count=0, PointCoordinatesArray=[])
+        finally:
+            if slam_capture_started:
+                self.set_slam_capture_enabled(False)
     def snake_sort(self, centers, row_threshold=50):
         """
         对点进行蛇形排序，确保从左上角开始
