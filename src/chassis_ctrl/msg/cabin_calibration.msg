@@ -1,0 +1,3 @@
+#这个msg是对索驱整板钢筋的标定，即索驱控制机器人走到整版钢筋最低点，自适应调节自身高度
+float64 X_height_min
+float64 Y_height_min

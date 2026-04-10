@@ -1,0 +1,26 @@
+#这个msg是实现线性模组模块上传数据。
+
+#线性模组
+float64 linear_module_position_X
+float64 linear_module_position_Y
+float64 linear_module_position_Z
+float64 linear_module_speed_X
+float64 linear_module_speed_Y
+float64 linear_module_speed_Z
+int32 linear_module_error_flag_X
+int32 linear_module_error_flag_Y
+int32 linear_module_error_flag_Z
+
+#旋转电机
+float64 motor_angle
+float64 motor_speed
+int32 motor_error_flag
+
+#机器人属性1
+float64 robot_battery_voltage
+float64 robot_temperature
+
+#机器人倾角
+float32 x_gesture
+float32 y_gesture
+

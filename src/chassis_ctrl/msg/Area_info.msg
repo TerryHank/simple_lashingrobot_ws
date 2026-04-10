@@ -1,0 +1,7 @@
+# Area_info.msg
+float32 marking_x
+float32 marking_y
+float32 zone_x
+float32 zone_y
+float32 robot_x_step
+float32 robot_y_step

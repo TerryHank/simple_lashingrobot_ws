@@ -1,0 +1,4 @@
+# 这个msg为了触发线性模组三轴运动的回调函数
+float64 linear_module_X_distance
+float64 linear_module_Y_distance
+float64 linear_module_Z_distance

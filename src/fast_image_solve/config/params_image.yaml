@@ -1,0 +1,46 @@
+#视觉识别节点参数
+Preprocess:
+  #视觉识别节点参数
+  threshold: 50
+  minLineLength: 60
+  maxLineGap_: 100
+  min_depth: 910
+  max_depth: 1060
+  max_depth_offset: 90
+  offset_x: -14.505 # mm
+  offset_y: 171.5596 
+  offset_z: -437
+  displacement_x: 200 # mm
+  displacement_y: 130
+  displacement_z: 0
+  region_x: 130 # -80 ~ 130 mm
+  region_y: 260
+  region_z: 90
+  x1: 0
+  y1: 0
+  x2: 640
+  y2: 140 #10 pixel #140
+  x3: 620 #450 #510
+  y3: 140 #10 #140
+  x4: 640
+  y4: 480
+  half_size: 30
+  non_shuiguan_count: 0
+  shuiguan_count: 0
+  frame_count: 0
+  fps: 5.0 #
+  ground_h: 10
+  medianBlur: 3
+  thinning_size: 2
+  iterations: 1
+  pixel_clsuter: 8
+  use_nineregion: false
+  pose_matrix_path: "/home/hyq/hyq-ros-wrapper/free_walking-bind-robot/src/fast_image_solve/config/extric_matrix.txt"
+  nineregion_data_path: "/home/hyq/hyq-ros-wrapper/free_walking-bind-robot/src/fast_image_solve/data/usenine.jpg"
+  fullregion_data_path: "/home/hyq/hyq-ros-wrapper/free_walking-bind-robot/src/fast_image_solve/data/usefull.jpg"
+
+Topics:
+  world_image_topic: "/Scepter/worldCoord/world_coord" #"/Scepter/worldCoord/world_coord"  #"/self_defination/image"
+  color_image_topic: "/Scepter/color/image_raw"  #"/camera/color/image_raw"
+  ir_image_topic: "/Scepter/ir/image_raw" #"/camera/ir/image_raw"
+  camera_info_topic: "/Scepter/ir/camera_info"

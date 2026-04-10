@@ -1,0 +1,19 @@
+<launch>
+    <!-- 启动 rosbridge -->
+    <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch" />
+
+    <!-- TF2 Web Repulisher -->
+    <node name="tf2_web_republisher"
+          pkg="tf2_web_republisher"
+          type="tf2_web_republisher"
+          output="log" />
+
+    <!-- Scepter 相机 -->
+    <include file="$(find ScepterROS)/launch/scepter_camera.launch" />
+
+    <!-- 自定义话题转发节点 -->
+    <node name="topicTransNode"
+          pkg="chassis_ctrl"
+          type="topictransNode"
+          output="log" />
+</launch>

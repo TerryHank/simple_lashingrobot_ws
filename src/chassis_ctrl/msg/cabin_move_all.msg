@@ -1,0 +1,4 @@
+# 这个msg为了触索驱三轴运动的回调函数
+float64 cabin_X_distance
+float64 cabin_Y_distance
+float64 cabin_Z_distance

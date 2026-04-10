@@ -1,0 +1,21 @@
+# ROS / catkin build artifacts
+build/
+devel/
+install/
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor / local tooling
+.vscode/
+.idea/
+.codex
+
+# Data captures and local runtime files
+*.bag
+*.log
+*.tmp
+*.cache

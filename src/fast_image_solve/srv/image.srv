@@ -1,0 +1,7 @@
+bool action
+---
+int32 time1
+int32 time2
+int32 time3
+
+bool solve_or

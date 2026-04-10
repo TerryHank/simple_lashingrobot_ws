@@ -1,0 +1,5 @@
+<launch>
+    <node name="suoquNode" pkg="chassis_ctrl" type="suoquNode"  output="log"></node>
+    <node name="moduanNode" pkg="chassis_ctrl" type="moduanNode"  output="log" ></node>
+    <node name="pointAINode" pkg="chassis_ctrl" type="pointAI.py"  output="log"></node> 
+</launch>

@@ -1,0 +1,5 @@
+# ProcessImage.srv
+---
+# 响应部分
+int32 count
+PointCoords[] PointCoordinatesArray
