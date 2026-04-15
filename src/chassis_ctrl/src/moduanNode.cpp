@@ -899,6 +899,15 @@ std::string append_bind_height_excess_message(const std::string& message, double
     return oss.str();
 }
 
+bool should_keep_jump_bind_point(int point_index)
+{
+    if (send_odd_points != 1) {
+        return true;
+    }
+
+    return point_index == 0 || point_index == 3;
+}
+
 void inputAllPoints(int i, double x, double y, double z, double rz)
 {
     if (i == 0)
@@ -1063,13 +1072,14 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
         pub_moduan_work_state(false);
         return true;
     }
-    bind_data.first.push_back(int(snakeSortedPoints.size()));
+    int selected_bind_point_count = 0;
+    bind_data.first.push_back(0);
     long long int total_ = 0;
     // 3：遍历处理排序后的绑扎点（修改为遍历排序后的数组）
     for (int i = 0; i < snakeSortedPoints.size(); i++) {
 
         auto start_time = std::chrono::steady_clock::now();
-        if (i != 0 && send_odd_points == 1 && i % 2 == 0)
+        if (!should_keep_jump_bind_point(i))
             continue;
         const auto& point = snakeSortedPoints[i];  // 使用排序后的点
         int32_t idx = point.idx;
@@ -1092,18 +1102,17 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
         bind_data.second.push_back(float(world_y));
         bind_data.second.push_back(float(world_z));
         bind_data.second.push_back(float(angle));
-        
-        if(i != 0 && send_odd_points == 1)
-            inputAllPoints((i+1)/2, world_x,world_y,world_z,angle);
-        else 
-            inputAllPoints(i, world_x,world_y,world_z,angle);
+
+        inputAllPoints(selected_bind_point_count, world_x,world_y,world_z,angle);
+        selected_bind_point_count++;
 
     }
+    bind_data.first.back() = selected_bind_point_count;
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         PLC_Order_Write(EN_DISABLE, 1, plc);
     }
-    if (snakeSortedPoints.size() != 0)
+    if (selected_bind_point_count != 0)
         finish_all(150);
     bind_all_data.push_back(bind_data);
     pub_moduan_work_state(false);
@@ -1224,13 +1233,13 @@ void send_odd_points_callback(const std_msgs::Bool &debug_mes)
     if(debug_mes.data)
     {
         printCurrentTime();
-        printf("Moduan_log:跳绑已开启。\n");
+        printf("Moduan_log:跳绑2/4已开启，仅绑第1和第4个点。\n");
         send_odd_points  = 1;
     }
     else
     {
         printCurrentTime();
-        printf("Moduan_log:跳绑已关闭。\n");
+        printf("Moduan_log:跳绑2/4已关闭，恢复全绑。\n");
         send_odd_points  = 3;
     }
 }

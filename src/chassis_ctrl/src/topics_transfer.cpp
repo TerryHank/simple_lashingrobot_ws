@@ -320,7 +320,7 @@ void moduanEnbLasCallback(const std_msgs::Float32::ConstPtr& msg) {
 void moduanSendOddPointsCallback(const std_msgs::Bool::ConstPtr& msg) {
     printCurrentTime();
     std::string valueStr = msg->data ? "true" : "false";
-    logMessage("/web/moduan/send_odd_points", "收到开启(关闭)跳绑命令，值: " + valueStr);
+    logMessage("/web/moduan/send_odd_points", "收到开启(关闭)跳绑2/4命令，值: " + valueStr);
     return;
 }
 

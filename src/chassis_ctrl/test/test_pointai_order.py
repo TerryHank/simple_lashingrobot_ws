@@ -99,6 +99,15 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("srv.response.out_of_height_z_values", moduan_text)
         self.assertIn("kBindMaxHeightMm", moduan_text)
 
+    def test_moduan_jump_bind_only_keeps_points_one_and_four(self):
+        moduan_path = CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp"
+        moduan_text = moduan_path.read_text(encoding="utf-8")
+        self.assertIn("should_keep_jump_bind_point", moduan_text)
+        self.assertIn("point_index == 0 || point_index == 3", moduan_text)
+        self.assertIn("selected_bind_point_count", moduan_text)
+        self.assertNotIn("send_odd_points == 1 && i % 2 == 0", moduan_text)
+        self.assertIn("跳绑2/4已开启", moduan_text)
+
     def test_suoqu_retries_bind_after_height_excess_adjustment(self):
         suoqu_path = CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp"
         suoqu_text = suoqu_path.read_text(encoding="utf-8")
