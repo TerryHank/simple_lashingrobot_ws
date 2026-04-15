@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(chassis_ctrl)
 
 find_package(catkin REQUIRED COMPONENTS
+  fast_image_solve
   roscpp
   rospy
   std_msgs
@@ -50,6 +51,7 @@ add_message_files(
   LashingArray.msg
   LashingCoords.msg
   Area_info.msg
+  AreaProgress.msg
 )
 
 # 生成添加的消息和服务及其依赖项
@@ -60,7 +62,7 @@ generate_messages(
 )
 
 catkin_package(
-  CATKIN_DEPENDS roscpp rospy std_msgs message_runtime actionlib_msgs
+  CATKIN_DEPENDS fast_image_solve roscpp rospy std_msgs message_runtime actionlib_msgs
 )
 
 include_directories(
@@ -76,6 +78,13 @@ add_executable(moduanNode_show src/moduanNode_show.cpp)
 add_executable(client src/client.cpp)
 add_executable(suoquNode src/suoquNode.cpp)
 add_executable(topictransNode src/topics_transfer.cpp)
+
+add_dependencies(moduanNode ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(moduanNode_show ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(client ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(suoquNode ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(topictransNode ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 # 链接库（简化重复的链接设置）
 set(COMMON_LIBS
   ${catkin_LIBRARIES}

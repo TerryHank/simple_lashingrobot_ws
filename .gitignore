@@ -19,3 +19,7 @@ __pycache__/
 *.log
 *.tmp
 *.cache
+
+# Local installers and external SDK drops
+*.deb
+src/ScepterSDK/

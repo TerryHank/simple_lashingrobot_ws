@@ -1,0 +1,5 @@
+int32 current_area_index
+int32 total_area_count
+int32 just_finished_area_index
+bool ready_for_next_area
+bool all_done

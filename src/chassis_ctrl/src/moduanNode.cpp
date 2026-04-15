@@ -13,6 +13,9 @@
 #include <sys/io.h>
 #include <string.h>
 #include <iostream>
+#include <algorithm>
+#include <iomanip>
+#include <sstream>
 #include <fcntl.h>
 #include <termios.h>
 
@@ -55,6 +58,12 @@ ros::ServiceClient AI_client;
 ros::ServiceClient linear_client;
 std_srvs::Trigger Trigger_srv;
 ros::ServiceClient trigger_client;
+
+constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
+constexpr uint8_t kProcessImageModeBindCheck = 2;
+constexpr double kBindMaxHeightMm = 94.0;
+constexpr const char* kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
+
 // 以下为向PLC发送指令时写入的地址偏移量
 #define WX_SPEED 5050 // 写入三轴速度和坐标
 #define WY_SPEED 5054
@@ -191,6 +200,8 @@ ros::Publisher pub_forced_stop;
 ros::Publisher pub_moduan_warning;
 // 绑扎枪报警信号发布者
 ros::Publisher pub_lashing_warning;
+// 末端作业信号
+ros::Publisher pub_moduan_work;
 
 ros::Publisher pub_pause;
 ros::Publisher pub_linear_module_data_upload;
@@ -241,6 +252,7 @@ std::vector<std::pair<std::vector<int>, std::vector<float>>> bind_all_data;
 void enable_lashing_callback(const std_msgs::Float32::ConstPtr& msg);  
 void moduan_move_zero_forthread(double x, double y, double z, double angle);
 void moveLinearModule(double x, double y, double z,double angle );
+void move_linear_module_to_origin();
 void handle_system_error(const std::string& error_msg);
 
 void pub_moduan_state( ros::Publisher &pub_linear_module_data_upload, Module_State* state, Motor_State* mot_state, float robot_battery_voltage, float robot_temperature)
@@ -267,6 +279,13 @@ void pub_moduan_state( ros::Publisher &pub_linear_module_data_upload, Module_Sta
     linear_module_data_upload.y_gesture=state->x_gesture;
     pub_linear_module_data_upload.publish(linear_module_data_upload);
     return;
+}
+
+void pub_moduan_work_state(bool moduan_work_flag)
+{
+    std_msgs::Bool msg;
+    msg.data = moduan_work_flag;
+    pub_moduan_work.publish(msg);
 }
 
 void enable_lashing_callback(const std_msgs::Float32::ConstPtr& msg) {
@@ -751,6 +770,24 @@ int linear_module_move_origin_single(int Axis)
     return 0;
 }
 
+void move_linear_module_to_origin()
+{
+    double zero_target = 0;
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        Set_Module_Coordinate(WZ_COORDINATE,&zero_target,plc);
+    }
+    delay_time(AXIS_Z, zero_target, 0);
+
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        Set_Module_Coordinate(WX_COORDINATE,&zero_target,plc);
+        Set_Module_Coordinate(WY_COORDINATE,&zero_target,plc);
+    }
+    delay_time(AXIS_X, zero_target, 0);
+    delay_time(AXIS_Y, zero_target, 0);
+}
+
 /*************************************************************************************************************************************************************/
 // 函数功能：暂停中断的回调函数
 // 函数输入：暂停中断的信号
@@ -839,6 +876,27 @@ std::vector<fast_image_solve::PointCoords> snake_sort(const std::vector<fast_ima
     }
 
     return sorted_points;
+}
+
+double max_bind_height_excess_mm(const std::vector<float>& out_of_height_z_values)
+{
+    double max_excess = 0.0;
+    for (float world_z : out_of_height_z_values) {
+        max_excess = std::max(max_excess, static_cast<double>(world_z) - kBindMaxHeightMm);
+    }
+    return max_excess;
+}
+
+std::string append_bind_height_excess_message(const std::string& message, double height_excess_mm)
+{
+    if (height_excess_mm <= 0.0) {
+        return message;
+    }
+
+    std::ostringstream oss;
+    oss << message << "; " << kBindHeightExcessMessageKey
+        << std::fixed << std::setprecision(2) << height_excess_mm;
+    return oss.str();
 }
 
 void inputAllPoints(int i, double x, double y, double z, double rz)
@@ -936,18 +994,44 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
             PLC_Order_Write(FINISHALL, 0, plc); 
         }      
     }
+    pub_moduan_work_state(true);
     const int max_retries = 3;  // 最大重试次数
     int retry_count = 0;
     bool found_points = false;
+    srv.request.request_mode = kProcessImageModeBindCheck;
     if (!AI_client.call(srv)) {
         res.success = false;
         res.message = "调用视觉服务失败";
-        // continue;
-        return res.success;
+        pub_moduan_work_state(false);
+        return true;
     }else{
         
         ROS_INFO("Service call successful");
         // break;
+    }
+
+    if (!srv.response.success) {
+        printCurrentTime();
+        printf("Moduan_Warn: 绑扎视觉校验失败：%s\n", srv.response.message.c_str());
+        if (srv.response.out_of_height_count > 0) {
+            for (size_t i = 0; i < srv.response.out_of_height_point_indices.size() &&
+                               i < srv.response.out_of_height_z_values.size(); ++i) {
+                printf(
+                    "Moduan_Warn: 超高点 idx=%d, 实际z=%.2fmm\n",
+                    srv.response.out_of_height_point_indices[i],
+                    srv.response.out_of_height_z_values[i]
+                );
+            }
+        }
+        const double bind_height_excess_mm =
+            max_bind_height_excess_mm(srv.response.out_of_height_z_values);
+        res.success = false;
+        res.message = append_bind_height_excess_message(
+            srv.response.message,
+            bind_height_excess_mm
+        );
+        pub_moduan_work_state(false);
+        return true;
     }
     
     // 2：打印实际获取的点数量
@@ -967,6 +1051,18 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
     // 新增步骤2：对过滤后的点进行蛇形排序（C++实现）
     auto snakeSortedPoints = snake_sort(filteredPoints);  // 需要实现snake_sort函数
     ROS_WARN("Cur pt_vec size: %zu\n", snakeSortedPoints.size());
+    if (snakeSortedPoints.empty()) {
+        printCurrentTime();
+        printf(
+            "Moduan_Warn: 视觉无可用绑扎点，跳过当前区域。原始点数量:%zu，过滤后点数量:%zu。\n",
+            sortedArray.size(),
+            filteredPoints.size()
+        );
+        res.success = false;
+        res.message = "视觉无可用绑扎点，跳过当前区域";
+        pub_moduan_work_state(false);
+        return true;
+    }
     bind_data.first.push_back(int(snakeSortedPoints.size()));
     long long int total_ = 0;
     // 3：遍历处理排序后的绑扎点（修改为遍历排序后的数组）
@@ -1010,6 +1106,7 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
     if (snakeSortedPoints.size() != 0)
         finish_all(150);
     bind_all_data.push_back(bind_data);
+    pub_moduan_work_state(false);
     // std::cout << "总耗时为："<< total_ << " ms" << std::endl;
     res.success = true;
     res.message = "区域绑扎作业完成";
@@ -1038,33 +1135,38 @@ void forced_stop_nodeCallback(const std_msgs::Float32 &debug_mes)
     if(debug_mes.data == 3.0)
     {
         printCurrentTime();
-        printf("Moduan_log:急停信号已被触发，由中转节点强制关闭末端节点。\n");
+        printf("Moduan_log:急停信号已被触发，强制关闭末端节点。\n");
+        ros::shutdown();
     }
+}
+
+void request_moduan_zero(const char* reason)
+{
+    printCurrentTime();
+    printf("Moduan_log:%s，末端返回零点，旋转电机回零至 %.1f 度。\n", reason, reset_angle);
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        PLC_Order_Write(EN_DISABLE, 1, plc);
+        Set_Motor_Speed(&motor_speed, plc);
+        Set_Motor_Angle(&reset_angle, plc);
+    }
+    move_linear_module_to_origin();
+    return ;
 }
 
 void moduan_move_zero_forthread(double x, double y, double z, double angle)
 {
-    printCurrentTime();
-    printf("Moduan_log:末端返回零点。\n");
-    {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
-        PLC_Order_Write(EN_DISABLE, 1, plc);
-        PLC_Order_Write(IS_ZERO, 1, plc);
-    }
-    return ;
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)angle;
+    request_moduan_zero("末端回零线程触发");
 }
 
 void moduan_move_zero_callback(const std_msgs::Float32::ConstPtr& msg)
 {
-    printCurrentTime();
-    printf("Moduan_log:末端返回零点。\n");
-    {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
-        PLC_Order_Write(EN_DISABLE, 1, plc);
-        PLC_Order_Write(IS_ZERO, 1, plc);
-    }
-
-    return ;
+    (void)msg;
+    request_moduan_zero("收到末端回零命令");
 }
 
 bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req, 
@@ -1075,10 +1177,11 @@ bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,
     double z = req.pos_z;
     double angle = req.angle;
     double z_zero = 0;
+    pub_moduan_work_state(true);
     
     printCurrentTime();
     printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n",x,y,z);
-    if(x < 0 || x > 380 || y < 0 || y > 330 || z < 0 || z > 120)
+    if(x < 0 || x > 320 || y < 0 || y > 360 || z < 0 || z > 94)
     {
         printCurrentTime();
         printf("Moduan_log:目标点超出范围。\n");
@@ -1093,6 +1196,7 @@ bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,
         PLC_Order_Write(EN_DISABLE, 1, plc);
     }
     finish_all(150);
+    pub_moduan_work_state(false);
     printf("Moduan_log:线性模组现在已经运行至(%lf,%lf,%lf)mm处。\n",x,y,z);
     res.success = true;
     res.message = "运动完成";
@@ -1418,11 +1522,26 @@ void initPLC()
     return;
 }
 
+void auto_zero_on_startup(ros::NodeHandle& private_nh)
+{
+    bool auto_zero_on_start = true;
+    private_nh.param("auto_zero_on_start", auto_zero_on_start, true);
+    if (!auto_zero_on_start) {
+        printCurrentTime();
+        printf("Moduan_log:节点启动自动回零已关闭。\n");
+        return;
+    }
+
+    ros::Duration(0.2).sleep();
+    request_moduan_zero("节点启动自动回零");
+}
+
 int main(int argc, char **argv) {
 
     setlocale(LC_ALL, "");
     ros::init(argc, argv, "moduanNode");
     ros::NodeHandle nh_;
+    ros::NodeHandle private_nh("~");
     printCurrentTime();
     printf("<---Linear_module_node Started.--->\n");
     // 注册信号处理函数，捕获 SIGINT (Ctrl + C)
@@ -1434,7 +1553,8 @@ int main(int argc, char **argv) {
     pub_lashing_warning = nh_.advertise<std_msgs::Float32>("/robot/binding_gun_status", 5);
     pub_forced_stop = nh_.advertise<std_msgs::Float32>("/cabin/forced_stop", 5);
     pub_pause = nh_.advertise<std_msgs::Bool>("/cabin/pause_interrupt", 5);
-    pub_linear_module_gb_origin = nh_.advertise<std_msgs::Float32>("/moduan/linear_module_gb_origin", 5);
+    pub_moduan_work = nh_.advertise<std_msgs::Bool>("/moduan_work", 5);
+    // pub_linear_module_gb_origin = nh_.advertise<std_msgs::Float32>("/moduan/linear_module_gb_origin", 5);
 
     AI_client = nh_.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");
     ros::ServiceServer linear_service = nh_.advertiseService("/moduan/single_move", moduan_move_service);
@@ -1445,6 +1565,8 @@ int main(int argc, char **argv) {
     // 设置持续获取线性模组模块反馈
     std::thread get_module_state_thread(read_module_motor_state,&module_state,&motor_state);
     get_module_state_thread.detach();
+
+    auto_zero_on_startup(private_nh);
 
     // 末端回零
     ros::Subscriber moduan_zero_sub = nh_.subscribe("/web/moduan/moduan_move_zero", 5, &moduan_move_zero_callback);

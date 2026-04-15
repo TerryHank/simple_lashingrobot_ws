@@ -6,6 +6,7 @@
 #include <iomanip> // 用于std::put_time 
 #include <stdio.h>
 #include <csignal> 
+#include <cstdlib>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -32,6 +33,7 @@
 #include "chassis_ctrl/cabin_calibration.h"
 #include "chassis_ctrl/linear_module_move_all.h"
 #include "chassis_ctrl/linear_module_upload.h"
+#include "chassis_ctrl/AreaProgress.h"
 #include <fast_image_solve/ProcessImage.h>
 #include "fast_image_solve/PointCoords.h"
 #include <fast_image_solve/ProcessImage.h>
@@ -90,6 +92,9 @@ uint8_t TCP_Move_Frame[36]={0};
 uint8_t FtoU_register[4]={0};//用于暂时储存float数转为成的uint数
 // 数组各个值依次为速度（mm/s），xyz轴运动到的位置（mm），三个转轴的位置（角度）
 float TCP_Move[7]={200,0,0,400,0,0,0};//速度,x,y,z,a,b,c
+const std::string kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
+constexpr int max_bind_height_adjust_retries = 3;
+constexpr float kMinCabinHeightMm = 350.0f;
 
 // 由计算模块得出的索驱路径点的X序列
 struct Cabin_Point
@@ -117,6 +122,7 @@ ros::Publisher pub_forced_stop;
 //  索驱状态获取的发布者对象
 ros::Publisher pub_cabin_data_upload;
 ros::Publisher pub_test;
+ros::Publisher pub_area_progress;
 
 // 索驱状态被发布的全局变量
 chassis_ctrl::cabin_upload cabin_data_upload;
@@ -127,9 +133,16 @@ ros::ServiceClient AI_client;
 ros::ServiceClient sg_client;
 ros::ServiceClient save_image_client;
 ros::ServiceClient motion_client;
+
+constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
+constexpr uint8_t kProcessImageModeBindCheck = 2;
+
 // 暂停中断标志位 0为未启用暂停中断或恢复，1为启用暂停中断
 int handle_pause_interrupt = 0;
 std::mutex error_msg;
+ // 等待恢复信号
+bool stop_flag = false;
+bool moduan_work_flag = false;
 
 // 索驱状态查询的结构体
 typedef struct {
@@ -172,6 +185,22 @@ void getSuoquTestTimeTxt(float pos)
 
     fclose(fp);
     return;
+}
+
+void publish_area_progress(
+    int current_area_index,
+    int total_area_count,
+    int just_finished_area_index,
+    bool ready_for_next_area,
+    bool all_done)
+{
+    chassis_ctrl::AreaProgress progress_msg;
+    progress_msg.current_area_index = current_area_index;
+    progress_msg.total_area_count = total_area_count;
+    progress_msg.just_finished_area_index = just_finished_area_index;
+    progress_msg.ready_for_next_area = ready_for_next_area;
+    progress_msg.all_done = all_done;
+    pub_area_progress.publish(progress_msg);
 }
 
 // 索驱全局移动函数声明：实现连续移动
@@ -228,56 +257,71 @@ void signalHandler_cc(int signum)
     exit(2);
 }
 
-float calculatePID(PID_Controller* pid, float setpoint, float feedback) {
-    float error = setpoint - feedback;
+// float calculatePID(PID_Controller* pid, float setpoint, float feedback) {
+//     float error = setpoint - feedback;
     
-    if(fabs(error) < 0.5f) {
-        return 0.0f;
-    }
+//     if(fabs(error) < 0.5f) {
+//         return 0.0f;
+//     }
     
-    // 积分累积
-    pid->integral += error;
+//     // 积分累积
+//     pid->integral += error;
     
-    // 积分限位
-    if(pid->integral > pid->integral_max) {
-        pid->integral = pid->integral_max;
-    } else if(pid->integral < pid->integral_min) {
-        pid->integral = pid->integral_min;
-    }
+//     // 积分限位
+//     if(pid->integral > pid->integral_max) {
+//         pid->integral = pid->integral_max;
+//     } else if(pid->integral < pid->integral_min) {
+//         pid->integral = pid->integral_min;
+//     }
     
-    // 增量式PID计算
-    float delta_output = pid->Kp * (error - pid->last_error) +
-                        pid->Ki * error +
-                        pid->Kd * (error - 2 * pid->last_error + pid->prev_error);
+//     // 增量式PID计算
+//     float delta_output = pid->Kp * (error - pid->last_error) +
+//                         pid->Ki * error +
+//                         pid->Kd * (error - 2 * pid->last_error + pid->prev_error);
     
-    // 计算当前输出
-    float output = pid->prev_output + delta_output;
-    if(output > 9.5) {
-        output = 9.5;
-    } else if(output < -9.5) {
-        output = -9.5;
-    }
-    // 更新状态
-    pid->prev_error = pid->last_error;
-    pid->last_error = error;
-    pid->prev_output = output;
+//     // 计算当前输出
+//     float output = pid->prev_output + delta_output;
+//     if(output > 9.5) {
+//         output = 9.5;
+//     } else if(output < -9.5) {
+//         output = -9.5;
+//     }
+//     // 更新状态
+//     pid->prev_error = pid->last_error;
+//     pid->last_error = error;
+//     pid->prev_output = output;
     
-    // 打印调试信息
-    printf("增量式PID调试 - 设定值: %.2f, 反馈值: %.2f, 误差: %.2f\n", 
-           setpoint, feedback, error);
-    printf("积分累积: %.2f (限位: %.2f~%.2f)\n", 
-           pid->integral, pid->integral_min, pid->integral_max);
-    printf("增量输出: %.2f (P: %.2f, I: %.2f, D: %.2f)\n",
-           delta_output, 
-           pid->Kp * (error - pid->last_error),
-           pid->Ki * error,
-           pid->Kd * (error - 2 * pid->last_error + pid->prev_error));
+//     // 打印调试信息
+//     printf("增量式PID调试 - 设定值: %.2f, 反馈值: %.2f, 误差: %.2f\n", 
+//            setpoint, feedback, error);
+//     printf("积分累积: %.2f (限位: %.2f~%.2f)\n", 
+//            pid->integral, pid->integral_min, pid->integral_max);
+//     printf("增量输出: %.2f (P: %.2f, I: %.2f, D: %.2f)\n",
+//            delta_output, 
+//            pid->Kp * (error - pid->last_error),
+//            pid->Ki * error,
+//            pid->Kd * (error - 2 * pid->last_error + pid->prev_error));
     
-    return output;
-}
+//     return output;
+// }
 
 float degreesToRadians(const float& degrees) {
     return degrees * (M_PI / 180.0);
+}
+void FtoU(float* myfloat)
+{
+    uint32_t temp32=*(uint32_t*)myfloat;
+    FtoU_register[0]=temp32>>24;
+    FtoU_register[1]=temp32>>16;
+    FtoU_register[2]=temp32>>8;
+    FtoU_register[3]=temp32;
+}
+void printTCPMoveFrame() {
+    for(int i = 0; i < 36; i++) {
+        printf("%02X", TCP_Move_Frame[i]);
+        if(i < 35) printf(" ");
+    }
+    printf("\n");
 }
 
 std::vector<Cabin_Point> path_point_generate(float &marking_x,float &marking_y,float &zone_x,float &zone_y,float &robot_x_step,float &robot_y_step,float &cabin_height,float &cabin_speed)
@@ -362,21 +406,7 @@ std::vector<Cabin_Point> path_point_generate(float &marking_x,float &marking_y,f
     return Cabin_Coor;
 }
 
-void FtoU(float* myfloat)
-{
-    uint32_t temp32=*(uint32_t*)myfloat;
-    FtoU_register[0]=temp32>>24;
-    FtoU_register[1]=temp32>>16;
-    FtoU_register[2]=temp32>>8;
-    FtoU_register[3]=temp32;
-}
-void printTCPMoveFrame() {
-    for(int i = 0; i < 36; i++) {
-        printf("%02X", TCP_Move_Frame[i]);
-        if(i < 35) printf(" ");
-    }
-    printf("\n");
-}
+
 /*************************************************************************************************************************************************************
 功能：驱动层函数，索驱移动位置转换为索驱接受命令字符数组，更新TCP_Move_Frame数组
 输入：命令字 TCP套接字
@@ -780,7 +810,34 @@ int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socke
     _exit(4); //直接发布急停信号并关闭节点
 }
 
-
+void solve_stop(bool &stop_flag)
+{
+    if(stop_flag)
+    {
+        while (stop_flag)
+        {
+            
+            {
+                std::lock_guard<std::mutex> lock1(error_msg);
+                stop_flag = (bool)handle_pause_interrupt;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 添加延时，避免CPU空转
+        }
+        {
+            // 收到恢复信号
+            printCurrentTime();
+            printf("Cabin_log:索驱暂停中断恢复,重新发送目标位置。\n");
+            
+            // 重新生成运动指令
+            {
+                std::lock_guard<std::mutex> lock2(socket_mutex);
+                moveTCPPosition(0x01, TCP_Move);  // 假设这个函数用于更新TCP_Move_Frame
+                Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8); //恢复索驱继续运动
+            }
+        }
+    }
+    return;
+}
 /*************************************************************************************************************************************************************
 功能: 驱动层函数，延时，等待索驱某个轴运动到指定位置
 输入: 轴 位置
@@ -790,7 +847,7 @@ void delay_time(int Axis, double Target_position)
 {
     while (1)
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
+        
         // printf("cabin_state - X: %.2f, Y: %.2f, Z: %.2f, motion_status: %.2d, Target traget_coordinate: %.2f\n, Axis: %d\n",
         // cabin_state.X, cabin_state.Y, cabin_state.Z, cabin_state.motion_status,Target_position,Axis);
         {
@@ -806,48 +863,15 @@ void delay_time(int Axis, double Target_position)
             if(Axis == AXIS_Z && abs(cabin_state.Z - Target_position)<25 && cabin_state.motion_status == 0)
                 break;
         }
-        if (handle_pause_interrupt == 1) //如果暂停中断被触发
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
+
         {
-            printCurrentTime();
-            printf("Cabin_log:索驱暂停中断已被触发。\n");
-            {
-                std::lock_guard<std::mutex> lock2(socket_mutex);
-                Frame_Generate_With_Retry(TCP_stop, 8, 8); //先暂停索驱运动
-            }
-            
-            // 等待恢复信号
-            bool stop_flag = false;
-            while (handle_pause_interrupt == 1)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50)); // 添加延时，避免CPU空转
-                {
-                    std::lock_guard<std::mutex> lock1(error_msg);
-                    stop_flag = (bool)handle_pause_interrupt;
-                }
-            }
-            
-            // 收到恢复信号
-            printCurrentTime();
-            printf("Cabin_log:索驱暂停中断已解除。\n");
-            
-            // 重新生成运动指令
-            {
-                std::lock_guard<std::mutex> lock2(socket_mutex);
-                // 根据当前轴和目标位置重新生成运动指令
-                if(Axis == AXIS_X) {
-                    TCP_Move[1] = Target_position;
-                }
-                else if(Axis == AXIS_Y) {
-                    TCP_Move[2] = Target_position;
-                }
-                else if(Axis == AXIS_Z) {
-                    TCP_Move[3] = Target_position;
-                }
-                moveTCPPosition(0x01, TCP_Move);  // 假设这个函数用于更新TCP_Move_Frame
-                Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8); //恢复索驱继续运动
-            }
+            std::lock_guard<std::mutex> lock1(error_msg);
+            stop_flag = bool(handle_pause_interrupt);
         }
+        solve_stop(stop_flag);
     }
+
     return;
 }
 
@@ -884,16 +908,154 @@ void from_camera_get_lashing_point(const chassis_ctrl::motion &input_msg)
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
+bool parse_bind_height_excess_mm(const std::string& message, float& height_excess_mm)
+{
+    const std::size_t key_pos = message.find(kBindHeightExcessMessageKey);
+    if (key_pos == std::string::npos) {
+        return false;
+    }
+
+    const char* value_start = message.c_str() + key_pos + kBindHeightExcessMessageKey.size();
+    char* value_end = nullptr;
+    height_excess_mm = std::strtof(value_start, &value_end);
+    return value_end != value_start && height_excess_mm > 0.0f;
+}
+
+bool adjust_cabin_height_for_bind_excess(float height_excess_mm)
+{
+    if (height_excess_mm <= 0.0f) {
+        return false;
+    }
+
+    const float old_height = TCP_Move[3];
+    float adjusted_height = old_height - height_excess_mm;
+    if (adjusted_height < kMinCabinHeightMm) {
+        adjusted_height = kMinCabinHeightMm;
+    }
+
+    if (std::fabs(adjusted_height - old_height) < 0.1f) {
+        printCurrentTime();
+        printf(
+            "Cabin_Warn: 绑扎视觉超高 %.2fmm，但索驱Z已接近下限 %.1fmm，无法继续下调。\n",
+            height_excess_mm,
+            kMinCabinHeightMm
+        );
+        return false;
+    }
+
+    printCurrentTime();
+    printf(
+        "Cabin_log: 绑扎视觉点超过94mm，最大超高 %.2fmm，索驱Z从 %.2f 微调到 %.2f。\n",
+        height_excess_mm,
+        old_height,
+        adjusted_height
+    );
+
+    {
+        std::lock_guard<std::mutex> lock2(socket_mutex);
+        TCP_Move[3] = adjusted_height;
+        moveTCPPosition(0x01,TCP_Move);
+        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+    }
+    delay_time(AXIS_Z, adjusted_height);
+    return true;
+}
+
+bool adaptive_height(float &t5, float &t6, float &t7, float &t8, float cabin_height)
+{
+    t5 = omp_get_wtime();
+    t6 = t5;
+    t7 = t5;
+    t8 = t5;
+    // 进入当前区域绑扎周期
+    srv.request.request_mode = kProcessImageModeAdaptiveHeight;
+    if (AI_client.call(srv)) {
+        if (!srv.response.success) {
+            printCurrentTime();
+            printf("Cabin_Warn: 自适应高度视觉失败：%s\n", srv.response.message.c_str());
+            t8 = omp_get_wtime();
+            return false;
+        }
+
+        height_sum = 0;
+        height_avg = 0;
+        point_count = 0;  
+
+        for (const auto& point : srv.response.PointCoordinatesArray) {
+            // 访问PointCoords的成员
+            // int32_t idx = point.idx;                     // 索引
+            // int32_t pix_x = point.Pix_coord[0];          // 像素坐标X
+            // int32_t pix_y = point.Pix_coord[1];          // 像素坐标Y
+            // float_t world_x = point.World_coord[0];    // 世界坐标X
+            // float_t world_y = point.World_coord[1];    // 世界坐标Y 
+            float_t world_z = point.World_coord[2];    // 世界坐标Z
+            // float_t angle = point.Angle;               // 角度
+            // bool is_shuiguan = point.is_shuiguan;        // 是否有水管
+            if ( world_z >= 0 )
+            {
+                height_sum += world_z;
+                point_count++;  
+            }
+        }
+        t6 = omp_get_wtime();
+
+        if (point_count != 0) {
+            height_avg = height_sum/point_count;
+            printf("平均高度:%f\n,初始高度:%f\n",height_avg,cabin_height);
+
+        t7 = omp_get_wtime();
+            {
+                std::lock_guard<std::mutex> lock2(socket_mutex);
+                // TCP_Move[1]=Coor_point.x+nearest_x;
+                // TCP_Move[2]=Coor_point.y+nearest_y;
+                TCP_Move[3]=cabin_height+(85-height_avg);
+                if (TCP_Move[3] < 350){
+                    TCP_Move[3]= cabin_height;
+                }
+                printf("ad_Coor_point.x: %f,ad_Coor_point.y: %f, ad_Coor_point.height: %f\n", TCP_Move[1], TCP_Move[2],TCP_Move[3]);
+                moveTCPPosition(0x01,TCP_Move);
+                Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8); 
+            } 
+            delay_time(AXIS_X,TCP_Move[1]);
+            delay_time(AXIS_Y,TCP_Move[2]);
+            delay_time(AXIS_Z,TCP_Move[3]);
+        } else {
+            printCurrentTime();
+            printf("Cabin_Warn: 自适应高度视觉无可用坐标，跳过当前区域。\n");
+            t8 = omp_get_wtime();
+            return false;
+        }
+        t8 = omp_get_wtime();
+    } else {
+        printCurrentTime();
+        printf("Cabin_Error: 自适应高度调用视觉服务失败。\n");
+        t8 = omp_get_wtime();
+        return false;
+    }
+        return true;
+
+}
+
 // 索驱全局移动函数
 void cabin_global_discontinuous_move(std::vector<Cabin_Point>& Cabin_Coor,float cabin_height,float cabin_speed)
 {
     printf("Cabin_log: Cabin_Coor数组数量（路径点个数）: %zu\n", Cabin_Coor.size());
     float t1, t2, t3, t4, t5, t6, t7, t8, t9, t10;
     int pt_num = 0;
+    const int total_area_count = static_cast<int>(Cabin_Coor.size());
+
+    if (total_area_count == 0)
+    {
+        publish_area_progress(0, 0, 0, false, true);
+        printf("Cabin_log: 没有可执行区域，直接广播全部完成。\n");
+        return;
+    }
+
     auto it = Cabin_Coor.begin();
     while (it != Cabin_Coor.end()) 
     {
         pt_num++;
+        publish_area_progress(pt_num, total_area_count, 0, false, false);
         const auto& Coor_point = *it;
 
         TCP_Move[0] = cabin_speed;
@@ -903,9 +1065,9 @@ void cabin_global_discontinuous_move(std::vector<Cabin_Point>& Cabin_Coor,float 
         // TCP_Move[4] = 0;
         // TCP_Move[5] = 0;
         // TCP_Move[6] = 0;
-        printf("Coor_point.x: %f,Coor_point.y: %f, Coor_point.height: %f\n", TCP_Move[1], TCP_Move[2],TCP_Move[3]);
-
+        printCurrentTime();
         printf("Cabin_log:索驱下个绑扎区域坐标点已更新。\n");
+        printf("Coor_point.x: %f,Coor_point.y: %f, Coor_point.height: %f\n", TCP_Move[1], TCP_Move[2],TCP_Move[3]);
         t1 = omp_get_wtime();
         {
             std::lock_guard<std::mutex> lock2(socket_mutex);
@@ -920,83 +1082,66 @@ void cabin_global_discontinuous_move(std::vector<Cabin_Point>& Cabin_Coor,float 
         t3 = omp_get_wtime();
     // ros::Duration(0.7).sleep(); //等待索驱彻底停稳
         t4 = omp_get_wtime();
-
         float min_distance = FLT_MAX;
-        t5 = omp_get_wtime();
-        // 进入当前区域绑扎周期
-    // if (AI_client.call(srv)) {
-    //     height_sum = 0;
-    //     height_avg = 0;
-    //     point_count = 0;  
+    
+        // 自适应高度调整。没有可用视觉坐标时不关闭程序，直接跳过当前区域。
+        if (!adaptive_height(t5, t6, t7, t8, cabin_height)) {
+            printCurrentTime();
+            printf("Cabin_Warn: 当前区域自适应高度视觉无可用坐标，跳过当前区域，继续下一个区域。\n");
+            it = Cabin_Coor.erase(it);
+            continue;
+        }
 
-    //     for (const auto& point : srv.response.PointCoordinatesArray) {
-    //         // 访问PointCoords的成员
-    //         int32_t idx = point.idx;                     // 索引
-    //         int32_t pix_x = point.Pix_coord[0];          // 像素坐标X
-    //         int32_t pix_y = point.Pix_coord[1];          // 像素坐标Y
-    //         float_t world_x = point.World_coord[0];    // 世界坐标X
-    //         float_t world_y = point.World_coord[1];    // 世界坐标Y 
-    //         float_t world_z = point.World_coord[2];    // 世界坐标Z
-    //         float_t angle = point.Angle;               // 角度
-    //         bool is_shuiguan = point.is_shuiguan;        // 是否有水管
-    //         if ( world_z >= 0 )
-    //         {
-    //             height_sum += world_z;
-    //             point_count++;  
-    //         }
-    //     }
-            t6 = omp_get_wtime();
-
-        // if (point_count != 0) {
-        //     height_avg = height_sum/point_count;
-        //     printf("平均高度:%f\n,初始高度:%f\n",height_avg,cabin_height);
-
-        t7 = omp_get_wtime();
-        //     {
-        //         std::lock_guard<std::mutex> lock2(socket_mutex);
-        //         // TCP_Move[1]=Coor_point.x+nearest_x;
-        //         // TCP_Move[2]=Coor_point.y+nearest_y;
-        //         TCP_Move[3]=cabin_height+(85-height_avg);
-        //         if (TCP_Move[3]<-549){
-        //             TCP_Move[3]=-549;
-        //         }
-        //         printf("Cabin_log: TCP_Move[1]  = %f\n", TCP_Move[1]);
-        //         printf("Cabin_log: TCP_Move[2]  = %f\n", TCP_Move[2]);
-        //         printf("Cabin_log: TCP_Move[3]  = %f\n", TCP_Move[3]);
-        //         moveTCPPosition(0x01,TCP_Move);
-        //         Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8); 
-        //     } 
-        //     delay_time(AXIS_X,TCP_Move[1]);
-        //     delay_time(AXIS_Y,TCP_Move[2]);
-        //     delay_time(AXIS_Z,TCP_Move[3]);
-                t8 = omp_get_wtime();
-
-                t9= omp_get_wtime();
-                ros::Duration(0.2).sleep();
-                t10 = omp_get_wtime();
-                printf("开始视觉识别\n");
+        t9= omp_get_wtime();
+        ros::Duration(0.2).sleep();
+        t10 = omp_get_wtime();
+        printf("开始视觉识别\n");
+        moduan_work_flag = true;
+        for (int bind_height_adjust_attempt = 0;
+             bind_height_adjust_attempt <= max_bind_height_adjust_retries;
+             ++bind_height_adjust_attempt) {
             if (sg_client.call(Trigger_srv)) {
-              if (Trigger_srv.response.success) {
+                if (Trigger_srv.response.success) {
                     // 服务调用和响应均成功，执行放行逻辑
                     printf("绑扎完成\n");
-                } else {
-                    printf("Cabin_Error:调用sg服务失败，消息：%s\n", Trigger_srv.response.message.c_str());
+                    const int next_area_index = pt_num < total_area_count ? pt_num + 1 : pt_num;
+                    publish_area_progress(next_area_index, total_area_count, pt_num, true, false);
+                    break;
                 }
-            } else {
-                    ROS_ERROR("Failed to call pointAI service\n");    
-            }
-            it = Cabin_Coor.erase(it);  // 关键修改：删除当前元素并更新迭代器
 
-            printCurrentTime();
-            float t_12 = t2-t1;
-            float t_34 = t4-t3;
-            float t_56 = t6-t5;
-            float t_78 = t8-t7;
-            float t_910 = t10-t9;
-            printf("第%d路径点:位置到位耗时 %f 秒， 自适应高度前稳定耗时 %f 秒，自适应高度识别请求耗时 %f 秒，自适应高度执行耗时 %f 秒，绑扎前稳定耗时 %f 秒\n", pt_num, t_12, t_34, t_56, t_78, t_910);           
+                float bind_height_excess_mm = 0.0f;
+                if (bind_height_adjust_attempt < max_bind_height_adjust_retries &&
+                    parse_bind_height_excess_mm(Trigger_srv.response.message, bind_height_excess_mm) &&
+                    adjust_cabin_height_for_bind_excess(bind_height_excess_mm)) {
+                    printCurrentTime();
+                    printf(
+                        "Cabin_log: 已完成绑扎前索驱Z微调，重新请求绑扎视觉，第%d次。\n",
+                        bind_height_adjust_attempt + 1
+                    );
+                    ros::Duration(0.2).sleep();
+                    continue;
+                }
+
+                printf("Cabin_Warn: 当前区域未完成或无可用绑扎点，跳过当前区域，消息：%s\n", Trigger_srv.response.message.c_str());
+                break;
+            } else {
+                ROS_WARN("Cabin_Warn: 调用末端绑扎服务失败，跳过当前区域。\n");
+                break;
+            }
+        }
+        moduan_work_flag = false;
+        it = Cabin_Coor.erase(it);  // 关键修改：删除当前元素并更新迭代器
+
+        float t_12 = t2-t1;
+        float t_34 = t4-t3;
+        float t_56 = t6-t5;
+        float t_78 = t8-t7;
+        float t_910 = t10-t9;
+        printCurrentTime();
+        printf("第%d路径点:位置到位耗时 %f 秒， 自适应高度前稳定耗时 %f 秒，自适应高度识别请求耗时 %f 秒，自适应高度执行耗时 %f 秒，绑扎前稳定耗时 %f 秒\n", pt_num, t_12, t_34, t_56, t_78, t_910);           
         
     }
-    printCurrentTime();
+    publish_area_progress(total_area_count, total_area_count, total_area_count, false, true);
     printf("Cabin_log:全部路径点位绑扎完成，本次绑扎作业结束。\n");
     return;
 }
@@ -1024,6 +1169,57 @@ bool planGlobalMovePath(chassis_ctrl::Pathguihua::Request &req, chassis_ctrl::Pa
     return res.success;
 }
 
+
+void moduan_work_Callback(const std_msgs::Bool &debug_mes)
+{
+    moduan_work_flag = debug_mes.data;
+}
+/*
+    函数功能：暂停中断的回调函数,收到暂停中断信号后，设置暂停中断标志位为1，等待人工恢复。
+*/
+void pause_interrupt_Callback(const std_msgs::Float32 &debug_mes)
+{
+    if (debug_mes.data == 1.0 && !moduan_work_flag)
+    {
+        printCurrentTime();
+        printf("Cabin_log: 索驱人工暂停，正在等待人工恢复。\n");
+        {
+            std::lock_guard<std::mutex> lock1(error_msg);
+            handle_pause_interrupt = 1;
+            {
+                std::lock_guard<std::mutex> lock2(socket_mutex);
+                Frame_Generate_With_Retry(TCP_stop, 8, 8); //先暂停索驱运动
+            }
+        }
+    }
+    else
+    {
+        printCurrentTime();
+        printf("Cabin_log: 绑扎正在进行，不可暂停索驱。\n");
+    }
+
+    return;
+}
+
+void solve_stop_Callback(const std_msgs::Float32 &debug_mes)
+{
+    if (debug_mes.data == 1.0 && !moduan_work_flag)
+    {
+        printCurrentTime();
+        printf("Cabin_log: 恢复索驱运动，重置暂停标志。\n");
+        {
+            std::lock_guard<std::mutex> lock1(error_msg);
+            handle_pause_interrupt = 0;
+        }
+    }
+    else
+    {
+        printCurrentTime();
+        printf("Cabin_log: 绑扎正在进行，不可恢复索驱中断。\n");
+    }
+    return;
+}
+
 /*
     函数功能：急停的回调函数,收到急停信号后，强制停止索驱运动，关闭节点。
 */
@@ -1031,45 +1227,14 @@ void forced_stop_nodeCallback(const std_msgs::Float32 &debug_mes)
 {
     printCurrentTime();
     printf("Cabin_log:急停信号已被触发，正在强制停止索驱运动，关闭节点。\n");
-    try
+    
     {
         std::lock_guard<std::mutex> lock2(socket_mutex);
         Frame_Generate_With_Retry(TCP_stop, 8, 8);
         close(sockfd);
-        _exit(1);  //索驱急停成功后退出程序
     }
-    catch(const std::exception& e)
-    {
-        // 直接强制退出程序
-        _exit(1);
-    }
+    ros::shutdown();
 }
-
-/*
-    函数功能：暂停中断的回调函数,收到暂停中断信号后，设置暂停中断标志位为1，等待人工恢复。
-*/
-void pause_interrupt_Callback(const std_msgs::Bool &debug_mes)
-{
-    if (debug_mes.data)
-    {
-        printCurrentTime();
-        printf("Cabin_log: 索驱人工暂停，正在等待人工恢复。\n");
-        {
-            std::lock_guard<std::mutex> lock1(error_msg);
-            handle_pause_interrupt = 1;
-        }
-    }
-    else {
-        printCurrentTime();
-        printf("Cabin_log: 索驱人工恢复，可以继续运动。\n");
-        {
-            std::lock_guard<std::mutex> lock1(error_msg);
-            handle_pause_interrupt = 0;
-        }
-    }
-    return;
-}
-
 /*
     函数功能：索驱单点运动的回调函数
 */
@@ -1084,7 +1249,7 @@ bool cabin_single_move(chassis_ctrl::SingleMove::Request& req, chassis_ctrl::Sin
     TCP_Move[1] = cabin_x;
     TCP_Move[2] = cabin_y;
     TCP_Move[3] = cabin_height;
-    if (cabin_height < 200) {
+    if (cabin_height < 350) {
         printCurrentTime(); 
         printf("Cabin_Error: 索驱Z轴距离设置超限。\n");
         res.message = "Cabin_log: 索驱单点运动失败（Z轴距离设置超限），位置为(" + std::to_string(cabin_x) + "," + std::to_string(cabin_y) + "," + std::to_string(cabin_height) + ")。";
@@ -1111,135 +1276,135 @@ bool cabin_single_move(chassis_ctrl::SingleMove::Request& req, chassis_ctrl::Sin
 
 /*
     函数功能：索驱单轴运动
-*/
-void atom_cabin_move_single(const chassis_ctrl::cabin_move_single::ConstPtr& msg)
-{
-    char C;
-    if(msg->Axis ==AXIS_X && (msg->target_distance < -1500 || msg->target_distance > 1500))
-    {
-        printCurrentTime();
-        printf("Cabin_Error:索驱X轴距离设置超限。\n");
-        return ;
-    }
-    if(msg->Axis ==AXIS_Y && (msg->target_distance < -3000 || msg->target_distance > 3000))
-    {
-        printCurrentTime();
-        printf("Cabin_Error:索驱Y轴距离设置超限。\n");
-        return ;
-    }
-    if(msg->Axis ==AXIS_Z && (msg->target_distance < -60 || msg->target_distance > 1200))
-    {
-        printCurrentTime();
-        printf("Cabin_Error:索驱Z轴距离设置超限。\n");
-        return ;
-    }
+// */
+// void atom_cabin_move_single(const chassis_ctrl::cabin_move_single::ConstPtr& msg)
+// {
+//     char C;
+//     if(msg->Axis ==AXIS_X && (msg->target_distance < -1500 || msg->target_distance > 1500))
+//     {
+//         printCurrentTime();
+//         printf("Cabin_Error:索驱X轴距离设3置超限。\n");
+//         return ;
+//     }
+//     if(msg->Axis ==AXIS_Y && (msg->target_distance < -3000 || msg->target_distance > 3000))
+//     {
+//         printCurrentTime();
+//         printf("Cabin_Error:索驱Y轴距离设置超限。\n");
+//         return ;
+//     }
+//     if(msg->Axis ==AXIS_Z && (msg->target_distance < -60 || msg->target_distance > 1200))
+//     {
+//         printCurrentTime();
+//         printf("Cabin_Error:索驱Z轴距离设置超限。\n");
+//         return ;
+//     }
     
-    {
-        std::lock_guard<std::mutex> lock1(cabin_state_mutex);
-        TCP_Move[1] = cabin_state.X;
-        TCP_Move[2] = cabin_state.Y;
-        TCP_Move[3] = cabin_state.Z;
-    }
+//     {
+//         std::lock_guard<std::mutex> lock1(cabin_state_mutex);
+//         TCP_Move[1] = cabin_state.X;
+//         TCP_Move[2] = cabin_state.Y;
+//         TCP_Move[3] = cabin_state.Z;
+//     }
 
-    printCurrentTime();
-    printf("Cabin_log:索驱单轴运动请求已被触发，");
-    if(msg->Axis == AXIS_X)
-    {
-        printf("X轴正在移动至%lfmm处。\n",msg->target_distance);
-        TCP_Move[1] = msg->target_distance;
-        C= 'X';
-    }
-    if(msg->Axis == AXIS_Y)
-    {
-        printf("Y轴正在移动至%lfmm处。\n",msg->target_distance);
-        TCP_Move[2] = msg->target_distance;
-        C= 'Y';
-    }
-    if(msg->Axis == AXIS_Z)
-    {
-        printf("Z轴正在移动至%lfmm处。\n",msg->target_distance);
-        TCP_Move[3] = msg->target_distance;
-        C= 'Z';
-    }
-    else
-    {
-        printf("轴体参数不正确。\n");
-        return ;
-    }
-    // 移动索驱单轴
-    {
-        std::lock_guard<std::mutex> lock2(socket_mutex);
-        moveTCPPosition(0x01,TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-    }
-    delay_time(msg->Axis,msg->target_distance);
-    printCurrentTime();
-    printf("Cabin_log:索驱%C轴已移动至目标位置%lfmm处。\n",C,msg->target_distance);
-    return ;
-}
+//     printCurrentTime();
+//     printf("Cabin_log:索驱单轴运动请求已被触发，");
+//     if(msg->Axis == AXIS_X)
+//     {
+//         printf("X轴正在移动至%lfmm处。\n",msg->target_distance);
+//         TCP_Move[1] = msg->target_distance;
+//         C= 'X';
+//     }
+//     if(msg->Axis == AXIS_Y)
+//     {
+//         printf("Y轴正在移动至%lfmm处。\n",msg->target_distance);
+//         TCP_Move[2] = msg->target_distance;
+//         C= 'Y';
+//     }
+//     if(msg->Axis == AXIS_Z)
+//     {
+//         printf("Z轴正在移动至%lfmm处。\n",msg->target_distance);
+//         TCP_Move[3] = msg->target_distance;
+//         C= 'Z';
+//     }
+//     else
+//     {
+//         printf("轴体参数不正确。\n");
+//         return ;
+//     }
+//     // 移动索驱单轴
+//     {
+//         std::lock_guard<std::mutex> lock2(socket_mutex);
+//         moveTCPPosition(0x01,TCP_Move);
+//         Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+//     }
+//     delay_time(msg->Axis,msg->target_distance);
+//     printCurrentTime();
+//     printf("Cabin_log:索驱%C轴已移动至目标位置%lfmm处。\n",C,msg->target_distance);
+//     return ;
+// }
 
 /*
     函数功能：索驱三轴运动调试
 */
-void atom_cabin_move_all(const chassis_ctrl::cabin_move_all::ConstPtr& msg)
-{
-    if(msg->cabin_X_distance < -1500 || msg->cabin_X_distance > 1500)
-    {
-        printCurrentTime();
-        printf("Cabin_Error:索驱X轴距离设置超限。\n");
-        return ;
-    }
-    if(msg->cabin_Y_distance < -3000 || msg->cabin_Y_distance > 3000)
-    {
-        printCurrentTime();
-        printf("Cabin_Error:索驱Y轴距离设置超限。\n");
-        return ;
-    }
-    if(msg->cabin_Z_distance < -60 || msg->cabin_Z_distance > 1200)
-    {
-        printCurrentTime();
-        printf("Cabin_Error:索驱Z轴距离设置超限。\n");
-        return ;
-    }
+// void atom_cabin_move_all(const chassis_ctrl::cabin_move_all::ConstPtr& msg)
+// {
+//     if(msg->cabin_X_distance < -1500 || msg->cabin_X_distance > 1500)
+//     {
+//         printCurrentTime();
+//         printf("Cabin_Error:索驱X轴距离设置超限。\n");
+//         return ;
+//     }
+//     if(msg->cabin_Y_distance < -3000 || msg->cabin_Y_distance > 3000)
+//     {
+//         printCurrentTime();
+//         printf("Cabin_Error:索驱Y轴距离设置超限。\n");
+//         return ;
+//     }
+//     if(msg->cabin_Z_distance < -60 || msg->cabin_Z_distance > 1200)
+//     {
+//         printCurrentTime();
+//         printf("Cabin_Error:索驱Z轴距离设置超限。\n");
+//         return ;
+//     }
     
-    printCurrentTime();
-    printf("Cabin_log:索驱正在移动至目标点(%lf,%lf,%lf)。\n",msg->cabin_X_distance,msg->cabin_Y_distance,msg->cabin_Z_distance);
+//     printCurrentTime();
+//     printf("Cabin_log:索驱正在移动至目标点(%lf,%lf,%lf)。\n",msg->cabin_X_distance,msg->cabin_Y_distance,msg->cabin_Z_distance);
     
-    // 先将Z轴回到原点处
-    {
-        std::lock_guard<std::mutex> lock1(cabin_state_mutex);
-        TCP_Move[1] = cabin_state.X;
-        TCP_Move[2] = cabin_state.Y;
-    }
-    {
-        std::lock_guard<std::mutex> lock2(socket_mutex);
-        TCP_Move[3] = 0;
-        moveTCPPosition(0x01,TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-    }
-    delay_time(AXIS_Z,0);
-    // 当Z轴回到原点后，再移动X轴和Y轴
-    TCP_Move[1] = msg->cabin_X_distance;
-    TCP_Move[2] = msg->cabin_Y_distance;
-    {
-        std::lock_guard<std::mutex> lock2(socket_mutex);
-        moveTCPPosition(0x01,TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-    }
-    delay_time(AXIS_X,msg->cabin_X_distance);
-    delay_time(AXIS_Y,msg->cabin_Y_distance);
-    // 当X,Y轴抵达位置后，再移动Z轴运动
-    TCP_Move[3] = msg->cabin_Z_distance;
-    {
-        std::lock_guard<std::mutex> lock2(socket_mutex);
-        moveTCPPosition(0x01,TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-    }
-    delay_time(AXIS_Z,msg->cabin_Z_distance);
-    printCurrentTime();
-    printf("Cabin_log:索驱已移动至目标点(%lf,%lf,%lf)。\n",msg->cabin_X_distance,msg->cabin_Y_distance,msg->cabin_Z_distance);
-    return;
-}
+//     // 先将Z轴回到原点处
+//     {
+//         std::lock_guard<std::mutex> lock1(cabin_state_mutex);
+//         TCP_Move[1] = cabin_state.X;
+//         TCP_Move[2] = cabin_state.Y;
+//     }
+//     {
+//         std::lock_guard<std::mutex> lock2(socket_mutex);
+//         TCP_Move[3] = 0;
+//         moveTCPPosition(0x01,TCP_Move);
+//         Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+//     }
+//     delay_time(AXIS_Z,0);
+//     // 当Z轴回到原点后，再移动X轴和Y轴
+//     TCP_Move[1] = msg->cabin_X_distance;
+//     TCP_Move[2] = msg->cabin_Y_distance;
+//     {
+//         std::lock_guard<std::mutex> lock2(socket_mutex);
+//         moveTCPPosition(0x01,TCP_Move);
+//         Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+//     }
+//     delay_time(AXIS_X,msg->cabin_X_distance);
+//     delay_time(AXIS_Y,msg->cabin_Y_distance);
+//     // 当X,Y轴抵达位置后，再移动Z轴运动
+//     TCP_Move[3] = msg->cabin_Z_distance;
+//     {
+//         std::lock_guard<std::mutex> lock2(socket_mutex);
+//         moveTCPPosition(0x01,TCP_Move);
+//         Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+//     }
+//     delay_time(AXIS_Z,msg->cabin_Z_distance);
+//     printCurrentTime();
+//     printf("Cabin_log:索驱已移动至目标点(%lf,%lf,%lf)。\n",msg->cabin_X_distance,msg->cabin_Y_distance,msg->cabin_Z_distance);
+//     return;
+// }
 
 // 订阅外部姿态传感器计算的索驱姿态
 void cabin_gesture_get(const chassis_ctrl::linear_module_upload& msg)
@@ -1490,6 +1655,7 @@ int main(int argc, char **argv)
     ros::ServiceServer update_service = nh.advertiseService("/cabin/start_work", startGlobalWork);
     // 单点运动调试
     ros::ServiceServer cabin_single_move_service = nh.advertiseService("/cabin/single_move", cabin_single_move);
+    pub_area_progress = nh.advertise<chassis_ctrl::AreaProgress>("/cabin/area_progress", 5);
     // 订阅视觉模块的消息
     AI_client = nh.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");
     // 请求末端开始
@@ -1508,9 +1674,11 @@ int main(int argc, char **argv)
     // 连续办法的测试
     // ros::Subscriber cable_setup_con = nh.subscribe("/cabin/cabin_setup_continuouos", 5, cabin_global_discontinuous_move);
     // 订阅急停信息(通过末端发送)
-    ros::Subscriber forced_stop_sub = nh.subscribe("/cabin/forced_stop", 5, &forced_stop_nodeCallback);
-    // 订阅暂停中断信息（通过末端发送）
-    ros::Subscriber interrupt0_sub = nh.subscribe("/cabin/pause_interrupt", 5, &pause_interrupt_Callback);
+    ros::Subscriber forced_stop_sub = nh.subscribe("/web/moduan/forced_stop", 5, &forced_stop_nodeCallback);
+    // 订阅暂停中断信息
+    ros::Subscriber interrupt0_sub = nh.subscribe("/web/moduan/interrupt_stop", 5, &pause_interrupt_Callback);
+    ros::Subscriber hand_solve_stop = nh.subscribe("/web/moduan/hand_sovle_warn", 5, &solve_stop_Callback);
+    ros::Subscriber moduan_work_sub = nh.subscribe("/moduan_work", 5, &moduan_work_Callback);
     // 订阅末端安装的姿态传感器数据 （通过末端发送）
     // ros::Subscriber cabin_gesture = nh.subscribe("/moduan/moduan_gesture_data", 5, &cabin_gesture_get);
     
