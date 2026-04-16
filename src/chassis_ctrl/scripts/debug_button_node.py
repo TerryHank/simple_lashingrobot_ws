@@ -33,7 +33,8 @@ BUTTON_CONFIG = {
     21: {'name': '保存绑扎数据', 'topic': '/web/moduan/save_binding_data', 'type': 'std_msgs/Float32'},
     22: {'name': '设置TF平移标定', 'topic': '/web/fast_image_solve/set_pointAI_offset', 'type': 'geometry_msgs/Pose'},
     23: {'name': '设置索驱速度', 'topic': '/web/cabin/set_cabin_speed', 'type': 'std_msgs/Float32'},
-    24: {'name': '设置末端速度', 'topic': '/web/moduan/set_moduan_speed', 'type': 'std_msgs/Float32'}
+    24: {'name': '设置末端速度', 'topic': '/web/moduan/set_moduan_speed', 'type': 'std_msgs/Float32'},
+    25: {'name': '扫描建图', 'topic': '/web/cabin/start_pseudo_slam_scan', 'type': 'std_msgs/Float32'}
 }
 
 # 类型映射表

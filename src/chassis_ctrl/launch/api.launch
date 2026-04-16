@@ -16,4 +16,14 @@
           pkg="chassis_ctrl"
           type="topictransNode"
           output="log" />
+
+    <node name="system_log_mux"
+          pkg="chassis_ctrl"
+          type="system_log_mux.py"
+          output="log">
+        <param name="ros_log_topic" value="/rosout_agg" />
+        <param name="total_topic" value="/system_log/all" />
+        <param name="stdout_poll_hz" value="2.0" />
+        <param name="stdout_tail_bytes" value="4096" />
+    </node>
 </launch>

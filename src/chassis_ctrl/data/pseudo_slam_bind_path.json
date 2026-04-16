@@ -1,0 +1,3027 @@
+{
+    "areas": [
+        {
+            "area_index": 2,
+            "cabin_pose": {
+                "x": -1460.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 1,
+                            "global_idx": 3,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1659.0,
+                            "y": 1015.0,
+                            "z": 1319.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 1,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1510.0,
+                            "y": 1019.0,
+                            "z": 1320.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 5,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1656.0,
+                            "y": 1156.0,
+                            "z": 1318.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 2,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1507.0,
+                            "y": 1159.0,
+                            "z": 1325.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 3,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 16,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1362.0,
+                            "y": 1019.0,
+                            "z": 1330.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 4,
+                            "global_idx": 14,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1209.0,
+                            "y": 1024.0,
+                            "z": 1340.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 17,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1361.0,
+                            "y": 1156.0,
+                            "z": 1341.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 4,
+                            "global_idx": 15,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1211.0,
+                            "y": 1159.0,
+                            "z": 1334.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 4,
+            "cabin_pose": {
+                "x": -860.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 5,
+                            "global_idx": 25,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1055.0,
+                            "y": 1021.0,
+                            "z": 1351.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 24,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -905.0,
+                            "y": 1027.0,
+                            "z": 1347.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 5,
+                            "global_idx": 27,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1055.0,
+                            "y": 1157.0,
+                            "z": 1353.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 26,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -904.0,
+                            "y": 1162.0,
+                            "z": 1346.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 5,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 36,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -756.0,
+                            "y": 1022.0,
+                            "z": 1355.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 8,
+                            "global_idx": 35,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -608.0,
+                            "y": 1027.0,
+                            "z": 1360.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 38,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -755.0,
+                            "y": 1160.0,
+                            "z": 1362.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 8,
+                            "global_idx": 37,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -612.0,
+                            "y": 1162.0,
+                            "z": 1352.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 6,
+            "cabin_pose": {
+                "x": -260.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 9,
+                            "global_idx": 46,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -452.0,
+                            "y": 1022.0,
+                            "z": 1364.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 45,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -303.0,
+                            "y": 1027.0,
+                            "z": 1365.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 9,
+                            "global_idx": 48,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -451.0,
+                            "y": 1160.0,
+                            "z": 1369.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 47,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -301.0,
+                            "y": 1165.0,
+                            "z": 1361.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 7,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 57,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -148.0,
+                            "y": 1021.0,
+                            "z": 1376.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 12,
+                            "global_idx": 56,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -4.0,
+                            "y": 1026.0,
+                            "z": 1373.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 59,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -152.0,
+                            "y": 1161.0,
+                            "z": 1377.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 12,
+                            "global_idx": 58,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -6.0,
+                            "y": 1166.0,
+                            "z": 1374.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 8,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 1094.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 66,
+                            "global_row": 0,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 149.0,
+                            "y": 1020.0,
+                            "z": 1382.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 67,
+                            "global_row": 0,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 299.0,
+                            "y": 1026.0,
+                            "z": 1378.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 68,
+                            "global_row": 1,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 149.0,
+                            "y": 1163.0,
+                            "z": 1385.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 69,
+                            "global_row": 1,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 300.0,
+                            "y": 1168.0,
+                            "z": 1376.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 9,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 70,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 147.0,
+                            "y": 1336.0,
+                            "z": 1380.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 71,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 304.0,
+                            "y": 1339.0,
+                            "z": 1378.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 72,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 148.0,
+                            "y": 1465.0,
+                            "z": 1385.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 73,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 305.0,
+                            "y": 1464.0,
+                            "z": 1375.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 10,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 61,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -155.0,
+                            "y": 1338.0,
+                            "z": 1376.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 12,
+                            "global_idx": 60,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -10.0,
+                            "y": 1342.0,
+                            "z": 1371.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 63,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -158.0,
+                            "y": 1469.0,
+                            "z": 1372.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 12,
+                            "global_idx": 62,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -11.0,
+                            "y": 1472.0,
+                            "z": 1372.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 11,
+            "cabin_pose": {
+                "x": -260.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 9,
+                            "global_idx": 50,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -452.0,
+                            "y": 1338.0,
+                            "z": 1363.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 49,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -298.0,
+                            "y": 1345.0,
+                            "z": 1366.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 9,
+                            "global_idx": 52,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -452.0,
+                            "y": 1470.0,
+                            "z": 1363.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 51,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -295.0,
+                            "y": 1475.0,
+                            "z": 1363.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 12,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 40,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -756.0,
+                            "y": 1336.0,
+                            "z": 1356.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 8,
+                            "global_idx": 39,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -615.0,
+                            "y": 1341.0,
+                            "z": 1355.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 42,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -756.0,
+                            "y": 1472.0,
+                            "z": 1354.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 8,
+                            "global_idx": 41,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -617.0,
+                            "y": 1476.0,
+                            "z": 1353.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 13,
+            "cabin_pose": {
+                "x": -860.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 5,
+                            "global_idx": 29,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1052.0,
+                            "y": 1332.0,
+                            "z": 1346.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 28,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -901.0,
+                            "y": 1339.0,
+                            "z": 1345.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 5,
+                            "global_idx": 31,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1052.0,
+                            "y": 1474.0,
+                            "z": 1348.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 30,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -898.0,
+                            "y": 1478.0,
+                            "z": 1348.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 14,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 19,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1362.0,
+                            "y": 1329.0,
+                            "z": 1337.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 4,
+                            "global_idx": 18,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1210.0,
+                            "y": 1340.0,
+                            "z": 1343.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 21,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1362.0,
+                            "y": 1468.0,
+                            "z": 1335.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 4,
+                            "global_idx": 20,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1212.0,
+                            "y": 1472.0,
+                            "z": 1335.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 15,
+            "cabin_pose": {
+                "x": -1460.0,
+                "y": 1394.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 1,
+                            "global_idx": 8,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1654.0,
+                            "y": 1320.0,
+                            "z": 1323.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 4,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1504.0,
+                            "y": 1329.0,
+                            "z": 1324.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 10,
+                            "global_row": 3,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1653.0,
+                            "y": 1468.0,
+                            "z": 1318.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 7,
+                            "global_row": 3,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1505.0,
+                            "y": 1469.0,
+                            "z": 1317.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 18,
+            "cabin_pose": {
+                "x": -1460.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 1,
+                            "global_idx": 23,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1652.0,
+                            "y": 1616.0,
+                            "z": 1343.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 22,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1496.0,
+                            "y": 1618.0,
+                            "z": 1337.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 114,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1642.0,
+                            "y": 1759.0,
+                            "z": 1341.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 113,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1489.0,
+                            "y": 1763.0,
+                            "z": 1338.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 19,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 34,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1368.0,
+                            "y": 1621.0,
+                            "z": 1354.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 4,
+                            "global_idx": 33,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1215.0,
+                            "y": 1622.0,
+                            "z": 1347.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 110,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1356.0,
+                            "y": 1763.0,
+                            "z": 1350.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 4,
+                            "global_idx": 109,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1205.0,
+                            "y": 1772.0,
+                            "z": 1356.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 20,
+            "cabin_pose": {
+                "x": -860.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 5,
+                            "global_idx": 32,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1052.0,
+                            "y": 1626.0,
+                            "z": 1344.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 44,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -892.0,
+                            "y": 1627.0,
+                            "z": 1360.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 5,
+                            "global_idx": 106,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1039.0,
+                            "y": 1765.0,
+                            "z": 1359.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 105,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -883.0,
+                            "y": 1770.0,
+                            "z": 1359.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 21,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 43,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -756.0,
+                            "y": 1629.0,
+                            "z": 1355.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 8,
+                            "global_idx": 55,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -620.0,
+                            "y": 1627.0,
+                            "z": 1368.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 102,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -746.0,
+                            "y": 1765.0,
+                            "z": 1369.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 8,
+                            "global_idx": 101,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -617.0,
+                            "y": 1773.0,
+                            "z": 1375.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 22,
+            "cabin_pose": {
+                "x": -260.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 9,
+                            "global_idx": 54,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -452.0,
+                            "y": 1631.0,
+                            "z": 1363.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 53,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -293.0,
+                            "y": 1638.0,
+                            "z": 1366.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 9,
+                            "global_idx": 98,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -441.0,
+                            "y": 1761.0,
+                            "z": 1375.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 97,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -289.0,
+                            "y": 1765.0,
+                            "z": 1373.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 23,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 65,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -161.0,
+                            "y": 1633.0,
+                            "z": 1375.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 12,
+                            "global_idx": 64,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -12.0,
+                            "y": 1639.0,
+                            "z": 1377.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 92,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -155.0,
+                            "y": 1757.0,
+                            "z": 1384.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 12,
+                            "global_idx": 91,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -3.0,
+                            "y": 1761.0,
+                            "z": 1381.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 24,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 1694.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 74,
+                            "global_row": 4,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 147.0,
+                            "y": 1630.0,
+                            "z": 1379.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 75,
+                            "global_row": 4,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 311.0,
+                            "y": 1638.0,
+                            "z": 1383.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 93,
+                            "global_row": 5,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 155.0,
+                            "y": 1769.0,
+                            "z": 1386.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 94,
+                            "global_row": 5,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 314.0,
+                            "y": 1771.0,
+                            "z": 1377.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 25,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 1994.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 87,
+                            "global_row": 6,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 150.0,
+                            "y": 1900.0,
+                            "z": 1395.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 88,
+                            "global_row": 6,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 316.0,
+                            "y": 1901.0,
+                            "z": 1386.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 151,
+                            "global_row": 7,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 166.0,
+                            "y": 2061.0,
+                            "z": 1380.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 152,
+                            "global_row": 7,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 324.0,
+                            "y": 2067.0,
+                            "z": 1381.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 26,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 1994.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 96,
+                            "global_row": 6,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -160.0,
+                            "y": 1897.0,
+                            "z": 1383.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 12,
+                            "global_idx": 95,
+                            "global_row": 6,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -5.0,
+                            "y": 1901.0,
+                            "z": 1381.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 147,
+                            "global_row": 7,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -146.0,
+                            "y": 2063.0,
+                            "z": 1371.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 12,
+                            "global_idx": 146,
+                            "global_row": 7,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 5.0,
+                            "y": 2068.0,
+                            "z": 1370.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 27,
+            "cabin_pose": {
+                "x": -260.0,
+                "y": 1994.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 9,
+                            "global_idx": 100,
+                            "global_row": 6,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -444.0,
+                            "y": 1901.0,
+                            "z": 1380.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 99,
+                            "global_row": 6,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -289.0,
+                            "y": 1902.0,
+                            "z": 1373.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 9,
+                            "global_idx": 142,
+                            "global_row": 7,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -436.0,
+                            "y": 2066.0,
+                            "z": 1366.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 141,
+                            "global_row": 7,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -279.0,
+                            "y": 2070.0,
+                            "z": 1362.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 28,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 1994.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 107,
+                            "global_row": 6,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -883.0,
+                            "y": 1905.0,
+                            "z": 1359.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 104,
+                            "global_row": 6,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -747.0,
+                            "y": 1895.0,
+                            "z": 1364.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 131,
+                            "global_row": 7,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -873.0,
+                            "y": 2071.0,
+                            "z": 1348.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 137,
+                            "global_row": 7,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -735.0,
+                            "y": 2068.0,
+                            "z": 1358.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 30,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 1994.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 112,
+                            "global_row": 6,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1359.0,
+                            "y": 1898.0,
+                            "z": 1351.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 4,
+                            "global_idx": 111,
+                            "global_row": 6,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1207.0,
+                            "y": 1906.0,
+                            "z": 1355.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 127,
+                            "global_row": 7,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1348.0,
+                            "y": 2064.0,
+                            "z": 1342.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 4,
+                            "global_idx": 126,
+                            "global_row": 7,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1195.0,
+                            "y": 2069.0,
+                            "z": 1341.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 31,
+            "cabin_pose": {
+                "x": -1460.0,
+                "y": 1994.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 1,
+                            "global_idx": 116,
+                            "global_row": 6,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1641.0,
+                            "y": 1900.0,
+                            "z": 1337.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 115,
+                            "global_row": 6,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1489.0,
+                            "y": 1906.0,
+                            "z": 1340.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 121,
+                            "global_row": 7,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1635.0,
+                            "y": 2062.0,
+                            "z": 1328.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 120,
+                            "global_row": 7,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1483.0,
+                            "y": 2066.0,
+                            "z": 1325.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 34,
+            "cabin_pose": {
+                "x": -1460.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 1,
+                            "global_idx": 124,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1637.0,
+                            "y": 2207.0,
+                            "z": 1323.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 122,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1482.0,
+                            "y": 2216.0,
+                            "z": 1328.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 192,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1626.0,
+                            "y": 2376.0,
+                            "z": 1344.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 191,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1465.0,
+                            "y": 2378.0,
+                            "z": 1345.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 35,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 129,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1351.0,
+                            "y": 2215.0,
+                            "z": 1341.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 4,
+                            "global_idx": 128,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1197.0,
+                            "y": 2220.0,
+                            "z": 1340.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 188,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1340.0,
+                            "y": 2378.0,
+                            "z": 1357.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 4,
+                            "global_idx": 187,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1186.0,
+                            "y": 2379.0,
+                            "z": 1351.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 36,
+            "cabin_pose": {
+                "x": -860.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 5,
+                            "global_idx": 134,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1030.0,
+                            "y": 2218.0,
+                            "z": 1349.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 133,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -874.0,
+                            "y": 2225.0,
+                            "z": 1349.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 5,
+                            "global_idx": 183,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1023.0,
+                            "y": 2375.0,
+                            "z": 1365.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 182,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -870.0,
+                            "y": 2380.0,
+                            "z": 1368.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 37,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 139,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -736.0,
+                            "y": 2220.0,
+                            "z": 1357.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 8,
+                            "global_idx": 138,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -608.0,
+                            "y": 2225.0,
+                            "z": 1356.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 179,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -730.0,
+                            "y": 2366.0,
+                            "z": 1363.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 8,
+                            "global_idx": 178,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -597.0,
+                            "y": 2370.0,
+                            "z": 1368.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 38,
+            "cabin_pose": {
+                "x": -260.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 9,
+                            "global_idx": 144,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -438.0,
+                            "y": 2219.0,
+                            "z": 1362.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 143,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -280.0,
+                            "y": 2228.0,
+                            "z": 1367.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 9,
+                            "global_idx": 175,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -440.0,
+                            "y": 2362.0,
+                            "z": 1379.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 174,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -277.0,
+                            "y": 2368.0,
+                            "z": 1379.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 39,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 148,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -149.0,
+                            "y": 2219.0,
+                            "z": 1374.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 12,
+                            "global_idx": 149,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 2.0,
+                            "y": 2224.0,
+                            "z": 1372.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 168,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -147.0,
+                            "y": 2360.0,
+                            "z": 1390.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 12,
+                            "global_idx": 167,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 11.0,
+                            "y": 2362.0,
+                            "z": 1382.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 40,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 2294.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 153,
+                            "global_row": 8,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 165.0,
+                            "y": 2220.0,
+                            "z": 1384.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 154,
+                            "global_row": 8,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 320.0,
+                            "y": 2225.0,
+                            "z": 1383.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 162,
+                            "global_row": 9,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 174.0,
+                            "y": 2354.0,
+                            "z": 1390.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 163,
+                            "global_row": 9,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 326.0,
+                            "y": 2360.0,
+                            "z": 1391.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 41,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 2594.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 171,
+                            "global_row": 10,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 171.0,
+                            "y": 2509.0,
+                            "z": 1388.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 172,
+                            "global_row": 10,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 322.0,
+                            "y": 2515.0,
+                            "z": 1385.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 226,
+                            "global_row": 11,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 181.0,
+                            "y": 2657.0,
+                            "z": 1384.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 227,
+                            "global_row": 11,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 329.0,
+                            "y": 2661.0,
+                            "z": 1379.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 42,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 2594.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 176,
+                            "global_row": 10,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -279.0,
+                            "y": 2502.0,
+                            "z": 1373.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 170,
+                            "global_row": 10,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -150.0,
+                            "y": 2497.0,
+                            "z": 1387.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 216,
+                            "global_row": 11,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -269.0,
+                            "y": 2663.0,
+                            "z": 1364.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 221,
+                            "global_row": 11,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -135.0,
+                            "y": 2654.0,
+                            "z": 1372.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 44,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 2594.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 184,
+                            "global_row": 10,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -873.0,
+                            "y": 2508.0,
+                            "z": 1361.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 181,
+                            "global_row": 10,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -735.0,
+                            "y": 2497.0,
+                            "z": 1364.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 206,
+                            "global_row": 11,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -865.0,
+                            "y": 2665.0,
+                            "z": 1352.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 212,
+                            "global_row": 11,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -724.0,
+                            "y": 2659.0,
+                            "z": 1358.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 45,
+            "cabin_pose": {
+                "x": -860.0,
+                "y": 2594.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 4,
+                            "global_idx": 200,
+                            "global_row": 11,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1174.0,
+                            "y": 2660.0,
+                            "z": 1344.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 5,
+                            "global_idx": 207,
+                            "global_row": 11,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1010.0,
+                            "y": 2659.0,
+                            "z": 1350.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 4,
+                            "global_idx": 202,
+                            "global_row": 12,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1177.0,
+                            "y": 2809.0,
+                            "z": 1346.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 5,
+                            "global_idx": 209,
+                            "global_row": 12,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1013.0,
+                            "y": 2808.0,
+                            "z": 1353.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 46,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 2594.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 193,
+                            "global_row": 10,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1468.0,
+                            "y": 2502.0,
+                            "z": 1342.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 190,
+                            "global_row": 10,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1341.0,
+                            "y": 2501.0,
+                            "z": 1353.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 197,
+                            "global_row": 11,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1464.0,
+                            "y": 2654.0,
+                            "z": 1326.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 201,
+                            "global_row": 11,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1329.0,
+                            "y": 2654.0,
+                            "z": 1343.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 50,
+            "cabin_pose": {
+                "x": -1460.0,
+                "y": 2894.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 0,
+                            "global_idx": 273,
+                            "global_row": 13,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1768.0,
+                            "y": 2952.0,
+                            "z": 1346.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 268,
+                            "global_row": 13,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1613.0,
+                            "y": 2958.0,
+                            "z": 1356.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 0,
+                            "global_idx": 274,
+                            "global_row": 14,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1775.0,
+                            "y": 3097.0,
+                            "z": 1340.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 1,
+                            "global_idx": 270,
+                            "global_row": 14,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1617.0,
+                            "y": 3109.0,
+                            "z": 1351.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 51,
+            "cabin_pose": {
+                "x": -1160.0,
+                "y": 2894.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 204,
+                            "global_row": 12,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -1466.0,
+                            "y": 2798.0,
+                            "z": 1345.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 203,
+                            "global_row": 12,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -1331.0,
+                            "y": 2803.0,
+                            "z": 1344.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 267,
+                            "global_row": 13,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -1456.0,
+                            "y": 2963.0,
+                            "z": 1350.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 264,
+                            "global_row": 13,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -1327.0,
+                            "y": 2967.0,
+                            "z": 1365.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 53,
+            "cabin_pose": {
+                "x": -560.0,
+                "y": 2894.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 6,
+                            "global_idx": 208,
+                            "global_row": 12,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -867.0,
+                            "y": 2815.0,
+                            "z": 1355.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 7,
+                            "global_idx": 214,
+                            "global_row": 12,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -728.0,
+                            "y": 2809.0,
+                            "z": 1360.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 6,
+                            "global_idx": 259,
+                            "global_row": 13,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -866.0,
+                            "y": 2972.0,
+                            "z": 1368.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 7,
+                            "global_idx": 255,
+                            "global_row": 13,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -723.0,
+                            "y": 2963.0,
+                            "z": 1371.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 54,
+            "cabin_pose": {
+                "x": -260.0,
+                "y": 2894.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 9,
+                            "global_idx": 219,
+                            "global_row": 12,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -433.0,
+                            "y": 2807.0,
+                            "z": 1365.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 10,
+                            "global_idx": 218,
+                            "global_row": 12,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": -273.0,
+                            "y": 2816.0,
+                            "z": 1368.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 9,
+                            "global_idx": 250,
+                            "global_row": 13,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -431.0,
+                            "y": 2960.0,
+                            "z": 1377.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 10,
+                            "global_idx": 249,
+                            "global_row": 13,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": -270.0,
+                            "y": 2965.0,
+                            "z": 1377.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 55,
+            "cabin_pose": {
+                "x": 40.0,
+                "y": 2894.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 11,
+                            "global_idx": 223,
+                            "global_row": 12,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": -140.0,
+                            "y": 2808.0,
+                            "z": 1377.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 12,
+                            "global_idx": 224,
+                            "global_row": 12,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 19.0,
+                            "y": 2813.0,
+                            "z": 1376.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 11,
+                            "global_idx": 242,
+                            "global_row": 13,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": -132.0,
+                            "y": 2957.0,
+                            "z": 1385.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 12,
+                            "global_idx": 243,
+                            "global_row": 13,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 19.0,
+                            "y": 2965.0,
+                            "z": 1389.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 56,
+            "cabin_pose": {
+                "x": 340.0,
+                "y": 2894.0,
+                "z": 500.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 13,
+                            "global_idx": 228,
+                            "global_row": 12,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "x": 173.0,
+                            "y": 2803.0,
+                            "z": 1381.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 14,
+                            "global_idx": 229,
+                            "global_row": 12,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "x": 324.0,
+                            "y": 2811.0,
+                            "z": 1385.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 13,
+                            "global_idx": 237,
+                            "global_row": 13,
+                            "idx": 3,
+                            "is_checkerboard_member": true,
+                            "local_idx": 3,
+                            "x": 175.0,
+                            "y": 2952.0,
+                            "z": 1391.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 14,
+                            "global_idx": 238,
+                            "global_row": 13,
+                            "idx": 4,
+                            "is_checkerboard_member": true,
+                            "local_idx": 4,
+                            "x": 326.0,
+                            "y": 2959.0,
+                            "z": 1393.0
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "cabin_height": 500.0,
+    "cabin_speed": 300.0,
+    "path_origin": {
+        "x": -1760.0,
+        "y": 1094.0,
+        "z": 500.0
+    },
+    "scan_mode": "scan_only"
+}

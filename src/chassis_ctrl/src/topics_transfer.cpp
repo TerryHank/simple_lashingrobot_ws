@@ -82,9 +82,11 @@ typedef struct {
     ros::ServiceClient image_solve_client;
     ros::ServiceClient Moduan_client;
     ros::ServiceClient lashing_client;
+    ros::ServiceClient current_area_bind_from_scan_client;
     ros::ServiceClient Chassis_client_1;
     ros::ServiceClient Chassis_client_2;
     ros::ServiceClient Chassis_client_3;
+    ros::ServiceClient Chassis_scan_client;
 } ServiceClients;
 ServiceClients g_service_clients;
 
@@ -176,6 +178,21 @@ void startGlobalWorkCallback(const std_msgs::Float32::ConstPtr& msg) {
     std::thread pub_startglobalwork_service_thread(pub_startglobalwork_service, global_chassis_move_srv);
     pub_startglobalwork_service_thread.detach();
     return;
+}
+
+void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
+    printCurrentTime();
+    logMessage("/web/cabin/start_pseudo_slam_scan", "收到扫描建图命令，值: " + to_string(msg->data));
+    std_srvs::Trigger trigger_srv;
+    if (!g_service_clients.Chassis_scan_client.call(trigger_srv)) {
+        ROS_ERROR("扫描建图服务调用失败");
+        return;
+    }
+    if (!trigger_srv.response.success) {
+        ROS_WARN("扫描建图服务返回失败: %s", trigger_srv.response.message.c_str());
+        return;
+    }
+    ROS_INFO("扫描建图服务调用成功: %s", trigger_srv.response.message.c_str());
 }
 
 void restartRobotService(void)
@@ -282,11 +299,16 @@ void fastImageSolveProcessImageCallback(const std_msgs::Float32::ConstPtr& msg) 
     return;
 }
 
-void pub_singlebind_service(std_srvs::Trigger trigger_srv)
+void pub_singlebind_service(bool use_precomputed_current_area)
 {
-    if (g_service_clients.lashing_client.call(trigger_srv))
+    std_srvs::Trigger single_bind_srv;
+    ros::ServiceClient& target_client = use_precomputed_current_area
+        ? g_service_clients.current_area_bind_from_scan_client
+        : g_service_clients.lashing_client;
+
+    if (target_client.call(single_bind_srv))
     {
-        ROS_INFO("Call succeeded: %s", trigger_srv.response.message.c_str());
+        ROS_INFO("Call succeeded: %s", single_bind_srv.response.message.c_str());
     } else {
         ROS_ERROR("Call failed");
     }
@@ -296,8 +318,19 @@ void pub_singlebind_service(std_srvs::Trigger trigger_srv)
 // 9. 定点绑扎调试 - /web/moduan/single_bind
 void moduanSingleBindCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    logMessage("/web/moduan/single_bind", "收到定点绑扎调试命令，值: " + to_string(msg->data)); 
-    std::thread pub_singlebind_service_thread(pub_singlebind_service, trigger_srv);
+    const bool use_precomputed_current_area = msg->data >= 1.0f;
+    if (use_precomputed_current_area) {
+        logMessage(
+            "/web/moduan/single_bind",
+            "收到定点绑扎调试命令，single_bind模式=1：使用扫描后的当前区域预计算点直执行"
+        );
+    } else {
+        logMessage(
+            "/web/moduan/single_bind",
+            "收到定点绑扎调试命令，single_bind模式=0：使用原逻辑本区域识别+执行"
+        );
+    }
+    std::thread pub_singlebind_service_thread(pub_singlebind_service, use_precomputed_current_area);
     pub_singlebind_service_thread.detach();
     return;
 }
@@ -470,9 +503,12 @@ int main(int argc, char** argv) {
     // 索驱全局运动
     ros::Subscriber sub4 = nh.subscribe("/web/cabin/start_global_work", 5, startGlobalWorkCallback);
     g_service_clients.Chassis_client_3 = nh.serviceClient<chassis_ctrl::MotionControl>("/cabin/start_work");
+    ros::Subscriber sub25 = nh.subscribe("/web/cabin/start_pseudo_slam_scan", 5, pseudoSlamScanCallback);
+    g_service_clients.Chassis_scan_client = nh.serviceClient<std_srvs::Trigger>("/cabin/start_pseudo_slam_scan");
     // 末端单点调试（含绑扎）
     ros::Subscriber sub9 = nh.subscribe("/web/moduan/single_bind", 5, moduanSingleBindCallback);
     g_service_clients.lashing_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg");
+    g_service_clients.current_area_bind_from_scan_client = nh.serviceClient<std_srvs::Trigger>("/cabin/bind_current_area_from_scan");
     // 末端单点运动
     ros::Subscriber sub6 = nh.subscribe("/web/moduan/moduan_move_debug", 5, moduanLinearModuleMoveCallback);
     g_service_clients.Moduan_client = nh.serviceClient<chassis_ctrl::linear_module_move>("/moduan/single_move");
@@ -497,7 +533,7 @@ int main(int argc, char** argv) {
     // ros::Subscriber sub23 = nh.subscribe("/web/cabin/set_cabin_speed", 5, robotSetCabinSpeedCallback);
     // ros::Subscriber sub24 = nh.subscribe("/web/moduan/set_moduan_speed", 5, moduanSetModuanSpeedCallback);
     
-    logMessage("topics_transfer_node", "节点已启动，正在监听24个话题...");
+    logMessage("topics_transfer_node", "节点已启动，正在监听25个话题...");
     
     // 启动ROS循环
     ros::MultiThreadedSpinner spinner(4);

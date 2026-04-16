@@ -44,12 +44,17 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertIn('env name="ROSCONSOLE_FORMAT" value="[${severity}] ${message}"', launch_text)
         self.assertIn('name="gripper_tf_broadcaster"', launch_text)
         self.assertIn('type="gripper_tf_broadcaster.py"', launch_text)
+        self.assertNotIn('name="stable_point_tf_broadcaster"', launch_text)
 
     def test_run_launch_sets_pointai_console_format_without_timestamp(self):
         launch_text = (CHASSIS_CTRL_DIR / "launch" / "run.launch").read_text(encoding="utf-8")
         self.assertIn('name="pointAINode"', launch_text)
         self.assertIn('type="pointAI.py"', launch_text)
         self.assertIn('env name="ROSCONSOLE_FORMAT" value="[${severity}] ${message}"', launch_text)
+        self.assertIn('name="gripper_tf_broadcaster"', launch_text)
+        self.assertIn('type="gripper_tf_broadcaster.py"', launch_text)
+        self.assertIn('name="stable_point_tf_broadcaster"', launch_text)
+        self.assertIn('type="stable_point_tf_broadcaster.py"', launch_text)
 
     def test_load_gripper_tf_config_reads_pose_fields(self):
         config_path = CHASSIS_CTRL_DIR / "config" / "gripper_tf.yaml"
@@ -185,6 +190,57 @@ class GripperTFBroadcasterTest(unittest.TestCase):
             content = path.read_text(encoding="utf-8")
             for marker in forbidden_markers:
                 self.assertNotIn(marker, content, f"{path} should not contain {marker}")
+
+    def test_stable_point_tf_broadcaster_exists_and_tracks_bind_points(self):
+        broadcaster_path = CHASSIS_CTRL_DIR / "scripts" / "stable_point_tf_broadcaster.py"
+        self.assertTrue(broadcaster_path.exists(), "stable_point_tf_broadcaster.py should exist")
+        content = broadcaster_path.read_text(encoding="utf-8")
+
+        self.assertIn("/coordinate_point", content)
+        self.assertIn("/cabin/area_progress", content)
+        self.assertIn("bind_point_", content)
+        self.assertIn("area_", content)
+        self.assertIn("stable_frame_count", content)
+        self.assertIn("stable_z_tolerance_mm", content)
+        self.assertIn("cabin_frame", content)
+
+    def test_stable_point_tracker_promotes_point_after_two_close_z_frames(self):
+        from stable_point_tf_broadcaster import StablePointTracker  # noqa: E402
+
+        tracker = StablePointTracker(stable_frame_count=2, stable_z_tolerance_mm=4.0)
+
+        first_frame = [
+            {"idx": 1, "World_coord": [100.0, 200.0, 1000.0]},
+        ]
+        second_frame = [
+            {"idx": 1, "World_coord": [101.0, 201.0, 1002.5]},
+        ]
+
+        self.assertEqual(tracker.ingest_points(first_frame), [])
+        published = tracker.ingest_points(second_frame)
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["child_frame_id"], "bind_point_1")
+        self.assertEqual(published[0]["header_frame_id"], "cabin_frame")
+        self.assertAlmostEqual(published[0]["translation_m"][2], 1.0025)
+
+    def test_stable_point_tracker_archives_active_points_on_area_switch(self):
+        from stable_point_tf_broadcaster import StablePointTracker  # noqa: E402
+
+        tracker = StablePointTracker(stable_frame_count=2, stable_z_tolerance_mm=4.0)
+        tracker.ingest_area_progress({"current_area_index": 1, "all_done": False})
+        tracker.ingest_points([
+            {"idx": 1, "World_coord": [100.0, 200.0, 1000.0]},
+        ])
+        tracker.ingest_points([
+            {"idx": 1, "World_coord": [100.0, 200.0, 1003.0]},
+        ])
+
+        archived = tracker.ingest_area_progress({"current_area_index": 2, "all_done": False})
+
+        self.assertEqual(len(archived), 1)
+        self.assertEqual(archived[0]["child_frame_id"], "area_1_point_1")
+        self.assertEqual(tracker.active_area_index, 2)
 
 
 if __name__ == "__main__":

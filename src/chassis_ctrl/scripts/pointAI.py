@@ -35,6 +35,7 @@ from geometry_msgs.msg import Pose
 PROCESS_IMAGE_MODE_DEFAULT = 0
 PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT = 1
 PROCESS_IMAGE_MODE_BIND_CHECK = 2
+PROCESS_IMAGE_MODE_SCAN_ONLY = 3  # pseudo_slam scan mode
 
 class ImageProcessor:
     def __init__(self):
@@ -83,6 +84,9 @@ class ImageProcessor:
         self.height_threshold = 10
         self.cali_matrix_file = "/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pose_matrix.npy"
         self.cali_offset_file = "/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/lashing_config.json"
+        self.path_points_file = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "data", "path_points.json")
+        )
         self.gripper_tf_config_file = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "config", "gripper_tf.yaml")
         )
@@ -105,7 +109,7 @@ class ImageProcessor:
         self.stable_z_tolerance_mm = float(rospy.get_param("~stable_z_tolerance_mm", 5.0))
         self.bind_check_max_height_mm = float(rospy.get_param("~bind_check_max_height_mm", 95.0))
         self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 320.0))
-        self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 360.0))
+        self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))
         self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 360.0))
         self.display_bind_range_max_y_mm = float(rospy.get_param("~display_bind_range_max_y_mm", 360.0))
         self.world_image_seq = 0
@@ -400,7 +404,7 @@ class ImageProcessor:
 
     def get_travel_range_reject_reasons(self, calibrated_x, calibrated_y):
         max_x = getattr(self, "travel_range_max_x_mm", 320.0)
-        max_y = getattr(self, "travel_range_max_y_mm", 360.0)
+        max_y = getattr(self, "travel_range_max_y_mm", 320.0)
         reasons = []
         if calibrated_x < 0:
             reasons.append("X小于0")
@@ -559,40 +563,50 @@ class ImageProcessor:
         # 确保图像是可写的
         self.image_infrared_copy = np.array(self.image_infrared, copy=True)
         
-    def transform_to_gripper_frame(self, x, y, z, idx):
+    def transform_point_to_frame(self, x, y, z, target_frame, source_frame="Scepter_depth_frame"):
         try:
-            # 只消费独立 TF 节点提供的 Scepter_depth_frame -> gripper_frame 变换
             transform = self.tf_buffer.lookup_transform(
-                "gripper_frame",  # 目标坐标系
-                "Scepter_depth_frame",  # 源坐标系
-                rospy.Time(0),    # 获取最新可用变换
+                target_frame,
+                source_frame,
+                rospy.Time(0),
             )
-            
-            # 创建变换矩阵
+
             T = quaternion_matrix([
                 transform.transform.rotation.x,
                 transform.transform.rotation.y,
                 transform.transform.rotation.z,
                 transform.transform.rotation.w
             ])
-            T[:3, 3] = [transform.transform.translation.x * 1000,  # 米转毫米
+            T[:3, 3] = [transform.transform.translation.x * 1000,
                         transform.transform.translation.y * 1000,
                         transform.transform.translation.z * 1000]
-            
-            # 应用变换（注意单位转换）
-            point_camera = np.array([x, y, z, 1])  # 原始毫米坐标
-            point_gripper = np.dot(T, point_camera)
-            
-            return int(round(point_gripper[0])), int(round(point_gripper[1])), int(round(point_gripper[2]))
-            
+
+            point_source = np.array([x, y, z, 1])
+            point_target = np.dot(T, point_source)
+
+            return (
+                int(round(point_target[0])),
+                int(round(point_target[1])),
+                int(round(point_target[2])),
+            )
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
             rospy.logwarn_throttle(5, f"坐标转换失败: {str(e)}")
- 
         except Exception as e:
             rospy.logerr_throttle(5, f"坐标转换未知错误: {str(e)}")
 
-    def apply_spatial_calibration(self, x_value, y_value, z_value, idx):
-        transformed_point = self.transform_to_gripper_frame(x_value, y_value, z_value, idx)
+    def transform_to_gripper_frame(self, x, y, z, idx):
+        del idx
+        return self.transform_point_to_frame(x, y, z, "gripper_frame")
+
+    def transform_to_cabin_frame(self, x, y, z, idx):
+        del idx
+        return self.transform_point_to_frame(x, y, z, "cabin_frame")
+
+    def apply_spatial_calibration(self, x_value, y_value, z_value, idx, target_frame="gripper_frame"):
+        if target_frame == "cabin_frame":
+            transformed_point = self.transform_to_cabin_frame(x_value, y_value, z_value, idx)
+        else:
+            transformed_point = self.transform_to_gripper_frame(x_value, y_value, z_value, idx)
         if transformed_point is None:
             return None
 
@@ -600,6 +614,46 @@ class ImageProcessor:
         if self.fixed_z_value != 0:
             calibrated_z = float(self.fixed_z_value)
         return [calibrated_x, calibrated_y, calibrated_z]
+
+    def load_scan_planning_workspace(self):
+        default_bounds = {
+            "min_x": 0.0,
+            "max_x": 0.0,
+            "min_y": 0.0,
+            "max_y": 0.0,
+        }
+        scan_workspace_padding_mm = 100.0
+        try:
+            if not os.path.exists(self.path_points_file):
+                return default_bounds
+
+            with open(self.path_points_file, "r", encoding="utf-8") as file_obj:
+                path_json = json.load(file_obj)
+
+            path_points = path_json.get("path_points", [])
+            if not path_points:
+                return default_bounds
+
+            point_x_values = [float(point["x"]) for point in path_points]
+            point_y_values = [float(point["y"]) for point in path_points]
+            return {
+                "min_x": min(point_x_values) - scan_workspace_padding_mm,
+                "max_x": max(point_x_values) + float(getattr(self, "travel_range_max_x_mm", 320.0)) + scan_workspace_padding_mm,
+                "min_y": min(point_y_values) - scan_workspace_padding_mm,
+                "max_y": max(point_y_values) + float(getattr(self, "travel_range_max_y_mm", 320.0)) + scan_workspace_padding_mm,
+            }
+        except Exception as exc:
+            rospy.logwarn_throttle(5.0, f"pointAI扫描工作区读取失败: {exc}")
+            return default_bounds
+
+    def is_point_in_scan_workspace(self, world_x, world_y):
+        workspace = self.load_scan_planning_workspace()
+        if workspace["min_x"] == workspace["max_x"] and workspace["min_y"] == workspace["max_y"]:
+            return True
+        return (
+            workspace["min_x"] <= world_x <= workspace["max_x"]
+            and workspace["min_y"] <= world_y <= workspace["max_y"]
+        )
 
     def mark_sign_points(self, step=4, max_points=8000):
         """
@@ -944,13 +998,15 @@ class ImageProcessor:
             for point in point_coords.PointCoordinatesArray
         )
 
-    def is_stable_z_window(self, z_snapshots):
-        if len(z_snapshots) < self.stable_frame_count:
+    def is_stable_z_window(self, z_snapshots, frame_count=None, tolerance_mm=None):
+        frame_count = getattr(self, "stable_frame_count", 3) if frame_count is None else int(frame_count)
+        tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0) if tolerance_mm is None else float(tolerance_mm)
+        if len(z_snapshots) < frame_count:
             return False
-        if not z_snapshots[-self.stable_frame_count:]:
+        if not z_snapshots[-frame_count:]:
             return False
 
-        recent_snapshots = z_snapshots[-self.stable_frame_count:]
+        recent_snapshots = z_snapshots[-frame_count:]
         expected_indices = tuple(idx for idx, _ in recent_snapshots[0])
         if not expected_indices:
             return False
@@ -959,20 +1015,22 @@ class ImageProcessor:
             if tuple(idx for idx, _ in snapshot) != expected_indices:
                 return False
 
-        max_allowed_range = self.stable_z_tolerance_mm * 2.0
+        max_allowed_range = tolerance_mm * 2.0
         for point_index in range(len(expected_indices)):
             z_values = [snapshot[point_index][1] for snapshot in recent_snapshots]
             if max(z_values) - min(z_values) > max_allowed_range:
                 return False
         return True
 
-    def is_stable_coordinate_window(self, coordinate_snapshots):
-        if len(coordinate_snapshots) < self.stable_frame_count:
+    def is_stable_coordinate_window(self, coordinate_snapshots, frame_count=None, tolerance_mm=None):
+        frame_count = getattr(self, "stable_frame_count", 3) if frame_count is None else int(frame_count)
+        tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0) if tolerance_mm is None else float(tolerance_mm)
+        if len(coordinate_snapshots) < frame_count:
             return False
-        if not coordinate_snapshots[-self.stable_frame_count:]:
+        if not coordinate_snapshots[-frame_count:]:
             return False
 
-        recent_snapshots = coordinate_snapshots[-self.stable_frame_count:]
+        recent_snapshots = coordinate_snapshots[-frame_count:]
         expected_indices = tuple(item[0] for item in recent_snapshots[0])
         if not expected_indices:
             return False
@@ -981,7 +1039,7 @@ class ImageProcessor:
             if tuple(item[0] for item in snapshot) != expected_indices:
                 return False
 
-        max_allowed_range = self.stable_z_tolerance_mm * 2.0
+        max_allowed_range = tolerance_mm * 2.0
         for point_index in range(len(expected_indices)):
             x_values = [snapshot[point_index][1] for snapshot in recent_snapshots]
             y_values = [snapshot[point_index][2] for snapshot in recent_snapshots]
@@ -998,11 +1056,15 @@ class ImageProcessor:
         request_mode = getattr(req, "request_mode", PROCESS_IMAGE_MODE_DEFAULT)
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             return PROCESS_IMAGE_MODE_BIND_CHECK
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return PROCESS_IMAGE_MODE_SCAN_ONLY
         return PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT
 
     def get_request_mode_name(self, request_mode):
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             return "bind_check"
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return "scan_only"
         if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             return "adaptive_height"
         return "default"
@@ -1040,7 +1102,8 @@ class ImageProcessor:
             "pointAI调试:",
             f"  模式: {self.get_request_mode_name(request_mode)}",
             (
-                "  可执行范围过滤: "
+                ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  可执行范围过滤: ")
+                +
                 f"原始候选={raw_candidate_count}, "
                 f"去重移除={duplicate_removed_count}, "
                 f"范围内={in_range_candidate_count}, "
@@ -1050,8 +1113,14 @@ class ImageProcessor:
             ),
             (
                 "  范围限制: "
-                f"0<=x<={getattr(self, 'travel_range_max_x_mm', 320.0):.0f}, "
-                f"0<=y<={getattr(self, 'travel_range_max_y_mm', 320.0):.0f}"
+                + (
+                    "按path_points.json规划工作区边界"
+                    if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
+                    else (
+                        f"0<=x<={getattr(self, 'travel_range_max_x_mm', 320.0):.0f}, "
+                        f"0<=y<={getattr(self, 'travel_range_max_y_mm', 320.0):.0f}"
+                    )
+                )
             ),
         ]
 
@@ -1064,7 +1133,12 @@ class ImageProcessor:
                 lines.append("  样例:")
                 lines.extend(f"    - {sample}" for sample in out_of_range_samples)
 
-        if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            if output_count > 0:
+                conclusion = f"扫描模式输出{output_count}个规划工作区内世界坐标点，不做2x2限制"
+            else:
+                conclusion = "扫描模式当前没有规划工作区内可用点"
+        elif request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             if output_count > 0:
                 conclusion = (
                     f"自适应高度模式输出{output_count}个范围内点用于高度平均，"
@@ -1123,6 +1197,13 @@ class ImageProcessor:
             result["message"] = "未检测到有效点"
             return result
 
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            result["success"] = True
+            result["message"] = (
+                "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点"
+            )
+            return result
+
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             out_of_height_points = self.find_out_of_height_points(point_coords)
             result["out_of_height_count"] = len(out_of_height_points)
@@ -1174,6 +1255,8 @@ class ImageProcessor:
         last_processed_frame_seq = -1
         start_time = time.time()
         rate = rospy.Rate(self.process_request_rate_hz)
+        mode_frame_count = getattr(self, "stable_frame_count", 3)
+        mode_tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0)
 
         while not rospy.is_shutdown():
             if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
@@ -1208,6 +1291,9 @@ class ImageProcessor:
                 continue
 
             latest_point_coords = point_coords
+            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+
             if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
                 snapshot = self.build_coordinate_snapshot(point_coords)
             else:
@@ -1216,12 +1302,20 @@ class ImageProcessor:
             if stable_snapshots and tuple(item[0] for item in snapshot) != tuple(item[0] for item in stable_snapshots[-1]):
                 stable_snapshots = []
             stable_snapshots.append(snapshot)
-            stable_snapshots = stable_snapshots[-self.stable_frame_count:]
+            stable_snapshots = stable_snapshots[-mode_frame_count:]
 
             if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
-                is_stable = self.is_stable_coordinate_window(stable_snapshots)
+                is_stable = self.is_stable_coordinate_window(
+                    stable_snapshots,
+                    frame_count=mode_frame_count,
+                    tolerance_mm=mode_tolerance_mm,
+                )
             else:
-                is_stable = self.is_stable_z_window(stable_snapshots)
+                is_stable = self.is_stable_z_window(
+                    stable_snapshots,
+                    frame_count=mode_frame_count,
+                    tolerance_mm=mode_tolerance_mm,
+                )
 
             if is_stable:
                 result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
@@ -1233,16 +1327,16 @@ class ImageProcessor:
                     2.0,
                     "pointAI等待绑扎点坐标稳定: %d/%d帧，坐标容差在+-%.1fmm内",
                     len(stable_snapshots),
-                    self.stable_frame_count,
-                    self.stable_z_tolerance_mm
+                    mode_frame_count,
+                    mode_tolerance_mm
                 )
             else:
                 rospy.loginfo_throttle(
                     2.0,
                     "pointAI waiting for stable Z: %d/%d frames within +/-%.1f mm",
                     len(stable_snapshots),
-                    self.stable_frame_count,
-                    self.stable_z_tolerance_mm
+                    mode_frame_count,
+                    mode_tolerance_mm
                 )
             rate.sleep()
 
@@ -1445,6 +1539,8 @@ class ImageProcessor:
         }
 
     def select_output_centers_for_mode(self, request_mode, in_range_centers, selected_centers):
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return list(in_range_centers)
         if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             return self.sort_matrix_points(in_range_centers)
         return list(selected_centers)
@@ -1600,11 +1696,11 @@ class ImageProcessor:
         self.Depth_image_Raw[self.y1:self.y2, self.x1:self.x2] = 0
         # self.Depth_image_Raw[self.y3:self.y4, self.x3:self.x4] = 0
         self.Depth_image_Raw_raw = cv2.normalize(self.Depth_image_Raw, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-        self.max_depth = int(np.max(self.Depth_image_Raw) - 12)
+        self.max_depth = int(np.max(self.Depth_image_Raw) - 5)
         self.Depth_image_Range = self.cv2.inRange(self.Depth_image_Raw, 10, self.max_depth )
         self.Depth_image_Raw_uni = cv2.normalize(self.Depth_image_Range, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         _, self.Depth_image_Raw_binary = cv2.threshold( self.Depth_image_Raw_uni, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        self.Depth_image_Raw_binary = cv2.medianBlur(self.Depth_image_Raw_binary, 5) 
+        self.Depth_image_Raw_binary = cv2.medianBlur(self.Depth_image_Raw_binary, 3) 
         depth_binary_msg = self.bridge.cv2_to_imgmsg(self.Depth_image_Raw_binary, encoding='mono8')
         depth_binary_msg.header.stamp = rospy.Time.now()
         depth_binary_msg.header.frame_id = 'Scepter_depth_frame'
@@ -1696,6 +1792,7 @@ class ImageProcessor:
         candidate_centers = []
         roi_reject_count = 0
         zero_world_count = 0
+        target_frame = "cabin_frame" if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "gripper_frame"
         for source_idx, center in enumerate(self.centers):
             pix_coord = [int(center[0]), int(center[1])]
             raw_world_coord = [int(center[2][0]), int(center[2][1]), int(center[2][2])]
@@ -1713,7 +1810,8 @@ class ImageProcessor:
                 x_value,
                 y_value,
                 z_value,
-                source_idx
+                source_idx,
+                target_frame=target_frame
             )
             if calibrated_world_coord is None:
                 continue
@@ -1731,11 +1829,19 @@ class ImageProcessor:
         out_of_range_samples = []
         for center_record in candidate_centers:
             calibrated_x, calibrated_y, _ = center_record[2]
-            if self.is_point_in_travel_range(calibrated_x, calibrated_y):
+            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                point_is_allowed = self.is_point_in_scan_workspace(calibrated_x, calibrated_y)
+            else:
+                point_is_allowed = self.is_point_in_travel_range(calibrated_x, calibrated_y)
+
+            if point_is_allowed:
                 in_range_centers.append(center_record)
             else:
                 out_of_range_count += 1
-                reject_reasons = self.get_travel_range_reject_reasons(calibrated_x, calibrated_y)
+                if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                    reject_reasons = ["规划工作区外"]
+                else:
+                    reject_reasons = self.get_travel_range_reject_reasons(calibrated_x, calibrated_y)
                 for reason in reject_reasons:
                     out_of_range_reason_counts[reason] = out_of_range_reason_counts.get(reason, 0) + 1
                 if len(out_of_range_samples) < 5:
@@ -1745,9 +1851,12 @@ class ImageProcessor:
                         f"idx={source_idx},pix=({pix_coord[0]},{pix_coord[1]}),coord=({calibrated_world_coord[0]:.1f},{calibrated_world_coord[1]:.1f},{calibrated_world_coord[2]:.1f}),原因={'+'.join(reject_reasons) if reject_reasons else '未知'}"
                     )
 
-        self.sorted_centers = self.select_nearest_origin_matrix_points(in_range_centers)
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            self.sorted_centers = []
+        else:
+            self.sorted_centers = self.select_nearest_origin_matrix_points(in_range_centers)
         if (
-            request_mode != PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT
+            request_mode not in (PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT, PROCESS_IMAGE_MODE_SCAN_ONLY)
             and in_range_centers
             and not self.sorted_centers
         ):
@@ -1766,7 +1875,10 @@ class ImageProcessor:
             self.sorted_centers
         )
         output_count = len(output_centers)
-        display_centers = self.select_display_matrix_centers(self.sorted_centers, in_range_centers, candidate_centers)
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            display_centers = list(in_range_centers)
+        else:
+            display_centers = self.select_display_matrix_centers(self.sorted_centers, in_range_centers, candidate_centers)
         self.result_display_points = self.build_matrix_display_points(display_centers)
 
         self.last_detection_debug = {

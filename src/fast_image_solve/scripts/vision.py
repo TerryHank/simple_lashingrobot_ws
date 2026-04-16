@@ -945,13 +945,15 @@ class ImageProcessor:
             for point in point_coords.PointCoordinatesArray
         )
 
-    def is_stable_z_window(self, z_snapshots):
-        if len(z_snapshots) < self.stable_frame_count:
+    def is_stable_z_window(self, z_snapshots, frame_count=None, tolerance_mm=None):
+        frame_count = getattr(self, "stable_frame_count", 3) if frame_count is None else int(frame_count)
+        tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0) if tolerance_mm is None else float(tolerance_mm)
+        if len(z_snapshots) < frame_count:
             return False
-        if not z_snapshots[-self.stable_frame_count:]:
+        if not z_snapshots[-frame_count:]:
             return False
 
-        recent_snapshots = z_snapshots[-self.stable_frame_count:]
+        recent_snapshots = z_snapshots[-frame_count:]
         expected_indices = tuple(idx for idx, _ in recent_snapshots[0])
         if not expected_indices:
             return False
@@ -960,20 +962,22 @@ class ImageProcessor:
             if tuple(idx for idx, _ in snapshot) != expected_indices:
                 return False
 
-        max_allowed_range = self.stable_z_tolerance_mm * 2.0
+        max_allowed_range = tolerance_mm * 2.0
         for point_index in range(len(expected_indices)):
             z_values = [snapshot[point_index][1] for snapshot in recent_snapshots]
             if max(z_values) - min(z_values) > max_allowed_range:
                 return False
         return True
 
-    def is_stable_coordinate_window(self, coordinate_snapshots):
-        if len(coordinate_snapshots) < self.stable_frame_count:
+    def is_stable_coordinate_window(self, coordinate_snapshots, frame_count=None, tolerance_mm=None):
+        frame_count = getattr(self, "stable_frame_count", 3) if frame_count is None else int(frame_count)
+        tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0) if tolerance_mm is None else float(tolerance_mm)
+        if len(coordinate_snapshots) < frame_count:
             return False
-        if not coordinate_snapshots[-self.stable_frame_count:]:
+        if not coordinate_snapshots[-frame_count:]:
             return False
 
-        recent_snapshots = coordinate_snapshots[-self.stable_frame_count:]
+        recent_snapshots = coordinate_snapshots[-frame_count:]
         expected_indices = tuple(item[0] for item in recent_snapshots[0])
         if not expected_indices:
             return False
@@ -982,7 +986,7 @@ class ImageProcessor:
             if tuple(item[0] for item in snapshot) != expected_indices:
                 return False
 
-        max_allowed_range = self.stable_z_tolerance_mm * 2.0
+        max_allowed_range = tolerance_mm * 2.0
         for point_index in range(len(expected_indices)):
             x_values = [snapshot[point_index][1] for snapshot in recent_snapshots]
             y_values = [snapshot[point_index][2] for snapshot in recent_snapshots]
@@ -999,11 +1003,15 @@ class ImageProcessor:
         request_mode = getattr(req, "request_mode", PROCESS_IMAGE_MODE_DEFAULT)
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             return PROCESS_IMAGE_MODE_BIND_CHECK
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return PROCESS_IMAGE_MODE_SCAN_ONLY
         return PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT
 
     def get_request_mode_name(self, request_mode):
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             return "bind_check"
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return "scan_only"
         if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             return "adaptive_height"
         return "default"
@@ -1066,6 +1074,13 @@ class ImageProcessor:
             result["message"] = "未检测到有效点"
             return result
 
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            result["success"] = True
+            result["message"] = (
+                "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点"
+            )
+            return result
+
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             out_of_height_points = self.find_out_of_height_points(point_coords)
             result["out_of_height_count"] = len(out_of_height_points)
@@ -1117,6 +1132,8 @@ class ImageProcessor:
         last_processed_frame_seq = -1
         start_time = time.time()
         rate = rospy.Rate(self.process_request_rate_hz)
+        mode_frame_count = getattr(self, "stable_frame_count", 3)
+        mode_tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0)
 
         while not rospy.is_shutdown():
             if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
@@ -1151,6 +1168,9 @@ class ImageProcessor:
                 continue
 
             latest_point_coords = point_coords
+            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+
             if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
                 snapshot = self.build_coordinate_snapshot(point_coords)
             else:
@@ -1159,12 +1179,20 @@ class ImageProcessor:
             if stable_snapshots and tuple(item[0] for item in snapshot) != tuple(item[0] for item in stable_snapshots[-1]):
                 stable_snapshots = []
             stable_snapshots.append(snapshot)
-            stable_snapshots = stable_snapshots[-self.stable_frame_count:]
+            stable_snapshots = stable_snapshots[-mode_frame_count:]
 
             if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
-                is_stable = self.is_stable_coordinate_window(stable_snapshots)
+                is_stable = self.is_stable_coordinate_window(
+                    stable_snapshots,
+                    frame_count=mode_frame_count,
+                    tolerance_mm=mode_tolerance_mm,
+                )
             else:
-                is_stable = self.is_stable_z_window(stable_snapshots)
+                is_stable = self.is_stable_z_window(
+                    stable_snapshots,
+                    frame_count=mode_frame_count,
+                    tolerance_mm=mode_tolerance_mm,
+                )
 
             if is_stable:
                 result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
@@ -1176,16 +1204,16 @@ class ImageProcessor:
                     2.0,
                     "pointAI等待绑扎点坐标稳定: %d/%d帧，坐标容差在+-%.1fmm内",
                     len(stable_snapshots),
-                    self.stable_frame_count,
-                    self.stable_z_tolerance_mm
+                    mode_frame_count,
+                    mode_tolerance_mm
                 )
             else:
                 rospy.loginfo_throttle(
                     2.0,
                     "pointAI waiting for stable Z: %d/%d frames within +/-%.1f mm",
                     len(stable_snapshots),
-                    self.stable_frame_count,
-                    self.stable_z_tolerance_mm
+                    mode_frame_count,
+                    mode_tolerance_mm
                 )
             rate.sleep()
 

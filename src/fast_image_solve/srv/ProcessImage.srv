@@ -2,6 +2,7 @@
 uint8 MODE_DEFAULT=0
 uint8 MODE_ADAPTIVE_HEIGHT=1
 uint8 MODE_BIND_CHECK=2
+uint8 MODE_SCAN_ONLY=3
 
 uint8 request_mode
 ---

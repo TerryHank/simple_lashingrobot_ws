@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
+import numpy as np
 
 
 SCRIPT_DIR = os.path.abspath(
@@ -334,6 +335,15 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("  结论: 自适应高度模式当前没有可用于高度平均的范围内点", message)
         self.assertTrue(message.endswith("\n"))
 
+    def test_scan_workspace_expands_path_envelope_by_one_hundred_mm_on_each_side(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn("scan_workspace_padding_mm = 100.0", pointai_text)
+        self.assertIn('"min_x": min(point_x_values) - scan_workspace_padding_mm', pointai_text)
+        self.assertIn('"max_x": max(point_x_values) + float(getattr(self, "travel_range_max_x_mm", 320.0)) + scan_workspace_padding_mm', pointai_text)
+        self.assertIn('"min_y": min(point_y_values) - scan_workspace_padding_mm', pointai_text)
+        self.assertIn('"max_y": max(point_y_values) + float(getattr(self, "travel_range_max_y_mm", 320.0)) + scan_workspace_padding_mm', pointai_text)
+
     def test_jump_bind_visual_selection_keeps_only_points_one_and_four_executing(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
         processor.jump_bind_enabled = True
@@ -400,6 +410,14 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("y < 0 || y > kTravelMaxYMm", moduan_text)
         self.assertNotIn("point.World_coord[1] < 360", moduan_text)
         self.assertNotIn("y < 0 || y > 360", moduan_text)
+
+    def test_pointai_defaults_travel_range_y_to_three_hundred_twenty(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        self.assertIn('self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))', pointai_text)
+
+    def test_suoqu_uses_three_hundred_twenty_as_local_y_limit(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        self.assertIn("constexpr float kTravelMaxYMm = 320.0f;", suoqu_text)
 
     def test_adaptive_height_outputs_all_in_range_points_without_matrix_count_limit(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
@@ -655,9 +673,196 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("设置TF平移标定", debug_button_text)
         self.assertIn("gripper_tf.yaml.translation_mm", topics_transfer_text)
 
+    def test_pointai_supports_scan_mode_for_pseudo_slam(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn("PROCESS_IMAGE_MODE_SCAN_ONLY", pointai_text)
+        self.assertIn("pseudo_slam", pointai_text)
+        self.assertIn("scan_only", pointai_text)
+        self.assertIn("cabin_frame", pointai_text)
+        self.assertIn("display_centers = list(in_range_centers)", pointai_text)
+
+    def test_suoqu_supports_cabin_frame_and_pseudo_slam_execution(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("cabin_frame", suoqu_text)
+        self.assertIn("Scepter_depth_frame", suoqu_text)
+        self.assertIn("pseudo_slam_points.json", suoqu_text)
+        self.assertIn("pseudo_slam_bind_path.json", suoqu_text)
+        self.assertIn("scan_only", suoqu_text)
+        self.assertIn("bind_from_scan", suoqu_text)
+        self.assertIn("跳过该点", suoqu_text)
+
+    def test_pseudo_slam_bind_path_groups_points_after_scan(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("build_bind_groups_from_scan_world", suoqu_text)
+        self.assertIn('area_json["groups"]', suoqu_text)
+        self.assertIn("remaining_world_points", suoqu_text)
+        self.assertIn("group_index", suoqu_text)
+        self.assertIn("跳过该组继续下一组", suoqu_text)
+        self.assertIn('"global_idx"', suoqu_text)
+        self.assertIn('"local_idx"', suoqu_text)
+        self.assertIn('point_json.value("local_idx"', suoqu_text)
+        self.assertIn('if (areas_json.empty())', suoqu_text)
+        self.assertIn("pseudo_slam_bind_path.json没有可执行区域", suoqu_text)
+
+    def test_pseudo_slam_bind_path_records_checkerboard_grid_metadata(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("build_checkerboard_info_by_global_index", suoqu_text)
+        self.assertIn('"global_row"', suoqu_text)
+        self.assertIn('"global_col"', suoqu_text)
+        self.assertIn('"checkerboard_parity"', suoqu_text)
+        self.assertIn('"is_checkerboard_member"', suoqu_text)
+
+    def test_pseudo_slam_checkerboard_and_bind_execution_use_path_origin_anchor(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn('"path_origin"', suoqu_text)
+        self.assertIn("const Cabin_Point& path_origin", suoqu_text)
+        self.assertIn("world_point.World_coord[0] - path_origin.x", suoqu_text)
+        self.assertIn("world_point.World_coord[1] - path_origin.y", suoqu_text)
+        self.assertIn('bind_path_json["path_origin"]', suoqu_text)
+        self.assertIn('bind_path_json["path_origin"]["x"]', suoqu_text)
+        self.assertIn("bind_from_scan先回到规划原点", suoqu_text)
+
+    def test_suoqu_uses_checkerboard_jump_bind_for_precomputed_global_execution(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("checkerboard_jump_bind_enabled", suoqu_text)
+        self.assertIn("checkerboard_jump_bind_callback", suoqu_text)
+        self.assertIn('/web/moduan/send_odd_points', suoqu_text)
+        self.assertIn('point_json.value("checkerboard_parity", 0)', suoqu_text)
+        self.assertIn("全局棋盘格跳绑已开启", suoqu_text)
+
+    def test_suoqu_publishes_pseudo_slam_points_to_rviz_in_cabin_frame(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("/cabin/pseudo_slam_markers", suoqu_text)
+        self.assertIn("visualization_msgs::MarkerArray", suoqu_text)
+        self.assertIn("visualization_msgs::Marker::SPHERE_LIST", suoqu_text)
+        self.assertIn("visualization_msgs::Marker::TEXT_VIEW_FACING", suoqu_text)
+        self.assertIn("visualization_msgs::Marker::DELETEALL", suoqu_text)
+        self.assertIn('marker.header.frame_id = "cabin_frame"', suoqu_text)
+        self.assertIn("global_idx", suoqu_text)
+
+    def test_suoqu_publishes_pseudo_slam_world_point_tfs(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("pseudo_slam_point_", suoqu_text)
+        self.assertIn("publish_pseudo_slam_point_transforms()", suoqu_text)
+        self.assertIn("pseudo_slam_tf_points_mutex", suoqu_text)
+        self.assertIn("sendTransform(point_transforms)", suoqu_text)
+
+    def test_pseudo_slam_filters_planning_outliers_but_keeps_visualized_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("kPseudoSlamPlanningZOutlierMm", suoqu_text)
+        self.assertIn("constexpr float kPseudoSlamPlanningZOutlierMm = 50.0f;", suoqu_text)
+        self.assertIn("filter_pseudo_slam_planning_outliers", suoqu_text)
+        self.assertIn(
+            "std::vector<fast_image_solve::PointCoords> planning_world_points = filter_pseudo_slam_planning_outliers(merged_world_points);",
+            suoqu_text,
+        )
+        self.assertIn(
+            "std::vector<fast_image_solve::PointCoords> remaining_world_points = planning_world_points;",
+            suoqu_text,
+        )
+        self.assertIn("merged_checkerboard_info_by_idx", suoqu_text)
+        self.assertIn("write_pseudo_slam_points_json(merged_world_points, merged_checkerboard_info_by_idx)", suoqu_text)
+        self.assertIn("publish_pseudo_slam_markers(merged_world_points)", suoqu_text)
+        self.assertIn("set_pseudo_slam_tf_points(merged_world_points)", suoqu_text)
+
+    def test_pseudo_slam_does_not_block_neighbor_columns_around_parallel_outliers(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertNotIn("kPseudoSlamPlanningOutlierNeighborColumnRadius", suoqu_text)
+        self.assertNotIn("collect_pseudo_slam_blocked_columns_from_outliers", suoqu_text)
+        self.assertNotIn("filter_pseudo_slam_parallel_outlier_neighbor_columns", suoqu_text)
+        self.assertNotIn("pseudo_slam平行离群列屏蔽", suoqu_text)
+
+    def test_pseudo_slam_only_executes_points_that_belong_to_checkerboard(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("is_checkerboard_member = false", suoqu_text)
+        self.assertIn("has_horizontal_neighbor", suoqu_text)
+        self.assertIn("has_vertical_neighbor", suoqu_text)
+        self.assertIn("filter_pseudo_slam_non_checkerboard_points", suoqu_text)
+        self.assertIn("checkerboard_it->second.is_checkerboard_member", suoqu_text)
+        self.assertIn(
+            "planning_world_points = filter_pseudo_slam_non_checkerboard_points(",
+            suoqu_text,
+        )
+
+    def test_frontend_exposes_pseudo_slam_scan_entry(self):
+        debug_button_text = (CHASSIS_CTRL_DIR / "scripts" / "debug_button_node.py").read_text(
+            encoding="utf-8"
+        )
+        topics_transfer_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("扫描建图", debug_button_text)
+        self.assertIn("/web/cabin/start_pseudo_slam_scan", topics_transfer_text)
+        self.assertIn("收到扫描建图命令", topics_transfer_text)
+
+    def test_moduan_precomputed_bind_service_bypasses_local_one_and_four_jump_bind(self):
+        moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool apply_jump_bind_filter", moduan_text)
+        self.assertIn("if (apply_jump_bind_filter && !should_keep_jump_bind_point(point))", moduan_text)
+        self.assertIn("execute_bind_points(points, res.message, false)", moduan_text)
+
+    def test_suoqu_flushes_logs_before_emergency_exit_and_checks_init_failure(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("void emergency_exit_with_flush", suoqu_text)
+        self.assertIn("fflush(stdout);", suoqu_text)
+        self.assertIn("fflush(stderr);", suoqu_text)
+        self.assertIn("setvbuf(stdout, nullptr, _IONBF, 0);", suoqu_text)
+        self.assertIn("setvbuf(stderr, nullptr, _IONBF, 0);", suoqu_text)
+        self.assertIn("if (!suoquInit())", suoqu_text)
+
+    def test_single_bind_topic_supports_visual_and_precomputed_current_area_modes(self):
+        topics_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("/web/moduan/single_bind", topics_text)
+        self.assertIn("/cabin/bind_current_area_from_scan", topics_text)
+        self.assertIn("single_bind模式=1", topics_text)
+        self.assertIn("single_bind模式=0", topics_text)
+
+    def test_suoqu_precomputed_bind_keeps_execution_path_without_auto_cabin_height_adjust(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("/cabin/bind_current_area_from_scan", suoqu_text)
+        self.assertIn("run_current_area_bind_from_scan_test", suoqu_text)
+        self.assertIn("run_bind_from_scan", suoqu_text)
+        self.assertIn("find_nearest_bind_area_for_current_cabin_pose", suoqu_text)
+        self.assertIn("prepare_precomputed_bind_group_for_execution", suoqu_text)
+        self.assertIn("当前组转换到虎口后无x/y工作区内点", suoqu_text)
+        self.assertNotIn("compute_precomputed_bind_height_shift_mm", suoqu_text)
+        self.assertNotIn("adjust_cabin_height_for_precomputed_bind_shift", suoqu_text)
+        self.assertNotIn("当前组点位距虎口高度超限，索驱Z自动微调", suoqu_text)
+        self.assertIn("/moduan/sg_precomputed_fast", suoqu_text)
+
+    def test_moduan_supports_fast_precomputed_bind_service(self):
+        moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("/moduan/sg_precomputed_fast", moduan_text)
+        self.assertIn("moduan_bind_points_fast_service", moduan_text)
+        self.assertIn("execute_bind_points(points, res.message, false)", moduan_text)
+        self.assertIn("ScopedModuleSpeedOverride", moduan_text)
+        self.assertIn("kPrecomputedFastModuleSpeedMmPerSec", moduan_text)
+
     def test_default_stable_frame_count_is_three(self):
         init_source = inspect.getsource(pointAI.ImageProcessor.__init__)
         self.assertIn('rospy.get_param("~stable_frame_count", 3)', init_source)
+
+    def test_scan_only_does_not_define_separate_stability_config(self):
+        init_source = inspect.getsource(pointAI.ImageProcessor.__init__)
+        self.assertNotIn('rospy.get_param("~scan_stable_frame_count", 2)', init_source)
+        self.assertNotIn('rospy.get_param("~scan_stable_z_tolerance_mm", 4.0)', init_source)
 
     def test_adaptive_mode_accepts_stable_points_above_bind_height_limit(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
@@ -809,10 +1014,31 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("def build_coordinate_snapshot", vision_text)
         self.assertIn("def is_stable_coordinate_window", pointai_text)
         self.assertIn("def is_stable_coordinate_window", vision_text)
-        self.assertIn("self.is_stable_coordinate_window(stable_snapshots)", pointai_text)
-        self.assertIn("self.is_stable_coordinate_window(stable_snapshots)", vision_text)
+        self.assertIn("self.is_stable_coordinate_window(", pointai_text)
+        self.assertIn("self.is_stable_coordinate_window(", vision_text)
         self.assertNotIn('if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK and result["out_of_height_count"] > 0', pointai_text)
         self.assertNotIn('if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK and result["out_of_height_count"] > 0', vision_text)
+
+    def test_scan_only_returns_immediately_without_stability_wait_in_visual_scripts(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+
+        self.assertIn("request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY", pointai_text)
+        self.assertIn("request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY", vision_text)
+        self.assertIn(
+            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
+            pointai_text,
+        )
+        self.assertIn(
+            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
+            vision_text,
+        )
+        self.assertNotIn("def get_mode_stable_frame_count", pointai_text)
+        self.assertNotIn("def get_mode_stable_frame_count", vision_text)
+        self.assertNotIn("def get_mode_stable_z_tolerance_mm", pointai_text)
+        self.assertNotIn("def get_mode_stable_z_tolerance_mm", vision_text)
+        self.assertNotIn("pointAI等待扫描点Z稳定写入", pointai_text)
+        self.assertNotIn("pointAI等待扫描点Z稳定写入", vision_text)
 
 
 if __name__ == "__main__":

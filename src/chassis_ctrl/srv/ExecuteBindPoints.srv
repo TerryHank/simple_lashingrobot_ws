@@ -1,0 +1,4 @@
+fast_image_solve/PointCoords[] points
+---
+bool success
+string message

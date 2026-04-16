@@ -37,6 +37,7 @@
 #include "chassis_ctrl/linear_module_move_all.h"
 #include "chassis_ctrl/linear_module_move_single.h"
 #include "chassis_ctrl/linear_module_move.h"
+#include "chassis_ctrl/ExecuteBindPoints.h"
 #include <fast_image_solve/ProcessImage.h>
 #include <std_msgs/Bool.h>
 #include <std_srvs/Trigger.h>
@@ -65,6 +66,7 @@ constexpr uint8_t kProcessImageModeBindCheck = 2;
 constexpr double kBindMaxHeightMm = 95.0;
 constexpr double kTravelMaxXMm = 320.0;
 constexpr double kTravelMaxYMm = 320.0;
+constexpr double kPrecomputedFastModuleSpeedMmPerSec = 400.0;
 constexpr const char* kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
 
 // 以下为向PLC发送指令时写入的地址偏移量
@@ -257,6 +259,49 @@ void moduan_move_zero_forthread(double x, double y, double z, double angle);
 void moveLinearModule(double x, double y, double z,double angle );
 void move_linear_module_to_origin();
 void handle_system_error(const std::string& error_msg);
+
+void apply_module_speed_mm_per_sec(double new_speed)
+{
+    module_speed = new_speed;
+    std::lock_guard<std::mutex> lock2(plc_mutex);
+    Set_Module_Speed(WX_SPEED, &module_speed, plc);
+    Set_Module_Speed(WY_SPEED, &module_speed, plc);
+    Set_Module_Speed(WZ_SPEED, &module_speed, plc);
+}
+
+class ScopedModuleSpeedOverride
+{
+public:
+    explicit ScopedModuleSpeedOverride(double override_speed)
+        : original_speed_(module_speed), active_(override_speed > module_speed)
+    {
+        if (active_) {
+            printCurrentTime();
+            printf(
+                "Moduan_log: 预计算当前区域直执行启用快速度，线性模组速度从%.1lf提升到%.1lf。\n",
+                original_speed_,
+                override_speed
+            );
+            apply_module_speed_mm_per_sec(override_speed);
+        }
+    }
+
+    ~ScopedModuleSpeedOverride()
+    {
+        if (active_) {
+            apply_module_speed_mm_per_sec(original_speed_);
+            printCurrentTime();
+            printf(
+                "Moduan_log: 预计算当前区域直执行结束，线性模组速度恢复到%.1lf。\n",
+                original_speed_
+            );
+        }
+    }
+
+private:
+    double original_speed_;
+    bool active_;
+};
 
 void pub_moduan_state( ros::Publisher &pub_linear_module_data_upload, Module_State* state, Motor_State* mot_state, float robot_battery_voltage, float robot_temperature)
 {
@@ -937,6 +982,66 @@ void inputAllPoints(int i, double x, double y, double z, double rz)
     }
     return;
 }
+
+bool execute_bind_points(
+    const std::vector<fast_image_solve::PointCoords>& filteredPoints,
+    std::string& response_message,
+    bool apply_jump_bind_filter = true
+)
+{
+    ROS_WARN("Cur pt_vec size: %zu\n", filteredPoints.size());
+    if (filteredPoints.empty()) {
+        printCurrentTime();
+        printf("Moduan_Warn: 预生成绑扎点为空，跳过当前区域。\n");
+        response_message = "预生成绑扎点为空，跳过当前区域";
+        return false;
+    }
+
+    int selected_bind_point_count = 0;
+    bind_data.first.push_back(0);
+
+    for (int i = 0; i < filteredPoints.size(); i++) {
+        const auto& point = filteredPoints[i];
+        if (apply_jump_bind_filter && !should_keep_jump_bind_point(point)) {
+            continue;
+        }
+
+        float_t world_x = point.World_coord[0];
+        float_t world_y = point.World_coord[1];
+        float_t world_z = point.World_coord[2];
+        float_t angle = point.Angle;
+
+        printCurrentTime();
+        ROS_INFO(
+            "Current %d, 线性模组移动x:%f, y:%f, z:%f, 旋转角度:%f\n",
+            i,
+            world_x,
+            world_y,
+            world_z,
+            angle
+        );
+
+        bind_data.second.push_back(float(world_x));
+        bind_data.second.push_back(float(world_y));
+        bind_data.second.push_back(float(world_z));
+        bind_data.second.push_back(float(angle));
+
+        inputAllPoints(selected_bind_point_count, world_x, world_y, world_z, angle);
+        selected_bind_point_count++;
+    }
+
+    bind_data.first.back() = selected_bind_point_count;
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        PLC_Order_Write(EN_DISABLE, 1, plc);
+    }
+    if (selected_bind_point_count != 0) {
+        finish_all(150);
+    }
+    bind_all_data.push_back(bind_data);
+    response_message = "区域绑扎作业完成";
+    return selected_bind_point_count > 0;
+}
 /*************************************************************************************************************************************************************/
 // 函数功能：应用层函数，区域绑扎作业的服务处理函数，完成单个区域的全部绑扎作业（改为服务）
 // 输入：std_srvs/Trigger 请求（无实际输入）
@@ -1009,8 +1114,6 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
     auto sortedArray = srv.response.PointCoordinatesArray;
 
     std::vector<fast_image_solve::PointCoords> filteredPoints(sortedArray.begin(), sortedArray.end());
-    
-    ROS_WARN("Cur pt_vec size: %zu\n", filteredPoints.size());
     if (filteredPoints.empty()) {
         printCurrentTime();
         printf(
@@ -1023,53 +1126,43 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
         pub_moduan_work_state(false);
         return true;
     }
-    int selected_bind_point_count = 0;
-    bind_data.first.push_back(0);
-    long long int total_ = 0;
-    // 3：按视觉服务返回的顺序处理绑扎点
-    for (int i = 0; i < filteredPoints.size(); i++) {
-
-        auto start_time = std::chrono::steady_clock::now();
-        const auto& point = filteredPoints[i];
-        if (!should_keep_jump_bind_point(point))
-            continue;
-        int32_t idx = point.idx;
-        int32_t pix_x = point.Pix_coord[0];
-        int32_t pix_y = point.Pix_coord[1];
-        float_t world_x = point.World_coord[0];
-        float_t world_y = point.World_coord[1];
-        float_t world_z = point.World_coord[2];
-        float_t angle = point.Angle;
-        bool is_shuiguan = point.is_shuiguan;
-    
-        // double module_move_x = static_cast<double>(world_x);
-        // double module_move_y = static_cast<double>(world_y);
-        // double module_move_z = static_cast<double>(world_z);
-        // double motor_theata = static_cast<double>(angle);
-    
-        printCurrentTime();
-        ROS_INFO("Current %d, 线性模组移动x:%f, y:%f, z:%f, 旋转角度:%f\n", i,world_x, world_y, world_z, angle);
-        bind_data.second.push_back(float(world_x));
-        bind_data.second.push_back(float(world_y));
-        bind_data.second.push_back(float(world_z));
-        bind_data.second.push_back(float(angle));
-
-        inputAllPoints(selected_bind_point_count, world_x,world_y,world_z,angle);
-        selected_bind_point_count++;
-
-    }
-    bind_data.first.back() = selected_bind_point_count;
-    {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
-        PLC_Order_Write(EN_DISABLE, 1, plc);
-    }
-    if (selected_bind_point_count != 0)
-        finish_all(150);
-    bind_all_data.push_back(bind_data);
+    const bool executed = execute_bind_points(filteredPoints, res.message);
     pub_moduan_work_state(false);
-    // std::cout << "总耗时为："<< total_ << " ms" << std::endl;
-    res.success = true;
-    res.message = "区域绑扎作业完成";
+    res.success = executed;
+    if (res.message.empty()) {
+        res.message = executed ? "区域绑扎作业完成" : "视觉无可用绑扎点，跳过当前区域";
+    }
+    return true;
+}
+
+bool moduan_bind_points_service(
+    chassis_ctrl::ExecuteBindPoints::Request &req,
+    chassis_ctrl::ExecuteBindPoints::Response &res
+) {
+    pub_moduan_work_state(true);
+    std::vector<fast_image_solve::PointCoords> points(req.points.begin(), req.points.end());
+    const bool executed = execute_bind_points(points, res.message, false);
+    pub_moduan_work_state(false);
+    res.success = executed;
+    if (res.message.empty()) {
+        res.message = executed ? "区域绑扎作业完成" : "预生成绑扎点为空，跳过当前区域";
+    }
+    return true;
+}
+
+bool moduan_bind_points_fast_service(
+    chassis_ctrl::ExecuteBindPoints::Request &req,
+    chassis_ctrl::ExecuteBindPoints::Response &res
+) {
+    ScopedModuleSpeedOverride speed_override(kPrecomputedFastModuleSpeedMmPerSec);
+    pub_moduan_work_state(true);
+    std::vector<fast_image_solve::PointCoords> points(req.points.begin(), req.points.end());
+    const bool executed = execute_bind_points(points, res.message, false);
+    pub_moduan_work_state(false);
+    res.success = executed;
+    if (res.message.empty()) {
+        res.message = executed ? "区域绑扎作业完成" : "预生成绑扎点为空，跳过当前区域";
+    }
     return true;
 }
 
@@ -1194,13 +1287,13 @@ void send_odd_points_callback(const std_msgs::Bool &debug_mes)
     if(debug_mes.data)
     {
         printCurrentTime();
-        printf("Moduan_log:跳绑2/4已开启，仅绑第1和第4个点。\n");
+        printf("Moduan_log:跳绑2/4已开启；视觉直绑仅绑第1和第4个点，全局预计算路径由上游棋盘格过滤。\n");
         send_odd_points  = 1;
     }
     else
     {
         printCurrentTime();
-        printf("Moduan_log:跳绑2/4已关闭，恢复全绑。\n");
+        printf("Moduan_log:跳绑已关闭，恢复全绑。\n");
         send_odd_points  = 3;
     }
 }
@@ -1209,13 +1302,7 @@ void change_speed_callback(const std_msgs::Float32 &debug_mes)
 {
     printCurrentTime();
     printf("Moduan_log:设置速度为%lf。\n",debug_mes.data);
-    module_speed = static_cast<double>(debug_mes.data);
-    {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
-        Set_Module_Speed(WX_SPEED, &module_speed, plc);//设置x轴速度
-        Set_Module_Speed(WY_SPEED, &module_speed, plc);//设置y轴速度
-        Set_Module_Speed(WZ_SPEED, &module_speed, plc);//设置z轴速度
-    }
+    apply_module_speed_mm_per_sec(static_cast<double>(debug_mes.data));
 }
 
 // void change_motor_speed_callback(const std_msgs::Float32 &debug_mes)
@@ -1528,7 +1615,9 @@ int main(int argc, char **argv) {
 
     AI_client = nh_.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");
     ros::ServiceServer linear_service = nh_.advertiseService("/moduan/single_move", moduan_move_service);
-    ros::ServiceServer lashing_service = nh_.advertiseService("/moduan/sg", moduan_bind_service); 
+    ros::ServiceServer lashing_service = nh_.advertiseService("/moduan/sg", moduan_bind_service);
+    ros::ServiceServer pseudo_slam_lashing_service = nh_.advertiseService("/moduan/sg_precomputed", moduan_bind_points_service);
+    ros::ServiceServer pseudo_slam_lashing_fast_service = nh_.advertiseService("/moduan/sg_precomputed_fast", moduan_bind_points_fast_service);
 
     // 线性模组数据反馈的话题
     // pub_linear_module_data_upload = nh_.advertise<chassis_ctrl::linear_module_upload>("/moduan/linear_module_data_upload", 5);

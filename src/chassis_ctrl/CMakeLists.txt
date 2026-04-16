@@ -3,9 +3,13 @@ project(chassis_ctrl)
 
 find_package(catkin REQUIRED COMPONENTS
   fast_image_solve
+  geometry_msgs
+  rosgraph_msgs
   roscpp
   rospy
   std_msgs
+  tf2_geometry_msgs
+  tf2_ros
   message_generation
   actionlib_msgs
 )
@@ -26,6 +30,7 @@ add_service_files(
   SingleMove.srv
   Pathguihua.srv
   linear_module_move.srv
+  ExecuteBindPoints.srv
   ResetPLCWarning.srv
   Resetzero.srv
   MotionControl.srv
@@ -57,12 +62,15 @@ add_message_files(
 # 生成添加的消息和服务及其依赖项
 generate_messages(
   DEPENDENCIES
+  fast_image_solve
+  geometry_msgs
+  rosgraph_msgs
   std_msgs
   actionlib_msgs
 )
 
 catkin_package(
-  CATKIN_DEPENDS fast_image_solve roscpp rospy std_msgs message_runtime actionlib_msgs
+  CATKIN_DEPENDS fast_image_solve geometry_msgs rosgraph_msgs roscpp rospy std_msgs tf2_geometry_msgs tf2_ros message_runtime actionlib_msgs
 )
 
 include_directories(
