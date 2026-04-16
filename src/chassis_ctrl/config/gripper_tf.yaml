@@ -1,0 +1,15 @@
+# User-facing translation follows the old lashing_config.json calibration direction in millimeters.
+# The broadcaster converts it to the internal TF translation and applies the sign swap there.
+parent_frame: Scepter_depth_frame
+child_frame: gripper_frame
+
+translation_mm:
+  x: 300
+  y: 94
+  z: -735
+
+
+rotation_rpy:
+  roll: 0.000
+  pitch: 0.000
+  yaw: 0.000

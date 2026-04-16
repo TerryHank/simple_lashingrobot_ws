@@ -95,6 +95,11 @@ float TCP_Move[7]={200,0,0,400,0,0,0};//速度,x,y,z,a,b,c
 const std::string kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
 constexpr int max_bind_height_adjust_retries = 3;
 constexpr float kMinCabinHeightMm = 350.0f;
+constexpr int TCP_TIMEOUT_SEC = 5;
+constexpr int RECV_BUFFER_SIZE = 256;
+constexpr int WRITE_DELAY_MS = 300;
+constexpr int DELAY_TIME_TIMEOUT_SEC = 30;
+constexpr int DELAY_TIME_LOG_INTERVAL_SEC = 2;
 
 // 由计算模块得出的索驱路径点的X序列
 struct Cabin_Point
@@ -324,6 +329,22 @@ void printTCPMoveFrame() {
     printf("\n");
 }
 
+void printFrameBytes(const char* prefix, const uint8_t* data, size_t len)
+{
+    if (prefix == nullptr || data == nullptr) {
+        return;
+    }
+
+    printf("%s", prefix);
+    for (size_t i = 0; i < len; ++i) {
+        printf("%02X", data[i]);
+        if (i + 1 < len) {
+            printf(" ");
+        }
+    }
+    printf("\n");
+}
+
 std::vector<Cabin_Point> path_point_generate(float &marking_x,float &marking_y,float &zone_x,float &zone_y,float &robot_x_step,float &robot_y_step,float &cabin_height,float &cabin_speed)
 {
     std::vector<Cabin_Point> Cabin_Coor;
@@ -535,7 +556,6 @@ void moveTCPPosition(uint16_t Command_Word,float* TCP) {
 
 bool connectToServer()
 {
-    const int TIMEOUT_SEC = 5;
     const uint16_t SERVER_PORT = 2001;
     const char* SERVER_IP = "192.168.6.62";
 
@@ -550,6 +570,9 @@ bool connectToServer()
     int opt = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
+    timeval rw_timeout{TCP_TIMEOUT_SEC, 0};
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &rw_timeout, sizeof(rw_timeout));
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rw_timeout, sizeof(rw_timeout));
 
     // === 2. 设置为非阻塞 ===
     int flags = fcntl(sock, F_GETFL, 0);
@@ -574,7 +597,7 @@ bool connectToServer()
     FD_ZERO(&writefds);
     FD_SET(sock, &writefds);
 
-    timeval timeout{TIMEOUT_SEC, 0};
+    timeval timeout{TCP_TIMEOUT_SEC, 0};
     ret = select(sock + 1, nullptr, &writefds, nullptr, &timeout);
 
     if (ret <= 0) {
@@ -677,11 +700,6 @@ bool connectToServer()
 //     return 0; // 成功
 // }
 
-// 定义超时和缓冲区大小，避免 Magic Number
-constexpr int TCP_TIMEOUT_SEC = 5;
-constexpr int RECV_BUFFER_SIZE = 256;
-constexpr int WRITE_DELAY_MS = 300;
-
 int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockfd) 
 {
     // 1. 参数检查
@@ -689,6 +707,10 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
         printf("Cabin_Error: Invalid input parameters.\n");
         return -1;
     }
+
+    const bool is_heartbeat_frame =
+        Tlen == static_cast<int>(sizeof(TCP_Normal_Connection)) &&
+        memcmp(Control_Word, TCP_Normal_Connection, Tlen) == 0;
 
     // 2. 写操作带超时控制 (Select)
     fd_set writefds;
@@ -698,8 +720,14 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
     struct timeval timeout{TCP_TIMEOUT_SEC, 0};
 
     int ret = select(socket + 1, nullptr, &writefds, nullptr, &timeout);
-    if (ret <= 0) {
-        printf("Cabin_Error: TCP write select failed or timeout.\n");
+    if (ret < 0) {
+        printCurrentTime();
+        printf("Cabin_Error: TCP write select failed: %s\n", strerror(errno));
+        return -1;
+    }
+    if (ret == 0) {
+        printCurrentTime();
+        printf("Cabin_Error: TCP write select timeout after %d seconds.\n", TCP_TIMEOUT_SEC);
         return -1;
     }
 
@@ -707,11 +735,21 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
     ssize_t total_sent = 0;
     while (total_sent < Tlen) {
         ssize_t sent = send(socket, Control_Word + total_sent, Tlen - total_sent, 0);
+        if (sent == 0) {
+            printCurrentTime();
+            printf("Cabin_Error: TCP connection closed while sending command.\n");
+            return -1;
+        }
         if (sent < 0) {
-            printf("Cabin_Error: TCP send failed.\n");
+            printCurrentTime();
+            printf("Cabin_Error: TCP send failed: %s\n", strerror(errno));
             return -1;
         }
         total_sent += sent;
+    }
+    if (!is_heartbeat_frame) {
+        printCurrentTime();
+        printFrameBytes("Cabin_log: TCP sent frame: ", Control_Word, static_cast<size_t>(Tlen));
     }
 
     // 4. 写后延时（根据设备协议决定是否需要）
@@ -723,25 +761,43 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
     FD_ZERO(&readfds);
     FD_SET(socket, &readfds);
 
+    timeout.tv_sec = TCP_TIMEOUT_SEC;
+    timeout.tv_usec = 0;
     ret = select(socket + 1, &readfds, nullptr, nullptr, &timeout);
-    if (ret <= 0) {
-        printf("Cabin_Error: TCP read select failed or timeout.\n");
+    if (ret < 0) {
+        printCurrentTime();
+        printf("Cabin_Error: TCP read select failed: %s\n", strerror(errno));
+        return -1;
+    }
+    if (ret == 0) {
+        printCurrentTime();
+        printf("Cabin_Error: TCP read select timeout after %d seconds.\n", TCP_TIMEOUT_SEC);
         return -1;
     }
 
     // 6. 循环接收或限制最大接收长度
     ssize_t recv_len = recv(socket, buffer, sizeof(buffer) - 1, 0); // 预留1字节给'\0'
+    if (recv_len == 0) {
+        printCurrentTime();
+        printf("Cabin_Error: TCP connection closed by peer.\n");
+        return -1;
+    }
     if (recv_len < 0) {
-        printf("Cabin_Error: TCP recv failed.\n");
+        printCurrentTime();
+        printf("Cabin_Error: TCP recv failed: %s\n", strerror(errno));
         return -1;
     }
     
     // 安全添加字符串结束符
     buffer[recv_len] = '\0';
+    if (!is_heartbeat_frame) {
+        printCurrentTime();
+        printFrameBytes("Cabin_log: TCP recv frame: ", buffer, static_cast<size_t>(recv_len));
+    }
 
     // 7. 状态缓存逻辑（建议后续改为指令ID判断）
     // 假设 TCP_Normal_Connection 是一个特定的指令码，而不是指针
-    if (memcmp(Control_Word, TCP_Normal_Connection, Tlen) == 0) {
+    if (is_heartbeat_frame) {
         memcpy(cabin_state_buffer, buffer, recv_len + 1);
     }
 
@@ -845,6 +901,9 @@ void solve_stop(bool &stop_flag)
 **************************************************************************************************************************************************************/
 void delay_time(int Axis, double Target_position)
 {
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+
     while (1)
     {
         
@@ -862,6 +921,41 @@ void delay_time(int Axis, double Target_position)
                 break;
             if(Axis == AXIS_Z && abs(cabin_state.Z - Target_position)<25 && cabin_state.motion_status == 0)
                 break;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+        if (elapsed_sec >= DELAY_TIME_TIMEOUT_SEC) {
+            printCurrentTime();
+            printf("Cabin_Error: 等待轴%d到位超时，目标位置 %.2f。\n", Axis, Target_position);
+            return;
+        }
+
+        const auto log_elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count();
+        if (log_elapsed_sec >= DELAY_TIME_LOG_INTERVAL_SEC) {
+            float cur_x = 0.0f;
+            float cur_y = 0.0f;
+            float cur_z = 0.0f;
+            int cur_motion_status = 0;
+            {
+                std::lock_guard<std::mutex> lock1(cabin_state_mutex);
+                cur_x = cabin_state.X;
+                cur_y = cabin_state.Y;
+                cur_z = cabin_state.Z;
+                cur_motion_status = cabin_state.motion_status;
+            }
+            printCurrentTime();
+            printf(
+                "Cabin_log: 等待轴%d到位中，目标位置 %.2f，当前(X,Y,Z)=(%.2f,%.2f,%.2f)，motion_status=%d。\n",
+                Axis,
+                Target_position,
+                cur_x,
+                cur_y,
+                cur_z,
+                cur_motion_status
+            );
+            last_log_time = now;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
 
@@ -945,7 +1039,7 @@ bool adjust_cabin_height_for_bind_excess(float height_excess_mm)
 
     printCurrentTime();
     printf(
-        "Cabin_log: 绑扎视觉点超过94mm，最大超高 %.2fmm，索驱Z从 %.2f 微调到 %.2f。\n",
+        "Cabin_log: 绑扎视觉点超出视觉高度阈值，最大超高 %.2fmm，索驱Z从 %.2f 微调到 %.2f。\n",
         height_excess_mm,
         old_height,
         adjusted_height

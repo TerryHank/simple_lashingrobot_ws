@@ -920,55 +920,6 @@ void handle_system_error(const std::string& error_msg) {
     printCurrentTime();
     printf("GPIO_log: 暂停中。\n");
 }
-// 函数功能：对点进行蛇形排序（C++实现）
-// 参数：centers 包含点坐标的列表（格式与PointCoords一致）
-// 返回：排序后的点列表
-std::vector<fast_image_solve::PointCoords> snake_sort(const std::vector<fast_image_solve::PointCoords>& centers, int row_threshold = 20) {
-    if (centers.empty()) return {};
-
-    // 1. 按y坐标排序（从上到下）
-    auto sortedByY = centers;
-    std::sort(sortedByY.begin(), sortedByY.end(), 
-        [](const fast_image_solve::PointCoords& a, const fast_image_solve::PointCoords& b) {
-            return a.Pix_coord[1] < b.Pix_coord[1];  // 使用像素y坐标排序
-        });
-
-    // 2. 按行分组（y坐标差值阈值内为同一行）
-    std::vector<std::vector<fast_image_solve::PointCoords>> rows;
-    std::vector<fast_image_solve::PointCoords> current_row;
-    current_row.push_back(sortedByY[0]);
-    int last_y = sortedByY[0].Pix_coord[1];
-
-    for (size_t i = 1; i < sortedByY.size(); ++i) {
-        if (std::abs(sortedByY[i].Pix_coord[1] - last_y) <= row_threshold) {
-            current_row.push_back(sortedByY[i]);
-        } else {
-            rows.push_back(current_row);
-            current_row.clear();
-            current_row.push_back(sortedByY[i]);
-            last_y = sortedByY[i].Pix_coord[1];
-        }
-    }
-    if (!current_row.empty()) rows.push_back(current_row);
-
-    // 3. 每行按x坐标排序，偶数行反向
-    std::vector<fast_image_solve::PointCoords> sorted_points;
-    for (size_t i = 0; i < rows.size(); ++i) {
-        auto& row = rows[i];
-        // 按x坐标排序（从左到右）
-        std::sort(row.begin(), row.end(), 
-            [](const fast_image_solve::PointCoords& a, const fast_image_solve::PointCoords& b) {
-                return a.Pix_coord[0] < b.Pix_coord[0];  // 使用像素x坐标排序
-            });
-        // 偶数行反向（注意行索引从0开始，i%2==1表示第二行及以后的偶数索引行）
-        if (i % 2 == 1) {
-            std::reverse(row.begin(), row.end());
-        }
-        sorted_points.insert(sorted_points.end(), row.begin(), row.end());
-    }
-
-    return sorted_points;
-}
 /*************************************************************************************************************************************************************/
 // 函数功能：应用层函数，区域绑扎作业的服务处理函数，完成单个区域的全部绑扎作业（改为服务）
 // 输入：std_srvs/Trigger 请求（无实际输入）
@@ -1042,20 +993,18 @@ bool GPIO_Lashing_Service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Re
         }
     }
     
-    // 新增步骤2：对过滤后的点进行蛇形排序（C++实现）
-    auto snakeSortedPoints = snake_sort(filteredPoints);  // 需要实现snake_sort函数
-    ROS_WARN("Cur pt_vec size: %zu\n", snakeSortedPoints.size());
+    ROS_WARN("Cur pt_vec size: %zu\n", filteredPoints.size());
     long long int total_ = 0;
-    // 3：遍历处理排序后的绑扎点（修改为遍历排序后的数组）
-    for (size_t i = 0; i < snakeSortedPoints.size(); i++) {
+    // 3：按视觉服务返回的顺序处理绑扎点
+    for (size_t i = 0; i < filteredPoints.size(); i++) {
 
         // auto start_time = std::chrono::steady_clock::now();
-        if (send_odd_points == 1 && i % 2 == 0) {  // 1: 只处理idx为偶数的点（索引从0开始）
+        const auto& point = filteredPoints[i];
+        if (send_odd_points == 1 && !(point.idx == 1 || point.idx == 4)) {
             continue;
-        } else if (send_odd_points == 2 && i % 2 == 1) {  // 2: 只处理idx为奇数的点
+        } else if (send_odd_points == 2 && !(point.idx == 2 || point.idx == 3)) {
             continue;
         }
-        const auto& point = snakeSortedPoints[i];  // 使用排序后的点
         int32_t idx = point.idx;
         int32_t pix_x = point.Pix_coord[0];
         int32_t pix_y = point.Pix_coord[1];

@@ -14,6 +14,7 @@
 #include <string.h>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 #include <fcntl.h>
@@ -61,7 +62,9 @@ ros::ServiceClient trigger_client;
 
 constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
 constexpr uint8_t kProcessImageModeBindCheck = 2;
-constexpr double kBindMaxHeightMm = 94.0;
+constexpr double kBindMaxHeightMm = 95.0;
+constexpr double kTravelMaxXMm = 320.0;
+constexpr double kTravelMaxYMm = 320.0;
 constexpr const char* kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
 
 // 以下为向PLC发送指令时写入的地址偏移量
@@ -828,56 +831,6 @@ void handle_system_error(const std::string& error_msg) {
     // pub_pause.publish(pause_msg);
     return;
 }
-// 函数功能：对点进行蛇形排序（C++实现）
-// 参数：centers 包含点坐标的列表（格式与PointCoords一致）
-// 返回：排序后的点列表
-std::vector<fast_image_solve::PointCoords> snake_sort(const std::vector<fast_image_solve::PointCoords>& centers, int row_threshold = 20) {
-    if (centers.empty()) return {};
-
-    // 1. 按y坐标排序（从上到下）
-    auto sortedByY = centers;
-    std::sort(sortedByY.begin(), sortedByY.end(), 
-        [](const fast_image_solve::PointCoords& a, const fast_image_solve::PointCoords& b) {
-            return a.Pix_coord[1] < b.Pix_coord[1];  // 使用像素y坐标排序
-        });
-
-    // 2. 按行分组（y坐标差值阈值内为同一行）
-    std::vector<std::vector<fast_image_solve::PointCoords>> rows;
-    std::vector<fast_image_solve::PointCoords> current_row;
-    current_row.push_back(sortedByY[0]);
-    int last_y = sortedByY[0].Pix_coord[1];
-
-    for (size_t i = 1; i < sortedByY.size(); ++i) {
-        if (std::abs(sortedByY[i].Pix_coord[1] - last_y) <= row_threshold) {
-            current_row.push_back(sortedByY[i]);
-        } else {
-            rows.push_back(current_row);
-            current_row.clear();
-            current_row.push_back(sortedByY[i]);
-            last_y = sortedByY[i].Pix_coord[1];
-        }
-    }
-    if (!current_row.empty()) rows.push_back(current_row);
-
-    // 3. 每行按x坐标排序，偶数行反向
-    std::vector<fast_image_solve::PointCoords> sorted_points;
-    for (size_t i = 0; i < rows.size(); ++i) {
-        auto& row = rows[i];
-        // 按x坐标排序（从左到右）
-        std::sort(row.begin(), row.end(), 
-            [](const fast_image_solve::PointCoords& a, const fast_image_solve::PointCoords& b) {
-                return a.Pix_coord[0] < b.Pix_coord[0];  // 使用像素x坐标排序
-            });
-        // 偶数行反向（注意行索引从0开始，i%2==1表示第二行及以后的偶数索引行）
-        if (i % 2 == 1) {
-            std::reverse(row.begin(), row.end());
-        }
-        sorted_points.insert(sorted_points.end(), row.begin(), row.end());
-    }
-
-    return sorted_points;
-}
-
 double max_bind_height_excess_mm(const std::vector<float>& out_of_height_z_values)
 {
     double max_excess = 0.0;
@@ -899,13 +852,13 @@ std::string append_bind_height_excess_message(const std::string& message, double
     return oss.str();
 }
 
-bool should_keep_jump_bind_point(int point_index)
+bool should_keep_jump_bind_point(const fast_image_solve::PointCoords& point)
 {
     if (send_odd_points != 1) {
         return true;
     }
 
-    return point_index == 0 || point_index == 3;
+    return point.idx == 1 || point.idx == 4;
 }
 
 void inputAllPoints(int i, double x, double y, double z, double rz)
@@ -1032,35 +985,33 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
                 );
             }
         }
-        const double bind_height_excess_mm =
-            max_bind_height_excess_mm(srv.response.out_of_height_z_values);
         res.success = false;
-        res.message = append_bind_height_excess_message(
-            srv.response.message,
-            bind_height_excess_mm
-        );
+        res.message = srv.response.message;
         pub_moduan_work_state(false);
         return true;
+    }
+
+    if (srv.response.out_of_height_count > 0) {
+        printCurrentTime();
+        printf("Moduan_Warn: 绑扎视觉检测到超高点，本次仅记录日志，不拦截下游执行。\n");
+        for (size_t i = 0; i < srv.response.out_of_height_point_indices.size() &&
+                           i < srv.response.out_of_height_z_values.size(); ++i) {
+            printf(
+                "Moduan_Warn: 超高点 idx=%d, 实际z=%.2fmm\n",
+                srv.response.out_of_height_point_indices[i],
+                srv.response.out_of_height_z_values[i]
+            );
+        }
     }
     
     // 2：打印实际获取的点数量
     printf("Moduan_log: 子区域内钢筋绑扎点数量:%zu.\n", srv.response.PointCoordinatesArray.size());
     auto sortedArray = srv.response.PointCoordinatesArray;
 
-    // 新增步骤1：过滤满足坐标范围的点（0 < world_x < 380 且 0 < world_y < 330）
-    std::vector<fast_image_solve::PointCoords> filteredPoints;
-    for (auto& point : sortedArray) {
-        if (0 < (double)point.World_coord[0] && (double)point.World_coord[0] < 320 && 
-            0 < (double)point.World_coord[1] && (double)point.World_coord[1] < 360 &&
-           0 < (double)point.World_coord[2] && (double)point.World_coord[2] < 94) {
-            filteredPoints.push_back(point);
-        }
-    }
+    std::vector<fast_image_solve::PointCoords> filteredPoints(sortedArray.begin(), sortedArray.end());
     
-    // 新增步骤2：对过滤后的点进行蛇形排序（C++实现）
-    auto snakeSortedPoints = snake_sort(filteredPoints);  // 需要实现snake_sort函数
-    ROS_WARN("Cur pt_vec size: %zu\n", snakeSortedPoints.size());
-    if (snakeSortedPoints.empty()) {
+    ROS_WARN("Cur pt_vec size: %zu\n", filteredPoints.size());
+    if (filteredPoints.empty()) {
         printCurrentTime();
         printf(
             "Moduan_Warn: 视觉无可用绑扎点，跳过当前区域。原始点数量:%zu，过滤后点数量:%zu。\n",
@@ -1075,13 +1026,13 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
     int selected_bind_point_count = 0;
     bind_data.first.push_back(0);
     long long int total_ = 0;
-    // 3：遍历处理排序后的绑扎点（修改为遍历排序后的数组）
-    for (int i = 0; i < snakeSortedPoints.size(); i++) {
+    // 3：按视觉服务返回的顺序处理绑扎点
+    for (int i = 0; i < filteredPoints.size(); i++) {
 
         auto start_time = std::chrono::steady_clock::now();
-        if (!should_keep_jump_bind_point(i))
+        const auto& point = filteredPoints[i];
+        if (!should_keep_jump_bind_point(point))
             continue;
-        const auto& point = snakeSortedPoints[i];  // 使用排序后的点
         int32_t idx = point.idx;
         int32_t pix_x = point.Pix_coord[0];
         int32_t pix_y = point.Pix_coord[1];
@@ -1165,17 +1116,27 @@ void request_moduan_zero(const char* reason)
 
 void moduan_move_zero_forthread(double x, double y, double z, double angle)
 {
-    (void)x;
-    (void)y;
-    (void)z;
-    (void)angle;
-    request_moduan_zero("末端回零线程触发");
+    printCurrentTime();
+    printf("Moduan_log:末端返回零点。\n");
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        PLC_Order_Write(EN_DISABLE, 1, plc);
+        PLC_Order_Write(IS_ZERO, 1, plc);
+    }
+    return ;
 }
 
 void moduan_move_zero_callback(const std_msgs::Float32::ConstPtr& msg)
 {
-    (void)msg;
-    request_moduan_zero("收到末端回零命令");
+    printCurrentTime();
+    printf("Moduan_log:末端返回零点。\n");
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        PLC_Order_Write(EN_DISABLE, 1, plc);
+        PLC_Order_Write(IS_ZERO, 1, plc);
+    }
+
+    return ;
 }
 
 bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req, 
@@ -1190,7 +1151,7 @@ bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,
     
     printCurrentTime();
     printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n",x,y,z);
-    if(x < 0 || x > 320 || y < 0 || y > 360 || z < 0 || z > 94)
+    if(x < 0 || x > kTravelMaxXMm || y < 0 || y > kTravelMaxYMm || z < 0 || z > kBindMaxHeightMm)
     {
         printCurrentTime();
         printf("Moduan_log:目标点超出范围。\n");
@@ -1521,7 +1482,7 @@ void initPLC()
     PLC_Order_Write(WARNING_RESET, 0, plc); // 尝试清除伺服器异常
     PLC_Order_Write(EN_DISABLE, 1, plc);
     PLC_Order_Write(FINISHALL, 0, plc);
-    
+    PLC_Order_Write(IS_STOP, 0, plc);
     // 设置三轴运动速度
     Set_Module_Speed(WX_SPEED, &module_speed, plc);//设置x轴速度
     Set_Module_Speed(WY_SPEED, &module_speed, plc);//设置y轴速度
@@ -1575,7 +1536,7 @@ int main(int argc, char **argv) {
     std::thread get_module_state_thread(read_module_motor_state,&module_state,&motor_state);
     get_module_state_thread.detach();
 
-    auto_zero_on_startup(private_nh);
+    // auto_zero_on_startup(private_nh);
 
     // 末端回零
     ros::Subscriber moduan_zero_sub = nh_.subscribe("/web/moduan/moduan_move_zero", 5, &moduan_move_zero_callback);

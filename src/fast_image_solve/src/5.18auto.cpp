@@ -104,9 +104,6 @@ void ImageProcessor::imageCallback(const sensor_msgs::ImageConstPtr& msg) {
         // cv::imshow("JET image", vison_image_);
         // cv::waitKey(1);
         
-        // 发布TF变换可视化
-        publishTfTransform(); //camera2aruco
-        publishGripperTfTransform(); // gripper2aruco
 }
 
 // 其他回调函数实现
@@ -901,50 +898,6 @@ std::pair<Eigen::Vector3f, Eigen::Matrix3f> ImageProcessor::transformToEndEffect
     };
 }
 
-void ImageProcessor::publishTfTransform() {
-    
-    // 可视化aruco码标定结果
-    geometry_msgs::TransformStamped transform;
-    transform.header.stamp = ros::Time::now();
-    transform.header.frame_id = "Scepter_color_frame";
-    transform.child_frame_id = "aruco_frame";
-    
-    // 设置平移
-    transform.transform.translation.x = pose_matrix(0, 3);
-    transform.transform.translation.y = pose_matrix(1, 3);
-    transform.transform.translation.z = pose_matrix(2, 3);
-    // 设置旋转
-    Eigen::Quaternionf q(pose_matrix.block<3, 3>(0, 0));
-    transform.transform.rotation.x = q.x();
-    transform.transform.rotation.y = q.y();
-    transform.transform.rotation.z = q.z();
-    transform.transform.rotation.w = q.w();
-    
-    tf_broadcaster_.sendTransform(transform);
-}
-
-void ImageProcessor::publishGripperTfTransform() {
-    // 可视化aruco码和gripper_frame的关系
-    geometry_msgs::TransformStamped transform;
-    transform.header.stamp = ros::Time::now();
-    transform.header.frame_id = "aruco_frame";
-    transform.child_frame_id = "gripper_frame";
-
-    transform.transform.translation.x = offset_x_ / 1000; // m
-    transform.transform.translation.y = offset_y_ / 1000;
-    transform.transform.translation.z = offset_z_ / 1000;
-    
-    // 设置旋转
-    tf2::Quaternion q;
-    q.setRPY(M_PI, 0, 0);
-    transform.transform.rotation.x = q.x();
-    transform.transform.rotation.y = q.y();
-    transform.transform.rotation.z = q.z();
-    transform.transform.rotation.w = q.w();
-    
-    tf_broadcaster_.sendTransform(transform);
-}
-
 // camera2gripper
 Eigen::Affine3f ImageProcessor::getScepterGripper(Eigen::Matrix4f & pose_1)
 {
@@ -960,7 +913,6 @@ Eigen::Affine3f ImageProcessor::getScepterGripper(Eigen::Matrix4f & pose_1)
     gripper2aruco.block<3,3>(0,0) = combined_rotation;
     gripper2aruco.block<3,1>(0,3) = Eigen::Vector3f(offset_x_ / 1000, offset_y_ / 1000, offset_z_/ 1000); // m
     Eigen::Matrix4f T = gripper2aruco.inverse() * pose_1.inverse();
-    pubCamGripperTf(T);
     return Eigen::Affine3f(T);
 
 }
@@ -971,17 +923,6 @@ Eigen::Vector3f ImageProcessor::transformToGripperFrame(float x, float y, float 
         Eigen::Vector3f point_camera(x / 1000, y / 1000 , z / 1000); // mm ->m
         Eigen::Vector3f point_gripper = T_scepter_gripper * point_camera; // m
 
-        // 发布gripper_frame下每个点的坐标关系
-        geometry_msgs::TransformStamped point_transform;
-        point_transform.header.stamp = ros::Time::now();
-        point_transform.header.frame_id = "gripper_frame";
-        point_transform.child_frame_id = "point_" + std::to_string(idx);
-        point_transform.transform.translation.x = point_gripper[0]; // m
-        point_transform.transform.translation.y = point_gripper[1];
-        point_transform.transform.translation.z = point_gripper[2];
-        point_transform.transform.rotation.w = 1.0;
-        
-        tf_broadcaster_.sendTransform(point_transform);
         point_gripper[0] = point_gripper[0] * 1000 + offset_x_; // (偏心补偿)-37.2529; // m -> mm
         point_gripper[1] = point_gripper[1] * 1000 + offset_y_; // （偏心补偿）-16.715; 
         point_gripper[2] = point_gripper[2] * 1000 + offset_z_;
@@ -995,7 +936,7 @@ Eigen::Vector3f ImageProcessor::transformToGripperFrame(float x, float y, float 
 Eigen::Vector3f ImageProcessor::getGripperRelativeTranslation() {
     try {
         geometry_msgs::TransformStamped transform = tf_buffer_.lookupTransform(
-            "Scepter_color_frame", "gripper_frame", ros::Time(0), ros::Duration(1.0));
+            "gripper_frame", "Scepter_depth_frame", ros::Time(0), ros::Duration(1.0));
         return Eigen::Vector3f(
             transform.transform.translation.x,
             transform.transform.translation.y,

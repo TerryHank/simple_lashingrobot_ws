@@ -31,7 +31,7 @@ BUTTON_CONFIG = {
     19: {'name': '设置高度阈值', 'topic': '/web/fast_image_solve/set_height_threshold', 'type': 'std_msgs/Float32'},
     20: {'name': '保存作业路径', 'topic': '/web/cabin/save_path', 'type': 'std_msgs/Float32'},
     21: {'name': '保存绑扎数据', 'topic': '/web/moduan/save_binding_data', 'type': 'std_msgs/Float32'},
-    22: {'name': '修正视觉偏差', 'topic': '/web/fast_image_solve/set_pointAI_offset', 'type': 'geometry_msgs/Pose'},
+    22: {'name': '设置TF平移标定', 'topic': '/web/fast_image_solve/set_pointAI_offset', 'type': 'geometry_msgs/Pose'},
     23: {'name': '设置索驱速度', 'topic': '/web/cabin/set_cabin_speed', 'type': 'std_msgs/Float32'},
     24: {'name': '设置末端速度', 'topic': '/web/moduan/set_moduan_speed', 'type': 'std_msgs/Float32'}
 }

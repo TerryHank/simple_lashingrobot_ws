@@ -18,7 +18,6 @@
 #include <std_msgs/Int32.h>
 #include <std_msgs/Float32.h>
 #include <tf2_ros/transform_listener.h>
-#include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_ros/transform_listener.h>
@@ -73,8 +72,6 @@ private:
     
     tf2_ros::Buffer tf_buffer_;
     tf2_ros::TransformListener tf_listener_;
-    tf2_ros::TransformBroadcaster tf_broadcaster_;
-
     // 图像处理相关成员
     cv_bridge::CvImagePtr bridge_;
     cv::Mat image_;
@@ -403,34 +400,6 @@ public:
         return 45;
     }
 
-    inline void pubCamGripperTf(Eigen::Matrix4f T){
-        // 可视化验证
-        static tf2_ros::TransformBroadcaster broadcaster;
-        geometry_msgs::TransformStamped transform;
-        // 1. 填写 header
-        transform.header.stamp = ros::Time::now();
-        transform.header.frame_id = "Scepter_color_frame";    // 父坐标系，例如 "aruco_frame"
-        transform.child_frame_id = "gripper_frame";      // 子坐标系，例如 "gripper_frame"
-
-        // 2. 填写平移 [单位：米]
-        transform.transform.translation.x = T(0,3); // m
-        transform.transform.translation.y = T(1,3);
-        transform.transform.translation.z = T(2,3);
-
-        // 3. 填写旋转：绕 Y 轴旋转 yaw_degrees（默认 90°）
-        // double radians = 180 * M_PI / 180.0;
-        // tf2::Quaternion q;
-        // q.setRPY(0.0, radians, 0.0);  // 绕 Y 轴旋转
-        Eigen::Matrix3f rotation_matrix = T.block<3, 3>(0, 0);
-        Eigen::Quaternionf q(rotation_matrix);
-        transform.transform.rotation.x = q.x();
-        transform.transform.rotation.y = q.y();
-        transform.transform.rotation.z = q.z();
-        transform.transform.rotation.w = q.w();
-        
-        broadcaster.sendTransform(transform);
-    }
-
     inline void printCurrentTime() {
         // 获取当前时间点
         auto now = std::chrono::system_clock::now();
@@ -488,8 +457,6 @@ public:
     Eigen::Matrix4f createRotationMatrix(float theta);
     std::vector<std::pair<cv::Point2f, float>> snakeSortByColumn(const std::vector<std::pair<cv::Point2f, float>>& points,float row_threshold);
     std::vector<cv::Point3f> snakeSort(const std::vector<cv::Point3f>& centers, float row_threshold = 50.0f);
-    void publishTfTransform();
-    void publishGripperTfTransform();
     Eigen::Vector3f getGripperRelativeTranslation();
     Eigen::Vector3f transformToGripperFrame(float x, float y, float z, int idx);
     Eigen::Affine3f getScepterGripper(Eigen::Matrix4f & pose_base2target);

@@ -422,10 +422,16 @@ void robotSaveBindingDataCallback(const std_msgs::Float32::ConstPtr& msg) {
     return;
 }
 
-// 22. 修正视觉偏差 - /web/fast_image_solve/set_pointAI_offset
+// 22. 设置TF平移标定(兼容旧话题名) - /web/fast_image_solve/set_pointAI_offset
 void fastImageSolveSetPointAIOffsetCallback(const geometry_msgs::Pose::ConstPtr& msg) {
     printCurrentTime();
-    logMessage("/web/fast_image_solve/set_pointAI_offset", "收到修正视觉偏差命令，值: " + to_string(msg->position.x) + "mm , " + to_string(msg->position.y) + "mm , " + to_string(msg->position.z) + "mm");
+    logMessage(
+        "/web/fast_image_solve/set_pointAI_offset",
+        "收到TF平移标定命令，写入gripper_tf.yaml.translation_mm，值: "
+        + to_string(msg->position.x) + "mm , "
+        + to_string(msg->position.y) + "mm , "
+        + to_string(msg->position.z) + "mm"
+    );
     return;
 }
 

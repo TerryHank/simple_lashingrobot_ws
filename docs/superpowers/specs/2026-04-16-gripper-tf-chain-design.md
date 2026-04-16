@@ -85,7 +85,7 @@ Format:
 parent_frame: Scepter_depth_frame
 child_frame: gripper_frame
 
-translation:
+translation_mm:
   x: 0.000
   y: 0.000
   z: 0.000
@@ -98,7 +98,8 @@ rotation_rpy:
 
 Conventions:
 
-- translation unit: meters
+- translation unit in config: millimeters
+- translation unit in published TF: meters
 - rotation unit: radians
 - pose meaning: transform from `Scepter_depth_frame` to `gripper_frame`
 
