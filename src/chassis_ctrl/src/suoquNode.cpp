@@ -64,6 +64,8 @@ using namespace std;
 std::string path_points_json_file = "/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/path_points.json";
 std::string pseudo_slam_points_json_file = "/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_points.json";
 std::string pseudo_slam_bind_path_json_file = "/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_bind_path.json";
+const std::string kBindExecutionMemoryJsonPath =
+    "/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/bind_execution_memory.json";
 
 #define AXIS_X 0 //索驱轴体代表宏定义
 #define AXIS_Y 3
@@ -182,6 +184,7 @@ struct PseudoSlamAreaEntry
 struct PseudoSlamBindGroup
 {
     int group_index;
+    std::string group_type;
     std::vector<fast_image_solve::PointCoords> bind_points_world;
 };
 
@@ -198,6 +201,24 @@ struct PseudoSlamCheckerboardInfo
     int global_col = -1;
     int checkerboard_parity = -1;
     bool is_checkerboard_member = false;
+};
+
+struct BindExecutionPointRecord
+{
+    int global_row = -1;
+    int global_col = -1;
+    int checkerboard_parity = -1;
+    float world_x = 0.0f;
+    float world_y = 0.0f;
+    float world_z = 0.0f;
+    std::string source_mode;
+};
+
+struct BindExecutionMemory
+{
+    std::string scan_session_id;
+    Cabin_Point path_origin{};
+    std::vector<BindExecutionPointRecord> executed_points;
 };
 
 struct PseudoSlamCaptureGateConfig
@@ -1174,7 +1195,11 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
         const bool has_vertical_neighbor =
             occupied_cells.count(encode_checkerboard_cell_key(info.global_row - 1, info.global_col)) > 0 ||
             occupied_cells.count(encode_checkerboard_cell_key(info.global_row + 1, info.global_col)) > 0;
-        info.is_checkerboard_member = has_horizontal_neighbor && has_vertical_neighbor;
+        const bool can_form_matrix =
+            has_horizontal_neighbor &&
+            has_vertical_neighbor;
+        const bool can_form_edge_pair = has_horizontal_neighbor || has_vertical_neighbor;
+        info.is_checkerboard_member = can_form_matrix || can_form_edge_pair;
     }
     return checkerboard_info_by_idx;
 }
@@ -1623,6 +1648,80 @@ std::vector<int> select_nearest_origin_matrix_candidate_indices(
     return best_indices;
 }
 
+std::vector<int> select_nearest_origin_edge_pair_candidate_indices(
+    const std::vector<PseudoSlamCandidatePoint>& candidates,
+    float row_threshold = 40.0f,
+    float column_threshold = 45.0f
+)
+{
+    if (candidates.size() < 2) {
+        return {};
+    }
+
+    std::vector<int> best_indices;
+    std::vector<double> best_score;
+    const std::vector<std::vector<int>> grouped_by_x = group_candidate_indices_by_axis(
+        candidates,
+        0,
+        row_threshold
+    );
+    const std::vector<std::vector<int>> grouped_by_y = group_candidate_indices_by_axis(
+        candidates,
+        1,
+        column_threshold
+    );
+
+    auto consider_grouped_pairs = [&](const std::vector<std::vector<int>>& grouped_indices, int grouped_axis_index) {
+        for (const auto& grouped_pair_candidates : grouped_indices) {
+            if (grouped_pair_candidates.size() < 2) {
+                continue;
+            }
+
+            for (size_t lhs_pos = 0; lhs_pos + 1 < grouped_pair_candidates.size(); ++lhs_pos) {
+                for (size_t rhs_pos = lhs_pos + 1; rhs_pos < grouped_pair_candidates.size(); ++rhs_pos) {
+                    std::vector<int> pair_indices = {
+                        grouped_pair_candidates[lhs_pos],
+                        grouped_pair_candidates[rhs_pos],
+                    };
+                    const std::vector<int> sorted_pair_indices = sort_matrix_candidate_indices(candidates, pair_indices);
+                    const auto& first_point = candidates[sorted_pair_indices[0]].local_point;
+                    const auto& second_point = candidates[sorted_pair_indices[1]].local_point;
+                    const int paired_axis_index = 1 - grouped_axis_index;
+                    const std::vector<double> score = {
+                        std::max(
+                            local_origin_distance_sq(first_point),
+                            local_origin_distance_sq(second_point)
+                        ),
+                        local_origin_distance_sq(first_point) + local_origin_distance_sq(second_point),
+                        std::fabs(
+                            first_point.World_coord[grouped_axis_index] -
+                            second_point.World_coord[grouped_axis_index]
+                        ),
+                        -std::fabs(
+                            first_point.World_coord[paired_axis_index] -
+                            second_point.World_coord[paired_axis_index]
+                        ),
+                        first_point.World_coord[0],
+                        first_point.World_coord[1],
+                        second_point.World_coord[0],
+                        second_point.World_coord[1],
+                        static_cast<double>(candidates[sorted_pair_indices[0]].remaining_index),
+                        static_cast<double>(candidates[sorted_pair_indices[1]].remaining_index),
+                    };
+                    if (best_indices.empty() || score < best_score) {
+                        best_indices = sorted_pair_indices;
+                        best_score = score;
+                    }
+                }
+            }
+        }
+    };
+
+    consider_grouped_pairs(grouped_by_x, 0);
+    consider_grouped_pairs(grouped_by_y, 1);
+    return best_indices;
+}
+
 std::vector<PseudoSlamCandidatePoint> build_area_bind_candidates(
     const std::vector<fast_image_solve::PointCoords>& remaining_world_points,
     const Cabin_Point& cabin_point,
@@ -1670,13 +1769,21 @@ std::vector<PseudoSlamBindGroup> build_bind_groups_from_scan_world(
             cabin_height,
             gripper_from_scepter
         );
-        const std::vector<int> selected_indices = select_nearest_origin_matrix_candidate_indices(candidates);
-        if (selected_indices.size() != 4) {
-            break;
+        std::vector<int> selected_indices = select_nearest_origin_matrix_candidate_indices(candidates);
+        if (selected_indices.empty()) {
+            selected_indices = select_nearest_origin_edge_pair_candidate_indices(candidates);
         }
 
         PseudoSlamBindGroup bind_group;
         bind_group.group_index = group_index++;
+        if (selected_indices.size() == 4) {
+            bind_group.group_type = "matrix_2x2";
+        } else if (selected_indices.size() == 2) {
+            bind_group.group_type = "edge_pair";
+        } else {
+            break;
+        }
+
         std::vector<size_t> consumed_remaining_indices;
         for (const int candidate_index : selected_indices) {
             auto world_point = candidates[candidate_index].world_point;
@@ -1715,6 +1822,98 @@ std::vector<fast_image_solve::PointCoords> flatten_bind_groups(
         );
     }
     return flattened_points;
+}
+
+BindExecutionMemory load_bind_execution_memory_json()
+{
+    BindExecutionMemory memory;
+    std::ifstream file_obj(kBindExecutionMemoryJsonPath);
+    if (!file_obj.is_open()) {
+        return memory;
+    }
+
+    try {
+        nlohmann::json memory_json;
+        file_obj >> memory_json;
+        memory.scan_session_id = memory_json.value("scan_session_id", "");
+        if (memory_json.contains("path_origin") && memory_json["path_origin"].is_object()) {
+            const auto& path_origin_json = memory_json["path_origin"];
+            memory.path_origin.x = path_origin_json.value("x", 0.0f);
+            memory.path_origin.y = path_origin_json.value("y", 0.0f);
+        }
+        if (memory_json.contains("executed_points") && memory_json["executed_points"].is_array()) {
+            for (const auto& point_json : memory_json["executed_points"]) {
+                BindExecutionPointRecord point_record;
+                point_record.global_row = point_json.value("global_row", -1);
+                point_record.global_col = point_json.value("global_col", -1);
+                point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+                point_record.world_x = point_json.value("world_x", 0.0f);
+                point_record.world_y = point_json.value("world_y", 0.0f);
+                point_record.world_z = point_json.value("world_z", 0.0f);
+                point_record.source_mode = point_json.value("source_mode", "");
+                memory.executed_points.push_back(point_record);
+            }
+        }
+    } catch (const std::exception&) {
+        return BindExecutionMemory{};
+    }
+
+    return memory;
+}
+
+bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::string* error_message)
+{
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+
+    nlohmann::json memory_json = {
+        {"scan_session_id", memory.scan_session_id},
+        {"path_origin", {{"x", memory.path_origin.x}, {"y", memory.path_origin.y}, {"z", 0.0f}}},
+        {"executed_points", nlohmann::json::array()},
+    };
+    for (const auto& point_record : memory.executed_points) {
+        memory_json["executed_points"].push_back(
+            {
+                {"global_row", point_record.global_row},
+                {"global_col", point_record.global_col},
+                {"checkerboard_parity", point_record.checkerboard_parity},
+                {"world_x", point_record.world_x},
+                {"world_y", point_record.world_y},
+                {"world_z", point_record.world_z},
+                {"source_mode", point_record.source_mode},
+            }
+        );
+    }
+
+    std::ofstream file_obj(kBindExecutionMemoryJsonPath);
+    if (!file_obj.is_open()) {
+        if (error_message != nullptr) {
+            *error_message = "无法打开bind_execution_memory.json进行写入";
+        }
+        return false;
+    }
+
+    file_obj << memory_json.dump(4);
+    if (!file_obj.good()) {
+        if (error_message != nullptr) {
+            *error_message = "写入bind_execution_memory.json失败";
+        }
+        return false;
+    }
+    return true;
+}
+
+BindExecutionMemory reset_bind_execution_memory_for_scan_session(
+    const std::string& scan_session_id,
+    const Cabin_Point& path_origin
+)
+{
+    BindExecutionMemory memory;
+    memory.scan_session_id = scan_session_id;
+    memory.path_origin = path_origin;
+    memory.executed_points.clear();
+    return memory;
 }
 
 void write_pseudo_slam_points_json(
@@ -1783,6 +1982,7 @@ void write_pseudo_slam_bind_path_json(
         for (const auto& bind_group : area_entry.bind_groups) {
             nlohmann::json group_json;
             group_json["group_index"] = bind_group.group_index;
+            group_json["group_type"] = bind_group.group_type;
             group_json["points"] = nlohmann::json::array();
             int local_idx = 1;
             for (const auto& point : bind_group.bind_points_world) {
@@ -2858,11 +3058,22 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
 
     write_pseudo_slam_points_json(merged_world_points, merged_checkerboard_info_by_idx);
     write_pseudo_slam_bind_path_json(bind_area_entries, checkerboard_info_by_idx, path_origin, cabin_height, cabin_speed);
+    const std::string scan_session_id = std::to_string(ros::Time::now().toNSec());
+    BindExecutionMemory bind_execution_memory =
+        reset_bind_execution_memory_for_scan_session(scan_session_id, path_origin);
+    std::string bind_execution_memory_error;
+    if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
+        printCurrentTime();
+        printf(
+            "Cabin_log: 扫描完成后重置bind_execution_memory.json失败：%s\n",
+            bind_execution_memory_error.c_str()
+        );
+    }
     publish_area_progress(total_area_count, total_area_count, total_area_count, false, true);
     std::ostringstream oss;
     oss << "扫描建图完成，pseudo_slam_points.json=" << merged_world_points.size()
         << "个点，pseudo_slam_bind_path.json=" << grouped_area_count
-        << "个区域/" << bind_group_count << "个2x2小组/" << bind_point_count << "个绑扎点";
+        << "个区域/" << bind_group_count << "个分组/" << bind_point_count << "个绑扎点";
     message = oss.str();
     return true;
 }
