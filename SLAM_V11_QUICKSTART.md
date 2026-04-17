@@ -185,6 +185,8 @@ rostopic pub -1 /web/cabin/start_global_work std_msgs/Float32 "data: 1.0"
 - 这意味着重启后继续执行时，会自动跳过已经记过账的点，不需要人工清空
 - 只有当一次新的扫描成功，并且新的扫描产物已经写盘后，系统才会清空并重建 `bind_execution_memory.json`
 - 如果扫描失败，旧的执行记忆会保留，不会被提前删除
+- 如果 `slam_precomputed`、`live_visual` 或“当前区域预计算直执行”里某次绑扎已经实际执行成功，但随后 `bind_execution_memory.json` 写盘失败，系统会立刻按失败处理，不会继续后续流程，也不会返回整体成功
+- 发生这类失败时，当前 `pseudo_slam_points.json` / `pseudo_slam_bind_path.json` 的 `scan_session_id` 会被主动失效化；后续无论是否重启，都会因为 session 对齐失败而被拦住，必须重新扫描/重新建图后再执行
 
 如果你看到：
 

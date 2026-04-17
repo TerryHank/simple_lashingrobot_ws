@@ -2170,6 +2170,107 @@ bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::st
     return true;
 }
 
+bool write_json_file_atomically(
+    const std::string& final_path,
+    const nlohmann::json& json_value,
+    std::string* error_message
+);
+
+bool invalidate_scan_session_in_artifact_file(
+    const std::string& artifact_path,
+    const std::string& artifact_name,
+    const std::string& invalid_reason,
+    std::string* error_message
+)
+{
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+
+    std::ifstream artifact_file(artifact_path);
+    if (!artifact_file.is_open()) {
+        if (error_message != nullptr) {
+            *error_message = artifact_name + "不存在，无法失效化scan_session_id";
+        }
+        return false;
+    }
+
+    nlohmann::json artifact_json;
+    try {
+        artifact_file >> artifact_json;
+        if (artifact_file.fail() && !artifact_file.eof()) {
+            throw std::runtime_error("artifact read failure");
+        }
+        if (!artifact_json.is_object()) {
+            throw std::runtime_error("artifact root must be object");
+        }
+    } catch (const std::exception&) {
+        if (error_message != nullptr) {
+            *error_message = artifact_name + "读取或解析失败，无法失效化scan_session_id";
+        }
+        return false;
+    }
+
+    artifact_json["scan_session_id"] = "";
+    artifact_json["scan_session_invalid_reason"] = invalid_reason;
+    artifact_json["requires_rescan"] = true;
+
+    std::string write_error;
+    if (!write_json_file_atomically(artifact_path, artifact_json, &write_error)) {
+        if (error_message != nullptr) {
+            *error_message = artifact_name + "写回失败：" + write_error;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool invalidate_current_scan_artifacts_after_execution_memory_write_failure(
+    const std::string& write_failure_reason,
+    std::string* error_message
+)
+{
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+
+    const std::string invalid_reason =
+        "bind_execution_memory.json写入失败：" + write_failure_reason +
+        "；为避免重启后继续消费旧账本，需要重新扫描/重新建图";
+
+    std::string points_error;
+    const bool points_invalidated = invalidate_scan_session_in_artifact_file(
+        pseudo_slam_points_json_file,
+        "pseudo_slam_points.json",
+        invalid_reason,
+        &points_error
+    );
+    std::string bind_path_error;
+    const bool bind_path_invalidated = invalidate_scan_session_in_artifact_file(
+        pseudo_slam_bind_path_json_file,
+        "pseudo_slam_bind_path.json",
+        invalid_reason,
+        &bind_path_error
+    );
+    if (points_invalidated && bind_path_invalidated) {
+        return true;
+    }
+
+    std::ostringstream oss;
+    oss << "账本写盘失败后失效化当前扫描产物session失败";
+    if (!points_invalidated) {
+        oss << "；pseudo_slam_points.json=" << points_error;
+    }
+    if (!bind_path_invalidated) {
+        oss << "；pseudo_slam_bind_path.json=" << bind_path_error;
+    }
+    if (error_message != nullptr) {
+        *error_message = oss.str();
+    }
+    return false;
+}
+
 BindExecutionMemory reset_bind_execution_memory_for_scan_session(
     const std::string& scan_session_id,
     const Cabin_Point& path_origin
@@ -3842,6 +3943,28 @@ bool run_current_area_bind_from_scan_test(std::string& message)
                 group_index,
                 bind_execution_memory_error.c_str()
             );
+            std::string invalidate_scan_artifacts_error;
+            const bool scan_artifacts_invalidated =
+                invalidate_current_scan_artifacts_after_execution_memory_write_failure(
+                    bind_execution_memory_error,
+                    &invalidate_scan_artifacts_error
+                );
+            if (!scan_artifacts_invalidated) {
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: 当前区域预计算直执行账本写盘失败后，失效化当前扫描产物session也失败：%s\n",
+                    invalidate_scan_artifacts_error.c_str()
+                );
+                message =
+                    "当前区域预计算直执行已实际执行成功，但bind_execution_memory.json写入失败，且当前扫描产物session失效化失败；"
+                    "为避免重启后重复绑扎，请立即重新扫描/重新建图，并人工确认pseudo_slam_points.json/"
+                    "pseudo_slam_bind_path.json不可继续使用";
+            } else {
+                message =
+                    "当前区域预计算直执行已实际执行成功，但bind_execution_memory.json写入失败；"
+                    "为避免重启后重复绑扎，已将当前扫描产物session失效化，需要重新扫描/重新建图后再执行";
+            }
+            return false;
         }
         executed_group_count++;
     }
@@ -4061,6 +4184,28 @@ bool run_live_visual_global_work(std::string& message)
                 area_index + 1,
                 bind_execution_memory_error.c_str()
             );
+            std::string invalidate_scan_artifacts_error;
+            const bool scan_artifacts_invalidated =
+                invalidate_current_scan_artifacts_after_execution_memory_write_failure(
+                    bind_execution_memory_error,
+                    &invalidate_scan_artifacts_error
+                );
+            if (!scan_artifacts_invalidated) {
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: live_visual账本写盘失败后，失效化当前扫描产物session也失败：%s\n",
+                    invalidate_scan_artifacts_error.c_str()
+                );
+                message =
+                    "live_visual已实际执行成功，但bind_execution_memory.json写入失败，且当前扫描产物session失效化失败；"
+                    "为避免重启后重复绑扎，请立即重新扫描/重新建图，并人工确认pseudo_slam_points.json/"
+                    "pseudo_slam_bind_path.json不可继续使用";
+            } else {
+                message =
+                    "live_visual已实际执行成功，但bind_execution_memory.json写入失败；"
+                    "为避免重启后重复绑扎，已将当前扫描产物session失效化，需要重新扫描/重新建图后再执行";
+            }
+            return false;
         }
 
         executed_area_count++;
@@ -4250,6 +4395,28 @@ bool run_bind_from_scan(std::string& message)
                     group_index,
                     bind_execution_memory_error.c_str()
                 );
+                std::string invalidate_scan_artifacts_error;
+                const bool scan_artifacts_invalidated =
+                    invalidate_current_scan_artifacts_after_execution_memory_write_failure(
+                        bind_execution_memory_error,
+                        &invalidate_scan_artifacts_error
+                    );
+                if (!scan_artifacts_invalidated) {
+                    printCurrentTime();
+                    printf(
+                        "Cabin_Warn: bind_from_scan账本写盘失败后，失效化当前扫描产物session也失败：%s\n",
+                        invalidate_scan_artifacts_error.c_str()
+                    );
+                    message =
+                        "bind_from_scan已实际执行成功，但bind_execution_memory.json写入失败，且当前扫描产物session失效化失败；"
+                        "为避免重启后重复绑扎，请立即重新扫描/重新建图，并人工确认pseudo_slam_points.json/"
+                        "pseudo_slam_bind_path.json不可继续使用";
+                } else {
+                    message =
+                        "bind_from_scan已实际执行成功，但bind_execution_memory.json写入失败；"
+                        "为避免重启后重复绑扎，已将当前扫描产物session失效化，需要重新扫描/重新建图后再执行";
+                }
+                return false;
             }
         }
         publish_area_progress(area_index < total_area_count ? area_index + 1 : area_index, total_area_count, area_index, true, false);

@@ -312,6 +312,60 @@ class PointAIOrderTest(unittest.TestCase):
             live_visual_text.index("if (!load_live_visual_checkerboard_grid(checkerboard_grid, bind_execution_memory, checkerboard_grid_error))"),
         )
 
+    def test_execution_memory_write_failure_invalidates_current_scan_artifacts(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        invalidate_file_helper_text = extract_cpp_block(
+            suoqu_text,
+            "bool invalidate_scan_session_in_artifact_file(",
+        )
+        invalidate_helper_text = extract_cpp_block(
+            suoqu_text,
+            "bool invalidate_current_scan_artifacts_after_execution_memory_write_failure(",
+        )
+
+        self.assertIn("pseudo_slam_points_json_file", invalidate_helper_text)
+        self.assertIn("pseudo_slam_bind_path_json_file", invalidate_helper_text)
+        self.assertIn('artifact_json["scan_session_id"] = "";', invalidate_file_helper_text)
+        self.assertIn('"scan_session_invalid_reason"', invalidate_file_helper_text)
+        self.assertIn('"requires_rescan"', invalidate_file_helper_text)
+        self.assertIn("需要重新扫描/重新建图", invalidate_helper_text)
+        self.assertRegex(invalidate_helper_text, re.compile(r"return false;"))
+
+    def test_execution_entrypoints_fail_closed_when_execution_memory_persist_fails(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        failure_expectations = {
+            "bool run_current_area_bind_from_scan_test(std::string& message)": (
+                "if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error))",
+                "当前区域预计算直执行",
+            ),
+            "bool run_live_visual_global_work(std::string& message)": (
+                "if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error))",
+                "live_visual",
+            ),
+            "bool run_bind_from_scan(std::string& message)": (
+                "if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error))",
+                "bind_from_scan",
+            ),
+        }
+
+        for anchor, (write_failure_stmt, path_label) in failure_expectations.items():
+            function_text = extract_cpp_block(suoqu_text, anchor)
+            failure_block = function_text[function_text.index(write_failure_stmt):]
+
+            self.assertIn(
+                "invalidate_current_scan_artifacts_after_execution_memory_write_failure(",
+                failure_block,
+            )
+            self.assertIn("bind_execution_memory.json写入失败", failure_block)
+            self.assertIn("需要重新扫描/重新建图", failure_block)
+            self.assertIn(path_label, failure_block)
+            self.assertRegex(
+                failure_block,
+                re.compile(r'message\s*=\s*".*重新扫描/重新建图.*";', re.S),
+            )
+            self.assertRegex(failure_block, re.compile(r"return false;"))
+
     def test_live_visual_uses_planning_authoritative_checkerboard_fields(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         write_points_text = extract_cpp_block(
