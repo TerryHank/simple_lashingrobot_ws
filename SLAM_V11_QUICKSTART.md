@@ -106,12 +106,28 @@ rostopic pub -1 /web/cabin/start_pseudo_slam_scan std_msgs/Float32 "data: 1.0"
 - 当前扫描最小点数门槛是 `5`
 - 少于 `5` 个点会继续轮询视觉
 
-### 扫描完成后会生成两个文件
+### 扫描完成后会生成三个文件
 
 - [pseudo_slam_points.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_points.json)
   - 扫到的全部世界点
+  - 同时写入全局棋盘格账本：`global_row`、`global_col`、`checkerboard_parity`、`is_checkerboard_member`
+  - `live_visual` 后续会复用这份扫描账本来判断现场新点能不能执行
 - [pseudo_slam_bind_path.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_bind_path.json)
-  - 真正参与执行的区域/2x2 分组路径
+  - 真正参与执行的区域分组路径
+  - 组类型现在可能是标准 `matrix_2x2`，也可能是边界区域的 `edge_pair`
+- [bind_execution_memory.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/bind_execution_memory.json)
+  - 已成功执行点位的全局记忆账本
+  - `slam_precomputed` 和 `live_visual` 共用这份记忆，避免重复绑扎
+
+### 边界区域现在也会生成 `edge_pair`
+
+如果某个区域已经不能组成完整 `2x2`，但还能在同一根钢筋上稳定识别出 `2` 个合法点，扫描结果会把它写成 `edge_pair` 组，而不是整组丢掉。
+
+对现场操作的影响是：
+
+- `pseudo_slam_bind_path.json` 不再只包含 `2x2` 四点组
+- 边界区域现在也有机会进入后续绑扎路径
+- `edge_pair` 仍然受全局棋盘格跳绑和已执行记忆约束，不是强制必绑
 
 ## 5. 全局执行怎么触发
 
@@ -131,8 +147,8 @@ rostopic pub -1 /web/cabin/set_execution_mode std_msgs/Float32 "data: 1.0"
 
 含义：
 
-- `slam_precomputed`：使用扫描后的 `pseudo_slam_bind_path.json` 执行；扫描阶段依赖视觉，执行阶段不再请求视觉
-- `live_visual`：按 `path_points.json` 逐区域移动，到区域后现场请求视觉并执行
+- `slam_precomputed`：使用扫描后的 `pseudo_slam_bind_path.json` 执行；执行前还会读取 `bind_execution_memory.json`，把已经做过的点过滤掉
+- `live_visual`：按 `path_points.json` 逐区域移动，到区域后现场请求视觉；但新点不会直接盲绑，而是先归入扫描时写下的全局棋盘格，再经过 `bind_execution_memory.json` 过滤后才执行
 
 再触发全局作业：
 
@@ -159,8 +175,16 @@ rostopic pub -1 /web/cabin/start_global_work std_msgs/Float32 "data: 1.0"
 
 `live_visual` 模式下：
 
-- 不依赖已有 `pseudo_slam_bind_path.json`
-- 但执行速度和稳定性取决于现场识别
+- 仍然需要先完成一次扫描建图，因为它要复用 [pseudo_slam_points.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_points.json) 里的全局棋盘格账本
+- 它不依赖 `pseudo_slam_bind_path.json` 里的预计算分组，但不再是“现场看到什么就直接绑什么”
+- 现场新点会先尝试归入扫描得到的棋盘格；归不进去的点会直接跳过
+
+### 重启与重扫行为
+
+- 节点重启或整机重启后，已经成功执行过的点仍然会从 [bind_execution_memory.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/bind_execution_memory.json) 里读回来
+- 这意味着重启后继续执行时，会自动跳过已经记过账的点，不需要人工清空
+- 只有当一次新的扫描成功，并且新的扫描产物已经写盘后，系统才会清空并重建 `bind_execution_memory.json`
+- 如果扫描失败，旧的执行记忆会保留，不会被提前删除
 
 如果你看到：
 
@@ -171,7 +195,7 @@ pseudo_slam_bind_path.json没有可执行区域，请先确认扫描分组成功
 说明不是服务坏了，而是：
 
 - 扫描点有了
-- 但没有成功生成可执行 `2x2` 分组
+- 但没有成功生成可执行分组（包括 `matrix_2x2` 和 `edge_pair`）
 - 这时需要先看 `pseudo_slam_bind_path.json` 里的 `areas` 是否为空
 
 ## 6. 当前区域快测怎么触发
