@@ -225,16 +225,71 @@ class PointAIOrderTest(unittest.TestCase):
             "bool run_bind_from_scan(std::string& message)",
         ]:
             function_text = extract_cpp_block(suoqu_text, anchor)
+            load_stmt = (
+                "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))"
+            )
+            validate_stmt = (
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            )
+
+            self.assertIn(load_stmt, function_text)
             self.assertIn(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))',
+                validate_stmt,
                 function_text,
             )
             validation_block = function_text[
                 function_text.index(
-                    'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                    validate_stmt
                 ):
             ]
             self.assertRegex(validation_block, re.compile(r"return false;"))
+            self.assertLess(function_text.index(load_stmt), function_text.index(validate_stmt))
+
+        current_area_text = extract_cpp_block(
+            suoqu_text,
+            "bool run_current_area_bind_from_scan_test(std::string& message)",
+        )
+        self.assertLess(
+            current_area_text.index(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            ),
+            current_area_text.index("float current_cabin_x = 0.0f;"),
+        )
+        self.assertLess(
+            current_area_text.index(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            ),
+            current_area_text.index("find_nearest_bind_area_for_current_cabin_pose("),
+        )
+        self.assertLess(
+            current_area_text.index(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            ),
+            current_area_text.index("TCP_Move[0] = fast_cabin_speed;"),
+        )
+
+        global_bind_text = extract_cpp_block(
+            suoqu_text,
+            "bool run_bind_from_scan(std::string& message)",
+        )
+        self.assertLess(
+            global_bind_text.index(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            ),
+            global_bind_text.index('const float cabin_height = bind_path_json.value("cabin_height", 500.0f);'),
+        )
+        self.assertLess(
+            global_bind_text.index(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            ),
+            global_bind_text.index("float path_origin_x = 0.0f;"),
+        )
+        self.assertLess(
+            global_bind_text.index(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            ),
+            global_bind_text.index("TCP_Move[0] = cabin_speed;"),
+        )
 
     def test_live_visual_entrypoint_fail_closed_on_scan_session_mismatch(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")

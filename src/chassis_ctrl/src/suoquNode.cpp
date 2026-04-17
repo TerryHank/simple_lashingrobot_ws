@@ -3689,6 +3689,15 @@ bool run_current_area_bind_from_scan_test(std::string& message)
 
     nlohmann::json bind_path_json;
     infile >> bind_path_json;
+    BindExecutionMemory bind_execution_memory;
+    std::string bind_execution_memory_error;
+    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
+        message = bind_execution_memory_error;
+        return false;
+    }
+    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
+        return false;
+    }
     if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
         message = "pseudo_slam_bind_path.json格式错误";
         return false;
@@ -3763,15 +3772,6 @@ bool run_current_area_bind_from_scan_test(std::string& message)
         return false;
     }
 
-    BindExecutionMemory bind_execution_memory;
-    std::string bind_execution_memory_error;
-    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
-        message = bind_execution_memory_error;
-        return false;
-    }
-    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
-        return false;
-    }
     int executed_group_count = 0;
     int skipped_group_count = 0;
     int group_index = 0;
@@ -4098,6 +4098,15 @@ bool run_bind_from_scan(std::string& message)
 
     nlohmann::json bind_path_json;
     infile >> bind_path_json;
+    BindExecutionMemory bind_execution_memory;
+    std::string bind_execution_memory_error;
+    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
+        message = bind_execution_memory_error;
+        return false;
+    }
+    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
+        return false;
+    }
     if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
         message = "pseudo_slam_bind_path.json格式错误";
         return false;
@@ -4147,15 +4156,6 @@ bool run_bind_from_scan(std::string& message)
     delay_time(AXIS_Z, path_origin_z);
 
     int area_index = 0;
-    BindExecutionMemory bind_execution_memory;
-    std::string bind_execution_memory_error;
-    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
-        message = bind_execution_memory_error;
-        return false;
-    }
-    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
-        return false;
-    }
     for (const auto& area_json : areas_json) {
         area_index++;
         publish_area_progress(area_index, total_area_count, 0, false, false);
