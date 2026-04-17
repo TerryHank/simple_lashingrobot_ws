@@ -732,6 +732,13 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("write_bind_execution_memory_json", suoqu_text)
         self.assertIn("load_bind_execution_memory_json", suoqu_text)
 
+    def test_bind_execution_memory_write_is_atomic_and_read_failures_are_logged(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn('const std::string temp_json_path = kBindExecutionMemoryJsonPath + ".tmp";', suoqu_text)
+        self.assertIn("std::rename(temp_json_path.c_str(), kBindExecutionMemoryJsonPath.c_str())", suoqu_text)
+        self.assertIn("bind_execution_memory.json读取或解析失败", suoqu_text)
+
     def test_rescan_rebuilds_execution_memory_after_scan_outputs_are_written(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 

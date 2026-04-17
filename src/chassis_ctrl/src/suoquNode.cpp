@@ -16,6 +16,7 @@
 #include <iostream>  
 #include <memory>
 #include <cctype>
+#include <cstdio>
 #include <tuple>
 #include <limits>
 #include <mutex>
@@ -1829,12 +1830,19 @@ BindExecutionMemory load_bind_execution_memory_json()
     BindExecutionMemory memory;
     std::ifstream file_obj(kBindExecutionMemoryJsonPath);
     if (!file_obj.is_open()) {
+        if (access(kBindExecutionMemoryJsonPath.c_str(), F_OK) == 0) {
+            printCurrentTime();
+            printf("Cabin_log: bind_execution_memory.json读取或解析失败，无法打开现有记忆文件。\n");
+        }
         return memory;
     }
 
     try {
         nlohmann::json memory_json;
         file_obj >> memory_json;
+        if (file_obj.fail() && !file_obj.eof()) {
+            throw std::runtime_error("bind execution memory read failure");
+        }
         memory.scan_session_id = memory_json.value("scan_session_id", "");
         if (memory_json.contains("path_origin") && memory_json["path_origin"].is_object()) {
             const auto& path_origin_json = memory_json["path_origin"];
@@ -1855,6 +1863,8 @@ BindExecutionMemory load_bind_execution_memory_json()
             }
         }
     } catch (const std::exception&) {
+        printCurrentTime();
+        printf("Cabin_log: bind_execution_memory.json读取或解析失败，保留告警并返回空记忆。\n");
         return BindExecutionMemory{};
     }
 
@@ -1886,18 +1896,29 @@ bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::st
         );
     }
 
-    std::ofstream file_obj(kBindExecutionMemoryJsonPath);
+    const std::string temp_json_path = kBindExecutionMemoryJsonPath + ".tmp";
+    std::ofstream file_obj(temp_json_path);
     if (!file_obj.is_open()) {
         if (error_message != nullptr) {
-            *error_message = "无法打开bind_execution_memory.json进行写入";
+            *error_message = "无法打开bind_execution_memory.json临时文件进行写入";
         }
         return false;
     }
 
     file_obj << memory_json.dump(4);
+    file_obj.flush();
+    file_obj.close();
     if (!file_obj.good()) {
+        std::remove(temp_json_path.c_str());
         if (error_message != nullptr) {
-            *error_message = "写入bind_execution_memory.json失败";
+            *error_message = "写入bind_execution_memory.json临时文件失败";
+        }
+        return false;
+    }
+    if (std::rename(temp_json_path.c_str(), kBindExecutionMemoryJsonPath.c_str()) != 0) {
+        std::remove(temp_json_path.c_str());
+        if (error_message != nullptr) {
+            *error_message = "原子替换bind_execution_memory.json失败";
         }
         return false;
     }
