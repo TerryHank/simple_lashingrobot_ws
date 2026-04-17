@@ -712,6 +712,33 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('if (areas_json.empty())', suoqu_text)
         self.assertIn("pseudo_slam_bind_path.json没有可执行区域", suoqu_text)
 
+    def test_pseudo_slam_bind_path_supports_edge_pair_groups(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("edge_pair", suoqu_text)
+        self.assertIn("group_type", suoqu_text)
+        self.assertIn("selected_indices.size() == 2", suoqu_text)
+
+    def test_pseudo_slam_checkerboard_membership_no_longer_requires_both_axes(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("can_form_edge_pair", suoqu_text)
+        self.assertNotIn("has_horizontal_neighbor && has_vertical_neighbor", suoqu_text)
+
+    def test_suoqu_persists_bind_execution_memory_to_disk(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bind_execution_memory.json", suoqu_text)
+        self.assertIn("write_bind_execution_memory_json", suoqu_text)
+        self.assertIn("load_bind_execution_memory_json", suoqu_text)
+
+    def test_rescan_rebuilds_execution_memory_after_scan_outputs_are_written(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("reset_bind_execution_memory_for_scan_session", suoqu_text)
+        self.assertIn("write_pseudo_slam_points_json", suoqu_text)
+        self.assertIn("write_pseudo_slam_bind_path_json", suoqu_text)
+
     def test_start_work_supports_precomputed_and_live_visual_execution_modes(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         topics_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(encoding="utf-8")
@@ -747,6 +774,20 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('bind_path_json["path_origin"]', suoqu_text)
         self.assertIn('bind_path_json["path_origin"]["x"]', suoqu_text)
         self.assertIn("bind_from_scan先回到规划原点", suoqu_text)
+
+    def test_slam_precomputed_skips_points_already_recorded_in_execution_memory(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("is_point_already_executed", suoqu_text)
+        self.assertIn("record_successful_execution_point", suoqu_text)
+        self.assertIn('point_json.value("global_row"', suoqu_text)
+
+    def test_live_visual_reprojects_points_into_global_checkerboard_before_execution(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("classify_live_visual_point_into_checkerboard", suoqu_text)
+        self.assertIn("未能归入全局棋盘格", suoqu_text)
+        self.assertIn("source_mode", suoqu_text)
 
     def test_pseudo_slam_scan_retries_visual_until_five_points_are_detected(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
