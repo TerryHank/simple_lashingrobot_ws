@@ -5,6 +5,7 @@ import sys
 import unittest
 import inspect
 import tempfile
+import re
 from pathlib import Path
 
 import yaml
@@ -65,7 +66,107 @@ def make_center_record(source_idx, calibrated_x, calibrated_y, calibrated_z=80.0
     )
 
 
+def extract_cpp_block(source_text, anchor):
+    start = source_text.index(anchor)
+    brace_start = source_text.index("{", start)
+    depth = 0
+    for idx in range(brace_start, len(source_text)):
+        char = source_text[idx]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source_text[start:idx + 1]
+    raise ValueError(f"could not find matching brace for {anchor!r}")
+
+
 class PointAIOrderTest(unittest.TestCase):
+    def test_bind_execution_memory_load_is_fail_closed_when_existing_file_is_unreadable(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "load_bind_execution_memory_json(",
+            suoqu_text,
+        )
+        self.assertIn(
+            "kBindExecutionMemoryUnreadableError",
+            suoqu_text,
+        )
+
+        for anchor in [
+            "bool run_current_area_bind_from_scan_test(std::string& message)",
+            "bool run_live_visual_global_work(std::string& message)",
+            "bool run_bind_from_scan(std::string& message)",
+        ]:
+            function_text = extract_cpp_block(suoqu_text, anchor)
+            self.assertIn(
+                "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))",
+                function_text,
+            )
+            self.assertRegex(
+                function_text,
+                re.compile(r"message\s*=\s*bind_execution_memory_error;"),
+            )
+            self.assertRegex(function_text, re.compile(r"return false;"))
+
+    def test_scan_rebuild_only_resets_execution_memory_after_both_artifacts_write(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+        )
+
+        self.assertIn("bool write_pseudo_slam_points_json(", suoqu_text)
+        self.assertIn("bool write_pseudo_slam_bind_path_json(", suoqu_text)
+        self.assertIn("const bool pseudo_slam_points_written =", scan_function)
+        self.assertIn("const bool pseudo_slam_bind_path_written =", scan_function)
+        self.assertIn(
+            "if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written)",
+            scan_function,
+        )
+        self.assertIn(
+            "扫描完成后未重置bind_execution_memory.json",
+            scan_function,
+        )
+        self.assertGreater(
+            scan_function.index("reset_bind_execution_memory_for_scan_session"),
+            scan_function.index("if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written)"),
+        )
+
+    def test_live_visual_uses_planning_authoritative_checkerboard_fields(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+        load_grid_text = extract_cpp_block(
+            suoqu_text,
+            "bool load_live_visual_checkerboard_grid(",
+        )
+
+        self.assertIn("planning_checkerboard_info_by_idx", write_points_text)
+        self.assertIn('"is_planning_checkerboard_member"', write_points_text)
+        self.assertIn('"planning_global_row"', write_points_text)
+        self.assertIn('"planning_global_col"', write_points_text)
+        self.assertIn('"planning_checkerboard_parity"', write_points_text)
+        self.assertIn(
+            'if (!point_json.value("is_planning_checkerboard_member", false))',
+            load_grid_text,
+        )
+        self.assertIn(
+            'point_json.value("planning_global_row", -1)',
+            load_grid_text,
+        )
+        self.assertIn(
+            'point_json.value("planning_global_col", -1)',
+            load_grid_text,
+        )
+        self.assertIn(
+            'point_json.value("planning_checkerboard_parity", -1)',
+            load_grid_text,
+        )
+
     def test_process_image_service_supports_request_modes_and_failure_details(self):
         service_path = FAST_IMAGE_SOLVE_DIR / "srv" / "ProcessImage.srv"
         service_text = service_path.read_text(encoding="utf-8")
@@ -931,7 +1032,10 @@ class PointAIOrderTest(unittest.TestCase):
             suoqu_text,
         )
         self.assertIn("merged_checkerboard_info_by_idx", suoqu_text)
-        self.assertIn("write_pseudo_slam_points_json(merged_world_points, merged_checkerboard_info_by_idx)", suoqu_text)
+        self.assertIn("write_pseudo_slam_points_json(", suoqu_text)
+        self.assertIn("merged_world_points,", suoqu_text)
+        self.assertIn("merged_checkerboard_info_by_idx,", suoqu_text)
+        self.assertIn("checkerboard_info_by_idx,", suoqu_text)
         self.assertIn("publish_pseudo_slam_markers(merged_world_points)", suoqu_text)
         self.assertIn("set_pseudo_slam_tf_points(merged_world_points)", suoqu_text)
 

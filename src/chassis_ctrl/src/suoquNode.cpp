@@ -229,6 +229,9 @@ struct BindExecutionMemory
     std::vector<BindExecutionPointRecord> executed_points;
 };
 
+const char* kBindExecutionMemoryUnreadableError =
+    "bind_execution_memory.json已存在但无法读取，已阻止执行以避免重复绑扎";
+
 struct PseudoSlamCaptureGateConfig
 {
     int scan_min_point_count = kPseudoSlamScanMinPointCount;
@@ -1263,12 +1266,12 @@ bool load_live_visual_checkerboard_grid(
         std::unordered_map<int, float> col_sums_by_global_col;
         std::unordered_map<int, int> col_counts_by_global_col;
         for (const auto& point_json : points_json["pseudo_slam_points"]) {
-            if (!point_json.value("is_checkerboard_member", false)) {
+            if (!point_json.value("is_planning_checkerboard_member", false)) {
                 continue;
             }
 
-            const int global_row = point_json.value("global_row", -1);
-            const int global_col = point_json.value("global_col", -1);
+            const int global_row = point_json.value("planning_global_row", -1);
+            const int global_col = point_json.value("planning_global_col", -1);
             if (global_row < 0 || global_col < 0) {
                 continue;
             }
@@ -1283,7 +1286,7 @@ bool load_live_visual_checkerboard_grid(
             PseudoSlamCheckerboardInfo info;
             info.global_row = global_row;
             info.global_col = global_col;
-            info.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+            info.checkerboard_parity = point_json.value("planning_checkerboard_parity", -1);
             info.is_checkerboard_member = true;
             checkerboard_grid.info_by_cell_key[encode_checkerboard_cell_key(global_row, global_col)] = info;
         }
@@ -1995,16 +1998,22 @@ std::vector<fast_image_solve::PointCoords> flatten_bind_groups(
     return flattened_points;
 }
 
-BindExecutionMemory load_bind_execution_memory_json()
+bool load_bind_execution_memory_json(
+    BindExecutionMemory& memory,
+    std::string& error_message
+)
 {
-    BindExecutionMemory memory;
+    memory = BindExecutionMemory{};
+    error_message.clear();
     std::ifstream file_obj(kBindExecutionMemoryJsonPath);
     if (!file_obj.is_open()) {
         if (access(kBindExecutionMemoryJsonPath.c_str(), F_OK) == 0) {
             printCurrentTime();
             printf("Cabin_log: bind_execution_memory.json读取或解析失败，无法打开现有记忆文件。\n");
+            error_message = kBindExecutionMemoryUnreadableError;
+            return false;
         }
-        return memory;
+        return true;
     }
 
     try {
@@ -2034,11 +2043,13 @@ BindExecutionMemory load_bind_execution_memory_json()
         }
     } catch (const std::exception&) {
         printCurrentTime();
-        printf("Cabin_log: bind_execution_memory.json读取或解析失败，保留告警并返回空记忆。\n");
-        return BindExecutionMemory{};
+        printf("Cabin_log: bind_execution_memory.json读取或解析失败，阻止执行以避免重复绑扎。\n");
+        error_message = kBindExecutionMemoryUnreadableError;
+        memory = BindExecutionMemory{};
+        return false;
     }
 
-    return memory;
+    return true;
 }
 
 bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::string* error_message)
@@ -2180,20 +2191,73 @@ void record_successful_execution_point(
     memory.executed_points.push_back(point_record);
 }
 
-void write_pseudo_slam_points_json(
+bool write_json_file_atomically(
+    const std::string& final_path,
+    const nlohmann::json& json_value,
+    std::string* error_message
+)
+{
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+
+    const std::string temp_path = final_path + ".tmp";
+    std::ofstream file_obj(temp_path);
+    if (!file_obj.is_open()) {
+        if (error_message != nullptr) {
+            *error_message = "无法打开临时文件进行写入";
+        }
+        return false;
+    }
+
+    file_obj << json_value.dump(4);
+    file_obj.flush();
+    file_obj.close();
+    if (!file_obj.good()) {
+        std::remove(temp_path.c_str());
+        if (error_message != nullptr) {
+            *error_message = "写入临时文件失败";
+        }
+        return false;
+    }
+    if (std::rename(temp_path.c_str(), final_path.c_str()) != 0) {
+        std::remove(temp_path.c_str());
+        if (error_message != nullptr) {
+            *error_message = "原子替换目标文件失败";
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool write_pseudo_slam_points_json(
     const std::vector<fast_image_solve::PointCoords>& merged_points,
-    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx,
+    std::string* error_message
 )
 {
     nlohmann::json points_json;
     points_json["pseudo_slam_points"] = nlohmann::json::array();
     for (const auto& point : merged_points) {
         auto checkerboard_it = checkerboard_info_by_idx.find(point.idx);
+        auto planning_checkerboard_it = planning_checkerboard_info_by_idx.find(point.idx);
         const int global_row = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.global_row : -1;
         const int global_col = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.global_col : -1;
         const int checkerboard_parity = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.checkerboard_parity : -1;
         const bool is_checkerboard_member =
             checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.is_checkerboard_member : false;
+        const int planning_global_row =
+            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ? planning_checkerboard_it->second.global_row : -1;
+        const int planning_global_col =
+            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ? planning_checkerboard_it->second.global_col : -1;
+        const int planning_checkerboard_parity =
+            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ? planning_checkerboard_it->second.checkerboard_parity : -1;
+        const bool is_planning_checkerboard_member =
+            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ?
+                planning_checkerboard_it->second.is_checkerboard_member :
+                false;
         points_json["pseudo_slam_points"].push_back(
             {
                 {"idx", point.idx},
@@ -2202,6 +2266,10 @@ void write_pseudo_slam_points_json(
                 {"global_col", global_col},
                 {"checkerboard_parity", checkerboard_parity},
                 {"is_checkerboard_member", is_checkerboard_member},
+                {"planning_global_row", planning_global_row},
+                {"planning_global_col", planning_global_col},
+                {"planning_checkerboard_parity", planning_checkerboard_parity},
+                {"is_planning_checkerboard_member", is_planning_checkerboard_member},
                 {"x", point.World_coord[0]},
                 {"y", point.World_coord[1]},
                 {"z", point.World_coord[2]},
@@ -2209,18 +2277,17 @@ void write_pseudo_slam_points_json(
             }
         );
     }
-    std::ofstream file_obj(pseudo_slam_points_json_file);
-    if (file_obj.is_open()) {
-        file_obj << points_json.dump(4);
-    }
+
+    return write_json_file_atomically(pseudo_slam_points_json_file, points_json, error_message);
 }
 
-void write_pseudo_slam_bind_path_json(
+bool write_pseudo_slam_bind_path_json(
     const std::vector<PseudoSlamGroupedAreaEntry>& area_entries,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
     const Cabin_Point& path_origin,
     float cabin_height,
-    float cabin_speed
+    float cabin_speed,
+    std::string* error_message
 )
 {
     nlohmann::json bind_path_json;
@@ -2281,10 +2348,7 @@ void write_pseudo_slam_bind_path_json(
         bind_path_json["areas"].push_back(area_json);
     }
 
-    std::ofstream file_obj(pseudo_slam_bind_path_json_file);
-    if (file_obj.is_open()) {
-        file_obj << bind_path_json.dump(4);
-    }
+    return write_json_file_atomically(pseudo_slam_bind_path_json_file, bind_path_json, error_message);
 }
 
 
@@ -3323,8 +3387,50 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         );
     }
 
-    write_pseudo_slam_points_json(merged_world_points, merged_checkerboard_info_by_idx);
-    write_pseudo_slam_bind_path_json(bind_area_entries, checkerboard_info_by_idx, path_origin, cabin_height, cabin_speed);
+    std::string pseudo_slam_points_error;
+    std::string pseudo_slam_bind_path_error;
+    const bool pseudo_slam_points_written = write_pseudo_slam_points_json(
+        merged_world_points,
+        merged_checkerboard_info_by_idx,
+        checkerboard_info_by_idx,
+        &pseudo_slam_points_error
+    );
+    const bool pseudo_slam_bind_path_written = write_pseudo_slam_bind_path_json(
+        bind_area_entries,
+        checkerboard_info_by_idx,
+        path_origin,
+        cabin_height,
+        cabin_speed,
+        &pseudo_slam_bind_path_error
+    );
+    if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written) {
+        if (!pseudo_slam_points_written) {
+            printCurrentTime();
+            printf(
+                "Cabin_log: pseudo_slam_points.json写入失败：%s\n",
+                pseudo_slam_points_error.c_str()
+            );
+        }
+        if (!pseudo_slam_bind_path_written) {
+            printCurrentTime();
+            printf(
+                "Cabin_log: pseudo_slam_bind_path.json写入失败：%s\n",
+                pseudo_slam_bind_path_error.c_str()
+            );
+        }
+        std::ostringstream oss;
+        oss << "扫描建图完成，但扫描产物发布不完整";
+        if (!pseudo_slam_points_written) {
+            oss << "，pseudo_slam_points.json写入失败";
+        }
+        if (!pseudo_slam_bind_path_written) {
+            oss << "，pseudo_slam_bind_path.json写入失败";
+        }
+        oss << "；扫描完成后未重置bind_execution_memory.json";
+        message = oss.str();
+        return false;
+    }
+
     const std::string scan_session_id = std::to_string(ros::Time::now().toNSec());
     BindExecutionMemory bind_execution_memory =
         reset_bind_execution_memory_for_scan_session(scan_session_id, path_origin);
@@ -3584,7 +3690,12 @@ bool run_current_area_bind_from_scan_test(std::string& message)
         return false;
     }
 
-    BindExecutionMemory bind_execution_memory = load_bind_execution_memory_json();
+    BindExecutionMemory bind_execution_memory;
+    std::string bind_execution_memory_error;
+    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
+        message = bind_execution_memory_error;
+        return false;
+    }
     int executed_group_count = 0;
     int skipped_group_count = 0;
     int group_index = 0;
@@ -3697,7 +3808,12 @@ bool run_live_visual_global_work(std::string& message)
     const int total_area_count = static_cast<int>(con_path.size());
     int executed_area_count = 0;
     int skipped_area_count = 0;
-    BindExecutionMemory bind_execution_memory = load_bind_execution_memory_json();
+    BindExecutionMemory bind_execution_memory;
+    std::string bind_execution_memory_error;
+    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
+        message = bind_execution_memory_error;
+        return false;
+    }
 
     for (int area_index = 0; area_index < total_area_count; ++area_index) {
         const Cabin_Point& cabin_point = con_path[area_index];
@@ -3956,7 +4072,12 @@ bool run_bind_from_scan(std::string& message)
     delay_time(AXIS_Z, path_origin_z);
 
     int area_index = 0;
-    BindExecutionMemory bind_execution_memory = load_bind_execution_memory_json();
+    BindExecutionMemory bind_execution_memory;
+    std::string bind_execution_memory_error;
+    if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
+        message = bind_execution_memory_error;
+        return false;
+    }
     for (const auto& area_json : areas_json) {
         area_index++;
         publish_area_progress(area_index, total_area_count, 0, false, false);
