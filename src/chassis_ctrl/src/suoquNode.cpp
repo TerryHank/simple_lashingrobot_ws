@@ -230,7 +230,7 @@ struct BindExecutionMemory
 };
 
 const char* kBindExecutionMemoryUnreadableError =
-    "bind_execution_memory.json已存在但无法读取，已阻止执行以避免重复绑扎";
+    "bind_execution_memory.json已存在但不可用（读取失败或内容损坏），已阻止执行以避免重复绑扎";
 
 struct PseudoSlamCaptureGateConfig
 {
@@ -2022,28 +2022,47 @@ bool load_bind_execution_memory_json(
         if (file_obj.fail() && !file_obj.eof()) {
             throw std::runtime_error("bind execution memory read failure");
         }
+        if (!memory_json.is_object()) {
+            throw std::runtime_error("bind execution memory root must be object");
+        }
+        if (!memory_json.contains("executed_points")) {
+            throw std::runtime_error("bind execution memory missing executed_points");
+        }
+        if (!memory_json["executed_points"].is_array()) {
+            throw std::runtime_error("bind execution memory executed_points must be array");
+        }
+
         memory.scan_session_id = memory_json.value("scan_session_id", "");
+        if (memory_json.contains("path_origin") && !memory_json["path_origin"].is_object()) {
+            throw std::runtime_error("bind execution memory path_origin must be object");
+        }
         if (memory_json.contains("path_origin") && memory_json["path_origin"].is_object()) {
             const auto& path_origin_json = memory_json["path_origin"];
             memory.path_origin.x = path_origin_json.value("x", 0.0f);
             memory.path_origin.y = path_origin_json.value("y", 0.0f);
         }
-        if (memory_json.contains("executed_points") && memory_json["executed_points"].is_array()) {
-            for (const auto& point_json : memory_json["executed_points"]) {
-                BindExecutionPointRecord point_record;
-                point_record.global_row = point_json.value("global_row", -1);
-                point_record.global_col = point_json.value("global_col", -1);
-                point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
-                point_record.world_x = point_json.value("world_x", 0.0f);
-                point_record.world_y = point_json.value("world_y", 0.0f);
-                point_record.world_z = point_json.value("world_z", 0.0f);
-                point_record.source_mode = point_json.value("source_mode", "");
-                memory.executed_points.push_back(point_record);
+
+        for (const auto& point_json : memory_json["executed_points"]) {
+            if (!point_json.is_object()) {
+                throw std::runtime_error("bind execution memory point must be object");
             }
+            if (!point_json.contains("global_row") || !point_json.contains("global_col")) {
+                throw std::runtime_error("bind execution memory point missing global coordinates");
+            }
+
+            BindExecutionPointRecord point_record;
+            point_record.global_row = point_json.at("global_row").get<int>();
+            point_record.global_col = point_json.at("global_col").get<int>();
+            point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+            point_record.world_x = point_json.value("world_x", 0.0f);
+            point_record.world_y = point_json.value("world_y", 0.0f);
+            point_record.world_z = point_json.value("world_z", 0.0f);
+            point_record.source_mode = point_json.value("source_mode", "");
+            memory.executed_points.push_back(point_record);
         }
     } catch (const std::exception&) {
         printCurrentTime();
-        printf("Cabin_log: bind_execution_memory.json读取或解析失败，阻止执行以避免重复绑扎。\n");
+        printf("Cabin_log: bind_execution_memory.json读取、解析或语义校验失败，阻止执行以避免重复绑扎。\n");
         error_message = kBindExecutionMemoryUnreadableError;
         memory = BindExecutionMemory{};
         return false;
@@ -3441,6 +3460,9 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
             "Cabin_log: 扫描完成后重置bind_execution_memory.json失败：%s\n",
             bind_execution_memory_error.c_str()
         );
+        message =
+            "扫描建图完成，但bind_execution_memory.json重置失败；为避免旧执行记忆与新扫描结果混用，已将本次扫描判定为失败";
+        return false;
     }
     publish_area_progress(total_area_count, total_area_count, total_area_count, false, true);
     std::ostringstream oss;

@@ -82,6 +82,29 @@ def extract_cpp_block(source_text, anchor):
 
 
 class PointAIOrderTest(unittest.TestCase):
+    def test_bind_execution_memory_load_rejects_semantically_corrupted_ledger(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        load_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_bind_execution_memory_json(",
+        )
+
+        self.assertIn("if (!memory_json.is_object())", load_function)
+        self.assertIn('if (!memory_json.contains("executed_points"))', load_function)
+        self.assertIn('!memory_json["executed_points"].is_array()', load_function)
+        self.assertIn(
+            'if (memory_json.contains("path_origin") && !memory_json["path_origin"].is_object())',
+            load_function,
+        )
+        self.assertIn("if (!point_json.is_object())", load_function)
+        self.assertIn('!point_json.contains("global_row")', load_function)
+        self.assertIn('!point_json.contains("global_col")', load_function)
+        self.assertRegex(
+            load_function,
+            re.compile(r'error_message\s*=\s*kBindExecutionMemoryUnreadableError;'),
+        )
+        self.assertRegex(load_function, re.compile(r"return false;"))
+
     def test_bind_execution_memory_load_is_fail_closed_when_existing_file_is_unreadable(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
@@ -133,6 +156,29 @@ class PointAIOrderTest(unittest.TestCase):
             scan_function.index("reset_bind_execution_memory_for_scan_session"),
             scan_function.index("if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written)"),
         )
+
+    def test_scan_rebuild_reports_failure_when_execution_memory_reset_fails(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+        )
+
+        self.assertIn(
+            "if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error))",
+            scan_function,
+        )
+        self.assertIn("bind_execution_memory.json重置失败", scan_function)
+        self.assertRegex(
+            scan_function,
+            re.compile(r'message\s*=\s*".*bind_execution_memory\.json重置失败.*";'),
+        )
+        failure_block = scan_function[
+            scan_function.index(
+                "if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error))"
+            ):
+        ]
+        self.assertRegex(failure_block, re.compile(r"return false;"))
 
     def test_live_visual_uses_planning_authoritative_checkerboard_fields(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
