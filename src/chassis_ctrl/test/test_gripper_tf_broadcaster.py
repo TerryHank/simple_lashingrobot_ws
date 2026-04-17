@@ -100,6 +100,64 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertEqual(loaded["translation_mm"], {"x": 100.0, "y": 200.0, "z": -300.0})
         self.assertEqual(loaded["translation"], {"x": -0.1, "y": -0.2, "z": 0.3})
 
+    def test_with_updated_translation_mm_refreshes_runtime_and_publish_values(self):
+        config = {
+            "parent_frame": "Scepter_depth_frame",
+            "child_frame": "gripper_frame",
+            "translation_mm": {"x": 100.0, "y": 200.0, "z": -300.0},
+            "translation": {"x": -0.1, "y": -0.2, "z": 0.3},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
+        }
+
+        updated = gripper_tf_broadcaster.with_updated_translation_mm(
+            config,
+            275.0,
+            84.0,
+            -735.0,
+        )
+
+        self.assertEqual(
+            updated["translation_mm"],
+            {"x": 275.0, "y": 84.0, "z": -735.0},
+        )
+        self.assertEqual(
+            updated["translation"],
+            {"x": -0.275, "y": -0.084, "z": 0.735},
+        )
+        self.assertEqual(updated["rotation_rpy"], config["rotation_rpy"])
+
+    def test_save_gripper_tf_config_persists_updated_translation_mm(self):
+        config = {
+            "parent_frame": "Scepter_depth_frame",
+            "child_frame": "gripper_frame",
+            "translation_mm": {"x": 275.0, "y": 84.0, "z": -735.0},
+            "translation": {"x": -0.275, "y": -0.084, "z": 0.735},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "gripper_tf.yaml"
+            gripper_tf_broadcaster.save_gripper_tf_config(str(config_path), config)
+            reloaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(reloaded["parent_frame"], "Scepter_depth_frame")
+        self.assertEqual(reloaded["child_frame"], "gripper_frame")
+        self.assertEqual(
+            reloaded["translation_mm"],
+            {"x": 275.0, "y": 84.0, "z": -735.0},
+        )
+        self.assertNotIn("translation", reloaded)
+
+    def test_broadcaster_subscribes_to_legacy_offset_topic_for_live_updates(self):
+        script_text = (CHASSIS_CTRL_DIR / "scripts" / "gripper_tf_broadcaster.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('LEGACY_OFFSET_TOPIC = "/web/fast_image_solve/set_pointAI_offset"', script_text)
+        self.assertIn("rospy.Subscriber(LEGACY_OFFSET_TOPIC, Pose", script_text)
+        self.assertIn("实时更新TF平移标定", script_text)
+        self.assertIn("无需重启节点", script_text)
+
     def test_build_transform_uses_parent_child_and_translation(self):
         config = {
             "parent_frame": "Scepter_depth_frame",

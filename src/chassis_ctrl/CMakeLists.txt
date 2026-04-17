@@ -7,6 +7,7 @@ find_package(catkin REQUIRED COMPONENTS
   rosgraph_msgs
   roscpp
   rospy
+  sensor_msgs
   std_msgs
   tf2_geometry_msgs
   tf2_ros
@@ -65,12 +66,13 @@ generate_messages(
   fast_image_solve
   geometry_msgs
   rosgraph_msgs
+  sensor_msgs
   std_msgs
   actionlib_msgs
 )
 
 catkin_package(
-  CATKIN_DEPENDS fast_image_solve geometry_msgs rosgraph_msgs roscpp rospy std_msgs tf2_geometry_msgs tf2_ros message_runtime actionlib_msgs
+  CATKIN_DEPENDS fast_image_solve geometry_msgs rosgraph_msgs roscpp rospy sensor_msgs std_msgs tf2_geometry_msgs tf2_ros message_runtime actionlib_msgs
 )
 
 include_directories(

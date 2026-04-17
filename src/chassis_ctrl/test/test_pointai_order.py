@@ -105,12 +105,14 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = suoqu_path.read_text(encoding="utf-8")
         self.assertIn("publish_area_progress(", suoqu_text)
 
-    def test_suoqu_skips_area_when_adaptive_height_has_no_usable_vision_points(self):
+    def test_suoqu_slam_execution_path_no_longer_uses_live_visual_calls(self):
         suoqu_path = CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp"
         suoqu_text = suoqu_path.read_text(encoding="utf-8")
-        self.assertIn("bool adaptive_height(", suoqu_text)
-        self.assertIn("if (!adaptive_height(", suoqu_text)
-        self.assertIn("自适应高度视觉无可用坐标，跳过当前区域", suoqu_text)
+        self.assertNotIn("bool adaptive_height(", suoqu_text)
+        self.assertNotIn("if (!adaptive_height(", suoqu_text)
+        self.assertNotIn("开始视觉识别", suoqu_text)
+        self.assertNotIn("parse_bind_height_excess_mm", suoqu_text)
+        self.assertNotIn("adjust_cabin_height_for_bind_excess", suoqu_text)
 
     def test_moduan_reports_no_bindable_points_as_skipped_not_completed(self):
         moduan_path = CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp"
@@ -154,15 +156,14 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("def sort_matrix_points(", pointai_text)
         self.assertIn("def sort_matrix_points(", vision_text)
 
-    def test_suoqu_retries_bind_after_height_excess_adjustment(self):
+    def test_suoqu_no_longer_retries_bind_after_height_excess_adjustment(self):
         suoqu_path = CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp"
         suoqu_text = suoqu_path.read_text(encoding="utf-8")
-        self.assertIn("parse_bind_height_excess_mm", suoqu_text)
-        self.assertIn("adjust_cabin_height_for_bind_excess", suoqu_text)
-        self.assertIn("max_bind_height_adjust_retries", suoqu_text)
-        self.assertIn("TCP_Move[3] = adjusted_height", suoqu_text)
-        self.assertIn("adjusted_height = old_height - height_excess_mm", suoqu_text)
-        self.assertIn("continue", suoqu_text)
+        self.assertNotIn("parse_bind_height_excess_mm", suoqu_text)
+        self.assertNotIn("adjust_cabin_height_for_bind_excess", suoqu_text)
+        self.assertNotIn("max_bind_height_adjust_retries", suoqu_text)
+        self.assertNotIn("TCP_Move[3] = adjusted_height", suoqu_text)
+        self.assertNotIn("adjusted_height = old_height - height_excess_mm", suoqu_text)
 
     def test_suoqu_frame_generate_logs_non_heartbeat_frames_and_detects_peer_close(self):
         suoqu_path = CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp"
@@ -611,7 +612,7 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("y_value + self.calibration_offset_y", vision_text)
         self.assertNotIn("z_value + self.calibration_offset_z", vision_text)
 
-    def test_calibration_offset_callback_updates_gripper_tf_translation_mm(self):
+    def test_calibration_offset_callback_keeps_tf_yaml_unchanged_and_defers_to_broadcaster(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
         with tempfile.TemporaryDirectory() as temp_dir:
             tf_config_path = Path(temp_dir) / "gripper_tf.yaml"
@@ -639,7 +640,7 @@ class PointAIOrderTest(unittest.TestCase):
             config = yaml.safe_load(tf_config_path.read_text(encoding="utf-8"))
             self.assertEqual(
                 config["translation_mm"],
-                {"x": 123.0, "y": 456.0, "z": 789.0},
+                {"x": 1.0, "y": 2.0, "z": 3.0},
             )
 
     def test_lashing_config_only_keeps_height_threshold(self):
@@ -651,16 +652,20 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn('"cal_y"', config_text)
         self.assertNotIn('"cal_z"', config_text)
 
-    def test_visual_scripts_write_tf_translation_mm_from_legacy_topic(self):
+    def test_visual_scripts_keep_legacy_offset_topic_but_defer_live_tf_updates_to_broadcaster(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
         vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        broadcaster_text = (CHASSIS_CTRL_DIR / "scripts" / "gripper_tf_broadcaster.py").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("gripper_tf.yaml", pointai_text)
-        self.assertIn("translation_mm", pointai_text)
-        self.assertIn("gripper_tf.yaml", vision_text)
-        self.assertIn("translation_mm", vision_text)
-        self.assertNotIn("已忽略旧的set_pointAI_offset请求", pointai_text)
-        self.assertNotIn("已忽略旧的set_pointAI_offset请求", vision_text)
+        self.assertIn("/web/fast_image_solve/set_pointAI_offset", pointai_text)
+        self.assertIn("/web/fast_image_solve/set_pointAI_offset", vision_text)
+        self.assertIn("由gripper_tf_broadcaster实时处理", pointai_text)
+        self.assertIn("由gripper_tf_broadcaster实时处理", vision_text)
+        self.assertNotIn("请重启pointai_tf_verify.launch后验证", pointai_text)
+        self.assertNotIn("请重启pointai_tf_verify.launch后验证", vision_text)
+        self.assertIn("LEGACY_OFFSET_TOPIC", broadcaster_text)
 
     def test_debug_and_transfer_logs_reference_tf_translation_calibration(self):
         debug_button_text = (CHASSIS_CTRL_DIR / "scripts" / "debug_button_node.py").read_text(
@@ -707,6 +712,22 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('if (areas_json.empty())', suoqu_text)
         self.assertIn("pseudo_slam_bind_path.json没有可执行区域", suoqu_text)
 
+    def test_start_work_supports_precomputed_and_live_visual_execution_modes(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        topics_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("enum class GlobalExecutionMode", suoqu_text)
+        self.assertIn("kSlamPrecomputed", suoqu_text)
+        self.assertIn("kLiveVisual", suoqu_text)
+        self.assertIn("run_bind_from_scan(res.message)", suoqu_text)
+        self.assertIn("run_live_visual_global_work(res.message)", suoqu_text)
+        self.assertIn('sg_live_visual_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg")', suoqu_text)
+        self.assertIn("/web/cabin/set_execution_mode", suoqu_text)
+        self.assertIn("当前全局执行模式为slam_precomputed", suoqu_text)
+        self.assertIn("/web/cabin/set_execution_mode", topics_text)
+        self.assertIn("live_visual", topics_text)
+        self.assertIn("slam_precomputed", topics_text)
+
     def test_pseudo_slam_bind_path_records_checkerboard_grid_metadata(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
@@ -726,6 +747,57 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('bind_path_json["path_origin"]', suoqu_text)
         self.assertIn('bind_path_json["path_origin"]["x"]', suoqu_text)
         self.assertIn("bind_from_scan先回到规划原点", suoqu_text)
+
+    def test_pseudo_slam_scan_retries_visual_until_five_points_are_detected(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr int kPseudoSlamScanMinPointCount = 5;", suoqu_text)
+        self.assertIn("constexpr double kPseudoSlamScanRetryIntervalSec = 0.2;", suoqu_text)
+        self.assertIn("const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();", suoqu_text)
+        self.assertIn("while (ros::ok())", suoqu_text)
+        self.assertIn("srv.response.PointCoordinatesArray.size()", suoqu_text)
+        self.assertIn("pseudo_slam scan_only区域%d白色矩形内点数%d<%d，继续轮询视觉。", suoqu_text)
+        self.assertIn("config.scan_min_point_count", suoqu_text)
+        self.assertIn("ros::Duration(config.scan_retry_interval_sec).sleep();", suoqu_text)
+
+    def test_pseudo_slam_scan_uses_final_capture_gate_before_requesting_visual(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn('const std::string kPseudoSlamCaptureGateImageTopic = "/Scepter/ir/image_raw";', suoqu_text)
+        self.assertIn("constexpr int kPseudoSlamCaptureGateStableSampleCount = 3;", suoqu_text)
+        self.assertIn("constexpr double kPseudoSlamCaptureGatePollIntervalSec = 0.1;", suoqu_text)
+        self.assertIn("constexpr double kPseudoSlamCaptureGateImageMeanDiffThreshold = 2.5;", suoqu_text)
+        self.assertIn("void pseudo_slam_ir_image_callback(const sensor_msgs::ImageConstPtr& msg)", suoqu_text)
+        self.assertIn("bool wait_for_pseudo_slam_capture_gate(", suoqu_text)
+        self.assertIn("pseudo_slam scan_only区域%d等待最终采集门通过", suoqu_text)
+        self.assertIn("pseudo_slam scan_only区域%d最终采集门已通过", suoqu_text)
+
+    def test_pseudo_slam_capture_gate_waits_for_new_ir_frame_without_resetting_stability(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("const bool image_sample_updated = current_roi_stamp != previous_roi_stamp;", suoqu_text)
+        self.assertIn("if (has_previous_frame && !image_sample_updated)", suoqu_text)
+        self.assertIn("const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();", suoqu_text)
+        self.assertIn("ros::Duration(config.poll_interval_sec).sleep();", suoqu_text)
+        self.assertNotIn(
+            "if (target_reached && motion_stopped && pose_delta_stable && image_stable) {\n"
+            "            stable_sample_count++;\n"
+            "        } else {\n"
+            "            stable_sample_count = 0;\n"
+            "        }",
+            suoqu_text,
+        )
+
+    def test_pseudo_slam_capture_gate_supports_hot_rosparam_overrides(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("struct PseudoSlamCaptureGateConfig", suoqu_text)
+        self.assertIn("load_pseudo_slam_capture_gate_config()", suoqu_text)
+        self.assertIn('ros::param::param("~pseudo_slam_capture_gate_stable_sample_count"', suoqu_text)
+        self.assertIn('ros::param::param("~pseudo_slam_capture_gate_poll_interval_sec"', suoqu_text)
+        self.assertIn('ros::param::param("~pseudo_slam_capture_gate_image_mean_diff_threshold"', suoqu_text)
+        self.assertIn('ros::param::param("~pseudo_slam_scan_min_point_count"', suoqu_text)
+        self.assertIn('ros::param::param("~pseudo_slam_scan_retry_interval_sec"', suoqu_text)
 
     def test_suoqu_uses_checkerboard_jump_bind_for_precomputed_global_execution(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -845,6 +917,18 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("adjust_cabin_height_for_precomputed_bind_shift", suoqu_text)
         self.assertNotIn("当前组点位距虎口高度超限，索驱Z自动微调", suoqu_text)
         self.assertIn("/moduan/sg_precomputed_fast", suoqu_text)
+
+    def test_suoqu_precomputed_bind_execution_has_no_extra_sleep_delays(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        current_area_section = suoqu_text.split(
+            "bool run_current_area_bind_from_scan_test(std::string& message)"
+        )[1].split("bool run_bind_from_scan(std::string& message)")[0]
+        global_bind_section = suoqu_text.split(
+            "bool run_bind_from_scan(std::string& message)"
+        )[1].split("bool startPseudoSlamScan")[0]
+
+        self.assertNotIn("ros::Duration(0.2).sleep();", current_area_section)
+        self.assertNotIn("ros::Duration(0.2).sleep();", global_bind_section)
 
     def test_moduan_supports_fast_precomputed_bind_service(self):
         moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")

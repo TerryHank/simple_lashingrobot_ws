@@ -18,6 +18,8 @@
 #include <cctype>
 #include <tuple>
 #include <limits>
+#include <mutex>
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
 #include <pthread.h>
@@ -30,6 +32,7 @@
 #include <omp.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
+#include <sensor_msgs/Image.h>
 #include <chassis_ctrl/motion.h>
 #include "chassis_ctrl/cabin_upload.h" //用于上传索驱模块反馈
 #include "chassis_ctrl/MotionControl.h"
@@ -71,6 +74,7 @@ std::mutex cabin_state_mutex;
 // 定义互斥锁避免同一时刻对TCP写入产生粘包现象
 std::mutex socket_mutex;
 std::mutex pseudo_slam_tf_points_mutex;
+std::mutex pseudo_slam_ir_image_mutex;
 
 [[noreturn]] void emergency_exit_with_flush(int exit_code)
 {
@@ -115,16 +119,11 @@ uint8_t TCP_Move_Frame[36]={0};
 uint8_t FtoU_register[4]={0};//用于暂时储存float数转为成的uint数
 // 数组各个值依次为速度（mm/s），xyz轴运动到的位置（mm），三个转轴的位置（角度）
 float TCP_Move[7]={200,0,0,400,0,0,0};//速度,x,y,z,a,b,c
-const std::string kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
-constexpr int max_bind_height_adjust_retries = 3;
-constexpr float kMinCabinHeightMm = 350.0f;
 constexpr int TCP_TIMEOUT_SEC = 5;
 constexpr int RECV_BUFFER_SIZE = 256;
 constexpr int WRITE_DELAY_MS = 300;
 constexpr int DELAY_TIME_TIMEOUT_SEC = 30;
 constexpr int DELAY_TIME_LOG_INTERVAL_SEC = 2;
-constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
-constexpr uint8_t kProcessImageModeBindCheck = 2;
 constexpr uint8_t kProcessImageModeScanOnly = 3;
 constexpr float kTravelMaxXMm = 320.0f;
 constexpr float kTravelMaxYMm = 320.0f;
@@ -133,6 +132,38 @@ constexpr float kPseudoSlamPlanningZOutlierMm = 50.0f;
 constexpr float kPseudoSlamCheckerboardAxisThresholdMm = 80.0f;
 constexpr float kCurrentAreaBindTestCabinSpeedMultiplier = 1.5f;
 constexpr float kCurrentAreaBindTestMinCabinSpeedMmPerSec = 450.0f;
+constexpr int kPseudoSlamScanMinPointCount = 5;
+constexpr double kPseudoSlamScanRetryIntervalSec = 0.2;
+const std::string kPseudoSlamCaptureGateImageTopic = "/Scepter/ir/image_raw";
+constexpr int kPseudoSlamCaptureGateStableSampleCount = 3;
+constexpr double kPseudoSlamCaptureGatePollIntervalSec = 0.1;
+constexpr double kPseudoSlamCaptureGateImageMeanDiffThreshold = 2.5;
+constexpr double kPseudoSlamCaptureGateLogIntervalSec = 1.0;
+constexpr float kPseudoSlamCaptureGateTargetToleranceMm = 25.0f;
+constexpr float kPseudoSlamCaptureGatePoseDeltaToleranceMm = 1.0f;
+constexpr int kPseudoSlamCaptureGateRoiMinX = 20;
+constexpr int kPseudoSlamCaptureGateRoiMaxX = 620;
+constexpr int kPseudoSlamCaptureGateRoiMinY = 114;
+constexpr int kPseudoSlamCaptureGateRoiMaxY = 460;
+
+enum class GlobalExecutionMode
+{
+    kSlamPrecomputed = 0,
+    kLiveVisual = 1,
+};
+
+std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kSlamPrecomputed)};
+
+const char* global_execution_mode_name(GlobalExecutionMode mode)
+{
+    switch (mode) {
+        case GlobalExecutionMode::kLiveVisual:
+            return "live_visual";
+        case GlobalExecutionMode::kSlamPrecomputed:
+        default:
+            return "slam_precomputed";
+    }
+}
 
 // 由计算模块得出的索驱路径点的X序列
 struct Cabin_Point
@@ -169,6 +200,63 @@ struct PseudoSlamCheckerboardInfo
     bool is_checkerboard_member = false;
 };
 
+struct PseudoSlamCaptureGateConfig
+{
+    int scan_min_point_count = kPseudoSlamScanMinPointCount;
+    double scan_retry_interval_sec = kPseudoSlamScanRetryIntervalSec;
+    int stable_sample_count = kPseudoSlamCaptureGateStableSampleCount;
+    double poll_interval_sec = kPseudoSlamCaptureGatePollIntervalSec;
+    double image_mean_diff_threshold = kPseudoSlamCaptureGateImageMeanDiffThreshold;
+    double log_interval_sec = kPseudoSlamCaptureGateLogIntervalSec;
+    float target_tolerance_mm = kPseudoSlamCaptureGateTargetToleranceMm;
+    float pose_delta_tolerance_mm = kPseudoSlamCaptureGatePoseDeltaToleranceMm;
+    int roi_min_x = kPseudoSlamCaptureGateRoiMinX;
+    int roi_max_x = kPseudoSlamCaptureGateRoiMaxX;
+    int roi_min_y = kPseudoSlamCaptureGateRoiMinY;
+    int roi_max_y = kPseudoSlamCaptureGateRoiMaxY;
+};
+
+PseudoSlamCaptureGateConfig load_pseudo_slam_capture_gate_config()
+{
+    PseudoSlamCaptureGateConfig config;
+    ros::param::param("~pseudo_slam_scan_min_point_count", config.scan_min_point_count, kPseudoSlamScanMinPointCount);
+    ros::param::param("~pseudo_slam_scan_retry_interval_sec", config.scan_retry_interval_sec, kPseudoSlamScanRetryIntervalSec);
+    ros::param::param("~pseudo_slam_capture_gate_stable_sample_count", config.stable_sample_count, kPseudoSlamCaptureGateStableSampleCount);
+    ros::param::param("~pseudo_slam_capture_gate_poll_interval_sec", config.poll_interval_sec, kPseudoSlamCaptureGatePollIntervalSec);
+    ros::param::param("~pseudo_slam_capture_gate_image_mean_diff_threshold", config.image_mean_diff_threshold, kPseudoSlamCaptureGateImageMeanDiffThreshold);
+    ros::param::param("~pseudo_slam_capture_gate_log_interval_sec", config.log_interval_sec, kPseudoSlamCaptureGateLogIntervalSec);
+    ros::param::param("~pseudo_slam_capture_gate_target_tolerance_mm", config.target_tolerance_mm, kPseudoSlamCaptureGateTargetToleranceMm);
+    ros::param::param("~pseudo_slam_capture_gate_pose_delta_tolerance_mm", config.pose_delta_tolerance_mm, kPseudoSlamCaptureGatePoseDeltaToleranceMm);
+    ros::param::param("~pseudo_slam_capture_gate_roi_min_x", config.roi_min_x, kPseudoSlamCaptureGateRoiMinX);
+    ros::param::param("~pseudo_slam_capture_gate_roi_max_x", config.roi_max_x, kPseudoSlamCaptureGateRoiMaxX);
+    ros::param::param("~pseudo_slam_capture_gate_roi_min_y", config.roi_min_y, kPseudoSlamCaptureGateRoiMinY);
+    ros::param::param("~pseudo_slam_capture_gate_roi_max_y", config.roi_max_y, kPseudoSlamCaptureGateRoiMaxY);
+
+    config.scan_min_point_count = std::max(1, config.scan_min_point_count);
+    config.scan_retry_interval_sec = std::max(0.01, config.scan_retry_interval_sec);
+    config.stable_sample_count = std::max(1, config.stable_sample_count);
+    config.poll_interval_sec = std::max(0.01, config.poll_interval_sec);
+    config.image_mean_diff_threshold = std::max(0.0, config.image_mean_diff_threshold);
+    config.log_interval_sec = std::max(0.1, config.log_interval_sec);
+    config.target_tolerance_mm = std::max(0.0f, config.target_tolerance_mm);
+    config.pose_delta_tolerance_mm = std::max(0.0f, config.pose_delta_tolerance_mm);
+    return config;
+}
+
+GlobalExecutionMode get_global_execution_mode()
+{
+    const int mode_value = global_execution_mode.load();
+    if (mode_value == static_cast<int>(GlobalExecutionMode::kLiveVisual)) {
+        return GlobalExecutionMode::kLiveVisual;
+    }
+    return GlobalExecutionMode::kSlamPrecomputed;
+}
+
+void set_global_execution_mode(GlobalExecutionMode mode)
+{
+    global_execution_mode.store(static_cast<int>(mode));
+}
+
 // 由计算模块得出的索驱路径点数量
 int cabin_path_num;
 // 全局变量，tcp套接字
@@ -194,18 +282,18 @@ ros::Publisher pub_pseudo_slam_markers;
 // 索驱状态被发布的全局变量
 chassis_ctrl::cabin_upload cabin_data_upload;
 fast_image_solve::ProcessImage srv;
-std_srvs::Trigger Trigger_srv;
 chassis_ctrl::MotionControl motion_srv;
 ros::ServiceClient AI_client;
-ros::ServiceClient sg_client;
+ros::ServiceClient sg_live_visual_client;
 ros::ServiceClient sg_precomputed_client;
 ros::ServiceClient sg_precomputed_fast_client;
-ros::ServiceClient save_image_client;
 ros::ServiceClient motion_client;
 std::unique_ptr<tf2_ros::TransformBroadcaster> cabin_tf_broadcaster;
 std::shared_ptr<tf2_ros::Buffer> tf_buffer_ptr;
 std::unique_ptr<tf2_ros::TransformListener> tf_listener_ptr;
 std::vector<fast_image_solve::PointCoords> pseudo_slam_tf_points;
+std::vector<uint8_t> pseudo_slam_ir_roi_frame;
+ros::Time pseudo_slam_ir_roi_stamp;
 
 // 暂停中断标志位 0为未启用暂停中断或恢复，1为启用暂停中断
 int handle_pause_interrupt = 0;
@@ -274,8 +362,207 @@ void publish_area_progress(
     pub_area_progress.publish(progress_msg);
 }
 
-// 索驱全局移动函数声明：实现连续移动
-void cabin_global_discontinuous_move(std::vector<Cabin_Point>& Cabin_Coor,float cabin_height,float cabin_speed);
+std::vector<uint8_t> build_pseudo_slam_ir_roi_frame(const sensor_msgs::ImageConstPtr& msg)
+{
+    if (!msg || msg->width == 0 || msg->height == 0 || msg->data.empty()) {
+        return {};
+    }
+
+    const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
+    const int width = static_cast<int>(msg->width);
+    const int height = static_cast<int>(msg->height);
+    const int roi_min_x = std::max(0, std::min(config.roi_min_x, width));
+    const int roi_max_x = std::max(roi_min_x, std::min(config.roi_max_x, width));
+    const int roi_min_y = std::max(0, std::min(config.roi_min_y, height));
+    const int roi_max_y = std::max(roi_min_y, std::min(config.roi_max_y, height));
+    if (roi_min_x >= roi_max_x || roi_min_y >= roi_max_y || msg->step == 0) {
+        return {};
+    }
+
+    const std::string encoding = msg->encoding;
+    const bool is_mono16 = encoding == "mono16" || encoding == "16UC1" || encoding == "16SC1";
+    const bool is_color8 =
+        encoding == "rgb8" || encoding == "bgr8" || encoding == "rgba8" || encoding == "bgra8";
+    const size_t inferred_bytes_per_pixel =
+        width > 0 ? std::max<size_t>(1, static_cast<size_t>(msg->step) / static_cast<size_t>(width)) : 1;
+    const size_t bytes_per_pixel = is_mono16 ? 2 : inferred_bytes_per_pixel;
+
+    std::vector<uint8_t> roi_frame;
+    roi_frame.reserve(static_cast<size_t>(roi_max_x - roi_min_x) * static_cast<size_t>(roi_max_y - roi_min_y));
+
+    for (int y = roi_min_y; y < roi_max_y; ++y) {
+        const size_t row_offset = static_cast<size_t>(y) * static_cast<size_t>(msg->step);
+        if (row_offset >= msg->data.size()) {
+            break;
+        }
+        for (int x = roi_min_x; x < roi_max_x; ++x) {
+            const size_t pixel_offset = row_offset + static_cast<size_t>(x) * bytes_per_pixel;
+            if (pixel_offset >= msg->data.size()) {
+                roi_frame.push_back(0);
+                continue;
+            }
+
+            uint8_t gray_value = 0;
+            if (is_mono16) {
+                if (pixel_offset + 1 < msg->data.size()) {
+                    const uint16_t mono16_value =
+                        static_cast<uint16_t>(msg->data[pixel_offset]) |
+                        (static_cast<uint16_t>(msg->data[pixel_offset + 1]) << 8);
+                    gray_value = static_cast<uint8_t>(mono16_value >> 8);
+                }
+            } else if (is_color8 && pixel_offset + 2 < msg->data.size()) {
+                const uint16_t channel_sum =
+                    static_cast<uint16_t>(msg->data[pixel_offset]) +
+                    static_cast<uint16_t>(msg->data[pixel_offset + 1]) +
+                    static_cast<uint16_t>(msg->data[pixel_offset + 2]);
+                gray_value = static_cast<uint8_t>(channel_sum / 3);
+            } else {
+                gray_value = msg->data[pixel_offset];
+            }
+            roi_frame.push_back(gray_value);
+        }
+    }
+    return roi_frame;
+}
+
+void pseudo_slam_ir_image_callback(const sensor_msgs::ImageConstPtr& msg)
+{
+    std::vector<uint8_t> roi_frame = build_pseudo_slam_ir_roi_frame(msg);
+    if (roi_frame.empty()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(pseudo_slam_ir_image_mutex);
+    pseudo_slam_ir_roi_frame = std::move(roi_frame);
+    pseudo_slam_ir_roi_stamp = msg->header.stamp;
+}
+
+double compute_mean_abs_diff(
+    const std::vector<uint8_t>& lhs,
+    const std::vector<uint8_t>& rhs
+)
+{
+    if (lhs.empty() || rhs.empty() || lhs.size() != rhs.size()) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    double diff_sum = 0.0;
+    for (size_t i = 0; i < lhs.size(); ++i) {
+        diff_sum += std::abs(static_cast<int>(lhs[i]) - static_cast<int>(rhs[i]));
+    }
+    return diff_sum / static_cast<double>(lhs.size());
+}
+
+bool wait_for_pseudo_slam_capture_gate(
+    int area_index,
+    const Cabin_Point& cabin_point,
+    float cabin_height
+)
+{
+    printCurrentTime();
+    printf("Cabin_log: pseudo_slam scan_only区域%d等待最终采集门通过（机械静止+画面静止）。\n", area_index);
+
+    bool has_previous_state = false;
+    bool has_previous_frame = false;
+    Cabin_State previous_state{};
+    std::vector<uint8_t> previous_roi_frame;
+    ros::Time previous_roi_stamp;
+    int stable_sample_count = 0;
+    double latest_mean_diff = std::numeric_limits<double>::infinity();
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+
+    while (ros::ok()) {
+        const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
+        Cabin_State current_state{};
+        {
+            std::lock_guard<std::mutex> lock(cabin_state_mutex);
+            current_state = cabin_state;
+        }
+
+        std::vector<uint8_t> current_roi_frame;
+        ros::Time current_roi_stamp;
+        {
+            std::lock_guard<std::mutex> lock(pseudo_slam_ir_image_mutex);
+            current_roi_frame = pseudo_slam_ir_roi_frame;
+            current_roi_stamp = pseudo_slam_ir_roi_stamp;
+        }
+
+        const bool target_reached =
+            std::abs(current_state.X - cabin_point.x) <= config.target_tolerance_mm &&
+            std::abs(current_state.Y - cabin_point.y) <= config.target_tolerance_mm &&
+            std::abs(current_state.Z - cabin_height) <= config.target_tolerance_mm;
+        const bool motion_stopped = current_state.motion_status == 0;
+        const bool pose_delta_stable =
+            has_previous_state &&
+            std::abs(current_state.X - previous_state.X) <= config.pose_delta_tolerance_mm &&
+            std::abs(current_state.Y - previous_state.Y) <= config.pose_delta_tolerance_mm &&
+            std::abs(current_state.Z - previous_state.Z) <= config.pose_delta_tolerance_mm;
+        const bool image_sample_updated = current_roi_stamp != previous_roi_stamp;
+
+        bool image_stable = false;
+        if (!current_roi_frame.empty() &&
+            has_previous_frame &&
+            image_sample_updated &&
+            current_roi_frame.size() == previous_roi_frame.size()) {
+            latest_mean_diff = compute_mean_abs_diff(current_roi_frame, previous_roi_frame);
+            image_stable = latest_mean_diff <= config.image_mean_diff_threshold;
+        } else if (current_roi_frame.empty()) {
+            latest_mean_diff = std::numeric_limits<double>::infinity();
+        }
+
+        const bool capture_gate_sample_stable =
+            target_reached && motion_stopped && pose_delta_stable && image_stable;
+        if (capture_gate_sample_stable) {
+            stable_sample_count++;
+        } else if (image_sample_updated || current_roi_frame.empty()) {
+            stable_sample_count = 0;
+        }
+
+        if (stable_sample_count >= config.stable_sample_count) {
+            printCurrentTime();
+            printf("Cabin_log: pseudo_slam scan_only区域%d最终采集门已通过，开始请求视觉。\n", area_index);
+            return true;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const double log_elapsed_sec =
+            std::chrono::duration_cast<std::chrono::duration<double>>(now - last_log_time).count();
+        if (log_elapsed_sec >= config.log_interval_sec) {
+            printCurrentTime();
+            printf(
+                "Cabin_log: pseudo_slam scan_only区域%d等待稳定中，motion_status=%d，目标误差(dx,dy,dz)=(%.2f,%.2f,%.2f)，图像均差=%.3f，连续稳定样本=%d/%d。\n",
+                area_index,
+                current_state.motion_status,
+                std::abs(current_state.X - cabin_point.x),
+                std::abs(current_state.Y - cabin_point.y),
+                std::abs(current_state.Z - cabin_height),
+                latest_mean_diff,
+                stable_sample_count,
+                config.stable_sample_count
+            );
+            last_log_time = now;
+        }
+
+        if (has_previous_frame && !image_sample_updated) {
+            previous_state = current_state;
+            has_previous_state = true;
+            ros::Duration(config.poll_interval_sec).sleep();
+            continue;
+        }
+
+        previous_state = current_state;
+        has_previous_state = true;
+        if (!current_roi_frame.empty()) {
+            previous_roi_frame = std::move(current_roi_frame);
+            previous_roi_stamp = current_roi_stamp;
+            has_previous_frame = true;
+        }
+        ros::Duration(config.poll_interval_sec).sleep();
+    }
+    return false;
+}
+
 typedef struct {
     float Kp;          // 比例系数
     float Ki;          // 积分系数
@@ -2095,266 +2382,16 @@ void checkerboard_jump_bind_callback(const std_msgs::Bool &debug_mes)
     }
 }
 
-// 接收视觉发布的绑扎点信息 
-void from_camera_get_lashing_point(const chassis_ctrl::motion &input_msg)
+void global_execution_mode_callback(const std_msgs::Float32 &debug_mes)
 {
-    transform_msg.p_index = 0; 
-    transform_msg.p_count = input_msg.p_count;
-    transform_msg.data = input_msg.data;
-    
-    if(transform_msg.p_count != 0)
-    {
-        printCurrentTime();
-        printf("Camera_log:当前识别%d个点，",transform_msg.p_count);
-        for (int i = 0;i<transform_msg.p_count; i++)
-        {
-            printf("第%d个点的坐标(%f,%f,%f)mm、角度:%f°)",i+1,transform_msg.data[(4*i)],transform_msg.data[(4*i+1)],transform_msg.data[(4*i+2)],transform_msg.data[(4*i+3)]);
-            if (i == transform_msg.p_count - 1)
-                printf("。");
-            else if(i < transform_msg.p_count) 
-               printf(",");
-        }
-        printf("\n");
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-}
-
-bool parse_bind_height_excess_mm(const std::string& message, float& height_excess_mm)
-{
-    const std::size_t key_pos = message.find(kBindHeightExcessMessageKey);
-    if (key_pos == std::string::npos) {
-        return false;
-    }
-
-    const char* value_start = message.c_str() + key_pos + kBindHeightExcessMessageKey.size();
-    char* value_end = nullptr;
-    height_excess_mm = std::strtof(value_start, &value_end);
-    return value_end != value_start && height_excess_mm > 0.0f;
-}
-
-bool adjust_cabin_height_for_bind_excess(float height_excess_mm)
-{
-    if (height_excess_mm <= 0.0f) {
-        return false;
-    }
-
-    const float old_height = TCP_Move[3];
-    float adjusted_height = old_height - height_excess_mm;
-    if (adjusted_height < kMinCabinHeightMm) {
-        adjusted_height = kMinCabinHeightMm;
-    }
-
-    if (std::fabs(adjusted_height - old_height) < 0.1f) {
-        printCurrentTime();
-        printf(
-            "Cabin_Warn: 绑扎视觉超高 %.2fmm，但索驱Z已接近下限 %.1fmm，无法继续下调。\n",
-            height_excess_mm,
-            kMinCabinHeightMm
-        );
-        return false;
-    }
-
+    const GlobalExecutionMode mode =
+        debug_mes.data >= 1.0f ? GlobalExecutionMode::kLiveVisual : GlobalExecutionMode::kSlamPrecomputed;
+    set_global_execution_mode(mode);
     printCurrentTime();
     printf(
-        "Cabin_log: 绑扎视觉点超出视觉高度阈值，最大超高 %.2fmm，索驱Z从 %.2f 微调到 %.2f。\n",
-        height_excess_mm,
-        old_height,
-        adjusted_height
+        "Cabin_log: 全局执行模式已切换为%s。\n",
+        global_execution_mode_name(mode)
     );
-
-    {
-        std::lock_guard<std::mutex> lock2(socket_mutex);
-        TCP_Move[3] = adjusted_height;
-        moveTCPPosition(0x01,TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-    }
-    delay_time(AXIS_Z, adjusted_height);
-    return true;
-}
-
-bool adaptive_height(float &t5, float &t6, float &t7, float &t8, float cabin_height)
-{
-    t5 = omp_get_wtime();
-    t6 = t5;
-    t7 = t5;
-    t8 = t5;
-    // 进入当前区域绑扎周期
-    srv.request.request_mode = kProcessImageModeAdaptiveHeight;
-    if (AI_client.call(srv)) {
-        if (!srv.response.success) {
-            printCurrentTime();
-            printf("Cabin_Warn: 自适应高度视觉失败：%s\n", srv.response.message.c_str());
-            t8 = omp_get_wtime();
-            return false;
-        }
-
-        height_sum = 0;
-        height_avg = 0;
-        point_count = 0;  
-
-        for (const auto& point : srv.response.PointCoordinatesArray) {
-            // 访问PointCoords的成员
-            // int32_t idx = point.idx;                     // 索引
-            // int32_t pix_x = point.Pix_coord[0];          // 像素坐标X
-            // int32_t pix_y = point.Pix_coord[1];          // 像素坐标Y
-            // float_t world_x = point.World_coord[0];    // 世界坐标X
-            // float_t world_y = point.World_coord[1];    // 世界坐标Y 
-            float_t world_z = point.World_coord[2];    // 世界坐标Z
-            // float_t angle = point.Angle;               // 角度
-            // bool is_shuiguan = point.is_shuiguan;        // 是否有水管
-            if ( world_z >= 0 )
-            {
-                height_sum += world_z;
-                point_count++;  
-            }
-        }
-        t6 = omp_get_wtime();
-
-        if (point_count != 0) {
-            height_avg = height_sum/point_count;
-            printf("平均高度:%f\n,初始高度:%f\n",height_avg,cabin_height);
-
-        t7 = omp_get_wtime();
-            {
-                std::lock_guard<std::mutex> lock2(socket_mutex);
-                // TCP_Move[1]=Coor_point.x+nearest_x;
-                // TCP_Move[2]=Coor_point.y+nearest_y;
-                TCP_Move[3]=cabin_height+(85-height_avg);
-                if (TCP_Move[3] < 350){
-                    TCP_Move[3]= cabin_height;
-                }
-                printf("ad_Coor_point.x: %f,ad_Coor_point.y: %f, ad_Coor_point.height: %f\n", TCP_Move[1], TCP_Move[2],TCP_Move[3]);
-                moveTCPPosition(0x01,TCP_Move);
-                Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8); 
-            } 
-            delay_time(AXIS_X,TCP_Move[1]);
-            delay_time(AXIS_Y,TCP_Move[2]);
-            delay_time(AXIS_Z,TCP_Move[3]);
-        } else {
-            printCurrentTime();
-            printf("Cabin_Warn: 自适应高度视觉无可用坐标，跳过当前区域。\n");
-            t8 = omp_get_wtime();
-            return false;
-        }
-        t8 = omp_get_wtime();
-    } else {
-        printCurrentTime();
-        printf("Cabin_Error: 自适应高度调用视觉服务失败。\n");
-        t8 = omp_get_wtime();
-        return false;
-    }
-        return true;
-
-}
-
-// 索驱全局移动函数
-void cabin_global_discontinuous_move(std::vector<Cabin_Point>& Cabin_Coor,float cabin_height,float cabin_speed)
-{
-    printf("Cabin_log: Cabin_Coor数组数量（路径点个数）: %zu\n", Cabin_Coor.size());
-    float t1, t2, t3, t4, t5, t6, t7, t8, t9, t10;
-    int pt_num = 0;
-    const int total_area_count = static_cast<int>(Cabin_Coor.size());
-
-    if (total_area_count == 0)
-    {
-        publish_area_progress(0, 0, 0, false, true);
-        printf("Cabin_log: 没有可执行区域，直接广播全部完成。\n");
-        return;
-    }
-
-    auto it = Cabin_Coor.begin();
-    while (it != Cabin_Coor.end()) 
-    {
-        pt_num++;
-        publish_area_progress(pt_num, total_area_count, 0, false, false);
-        const auto& Coor_point = *it;
-
-        TCP_Move[0] = cabin_speed;
-        TCP_Move[1] = Coor_point.x;
-        TCP_Move[2] = Coor_point.y;
-        TCP_Move[3] = cabin_height;
-        // TCP_Move[4] = 0;
-        // TCP_Move[5] = 0;
-        // TCP_Move[6] = 0;
-        printCurrentTime();
-        printf("Cabin_log:索驱下个绑扎区域坐标点已更新。\n");
-        printf("Coor_point.x: %f,Coor_point.y: %f, Coor_point.height: %f\n", TCP_Move[1], TCP_Move[2],TCP_Move[3]);
-        t1 = omp_get_wtime();
-        {
-            std::lock_guard<std::mutex> lock2(socket_mutex);
-            moveTCPPosition(0x01,TCP_Move);
-            Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-        }
-        delay_time(AXIS_X,Coor_point.x);
-        delay_time(AXIS_Y,Coor_point.y);
-        delay_time(AXIS_Z,cabin_height);
-        t2 = omp_get_wtime();
-    
-        t3 = omp_get_wtime();
-    // ros::Duration(0.7).sleep(); //等待索驱彻底停稳
-        t4 = omp_get_wtime();
-        float min_distance = FLT_MAX;
-    
-        // 自适应高度调整。没有可用视觉坐标时不关闭程序，直接跳过当前区域。
-        if (!adaptive_height(t5, t6, t7, t8, cabin_height)) {
-            printCurrentTime();
-            printf("Cabin_Warn: 当前区域自适应高度视觉无可用坐标，跳过当前区域，继续下一个区域。\n");
-            it = Cabin_Coor.erase(it);
-            continue;
-        }
-
-        t9= omp_get_wtime();
-        ros::Duration(0.2).sleep();
-        t10 = omp_get_wtime();
-        printf("开始视觉识别\n");
-        moduan_work_flag = true;
-        for (int bind_height_adjust_attempt = 0;
-             bind_height_adjust_attempt <= max_bind_height_adjust_retries;
-             ++bind_height_adjust_attempt) {
-            if (sg_client.call(Trigger_srv)) {
-                if (Trigger_srv.response.success) {
-                    // 服务调用和响应均成功，执行放行逻辑
-                    printf("绑扎完成\n");
-                    const int next_area_index = pt_num < total_area_count ? pt_num + 1 : pt_num;
-                    publish_area_progress(next_area_index, total_area_count, pt_num, true, false);
-                    break;
-                }
-
-                float bind_height_excess_mm = 0.0f;
-                if (bind_height_adjust_attempt < max_bind_height_adjust_retries &&
-                    parse_bind_height_excess_mm(Trigger_srv.response.message, bind_height_excess_mm) &&
-                    adjust_cabin_height_for_bind_excess(bind_height_excess_mm)) {
-                    printCurrentTime();
-                    printf(
-                        "Cabin_log: 已完成绑扎前索驱Z微调，重新请求绑扎视觉，第%d次。\n",
-                        bind_height_adjust_attempt + 1
-                    );
-                    ros::Duration(0.2).sleep();
-                    continue;
-                }
-
-                printf("Cabin_Warn: 当前区域未完成或无可用绑扎点，跳过当前区域，消息：%s\n", Trigger_srv.response.message.c_str());
-                break;
-            } else {
-                ROS_WARN("Cabin_Warn: 调用末端绑扎服务失败，跳过当前区域。\n");
-                break;
-            }
-        }
-        moduan_work_flag = false;
-        it = Cabin_Coor.erase(it);  // 关键修改：删除当前元素并更新迭代器
-
-        float t_12 = t2-t1;
-        float t_34 = t4-t3;
-        float t_56 = t6-t5;
-        float t_78 = t8-t7;
-        float t_910 = t10-t9;
-        printCurrentTime();
-        printf("第%d路径点:位置到位耗时 %f 秒， 自适应高度前稳定耗时 %f 秒，自适应高度识别请求耗时 %f 秒，自适应高度执行耗时 %f 秒，绑扎前稳定耗时 %f 秒\n", pt_num, t_12, t_34, t_56, t_78, t_910);           
-        
-    }
-    publish_area_progress(total_area_count, total_area_count, total_area_count, false, true);
-    printf("Cabin_log:全部路径点位绑扎完成，本次绑扎作业结束。\n");
-    return;
 }
 
 // 路径规划
@@ -2683,6 +2720,11 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
     std::vector<fast_image_solve::PointCoords> merged_world_points;
     set_pseudo_slam_tf_points({});
     clear_pseudo_slam_markers();
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_ir_image_mutex);
+        pseudo_slam_ir_roi_frame.clear();
+        pseudo_slam_ir_roi_stamp = ros::Time();
+    }
     const int total_area_count = static_cast<int>(con_path.size());
     if (total_area_count == 0) {
         message = "没有可执行区域，无法扫描建图";
@@ -2708,16 +2750,44 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         delay_time(AXIS_X, cabin_point.x);
         delay_time(AXIS_Y, cabin_point.y);
         delay_time(AXIS_Z, cabin_height);
-        ros::Duration(0.2).sleep();
-
-        srv.request.request_mode = kProcessImageModeScanOnly;
-        if (!AI_client.call(srv) || !srv.response.success) {
+        if (!wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)) {
             printCurrentTime();
-            printf(
-                "Cabin_Warn: pseudo_slam scan_only区域%d视觉失败，跳过当前区域，消息：%s\n",
-                area_index,
-                srv.response.message.c_str()
-            );
+            printf("Cabin_Warn: pseudo_slam scan_only区域%d等待最终采集门时ROS关闭，结束扫描。\n", area_index);
+            message = "扫描建图在等待最终采集门时被中断";
+            return false;
+        }
+
+        while (ros::ok()) {
+            const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
+            srv.request.request_mode = kProcessImageModeScanOnly;
+            if (!AI_client.call(srv) || !srv.response.success) {
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: pseudo_slam scan_only区域%d视觉失败，跳过当前区域，消息：%s\n",
+                    area_index,
+                    srv.response.message.c_str()
+                );
+                break;
+            }
+
+            if (static_cast<int>(srv.response.PointCoordinatesArray.size()) < config.scan_min_point_count) {
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: pseudo_slam scan_only区域%d白色矩形内点数%d<%d，继续轮询视觉。\n",
+                    area_index,
+                    static_cast<int>(srv.response.PointCoordinatesArray.size()),
+                    config.scan_min_point_count
+                );
+                ros::Duration(config.scan_retry_interval_sec).sleep();
+                continue;
+            }
+            break;
+        }
+        if (!ros::ok()) {
+            message = "扫描建图在视觉轮询阶段被中断";
+            return false;
+        }
+        if (!srv.response.success) {
             continue;
         }
 
@@ -3078,6 +3148,106 @@ bool run_current_area_bind_from_scan_test(std::string& message)
     return true;
 }
 
+bool run_live_visual_global_work(std::string& message)
+{
+    std::vector<Cabin_Point> con_path;
+    float cabin_height = 0.0f;
+    float cabin_speed = 0.0f;
+    if (!load_configured_path(con_path, cabin_height, cabin_speed)) {
+        message = "无法加载全局执行路径";
+        return false;
+    }
+
+    const int total_area_count = static_cast<int>(con_path.size());
+    int executed_area_count = 0;
+    int skipped_area_count = 0;
+
+    for (int area_index = 0; area_index < total_area_count; ++area_index) {
+        const Cabin_Point& cabin_point = con_path[area_index];
+        publish_area_progress(area_index + 1, total_area_count, 0, false, false);
+
+        TCP_Move[0] = cabin_speed;
+        TCP_Move[1] = cabin_point.x;
+        TCP_Move[2] = cabin_point.y;
+        TCP_Move[3] = cabin_height;
+        printCurrentTime();
+        printf(
+            "Cabin_log: live_visual区域%d移动到(%f,%f,%f)。\n",
+            area_index + 1,
+            TCP_Move[1],
+            TCP_Move[2],
+            TCP_Move[3]
+        );
+        {
+            std::lock_guard<std::mutex> lock2(socket_mutex);
+            moveTCPPosition(0x01, TCP_Move);
+            Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+        }
+        delay_time(AXIS_X, cabin_point.x);
+        delay_time(AXIS_Y, cabin_point.y);
+        delay_time(AXIS_Z, cabin_height);
+
+        std_srvs::Trigger bind_srv;
+        if (!sg_live_visual_client.call(bind_srv)) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: live_visual区域%d调用/moduan/sg失败，跳过当前区域。\n",
+                area_index + 1
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
+
+        if (!bind_srv.response.success) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: live_visual区域%d执行失败，跳过当前区域。消息：%s\n",
+                area_index + 1,
+                bind_srv.response.message.c_str()
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
+
+        executed_area_count++;
+        publish_area_progress(
+            area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+            total_area_count,
+            area_index + 1,
+            true,
+            false
+        );
+    }
+
+    publish_area_progress(total_area_count, total_area_count, total_area_count, false, true);
+
+    std::ostringstream oss;
+    if (executed_area_count <= 0) {
+        oss << "live_visual模式下未成功执行任何区域，跳过" << skipped_area_count << "个区域";
+        message = oss.str();
+        return false;
+    }
+
+    oss << "live_visual全局执行完成，成功执行" << executed_area_count
+        << "个区域，跳过" << skipped_area_count << "个区域";
+    message = oss.str();
+    return true;
+}
+
 bool run_bind_from_scan(std::string& message)
 {
     std::ifstream infile(pseudo_slam_bind_path_json_file);
@@ -3135,7 +3305,6 @@ bool run_bind_from_scan(std::string& message)
     delay_time(AXIS_X, path_origin_x);
     delay_time(AXIS_Y, path_origin_y);
     delay_time(AXIS_Z, path_origin_z);
-    ros::Duration(0.2).sleep();
 
     int area_index = 0;
     for (const auto& area_json : areas_json) {
@@ -3158,7 +3327,6 @@ bool run_bind_from_scan(std::string& message)
         delay_time(AXIS_X, cabin_x);
         delay_time(AXIS_Y, cabin_y);
         delay_time(AXIS_Z, cabin_height);
-        ros::Duration(0.2).sleep();
 
         if (!area_json.contains("groups") || !area_json["groups"].is_array()) {
             printCurrentTime();
@@ -3252,20 +3420,31 @@ bool startGlobalWork(chassis_ctrl::MotionControl::Request &req,
                             chassis_ctrl::MotionControl::Response &res) {
     printCurrentTime();
     printf("Cabin_log: 收到%s\n", req.command.c_str());
-    std::ifstream scan_file(pseudo_slam_bind_path_json_file);
-    if (scan_file.good()) {
-        res.success = run_bind_from_scan(res.message);
-        return true;
+    try {
+        const GlobalExecutionMode execution_mode = get_global_execution_mode();
+        printCurrentTime();
+        printf(
+            "Cabin_log: 当前全局执行模式为%s。\n",
+            global_execution_mode_name(execution_mode)
+        );
+
+        if (execution_mode == GlobalExecutionMode::kLiveVisual) {
+            res.success = run_live_visual_global_work(res.message);
+            return true;
+        }
+
+        std::ifstream scan_file(pseudo_slam_bind_path_json_file);
+        if (scan_file.good()) {
+            res.success = run_bind_from_scan(res.message);
+            return true;
+        }
+        res.success = false;
+        res.message =
+            "当前全局执行模式为slam_precomputed，未找到pseudo_slam_bind_path.json，请先完成扫描建图或切换到live_visual模式";
+    } catch (const std::exception& ex) {
+        res.success = false;
+        res.message = ex.what();
     }
-
-    std::vector<Cabin_Point> con_path;
-    float cabin_height = 0.0f;
-    float cabin_speed = 0.0f;
-    load_configured_path(con_path, cabin_height, cabin_speed);
-    cabin_global_discontinuous_move(con_path, cabin_height, cabin_speed);
-
-    res.success = true;
-    res.message = "索驱已将全部点位绑扎完成";
     return true;
 }
 
@@ -3468,6 +3647,7 @@ int main(int argc, char **argv)
     ros::ServiceServer path_config_service = nh.advertiseService("/cabin/plan_path", planGlobalMovePath);
     // 设置索驱速度
     ros::Subscriber change_cabin_speed_sub = nh.subscribe("/web/cabin/set_cabin_speed", 5, &change_cabin_speed_callback);
+    ros::Subscriber global_execution_mode_sub = nh.subscribe("/web/cabin/set_execution_mode", 5, &global_execution_mode_callback);
     // 开始全局作业
     ros::ServiceServer update_service = nh.advertiseService("/cabin/start_work", startGlobalWork);
     ros::ServiceServer pseudo_slam_scan_service = nh.advertiseService("/cabin/start_pseudo_slam_scan", startPseudoSlamScan);
@@ -3476,13 +3656,12 @@ int main(int argc, char **argv)
     ros::ServiceServer cabin_single_move_service = nh.advertiseService("/cabin/single_move", cabin_single_move);
     pub_area_progress = nh.advertise<chassis_ctrl::AreaProgress>("/cabin/area_progress", 5);
     pub_pseudo_slam_markers = nh.advertise<visualization_msgs::MarkerArray>("/cabin/pseudo_slam_markers", 1, true);
+    ros::Subscriber pseudo_slam_ir_image_sub = nh.subscribe(kPseudoSlamCaptureGateImageTopic, 1, &pseudo_slam_ir_image_callback);
     // 订阅视觉模块的消息
     AI_client = nh.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");
-    // 请求末端开始
-    sg_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg");
+    sg_live_visual_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg");
     sg_precomputed_client = nh.serviceClient<chassis_ctrl::ExecuteBindPoints>("/moduan/sg_precomputed");
     sg_precomputed_fast_client = nh.serviceClient<chassis_ctrl::ExecuteBindPoints>("/moduan/sg_precomputed_fast");
-    // save_image_client = nh.serviceClient<std_srvs::Trigger>("/save_depth_image");
     // 急停信息发布者对象(当前逻辑不考虑在索驱内部发送急停信号)
     // pub_forced_stop = nh.advertise<std_msgs::Float32>("/forced_stop", 5);
     // 索驱数据反馈的发布话题声明

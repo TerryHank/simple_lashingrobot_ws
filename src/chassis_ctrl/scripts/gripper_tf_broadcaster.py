@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 
+import copy
 import math
 import os
+import tempfile
+import threading
 
 import rospy
 import tf2_ros
 import yaml
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import Pose, TransformStamped
 from tf.transformations import quaternion_from_euler
+
+LEGACY_OFFSET_TOPIC = "/web/fast_image_solve/set_pointAI_offset"
 
 
 def _read_string(data, key):
@@ -55,6 +60,21 @@ def _validate_radians(rotation_rpy):
             )
 
 
+def validate_gripper_tf_config(config, allow_identity_config=False):
+    if config["parent_frame"] == config["child_frame"]:
+        raise ValueError("parent_frame and child_frame must be different")
+
+    _validate_radians(config["rotation_rpy"])
+
+    if not allow_identity_config and _is_identity_pose(
+        config["translation"], config["rotation_rpy"]
+    ):
+        raise ValueError(
+            "gripper_tf.yaml still uses the all-zero placeholder pose; calibrate the TF "
+            "before launch or explicitly set ~allow_identity_config:=true"
+        )
+
+
 def load_gripper_tf_config(config_path, allow_identity_config=False):
     with open(config_path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
@@ -89,20 +109,63 @@ def load_gripper_tf_config(config_path, allow_identity_config=False):
         },
     }
 
-    if config["parent_frame"] == config["child_frame"]:
-        raise ValueError("parent_frame and child_frame must be different")
-
-    _validate_radians(config["rotation_rpy"])
-
-    if not allow_identity_config and _is_identity_pose(
-        config["translation"], config["rotation_rpy"]
-    ):
-        raise ValueError(
-            "gripper_tf.yaml still uses the all-zero placeholder pose; calibrate the TF "
-            "before launch or explicitly set ~allow_identity_config:=true"
-        )
-
+    validate_gripper_tf_config(config, allow_identity_config=allow_identity_config)
     return config
+
+
+def with_updated_translation_mm(config, x_mm, y_mm, z_mm, allow_identity_config=False):
+    updated = copy.deepcopy(config)
+    updated["translation_mm"] = {
+        "x": float(x_mm),
+        "y": float(y_mm),
+        "z": float(z_mm),
+    }
+    updated["translation"] = {
+        "x": -updated["translation_mm"]["x"] / 1000.0,
+        "y": -updated["translation_mm"]["y"] / 1000.0,
+        "z": -updated["translation_mm"]["z"] / 1000.0,
+    }
+    validate_gripper_tf_config(updated, allow_identity_config=allow_identity_config)
+    return updated
+
+
+def save_gripper_tf_config(config_path, config):
+    serialized = {
+        "parent_frame": config["parent_frame"],
+        "child_frame": config["child_frame"],
+        "translation_mm": {
+            "x": float(config["translation_mm"]["x"]),
+            "y": float(config["translation_mm"]["y"]),
+            "z": float(config["translation_mm"]["z"]),
+        },
+        "rotation_rpy": {
+            "roll": float(config["rotation_rpy"]["roll"]),
+            "pitch": float(config["rotation_rpy"]["pitch"]),
+            "yaw": float(config["rotation_rpy"]["yaw"]),
+        },
+    }
+    target_dir = os.path.dirname(config_path) or "."
+    os.makedirs(target_dir, exist_ok=True)
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            suffix=".yaml",
+            encoding="utf-8",
+            dir=target_dir,
+            delete=False,
+        ) as handle:
+            yaml.safe_dump(
+                serialized,
+                handle,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+            temp_path = handle.name
+        os.replace(temp_path, config_path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def build_transform(config):
@@ -152,7 +215,37 @@ def main():
         raise SystemExit(1) from exc
 
     broadcaster = tf2_ros.TransformBroadcaster()
+    config_lock = threading.Lock()
+    runtime_config = {"value": config}
     rate = rospy.Rate(max(1.0, publish_rate_hz))
+
+    def handle_legacy_offset(msg):
+        try:
+            with config_lock:
+                updated_config = with_updated_translation_mm(
+                    runtime_config["value"],
+                    msg.position.x,
+                    msg.position.y,
+                    msg.position.z,
+                    allow_identity_config=allow_identity_config,
+                )
+                save_gripper_tf_config(config_path, updated_config)
+                runtime_config["value"] = updated_config
+            rospy.loginfo(
+                "gripper_tf_broadcaster: 实时更新TF平移标定，写入%s: translation_mm=(%.3f, %.3f, %.3f)，无需重启节点。",
+                config_path,
+                updated_config["translation_mm"]["x"],
+                updated_config["translation_mm"]["y"],
+                updated_config["translation_mm"]["z"],
+            )
+        except Exception as exc:
+            rospy.logerr(
+                "gripper_tf_broadcaster: 处理%s失败，无法实时更新TF平移标定: %s",
+                LEGACY_OFFSET_TOPIC,
+                exc,
+            )
+
+    rospy.Subscriber(LEGACY_OFFSET_TOPIC, Pose, handle_legacy_offset)
 
     rospy.loginfo(
         "gripper_tf_broadcaster started: %s -> %s from %s | user_translation_mm=(%.3f, %.3f, %.3f) | published_tf_translation_m=(%.6f, %.6f, %.6f) | rotation_rpy=(%.6f, %.6f, %.6f) rad",
@@ -171,7 +264,9 @@ def main():
     )
 
     while not rospy.is_shutdown():
-        transform = build_transform(config)
+        with config_lock:
+            current_config = copy.deepcopy(runtime_config["value"])
+        transform = build_transform(current_config)
         transform.header.stamp = rospy.Time.now()
         broadcaster.sendTransform(transform)
         rate.sleep()

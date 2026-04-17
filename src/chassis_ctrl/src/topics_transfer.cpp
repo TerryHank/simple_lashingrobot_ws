@@ -180,6 +180,21 @@ void startGlobalWorkCallback(const std_msgs::Float32::ConstPtr& msg) {
     return;
 }
 
+void setGlobalExecutionModeCallback(const std_msgs::Float32::ConstPtr& msg) {
+    printCurrentTime();
+    if (msg->data >= 1.0f) {
+        logMessage(
+            "/web/cabin/set_execution_mode",
+            "收到全局执行模式切换命令，执行模式=live_visual：按路径边执行边识别"
+        );
+    } else {
+        logMessage(
+            "/web/cabin/set_execution_mode",
+            "收到全局执行模式切换命令，执行模式=slam_precomputed：使用扫描后的预生成路径执行"
+        );
+    }
+}
+
 void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
     logMessage("/web/cabin/start_pseudo_slam_scan", "收到扫描建图命令，值: " + to_string(msg->data));
@@ -502,6 +517,7 @@ int main(int argc, char** argv) {
     g_service_clients.Chassis_client_2 = nh.serviceClient<chassis_ctrl::Pathguihua>("/cabin/plan_path");
     // 索驱全局运动
     ros::Subscriber sub4 = nh.subscribe("/web/cabin/start_global_work", 5, startGlobalWorkCallback);
+    ros::Subscriber sub26 = nh.subscribe("/web/cabin/set_execution_mode", 5, setGlobalExecutionModeCallback);
     g_service_clients.Chassis_client_3 = nh.serviceClient<chassis_ctrl::MotionControl>("/cabin/start_work");
     ros::Subscriber sub25 = nh.subscribe("/web/cabin/start_pseudo_slam_scan", 5, pseudoSlamScanCallback);
     g_service_clients.Chassis_scan_client = nh.serviceClient<std_srvs::Trigger>("/cabin/start_pseudo_slam_scan");

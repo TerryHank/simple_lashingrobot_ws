@@ -242,28 +242,15 @@ class ImageProcessor:
     def calibration_offset_callback(self, msg):
         """
         兼容旧前端的回调函数。
-        旧的视觉偏差入口现在直接写入 gripper_tf.yaml.translation_mm。
+        旧的视觉偏差入口现在由 gripper_tf_broadcaster 实时处理。
         """
-        try:
-            self.update_gripper_tf_translation_mm(
-                msg.position.x,
-                msg.position.y,
-                msg.position.z,
-            )
-            rospy.loginfo(
-                "vision: 已将旧入口/web/fast_image_solve/set_pointAI_offset映射为TF平移标定，"
-                "写入%s: translation_mm=(%.3f, %.3f, %.3f)。请重启pointai_tf_verify.launch后验证。",
-                self.gripper_tf_config_file,
-                msg.position.x,
-                msg.position.y,
-                msg.position.z,
-            )
-        except Exception as exc:
-            rospy.logerr(
-                "vision: 写入%s失败，无法更新translation_mm: %s",
-                self.gripper_tf_config_file,
-                exc,
-            )
+        rospy.loginfo(
+            "vision: /web/fast_image_solve/set_pointAI_offset 现由gripper_tf_broadcaster实时处理，"
+            "translation_mm=(%.3f, %.3f, %.3f)，无需重启节点。",
+            msg.position.x,
+            msg.position.y,
+            msg.position.z,
+        )
 
     def image_raw_world_callback(self, msg):
         img = self.bridge.imgmsg_to_cv2(msg)          # 先取图
