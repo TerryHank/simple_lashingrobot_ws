@@ -574,6 +574,70 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("不是只校验各自直接消费的那一份", quickstart_text)
         self.assertIn("任意一份扫描产物已失效或 session 不对齐", quickstart_text)
 
+    def test_pseudo_slam_entrypoints_share_single_serial_workflow_lock(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        self.assertIn("std::mutex pseudo_slam_workflow_mutex;", suoqu_text)
+
+        lock_stmt = "std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);"
+        anchors_and_followups = [
+            (
+                "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+                "set_pseudo_slam_tf_points({});",
+            ),
+            (
+                "bool run_current_area_bind_from_scan_test(std::string& message)",
+                "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))",
+            ),
+            (
+                "bool run_live_visual_global_work(std::string& message)",
+                "if (!load_configured_path(con_path, cabin_height, cabin_speed))",
+            ),
+            (
+                "bool run_bind_from_scan(std::string& message)",
+                "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))",
+            ),
+        ]
+
+        for anchor, followup in anchors_and_followups:
+            function_text = extract_cpp_block(suoqu_text, anchor)
+            self.assertIn(lock_stmt, function_text)
+            self.assertLess(function_text.index(lock_stmt), function_text.index(followup))
+
+    def test_scan_only_requests_use_fresh_process_image_objects(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+        )
+        live_visual_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_live_visual_global_work(std::string& message)",
+        )
+
+        self.assertNotIn("fast_image_solve::ProcessImage srv;", suoqu_text)
+        self.assertNotIn("AI_client.call(srv)", suoqu_text)
+        self.assertNotRegex(scan_function, re.compile(r"(?<![A-Za-z0-9_])srv\.response"))
+        self.assertNotRegex(live_visual_function, re.compile(r"(?<![A-Za-z0-9_])srv\.response"))
+        self.assertRegex(
+            scan_function,
+            re.compile(
+                r"while\s*\(ros::ok\(\)\)\s*\{[\s\S]*?fast_image_solve::ProcessImage scan_srv;[\s\S]*?"
+                r"scan_srv.request.request_mode = kProcessImageModeScanOnly;[\s\S]*?"
+                r"AI_client.call\(scan_srv\)",
+                re.S,
+            ),
+        )
+        self.assertRegex(
+            live_visual_function,
+            re.compile(
+                r"for\s*\(int area_index = 0; area_index < total_area_count; \+\+area_index\)\s*\{[\s\S]*?"
+                r"fast_image_solve::ProcessImage scan_srv;[\s\S]*?"
+                r"scan_srv.request.request_mode = kProcessImageModeScanOnly;[\s\S]*?"
+                r"AI_client.call\(scan_srv\)",
+                re.S,
+            ),
+        )
+
     def test_process_image_service_supports_request_modes_and_failure_details(self):
         service_path = FAST_IMAGE_SOLVE_DIR / "srv" / "ProcessImage.srv"
         service_text = service_path.read_text(encoding="utf-8")

@@ -76,6 +76,8 @@ const std::string kBindExecutionMemoryJsonPath =
 std::mutex cabin_state_mutex;
 // 定义互斥锁避免同一时刻对TCP写入产生粘包现象
 std::mutex socket_mutex;
+// 串行化 pseudo-slam 扫描/执行主链，避免并发读写同一批扫描产物与执行账本。
+std::mutex pseudo_slam_workflow_mutex;
 std::mutex pseudo_slam_tf_points_mutex;
 std::mutex pseudo_slam_ir_image_mutex;
 
@@ -314,7 +316,6 @@ ros::Publisher pub_pseudo_slam_markers;
 
 // 索驱状态被发布的全局变量
 chassis_ctrl::cabin_upload cabin_data_upload;
-fast_image_solve::ProcessImage srv;
 chassis_ctrl::MotionControl motion_srv;
 ros::ServiceClient AI_client;
 ros::ServiceClient sg_live_visual_client;
@@ -3631,6 +3632,7 @@ void assign_global_indices(std::vector<fast_image_solve::PointCoords>& world_poi
 
 bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)
 {
+    std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     std::vector<fast_image_solve::PointCoords> merged_world_points;
     set_pseudo_slam_tf_points({});
     clear_pseudo_slam_markers();
@@ -3673,57 +3675,55 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
 
         while (ros::ok()) {
             const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
-            srv.request.request_mode = kProcessImageModeScanOnly;
-            if (!AI_client.call(srv) || !srv.response.success) {
+            fast_image_solve::ProcessImage scan_srv;
+            scan_srv.request.request_mode = kProcessImageModeScanOnly;
+            if (!AI_client.call(scan_srv) || !scan_srv.response.success) {
                 printCurrentTime();
                 printf(
                     "Cabin_Warn: pseudo_slam scan_only区域%d视觉失败，跳过当前区域，消息：%s\n",
                     area_index,
-                    srv.response.message.c_str()
+                    scan_srv.response.message.c_str()
                 );
                 break;
             }
 
-            if (static_cast<int>(srv.response.PointCoordinatesArray.size()) < config.scan_min_point_count) {
+            if (static_cast<int>(scan_srv.response.PointCoordinatesArray.size()) < config.scan_min_point_count) {
                 printCurrentTime();
                 printf(
                     "Cabin_Warn: pseudo_slam scan_only区域%d白色矩形内点数%d<%d，继续轮询视觉。\n",
                     area_index,
-                    static_cast<int>(srv.response.PointCoordinatesArray.size()),
+                    static_cast<int>(scan_srv.response.PointCoordinatesArray.size()),
                     config.scan_min_point_count
                 );
                 ros::Duration(config.scan_retry_interval_sec).sleep();
                 continue;
             }
+
+            std::vector<fast_image_solve::PointCoords> area_world_points;
+            int point_index = 1;
+            for (const auto& point : scan_srv.response.PointCoordinatesArray) {
+                area_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
+            }
+            area_world_points = dedupe_world_points(area_world_points);
+            merged_world_points.insert(merged_world_points.end(), area_world_points.begin(), area_world_points.end());
+            merged_world_points = dedupe_world_points(merged_world_points);
+            assign_global_indices(merged_world_points);
+            set_pseudo_slam_tf_points(merged_world_points);
+            publish_pseudo_slam_markers(merged_world_points);
+
+            printCurrentTime();
+            printf(
+                "Cabin_log: pseudo_slam区域%d识别完成，世界点%d个，当前累计世界点%d个。\n",
+                area_index,
+                static_cast<int>(area_world_points.size()),
+                static_cast<int>(merged_world_points.size())
+            );
             break;
         }
         if (!ros::ok()) {
             message = "扫描建图在视觉轮询阶段被中断";
             return false;
         }
-        if (!srv.response.success) {
-            continue;
-        }
-
-        std::vector<fast_image_solve::PointCoords> area_world_points;
-        int point_index = 1;
-        for (const auto& point : srv.response.PointCoordinatesArray) {
-            area_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
-        }
-        area_world_points = dedupe_world_points(area_world_points);
-        merged_world_points.insert(merged_world_points.end(), area_world_points.begin(), area_world_points.end());
-        merged_world_points = dedupe_world_points(merged_world_points);
-        assign_global_indices(merged_world_points);
-        set_pseudo_slam_tf_points(merged_world_points);
-        publish_pseudo_slam_markers(merged_world_points);
-
-        printCurrentTime();
-        printf(
-            "Cabin_log: pseudo_slam区域%d识别完成，世界点%d个，当前累计世界点%d个。\n",
-            area_index,
-            static_cast<int>(area_world_points.size()),
-            static_cast<int>(merged_world_points.size())
-        );
     }
 
     assign_global_indices(merged_world_points);
@@ -3999,6 +3999,7 @@ float get_current_area_bind_test_cabin_speed(float configured_cabin_speed)
 
 bool run_current_area_bind_from_scan_test(std::string& message)
 {
+    std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
     BindExecutionMemory bind_execution_memory;
@@ -4205,6 +4206,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
 
 bool run_live_visual_global_work(std::string& message)
 {
+    std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     std::vector<Cabin_Point> con_path;
     float cabin_height = 0.0f;
     float cabin_speed = 0.0f;
@@ -4264,8 +4266,9 @@ bool run_live_visual_global_work(std::string& message)
         delay_time(AXIS_Y, cabin_point.y);
         delay_time(AXIS_Z, cabin_height);
 
-        srv.request.request_mode = kProcessImageModeScanOnly;
-        if (!AI_client.call(srv)) {
+        fast_image_solve::ProcessImage scan_srv;
+        scan_srv.request.request_mode = kProcessImageModeScanOnly;
+        if (!AI_client.call(scan_srv)) {
             skipped_area_count++;
             printCurrentTime();
             printf(
@@ -4282,13 +4285,13 @@ bool run_live_visual_global_work(std::string& message)
             continue;
         }
 
-        if (!srv.response.success) {
+        if (!scan_srv.response.success) {
             skipped_area_count++;
             printCurrentTime();
             printf(
                 "Cabin_Warn: live_visual区域%d视觉失败，跳过当前区域。消息：%s\n",
                 area_index + 1,
-                srv.response.message.c_str()
+                scan_srv.response.message.c_str()
             );
             publish_area_progress(
                 area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
@@ -4302,7 +4305,7 @@ bool run_live_visual_global_work(std::string& message)
 
         std::vector<fast_image_solve::PointCoords> area_world_points;
         int point_index = 1;
-        for (const auto& point : srv.response.PointCoordinatesArray) {
+        for (const auto& point : scan_srv.response.PointCoordinatesArray) {
             area_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
         }
         area_world_points = dedupe_world_points(area_world_points);
@@ -4461,6 +4464,7 @@ bool run_live_visual_global_work(std::string& message)
 
 bool run_bind_from_scan(std::string& message)
 {
+    std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
     BindExecutionMemory bind_execution_memory;
