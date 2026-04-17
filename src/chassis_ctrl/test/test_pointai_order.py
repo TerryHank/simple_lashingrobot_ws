@@ -180,6 +180,83 @@ class PointAIOrderTest(unittest.TestCase):
         ]
         self.assertRegex(failure_block, re.compile(r"return false;"))
 
+    def test_scan_rebuild_writes_scan_session_id_into_both_scan_artifacts(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+        write_bind_path_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_bind_path_json(",
+        )
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+        )
+
+        self.assertIn("const std::string& scan_session_id", write_points_text)
+        self.assertIn('points_json["scan_session_id"] = scan_session_id;', write_points_text)
+        self.assertIn("const std::string& scan_session_id", write_bind_path_text)
+        self.assertIn('bind_path_json["scan_session_id"] = scan_session_id;', write_bind_path_text)
+        self.assertLess(
+            scan_function.index("const std::string scan_session_id ="),
+            scan_function.index("const bool pseudo_slam_points_written ="),
+        )
+        self.assertIn("write_pseudo_slam_points_json(", scan_function)
+        self.assertIn("scan_session_id,", scan_function)
+        self.assertIn("write_pseudo_slam_bind_path_json(", scan_function)
+
+    def test_precomputed_bind_entrypoints_fail_closed_on_scan_session_mismatch(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        validate_function = extract_cpp_block(
+            suoqu_text,
+            "bool validate_scan_session_alignment(",
+        )
+
+        self.assertIn('artifact_json.value("scan_session_id", std::string())', validate_function)
+        self.assertIn("bind_execution_memory.scan_session_id.empty()", validate_function)
+        self.assertIn("artifact_scan_session_id != bind_execution_memory.scan_session_id", validate_function)
+        self.assertIn("scan_session_id不一致", validate_function)
+        self.assertIn("fail-closed", validate_function)
+
+        for anchor in [
+            "bool run_current_area_bind_from_scan_test(std::string& message)",
+            "bool run_bind_from_scan(std::string& message)",
+        ]:
+            function_text = extract_cpp_block(suoqu_text, anchor)
+            self.assertIn(
+                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))',
+                function_text,
+            )
+            validation_block = function_text[
+                function_text.index(
+                    'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                ):
+            ]
+            self.assertRegex(validation_block, re.compile(r"return false;"))
+
+    def test_live_visual_entrypoint_fail_closed_on_scan_session_mismatch(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        load_grid_text = extract_cpp_block(
+            suoqu_text,
+            "bool load_live_visual_checkerboard_grid(",
+        )
+        live_visual_text = extract_cpp_block(
+            suoqu_text,
+            "bool run_live_visual_global_work(std::string& message)",
+        )
+
+        self.assertIn("const BindExecutionMemory& bind_execution_memory", load_grid_text)
+        self.assertIn(
+            'validate_scan_session_alignment(points_json, "pseudo_slam_points.json", bind_execution_memory, error_message)',
+            load_grid_text,
+        )
+        self.assertLess(
+            live_visual_text.index("if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))"),
+            live_visual_text.index("if (!load_live_visual_checkerboard_grid(checkerboard_grid, bind_execution_memory, checkerboard_grid_error))"),
+        )
+
     def test_live_visual_uses_planning_authoritative_checkerboard_fields(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         write_points_text = extract_cpp_block(

@@ -1238,8 +1238,50 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
     return checkerboard_info_by_idx;
 }
 
+bool validate_scan_session_alignment(
+    const nlohmann::json& artifact_json,
+    const std::string& artifact_name,
+    const BindExecutionMemory& bind_execution_memory,
+    std::string& error_message
+)
+{
+    error_message.clear();
+    const std::string artifact_scan_session_id = artifact_json.value("scan_session_id", std::string());
+    const bool scan_session_mismatch =
+        artifact_scan_session_id != bind_execution_memory.scan_session_id;
+    if (!artifact_scan_session_id.empty() &&
+        !bind_execution_memory.scan_session_id.empty() &&
+        !scan_session_mismatch) {
+        return true;
+    }
+
+    std::ostringstream oss;
+    oss << artifact_name << " 与 bind_execution_memory.json 的 scan_session_id不一致";
+    if (artifact_scan_session_id.empty()) {
+        oss << "（" << artifact_name << "缺少scan_session_id";
+        if (bind_execution_memory.scan_session_id.empty()) {
+            oss << "，账本也缺少scan_session_id";
+        }
+        oss << "）";
+    } else if (bind_execution_memory.scan_session_id.empty()) {
+        oss << "（bind_execution_memory.json缺少scan_session_id）";
+    } else {
+        oss << "（产物=" << artifact_scan_session_id
+            << "，账本=" << bind_execution_memory.scan_session_id << "）";
+    }
+    oss << "，按fail-closed策略拒绝继续执行";
+    error_message = oss.str();
+    printCurrentTime();
+    printf(
+        "Cabin_Warn: %s\n",
+        error_message.c_str()
+    );
+    return false;
+}
+
 bool load_live_visual_checkerboard_grid(
     LiveVisualCheckerboardGrid& checkerboard_grid,
+    const BindExecutionMemory& bind_execution_memory,
     std::string& error_message
 )
 {
@@ -1255,6 +1297,9 @@ bool load_live_visual_checkerboard_grid(
     try {
         nlohmann::json points_json;
         infile >> points_json;
+        if (!validate_scan_session_alignment(points_json, "pseudo_slam_points.json", bind_execution_memory, error_message)) {
+            return false;
+        }
         if (!points_json.contains("pseudo_slam_points") ||
             !points_json["pseudo_slam_points"].is_array()) {
             error_message = "pseudo_slam_points.json格式错误";
@@ -2254,10 +2299,12 @@ bool write_pseudo_slam_points_json(
     const std::vector<fast_image_solve::PointCoords>& merged_points,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx,
+    const std::string& scan_session_id,
     std::string* error_message
 )
 {
     nlohmann::json points_json;
+    points_json["scan_session_id"] = scan_session_id;
     points_json["pseudo_slam_points"] = nlohmann::json::array();
     for (const auto& point : merged_points) {
         auto checkerboard_it = checkerboard_info_by_idx.find(point.idx);
@@ -2306,10 +2353,12 @@ bool write_pseudo_slam_bind_path_json(
     const Cabin_Point& path_origin,
     float cabin_height,
     float cabin_speed,
+    const std::string& scan_session_id,
     std::string* error_message
 )
 {
     nlohmann::json bind_path_json;
+    bind_path_json["scan_session_id"] = scan_session_id;
     bind_path_json["scan_mode"] = "scan_only";
     bind_path_json["cabin_height"] = cabin_height;
     bind_path_json["cabin_speed"] = cabin_speed;
@@ -3408,10 +3457,12 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
 
     std::string pseudo_slam_points_error;
     std::string pseudo_slam_bind_path_error;
+    const std::string scan_session_id = std::to_string(ros::Time::now().toNSec());
     const bool pseudo_slam_points_written = write_pseudo_slam_points_json(
         merged_world_points,
         merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx,
+        scan_session_id,
         &pseudo_slam_points_error
     );
     const bool pseudo_slam_bind_path_written = write_pseudo_slam_bind_path_json(
@@ -3420,6 +3471,7 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         path_origin,
         cabin_height,
         cabin_speed,
+        scan_session_id,
         &pseudo_slam_bind_path_error
     );
     if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written) {
@@ -3450,7 +3502,6 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         return false;
     }
 
-    const std::string scan_session_id = std::to_string(ros::Time::now().toNSec());
     BindExecutionMemory bind_execution_memory =
         reset_bind_execution_memory_for_scan_session(scan_session_id, path_origin);
     std::string bind_execution_memory_error;
@@ -3718,6 +3769,9 @@ bool run_current_area_bind_from_scan_test(std::string& message)
         message = bind_execution_memory_error;
         return false;
     }
+    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
+        return false;
+    }
     int executed_group_count = 0;
     int skipped_group_count = 0;
     int group_index = 0;
@@ -3820,13 +3874,6 @@ bool run_live_visual_global_work(std::string& message)
         return false;
     }
 
-    LiveVisualCheckerboardGrid checkerboard_grid;
-    std::string checkerboard_grid_error;
-    if (!load_live_visual_checkerboard_grid(checkerboard_grid, checkerboard_grid_error)) {
-        message = checkerboard_grid_error;
-        return false;
-    }
-
     const int total_area_count = static_cast<int>(con_path.size());
     int executed_area_count = 0;
     int skipped_area_count = 0;
@@ -3834,6 +3881,12 @@ bool run_live_visual_global_work(std::string& message)
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
+        return false;
+    }
+    LiveVisualCheckerboardGrid checkerboard_grid;
+    std::string checkerboard_grid_error;
+    if (!load_live_visual_checkerboard_grid(checkerboard_grid, bind_execution_memory, checkerboard_grid_error)) {
+        message = checkerboard_grid_error;
         return false;
     }
 
@@ -4098,6 +4151,9 @@ bool run_bind_from_scan(std::string& message)
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
+        return false;
+    }
+    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
         return false;
     }
     for (const auto& area_json : areas_json) {
