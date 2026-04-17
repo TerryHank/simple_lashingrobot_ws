@@ -250,7 +250,7 @@ class PointAIOrderTest(unittest.TestCase):
                 "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))"
             )
             load_artifacts_stmt = (
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             )
 
             self.assertIn(load_stmt, function_text)
@@ -272,19 +272,19 @@ class PointAIOrderTest(unittest.TestCase):
         )
         self.assertLess(
             current_area_text.index(
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
             current_area_text.index("float current_cabin_x = 0.0f;"),
         )
         self.assertLess(
             current_area_text.index(
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
             current_area_text.index("find_nearest_bind_area_for_current_cabin_pose("),
         )
         self.assertLess(
             current_area_text.index(
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
             current_area_text.index("TCP_Move[0] = fast_cabin_speed;"),
         )
@@ -295,22 +295,158 @@ class PointAIOrderTest(unittest.TestCase):
         )
         self.assertLess(
             global_bind_text.index(
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
             global_bind_text.index('const float cabin_height = bind_path_json.value("cabin_height", 500.0f);'),
         )
         self.assertLess(
             global_bind_text.index(
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
             global_bind_text.index("float path_origin_x = 0.0f;"),
         )
         self.assertLess(
             global_bind_text.index(
-                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
             global_bind_text.index("TCP_Move[0] = cabin_speed;"),
         )
+
+    def test_execution_filters_duplicate_checkerboard_cells_within_current_batch(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        filter_function = extract_cpp_block(
+            suoqu_text,
+            "nlohmann::json filter_precomputed_group_points_for_execution(",
+        )
+
+        self.assertIn("std::unordered_set<long long> current_batch_checkerboard_cells;", filter_function)
+        self.assertIn("encode_checkerboard_cell_key(global_row, global_col)", filter_function)
+        self.assertIn(
+            "const bool inserted = current_batch_checkerboard_cells.insert(checkerboard_cell_key).second;",
+            filter_function,
+        )
+        self.assertIn("if (!inserted) {", filter_function)
+        self.assertLess(
+            filter_function.index("current_batch_checkerboard_cells.insert(checkerboard_cell_key).second"),
+            filter_function.index("filtered_points.push_back(point_json);"),
+        )
+
+    def test_scan_artifacts_and_execution_memory_persist_path_signature(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        load_memory_text = extract_cpp_block(
+            suoqu_text,
+            "bool load_bind_execution_memory_json(",
+        )
+        write_memory_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_bind_execution_memory_json(",
+        )
+        reset_memory_text = extract_cpp_block(
+            suoqu_text,
+            "BindExecutionMemory reset_bind_execution_memory_for_scan_session(",
+        )
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+        write_bind_path_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_bind_path_json(",
+        )
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+        )
+
+        self.assertIn("std::string path_signature;", suoqu_text)
+        self.assertIn('memory.path_signature = memory_json.value("path_signature", "");', load_memory_text)
+        self.assertIn('{"path_signature", memory.path_signature}', write_memory_text)
+        self.assertIn("const std::string& path_signature", reset_memory_text)
+        self.assertIn("memory.path_signature = path_signature;", reset_memory_text)
+        self.assertIn("const std::string& path_signature", write_points_text)
+        self.assertIn('points_json["path_signature"] = path_signature;', write_points_text)
+        self.assertIn("const std::string& path_signature", write_bind_path_text)
+        self.assertIn('bind_path_json["path_signature"] = path_signature;', write_bind_path_text)
+        self.assertIn("const std::string path_signature =", scan_function)
+        self.assertIn("build_path_signature(con_path, cabin_height, cabin_speed)", scan_function)
+        self.assertRegex(
+            scan_function,
+            re.compile(r"write_pseudo_slam_points_json\([\s\S]*scan_session_id,\s*path_signature,"),
+        )
+        self.assertRegex(
+            scan_function,
+            re.compile(r"write_pseudo_slam_bind_path_json\([\s\S]*scan_session_id,\s*path_signature,"),
+        )
+        self.assertIn(
+            "reset_bind_execution_memory_for_scan_session(scan_session_id, path_signature, path_origin)",
+            scan_function,
+        )
+
+    def test_execution_entrypoints_fail_closed_on_path_signature_mismatch(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        validate_function = extract_cpp_block(
+            suoqu_text,
+            "bool validate_path_signature_alignment(",
+        )
+        load_artifacts_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_scan_artifacts_for_execution(",
+        )
+
+        self.assertIn("const std::string& current_path_signature", validate_function)
+        self.assertIn('artifact_json.value("path_signature", std::string())', validate_function)
+        self.assertIn("bind_execution_memory.path_signature", validate_function)
+        self.assertIn("artifact_path_signature != current_path_signature", validate_function)
+        self.assertIn("bind_execution_memory.path_signature != current_path_signature", validate_function)
+        self.assertIn("path_signature不一致", validate_function)
+        self.assertIn("请先重新扫描", validate_function)
+        self.assertIn("const std::string& current_path_signature", load_artifacts_function)
+        self.assertRegex(
+            load_artifacts_function,
+            re.compile(
+                r'validate_path_signature_alignment\(\s*points_json,\s*"pseudo_slam_points\.json",\s*bind_execution_memory,\s*current_path_signature,\s*error_message',
+                re.S,
+            ),
+        )
+        self.assertRegex(
+            load_artifacts_function,
+            re.compile(
+                r'validate_path_signature_alignment\(\s*bind_path_json,\s*"pseudo_slam_bind_path\.json",\s*bind_execution_memory,\s*current_path_signature,\s*error_message',
+                re.S,
+            ),
+        )
+
+        for anchor in [
+            "bool run_current_area_bind_from_scan_test(std::string& message)",
+            "bool run_live_visual_global_work(std::string& message)",
+            "bool run_bind_from_scan(std::string& message)",
+        ]:
+            function_text = extract_cpp_block(suoqu_text, anchor)
+            self.assertIn(
+                "std::string current_path_signature;",
+                function_text,
+            )
+            self.assertIn(
+                "if (!load_current_path_signature_for_execution(current_path_signature, message))",
+                function_text,
+            )
+            self.assertIn(
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))",
+                function_text,
+            )
+            self.assertLess(
+                function_text.index("if (!load_current_path_signature_for_execution(current_path_signature, message))"),
+                function_text.index(
+                    "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
+                ),
+            )
+
+    def test_quickstart_requires_rescan_after_path_change(self):
+        quickstart_text = (REPO_ROOT / "SLAM_V11_QUICKSTART.md").read_text(encoding="utf-8")
+
+        self.assertIn("path_signature", quickstart_text)
+        self.assertIn("改路径后必须重新扫描", quickstart_text)
+        self.assertIn("关键运动参数", quickstart_text)
 
     def test_live_visual_entrypoint_fail_closed_on_scan_session_mismatch(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -325,7 +461,7 @@ class PointAIOrderTest(unittest.TestCase):
 
         self.assertIn("const nlohmann::json& points_json", load_grid_text)
         self.assertIn(
-            'if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))',
+            'if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))',
             live_visual_text,
         )
         self.assertIn(
@@ -335,10 +471,10 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("std::ifstream infile(pseudo_slam_points_json_file);", load_grid_text)
         self.assertLess(
             live_visual_text.index("if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))"),
-            live_visual_text.index("if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"),
+            live_visual_text.index("if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"),
         )
         self.assertLess(
-            live_visual_text.index("if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"),
+            live_visual_text.index("if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"),
             live_visual_text.index("if (!load_live_visual_checkerboard_grid(points_json, checkerboard_grid, checkerboard_grid_error))"),
         )
 

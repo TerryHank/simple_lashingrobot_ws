@@ -225,6 +225,7 @@ struct BindExecutionPointRecord
 struct BindExecutionMemory
 {
     std::string scan_session_id;
+    std::string path_signature;
     Cabin_Point path_origin{};
     std::vector<BindExecutionPointRecord> executed_points;
 };
@@ -1279,6 +1280,56 @@ bool validate_scan_session_alignment(
     return false;
 }
 
+bool validate_path_signature_alignment(
+    const nlohmann::json& artifact_json,
+    const std::string& artifact_name,
+    const BindExecutionMemory& bind_execution_memory,
+    const std::string& current_path_signature,
+    std::string& error_message
+)
+{
+    error_message.clear();
+    const std::string artifact_path_signature = artifact_json.value("path_signature", std::string());
+    const bool artifact_path_signature_missing = artifact_path_signature.empty();
+    const bool ledger_path_signature_missing = bind_execution_memory.path_signature.empty();
+    const bool artifact_path_signature_mismatch =
+        artifact_path_signature != current_path_signature;
+    const bool ledger_path_signature_mismatch =
+        bind_execution_memory.path_signature != current_path_signature;
+    if (!artifact_path_signature_missing &&
+        !ledger_path_signature_missing &&
+        !artifact_path_signature_mismatch &&
+        !ledger_path_signature_mismatch) {
+        return true;
+    }
+
+    std::ostringstream oss;
+    oss << artifact_name << " / bind_execution_memory.json / 当前路径配置 的 path_signature不一致";
+    if (artifact_path_signature.empty()) {
+        oss << "（" << artifact_name << "缺少path_signature";
+        if (bind_execution_memory.path_signature.empty()) {
+            oss << "，账本也缺少path_signature";
+        }
+        oss << "）";
+    } else if (bind_execution_memory.path_signature.empty()) {
+        oss << "（bind_execution_memory.json缺少path_signature）";
+    } else {
+        oss << "（产物与当前路径是否一致="
+            << (artifact_path_signature_mismatch ? "否" : "是")
+            << "，账本与当前路径是否一致="
+            << (ledger_path_signature_mismatch ? "否" : "是")
+            << "）";
+    }
+    oss << "，说明扫描时使用的路径或关键运动参数已经变化，请先重新扫描后再执行";
+    error_message = oss.str();
+    printCurrentTime();
+    printf(
+        "Cabin_Warn: %s\n",
+        error_message.c_str()
+    );
+    return false;
+}
+
 bool load_scan_artifact_json(
     const std::string& artifact_path,
     const std::string& artifact_name,
@@ -1316,6 +1367,7 @@ bool load_scan_artifacts_for_execution(
     nlohmann::json& points_json,
     nlohmann::json& bind_path_json,
     const BindExecutionMemory& bind_execution_memory,
+    const std::string& current_path_signature,
     std::string& error_message
 )
 {
@@ -1356,6 +1408,26 @@ bool load_scan_artifacts_for_execution(
             bind_path_json,
             "pseudo_slam_bind_path.json",
             bind_execution_memory,
+            error_message
+        )) {
+        return false;
+    }
+
+    if (!validate_path_signature_alignment(
+            points_json,
+            "pseudo_slam_points.json",
+            bind_execution_memory,
+            current_path_signature,
+            error_message
+        )) {
+        return false;
+    }
+
+    if (!validate_path_signature_alignment(
+            bind_path_json,
+            "pseudo_slam_bind_path.json",
+            bind_execution_memory,
+            current_path_signature,
             error_message
         )) {
         return false;
@@ -2152,6 +2224,7 @@ bool load_bind_execution_memory_json(
         }
 
         memory.scan_session_id = memory_json.value("scan_session_id", "");
+        memory.path_signature = memory_json.value("path_signature", "");
         if (memory_json.contains("path_origin") && !memory_json["path_origin"].is_object()) {
             throw std::runtime_error("bind execution memory path_origin must be object");
         }
@@ -2198,6 +2271,7 @@ bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::st
 
     nlohmann::json memory_json = {
         {"scan_session_id", memory.scan_session_id},
+        {"path_signature", memory.path_signature},
         {"path_origin", {{"x", memory.path_origin.x}, {"y", memory.path_origin.y}, {"z", 0.0f}}},
         {"executed_points", nlohmann::json::array()},
     };
@@ -2347,11 +2421,13 @@ bool invalidate_current_scan_artifacts_after_execution_memory_write_failure(
 
 BindExecutionMemory reset_bind_execution_memory_for_scan_session(
     const std::string& scan_session_id,
+    const std::string& path_signature,
     const Cabin_Point& path_origin
 )
 {
     BindExecutionMemory memory;
     memory.scan_session_id = scan_session_id;
+    memory.path_signature = path_signature;
     memory.path_origin = path_origin;
     memory.executed_points.clear();
     return memory;
@@ -2387,6 +2463,7 @@ nlohmann::json filter_precomputed_group_points_for_execution(
         return filtered_points;
     }
 
+    std::unordered_set<long long> current_batch_checkerboard_cells;
     for (const auto& point_json : group_json["points"]) {
         if (only_checkerboard_parity_zero && point_json.value("checkerboard_parity", 0) != 0) {
             continue;
@@ -2396,6 +2473,14 @@ nlohmann::json filter_precomputed_group_points_for_execution(
         const int global_col = point_json.value("global_col", -1);
         if (is_point_already_executed(memory, global_row, global_col)) {
             continue;
+        }
+        if (global_row >= 0 && global_col >= 0) {
+            const long long checkerboard_cell_key =
+                encode_checkerboard_cell_key(global_row, global_col);
+            const bool inserted = current_batch_checkerboard_cells.insert(checkerboard_cell_key).second;
+            if (!inserted) {
+                continue;
+            }
         }
 
         filtered_points.push_back(point_json);
@@ -2475,11 +2560,13 @@ bool write_pseudo_slam_points_json(
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx,
     const std::string& scan_session_id,
+    const std::string& path_signature,
     std::string* error_message
 )
 {
     nlohmann::json points_json;
     points_json["scan_session_id"] = scan_session_id;
+    points_json["path_signature"] = path_signature;
     points_json["pseudo_slam_points"] = nlohmann::json::array();
     for (const auto& point : merged_points) {
         auto checkerboard_it = checkerboard_info_by_idx.find(point.idx);
@@ -2529,11 +2616,13 @@ bool write_pseudo_slam_bind_path_json(
     float cabin_height,
     float cabin_speed,
     const std::string& scan_session_id,
+    const std::string& path_signature,
     std::string* error_message
 )
 {
     nlohmann::json bind_path_json;
     bind_path_json["scan_session_id"] = scan_session_id;
+    bind_path_json["path_signature"] = path_signature;
     bind_path_json["scan_mode"] = "scan_only";
     bind_path_json["cabin_height"] = cabin_height;
     bind_path_json["cabin_speed"] = cabin_speed;
@@ -3471,6 +3560,57 @@ bool load_configured_path(
     return !con_path.empty();
 }
 
+std::string build_path_signature(
+    const std::vector<Cabin_Point>& con_path,
+    float cabin_height,
+    float cabin_speed
+)
+{
+    std::ostringstream canonical_path_stream;
+    canonical_path_stream << std::fixed << std::setprecision(3);
+    canonical_path_stream << "height=" << cabin_height
+                          << "|speed=" << cabin_speed
+                          << "|count=" << con_path.size();
+    for (const auto& cabin_point : con_path) {
+        canonical_path_stream << "|" << cabin_point.x << "," << cabin_point.y;
+    }
+
+    const std::string canonical_path = canonical_path_stream.str();
+    unsigned long long signature_hash = 1469598103934665603ULL;
+    for (const unsigned char ch : canonical_path) {
+        signature_hash ^= static_cast<unsigned long long>(ch);
+        signature_hash *= 1099511628211ULL;
+    }
+
+    std::ostringstream signature_stream;
+    signature_stream << "fnv1a64:" << std::hex << std::nouppercase << signature_hash;
+    return signature_stream.str();
+}
+
+bool load_current_path_signature_for_execution(
+    std::string& current_path_signature,
+    std::string& error_message
+)
+{
+    current_path_signature.clear();
+    error_message.clear();
+
+    try {
+        std::vector<Cabin_Point> con_path;
+        float cabin_height = 0.0f;
+        float cabin_speed = 0.0f;
+        if (!load_configured_path(con_path, cabin_height, cabin_speed)) {
+            error_message = "当前路径为空，无法校验path_signature";
+            return false;
+        }
+        current_path_signature = build_path_signature(con_path, cabin_height, cabin_speed);
+        return true;
+    } catch (const std::exception& ex) {
+        error_message = std::string("无法加载当前路径配置，无法校验path_signature：") + ex.what();
+        return false;
+    }
+}
+
 fast_image_solve::PointCoords build_world_point_from_scan_response(
     const fast_image_solve::PointCoords& point,
     int point_index
@@ -3633,11 +3773,13 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
     std::string pseudo_slam_points_error;
     std::string pseudo_slam_bind_path_error;
     const std::string scan_session_id = std::to_string(ros::Time::now().toNSec());
+    const std::string path_signature = build_path_signature(con_path, cabin_height, cabin_speed);
     const bool pseudo_slam_points_written = write_pseudo_slam_points_json(
         merged_world_points,
         merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx,
         scan_session_id,
+        path_signature,
         &pseudo_slam_points_error
     );
     const bool pseudo_slam_bind_path_written = write_pseudo_slam_bind_path_json(
@@ -3647,6 +3789,7 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         cabin_height,
         cabin_speed,
         scan_session_id,
+        path_signature,
         &pseudo_slam_bind_path_error
     );
     if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written) {
@@ -3678,7 +3821,7 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
     }
 
     BindExecutionMemory bind_execution_memory =
-        reset_bind_execution_memory_for_scan_session(scan_session_id, path_origin);
+        reset_bind_execution_memory_for_scan_session(scan_session_id, path_signature, path_origin);
     std::string bind_execution_memory_error;
     if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
         printCurrentTime();
@@ -3859,12 +4002,16 @@ bool run_current_area_bind_from_scan_test(std::string& message)
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
     BindExecutionMemory bind_execution_memory;
+    std::string current_path_signature;
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
         return false;
     }
-    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message)) {
+    if (!load_current_path_signature_for_execution(current_path_signature, message)) {
+        return false;
+    }
+    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
     (void)points_json;
@@ -4070,14 +4217,18 @@ bool run_live_visual_global_work(std::string& message)
     int executed_area_count = 0;
     int skipped_area_count = 0;
     BindExecutionMemory bind_execution_memory;
+    std::string current_path_signature;
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
         return false;
     }
+    if (!load_current_path_signature_for_execution(current_path_signature, message)) {
+        return false;
+    }
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
-    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message)) {
+    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
     (void)bind_path_json;
@@ -4313,12 +4464,16 @@ bool run_bind_from_scan(std::string& message)
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
     BindExecutionMemory bind_execution_memory;
+    std::string current_path_signature;
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
         return false;
     }
-    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message)) {
+    if (!load_current_path_signature_for_execution(current_path_signature, message)) {
+        return false;
+    }
+    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
     (void)points_json;

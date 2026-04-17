@@ -111,13 +111,16 @@ rostopic pub -1 /web/cabin/start_pseudo_slam_scan std_msgs/Float32 "data: 1.0"
 - [pseudo_slam_points.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_points.json)
   - 扫到的全部世界点
   - 同时写入全局棋盘格账本：`global_row`、`global_col`、`checkerboard_parity`、`is_checkerboard_member`
+  - 同时写入 `path_signature`，用于绑定“这批扫描点是按哪条路径和关键运动参数扫出来的”
   - `live_visual` 后续会复用这份扫描账本来判断现场新点能不能执行
 - [pseudo_slam_bind_path.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/pseudo_slam_bind_path.json)
   - 真正参与执行的区域分组路径
   - 组类型现在可能是标准 `matrix_2x2`，也可能是边界区域的 `edge_pair`
+  - 同样会持久化 `path_signature`
 - [bind_execution_memory.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/bind_execution_memory.json)
   - 已成功执行点位的全局记忆账本
   - `slam_precomputed` 和 `live_visual` 共用这份记忆，避免重复绑扎
+  - 账本也会带上 `path_signature`，执行时会和当前路径配置一起做一致性校验
 
 ### 边界区域现在也会生成 `edge_pair`
 
@@ -150,7 +153,9 @@ rostopic pub -1 /web/cabin/set_execution_mode std_msgs/Float32 "data: 1.0"
 - `slam_precomputed`：使用扫描后的 `pseudo_slam_bind_path.json` 执行；执行前还会读取 `bind_execution_memory.json`，把已经做过的点过滤掉
 - `live_visual`：按 `path_points.json` 逐区域移动，到区域后现场请求视觉；但新点不会直接盲绑，而是先归入扫描时写下的全局棋盘格，再经过 `bind_execution_memory.json` 过滤后才执行
 - 三个执行入口现在都会联合校验 `pseudo_slam_points.json`、`pseudo_slam_bind_path.json` 和 `bind_execution_memory.json` 的 `scan_session_id`
+- 三个执行入口也都会联合校验三份文件里的 `path_signature` 是否仍然匹配当前 `con_path + 关键运动参数`
 - 不是只校验各自直接消费的那一份扫描产物；任意一份扫描产物已失效或 session 不对齐，都会按 fail-closed 拒绝继续执行
+- 只要你改了路径点、`cabin_height`、`cabin_speed` 这类关键运动参数，就必须重新扫描，不能继续吃旧扫描网格
 
 再触发全局作业：
 
@@ -187,6 +192,7 @@ rostopic pub -1 /web/cabin/start_global_work std_msgs/Float32 "data: 1.0"
 - 这意味着重启后继续执行时，会自动跳过已经记过账的点，不需要人工清空
 - 只有当一次新的扫描成功，并且新的扫描产物已经写盘后，系统才会清空并重建 `bind_execution_memory.json`
 - 如果扫描失败，旧的执行记忆会保留，不会被提前删除
+- 如果你改路径后必须重新扫描；因为扫描产物和账本都绑定了 `path_signature`，执行入口发现当前路径和扫描时路径不一致会直接拒绝继续执行
 - 如果 `slam_precomputed`、`live_visual` 或“当前区域预计算直执行”里某次绑扎已经实际执行成功，但随后 `bind_execution_memory.json` 写盘失败，系统会立刻按失败处理，不会继续后续流程，也不会返回整体成功
 - 发生这类失败时，当前 `pseudo_slam_points.json` / `pseudo_slam_bind_path.json` 的 `scan_session_id` 会被主动失效化；后续无论是否重启，三个执行入口都会联合校验两份扫描产物与账本的 session 对齐，任意一份失效都会被拦住，必须重新扫描/重新建图后再执行
 
