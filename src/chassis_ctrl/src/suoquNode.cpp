@@ -1279,27 +1279,101 @@ bool validate_scan_session_alignment(
     return false;
 }
 
-bool load_live_visual_checkerboard_grid(
-    LiveVisualCheckerboardGrid& checkerboard_grid,
+bool load_scan_artifact_json(
+    const std::string& artifact_path,
+    const std::string& artifact_name,
+    nlohmann::json& artifact_json,
+    std::string& error_message
+)
+{
+    artifact_json = nlohmann::json();
+    error_message.clear();
+
+    std::ifstream infile(artifact_path);
+    if (!infile.is_open()) {
+        error_message = "未找到" + artifact_name + "，请先执行扫描建图";
+        return false;
+    }
+
+    try {
+        infile >> artifact_json;
+        if (infile.fail() && !infile.eof()) {
+            throw std::runtime_error("artifact read failure");
+        }
+        if (!artifact_json.is_object()) {
+            throw std::runtime_error("artifact root must be object");
+        }
+    } catch (const std::exception&) {
+        error_message = artifact_name + "读取失败";
+        artifact_json = nlohmann::json();
+        return false;
+    }
+
+    return true;
+}
+
+bool load_scan_artifacts_for_execution(
+    nlohmann::json& points_json,
+    nlohmann::json& bind_path_json,
     const BindExecutionMemory& bind_execution_memory,
+    std::string& error_message
+)
+{
+    error_message.clear();
+
+    std::string points_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_points_json_file,
+            "pseudo_slam_points.json",
+            points_json,
+            points_error
+        )) {
+        error_message = points_error;
+        return false;
+    }
+
+    std::string bind_path_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_bind_path_json_file,
+            "pseudo_slam_bind_path.json",
+            bind_path_json,
+            bind_path_error
+        )) {
+        error_message = bind_path_error;
+        return false;
+    }
+
+    if (!validate_scan_session_alignment(
+            points_json,
+            "pseudo_slam_points.json",
+            bind_execution_memory,
+            error_message
+        )) {
+        return false;
+    }
+
+    if (!validate_scan_session_alignment(
+            bind_path_json,
+            "pseudo_slam_bind_path.json",
+            bind_execution_memory,
+            error_message
+        )) {
+        return false;
+    }
+
+    return true;
+}
+
+bool load_live_visual_checkerboard_grid(
+    const nlohmann::json& points_json,
+    LiveVisualCheckerboardGrid& checkerboard_grid,
     std::string& error_message
 )
 {
     checkerboard_grid = LiveVisualCheckerboardGrid{};
     error_message.clear();
 
-    std::ifstream infile(pseudo_slam_points_json_file);
-    if (!infile.is_open()) {
-        error_message = "未找到pseudo_slam_points.json，请先执行扫描建图";
-        return false;
-    }
-
     try {
-        nlohmann::json points_json;
-        infile >> points_json;
-        if (!validate_scan_session_alignment(points_json, "pseudo_slam_points.json", bind_execution_memory, error_message)) {
-            return false;
-        }
         if (!points_json.contains("pseudo_slam_points") ||
             !points_json["pseudo_slam_points"].is_array()) {
             error_message = "pseudo_slam_points.json格式错误";
@@ -3782,23 +3856,18 @@ float get_current_area_bind_test_cabin_speed(float configured_cabin_speed)
 
 bool run_current_area_bind_from_scan_test(std::string& message)
 {
-    std::ifstream infile(pseudo_slam_bind_path_json_file);
-    if (!infile.is_open()) {
-        message = "未找到pseudo_slam_bind_path.json，请先执行扫描建图";
-        return false;
-    }
-
+    nlohmann::json points_json;
     nlohmann::json bind_path_json;
-    infile >> bind_path_json;
     BindExecutionMemory bind_execution_memory;
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
         return false;
     }
-    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
+    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message)) {
         return false;
     }
+    (void)points_json;
     if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
         message = "pseudo_slam_bind_path.json格式错误";
         return false;
@@ -4006,9 +4075,15 @@ bool run_live_visual_global_work(std::string& message)
         message = bind_execution_memory_error;
         return false;
     }
+    nlohmann::json points_json;
+    nlohmann::json bind_path_json;
+    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message)) {
+        return false;
+    }
+    (void)bind_path_json;
     LiveVisualCheckerboardGrid checkerboard_grid;
     std::string checkerboard_grid_error;
-    if (!load_live_visual_checkerboard_grid(checkerboard_grid, bind_execution_memory, checkerboard_grid_error)) {
+    if (!load_live_visual_checkerboard_grid(points_json, checkerboard_grid, checkerboard_grid_error)) {
         message = checkerboard_grid_error;
         return false;
     }
@@ -4235,23 +4310,18 @@ bool run_live_visual_global_work(std::string& message)
 
 bool run_bind_from_scan(std::string& message)
 {
-    std::ifstream infile(pseudo_slam_bind_path_json_file);
-    if (!infile.is_open()) {
-        message = "未找到pseudo_slam_bind_path.json，请先执行扫描建图";
-        return false;
-    }
-
+    nlohmann::json points_json;
     nlohmann::json bind_path_json;
-    infile >> bind_path_json;
     BindExecutionMemory bind_execution_memory;
     std::string bind_execution_memory_error;
     if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error)) {
         message = bind_execution_memory_error;
         return false;
     }
-    if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message)) {
+    if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message)) {
         return false;
     }
+    (void)points_json;
     if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
         message = "pseudo_slam_bind_path.json格式错误";
         return false;

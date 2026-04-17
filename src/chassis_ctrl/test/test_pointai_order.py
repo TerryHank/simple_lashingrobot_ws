@@ -22,6 +22,7 @@ import pointAI  # noqa: E402
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 CHASSIS_CTRL_DIR = WORKSPACE_ROOT / "chassis_ctrl"
 FAST_IMAGE_SOLVE_DIR = WORKSPACE_ROOT / "fast_image_solve"
 
@@ -213,12 +214,32 @@ class PointAIOrderTest(unittest.TestCase):
             suoqu_text,
             "bool validate_scan_session_alignment(",
         )
+        load_artifacts_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_scan_artifacts_for_execution(",
+        )
 
         self.assertIn('artifact_json.value("scan_session_id", std::string())', validate_function)
         self.assertIn("bind_execution_memory.scan_session_id.empty()", validate_function)
         self.assertIn("artifact_scan_session_id != bind_execution_memory.scan_session_id", validate_function)
         self.assertIn("scan_session_id不一致", validate_function)
         self.assertIn("fail-closed", validate_function)
+        self.assertIn("pseudo_slam_points_json_file", load_artifacts_function)
+        self.assertIn("pseudo_slam_bind_path_json_file", load_artifacts_function)
+        self.assertRegex(
+            load_artifacts_function,
+            re.compile(
+                r'validate_scan_session_alignment\(\s*points_json,\s*"pseudo_slam_points\.json",\s*bind_execution_memory,\s*error_message',
+                re.S,
+            ),
+        )
+        self.assertRegex(
+            load_artifacts_function,
+            re.compile(
+                r'validate_scan_session_alignment\(\s*bind_path_json,\s*"pseudo_slam_bind_path\.json",\s*bind_execution_memory,\s*error_message',
+                re.S,
+            ),
+        )
 
         for anchor in [
             "bool run_current_area_bind_from_scan_test(std::string& message)",
@@ -228,22 +249,22 @@ class PointAIOrderTest(unittest.TestCase):
             load_stmt = (
                 "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))"
             )
-            validate_stmt = (
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+            load_artifacts_stmt = (
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             )
 
             self.assertIn(load_stmt, function_text)
             self.assertIn(
-                validate_stmt,
+                load_artifacts_stmt,
                 function_text,
             )
             validation_block = function_text[
                 function_text.index(
-                    validate_stmt
+                    load_artifacts_stmt
                 ):
             ]
             self.assertRegex(validation_block, re.compile(r"return false;"))
-            self.assertLess(function_text.index(load_stmt), function_text.index(validate_stmt))
+            self.assertLess(function_text.index(load_stmt), function_text.index(load_artifacts_stmt))
 
         current_area_text = extract_cpp_block(
             suoqu_text,
@@ -251,19 +272,19 @@ class PointAIOrderTest(unittest.TestCase):
         )
         self.assertLess(
             current_area_text.index(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             ),
             current_area_text.index("float current_cabin_x = 0.0f;"),
         )
         self.assertLess(
             current_area_text.index(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             ),
             current_area_text.index("find_nearest_bind_area_for_current_cabin_pose("),
         )
         self.assertLess(
             current_area_text.index(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             ),
             current_area_text.index("TCP_Move[0] = fast_cabin_speed;"),
         )
@@ -274,19 +295,19 @@ class PointAIOrderTest(unittest.TestCase):
         )
         self.assertLess(
             global_bind_text.index(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             ),
             global_bind_text.index('const float cabin_height = bind_path_json.value("cabin_height", 500.0f);'),
         )
         self.assertLess(
             global_bind_text.index(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             ),
             global_bind_text.index("float path_origin_x = 0.0f;"),
         )
         self.assertLess(
             global_bind_text.index(
-                'if (!validate_scan_session_alignment(bind_path_json, "pseudo_slam_bind_path.json", bind_execution_memory, message))'
+                "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"
             ),
             global_bind_text.index("TCP_Move[0] = cabin_speed;"),
         )
@@ -302,14 +323,23 @@ class PointAIOrderTest(unittest.TestCase):
             "bool run_live_visual_global_work(std::string& message)",
         )
 
-        self.assertIn("const BindExecutionMemory& bind_execution_memory", load_grid_text)
+        self.assertIn("const nlohmann::json& points_json", load_grid_text)
         self.assertIn(
-            'validate_scan_session_alignment(points_json, "pseudo_slam_points.json", bind_execution_memory, error_message)',
-            load_grid_text,
+            'if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))',
+            live_visual_text,
         )
+        self.assertIn(
+            "if (!load_live_visual_checkerboard_grid(points_json, checkerboard_grid, checkerboard_grid_error))",
+            live_visual_text,
+        )
+        self.assertNotIn("std::ifstream infile(pseudo_slam_points_json_file);", load_grid_text)
         self.assertLess(
             live_visual_text.index("if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))"),
-            live_visual_text.index("if (!load_live_visual_checkerboard_grid(checkerboard_grid, bind_execution_memory, checkerboard_grid_error))"),
+            live_visual_text.index("if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"),
+        )
+        self.assertLess(
+            live_visual_text.index("if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, message))"),
+            live_visual_text.index("if (!load_live_visual_checkerboard_grid(points_json, checkerboard_grid, checkerboard_grid_error))"),
         )
 
     def test_execution_memory_write_failure_invalidates_current_scan_artifacts(self):
@@ -398,6 +428,15 @@ class PointAIOrderTest(unittest.TestCase):
             'point_json.value("planning_checkerboard_parity", -1)',
             load_grid_text,
         )
+
+    def test_quickstart_documents_joint_scan_artifact_validation(self):
+        quickstart_text = (REPO_ROOT / "SLAM_V11_QUICKSTART.md").read_text(encoding="utf-8")
+
+        self.assertIn("三个执行入口现在都会联合校验", quickstart_text)
+        self.assertIn("pseudo_slam_points.json", quickstart_text)
+        self.assertIn("pseudo_slam_bind_path.json", quickstart_text)
+        self.assertIn("不是只校验各自直接消费的那一份", quickstart_text)
+        self.assertIn("任意一份扫描产物已失效或 session 不对齐", quickstart_text)
 
     def test_process_image_service_supports_request_modes_and_failure_details(self):
         service_path = FAST_IMAGE_SOLVE_DIR / "srv" / "ProcessImage.srv"
