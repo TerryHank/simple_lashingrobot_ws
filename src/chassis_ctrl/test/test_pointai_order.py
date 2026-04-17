@@ -809,8 +809,24 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         self.assertIn("classify_live_visual_point_into_checkerboard", suoqu_text)
+        self.assertIn("load_bind_execution_memory_json", suoqu_text)
         self.assertIn("未能归入全局棋盘格", suoqu_text)
         self.assertIn("source_mode", suoqu_text)
+
+    def test_live_visual_uses_scan_grid_to_classify_points_before_execution(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("run_live_visual_global_work", suoqu_text)
+        self.assertIn("srv.request.request_mode = kProcessImageModeScanOnly", suoqu_text)
+        self.assertIn("classify_live_visual_point_into_checkerboard", suoqu_text)
+        self.assertIn("load_bind_execution_memory_json", suoqu_text)
+        self.assertIn("sg_precomputed_fast_client.call", suoqu_text)
+
+    def test_live_visual_skips_points_that_cannot_be_projected_into_global_grid(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("未能归入全局棋盘格", suoqu_text)
+        self.assertIn("continue;", suoqu_text)
 
     def test_pseudo_slam_scan_retries_visual_until_five_points_are_detected(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")

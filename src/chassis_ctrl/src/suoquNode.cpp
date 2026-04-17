@@ -204,6 +204,13 @@ struct PseudoSlamCheckerboardInfo
     bool is_checkerboard_member = false;
 };
 
+struct LiveVisualCheckerboardGrid
+{
+    std::vector<float> row_centers;
+    std::vector<float> col_centers;
+    std::unordered_map<long long, PseudoSlamCheckerboardInfo> info_by_cell_key;
+};
+
 struct BindExecutionPointRecord
 {
     int global_row = -1;
@@ -1205,6 +1212,154 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
     return checkerboard_info_by_idx;
 }
 
+bool load_live_visual_checkerboard_grid(
+    LiveVisualCheckerboardGrid& checkerboard_grid,
+    std::string& error_message
+)
+{
+    checkerboard_grid = LiveVisualCheckerboardGrid{};
+    error_message.clear();
+
+    std::ifstream infile(pseudo_slam_points_json_file);
+    if (!infile.is_open()) {
+        error_message = "未找到pseudo_slam_points.json，请先执行扫描建图";
+        return false;
+    }
+
+    try {
+        nlohmann::json points_json;
+        infile >> points_json;
+        if (!points_json.contains("pseudo_slam_points") ||
+            !points_json["pseudo_slam_points"].is_array()) {
+            error_message = "pseudo_slam_points.json格式错误";
+            return false;
+        }
+
+        std::vector<float> row_sums;
+        std::vector<int> row_counts;
+        std::vector<float> col_sums;
+        std::vector<int> col_counts;
+        for (const auto& point_json : points_json["pseudo_slam_points"]) {
+            if (!point_json.value("is_checkerboard_member", false)) {
+                continue;
+            }
+
+            const int global_row = point_json.value("global_row", -1);
+            const int global_col = point_json.value("global_col", -1);
+            if (global_row < 0 || global_col < 0) {
+                continue;
+            }
+
+            if (static_cast<int>(row_sums.size()) <= global_row) {
+                row_sums.resize(global_row + 1, 0.0f);
+                row_counts.resize(global_row + 1, 0);
+            }
+            if (static_cast<int>(col_sums.size()) <= global_col) {
+                col_sums.resize(global_col + 1, 0.0f);
+                col_counts.resize(global_col + 1, 0);
+            }
+
+            row_sums[global_row] += point_json.value("y", point_json.value("world_y", 0.0f));
+            row_counts[global_row] += 1;
+            col_sums[global_col] += point_json.value("x", point_json.value("world_x", 0.0f));
+            col_counts[global_col] += 1;
+
+            PseudoSlamCheckerboardInfo info;
+            info.global_row = global_row;
+            info.global_col = global_col;
+            info.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+            info.is_checkerboard_member = true;
+            checkerboard_grid.info_by_cell_key[encode_checkerboard_cell_key(global_row, global_col)] = info;
+        }
+
+        if (checkerboard_grid.info_by_cell_key.empty()) {
+            error_message = "pseudo_slam_points.json中缺少可执行全局棋盘格";
+            return false;
+        }
+
+        checkerboard_grid.row_centers.resize(row_sums.size(), 0.0f);
+        for (size_t row_index = 0; row_index < row_sums.size(); ++row_index) {
+            if (row_counts[row_index] <= 0) {
+                error_message = "pseudo_slam_points.json中的全局行中心不完整";
+                return false;
+            }
+            checkerboard_grid.row_centers[row_index] =
+                row_sums[row_index] / static_cast<float>(row_counts[row_index]);
+        }
+
+        checkerboard_grid.col_centers.resize(col_sums.size(), 0.0f);
+        for (size_t col_index = 0; col_index < col_sums.size(); ++col_index) {
+            if (col_counts[col_index] <= 0) {
+                error_message = "pseudo_slam_points.json中的全局列中心不完整";
+                return false;
+            }
+            checkerboard_grid.col_centers[col_index] =
+                col_sums[col_index] / static_cast<float>(col_counts[col_index]);
+        }
+    } catch (const std::exception&) {
+        error_message = "pseudo_slam_points.json读取失败";
+        return false;
+    }
+
+    return true;
+}
+
+bool classify_live_visual_point_into_checkerboard(
+    const fast_image_solve::PointCoords& world_point,
+    const LiveVisualCheckerboardGrid& checkerboard_grid,
+    nlohmann::json& classified_point_json
+)
+{
+    classified_point_json = nlohmann::json();
+    if (checkerboard_grid.row_centers.empty() || checkerboard_grid.col_centers.empty()) {
+        return false;
+    }
+
+    const int global_col = find_nearest_checkerboard_center_index(
+        world_point.World_coord[0],
+        checkerboard_grid.col_centers
+    );
+    const int global_row = find_nearest_checkerboard_center_index(
+        world_point.World_coord[1],
+        checkerboard_grid.row_centers
+    );
+    if (global_row < 0 || global_col < 0) {
+        return false;
+    }
+
+    if (std::fabs(world_point.World_coord[0] - checkerboard_grid.col_centers[global_col]) >
+            kPseudoSlamCheckerboardAxisThresholdMm ||
+        std::fabs(world_point.World_coord[1] - checkerboard_grid.row_centers[global_row]) >
+            kPseudoSlamCheckerboardAxisThresholdMm) {
+        return false;
+    }
+
+    const auto checkerboard_it = checkerboard_grid.info_by_cell_key.find(
+        encode_checkerboard_cell_key(global_row, global_col)
+    );
+    if (checkerboard_it == checkerboard_grid.info_by_cell_key.end()) {
+        return false;
+    }
+
+    classified_point_json = {
+        {"idx", world_point.idx},
+        {"local_idx", world_point.idx},
+        {"global_idx", world_point.idx},
+        {"global_row", global_row},
+        {"global_col", global_col},
+        {"checkerboard_parity", checkerboard_it->second.checkerboard_parity},
+        {"is_checkerboard_member", checkerboard_it->second.is_checkerboard_member},
+        {"x", world_point.World_coord[0]},
+        {"y", world_point.World_coord[1]},
+        {"z", world_point.World_coord[2]},
+        {"world_x", world_point.World_coord[0]},
+        {"world_y", world_point.World_coord[1]},
+        {"world_z", world_point.World_coord[2]},
+        {"angle", world_point.Angle},
+    };
+    return true;
+}
+
 std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_non_checkerboard_points(
     const std::vector<fast_image_solve::PointCoords>& planning_points,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx
@@ -1986,7 +2141,8 @@ nlohmann::json filter_precomputed_group_points_for_execution(
 
 void record_successful_execution_point(
     BindExecutionMemory& memory,
-    const nlohmann::json& point_json
+    const nlohmann::json& point_json,
+    const std::string& source_mode = "slam_precomputed"
 )
 {
     const int global_row = point_json.value("global_row", -1);
@@ -2005,7 +2161,7 @@ void record_successful_execution_point(
     point_record.world_x = point_json.value("world_x", point_json.value("x", 0.0f));
     point_record.world_y = point_json.value("world_y", point_json.value("y", 0.0f));
     point_record.world_z = point_json.value("world_z", point_json.value("z", 0.0f));
-    point_record.source_mode = "slam_precomputed";
+    point_record.source_mode = source_mode;
     memory.executed_points.push_back(point_record);
 }
 
@@ -3516,9 +3672,17 @@ bool run_live_visual_global_work(std::string& message)
         return false;
     }
 
+    LiveVisualCheckerboardGrid checkerboard_grid;
+    std::string checkerboard_grid_error;
+    if (!load_live_visual_checkerboard_grid(checkerboard_grid, checkerboard_grid_error)) {
+        message = checkerboard_grid_error;
+        return false;
+    }
+
     const int total_area_count = static_cast<int>(con_path.size());
     int executed_area_count = 0;
     int skipped_area_count = 0;
+    BindExecutionMemory bind_execution_memory = load_bind_execution_memory_json();
 
     for (int area_index = 0; area_index < total_area_count; ++area_index) {
         const Cabin_Point& cabin_point = con_path[area_index];
@@ -3545,12 +3709,12 @@ bool run_live_visual_global_work(std::string& message)
         delay_time(AXIS_Y, cabin_point.y);
         delay_time(AXIS_Z, cabin_height);
 
-        std_srvs::Trigger bind_srv;
-        if (!sg_live_visual_client.call(bind_srv)) {
+        srv.request.request_mode = kProcessImageModeScanOnly;
+        if (!AI_client.call(srv)) {
             skipped_area_count++;
             printCurrentTime();
             printf(
-                "Cabin_Warn: live_visual区域%d调用/moduan/sg失败，跳过当前区域。\n",
+                "Cabin_Warn: live_visual区域%d调用/pointAI/process_image失败，跳过当前区域。\n",
                 area_index + 1
             );
             publish_area_progress(
@@ -3563,7 +3727,102 @@ bool run_live_visual_global_work(std::string& message)
             continue;
         }
 
-        if (!bind_srv.response.success) {
+        if (!srv.response.success) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: live_visual区域%d视觉失败，跳过当前区域。消息：%s\n",
+                area_index + 1,
+                srv.response.message.c_str()
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
+
+        std::vector<fast_image_solve::PointCoords> area_world_points;
+        int point_index = 1;
+        for (const auto& point : srv.response.PointCoordinatesArray) {
+            area_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
+        }
+        area_world_points = dedupe_world_points(area_world_points);
+
+        nlohmann::json execution_group_json;
+        execution_group_json["points"] = nlohmann::json::array();
+        for (const auto& world_point : area_world_points) {
+            nlohmann::json classified_point_json;
+            if (!classify_live_visual_point_into_checkerboard(
+                    world_point,
+                    checkerboard_grid,
+                    classified_point_json
+                )) {
+                printCurrentTime();
+                printf(
+                    "Cabin_log: live_visual区域%d点idx=%d未能归入全局棋盘格，跳过该点。\n",
+                    area_index + 1,
+                    world_point.idx
+                );
+                continue;
+            }
+            execution_group_json["points"].push_back(classified_point_json);
+        }
+        execution_group_json["points"] = filter_precomputed_group_points_for_execution(
+            execution_group_json,
+            bind_execution_memory,
+            checkerboard_jump_bind_enabled
+        );
+
+        const std::vector<fast_image_solve::PointCoords> world_points =
+            load_bind_points_from_group_json(execution_group_json);
+        if (world_points.empty()) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_log: live_visual区域%d经全局棋盘格/执行记忆过滤后无可执行点，跳过当前区域。\n",
+                area_index + 1
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
+
+        std::vector<fast_image_solve::PointCoords> local_points;
+        std::string prepare_failure_reason;
+        if (!prepare_precomputed_bind_group_for_execution(
+                world_points,
+                local_points,
+                prepare_failure_reason
+            )) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: live_visual区域%d无法满足虎口执行条件，跳过当前区域。原因：%s\n",
+                area_index + 1,
+                prepare_failure_reason.c_str()
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
+
+        chassis_ctrl::ExecuteBindPoints bind_srv;
+        bind_srv.request.points = local_points;
+        if (!sg_precomputed_fast_client.call(bind_srv) || !bind_srv.response.success) {
             skipped_area_count++;
             printCurrentTime();
             printf(
@@ -3579,6 +3838,23 @@ bool run_live_visual_global_work(std::string& message)
                 false
             );
             continue;
+        }
+
+        const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
+            execution_group_json,
+            local_points
+        );
+        for (const auto& dispatched_point_json : dispatched_point_jsons) {
+            record_successful_execution_point(bind_execution_memory, dispatched_point_json, "live_visual");
+        }
+        std::string bind_execution_memory_error;
+        if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: live_visual区域%d成功后写入bind_execution_memory.json失败：%s\n",
+                area_index + 1,
+                bind_execution_memory_error.c_str()
+            );
         }
 
         executed_area_count++;
