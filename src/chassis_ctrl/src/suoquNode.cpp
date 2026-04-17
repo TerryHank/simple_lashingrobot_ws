@@ -3259,6 +3259,32 @@ bool prepare_precomputed_bind_group_for_execution(
     return true;
 }
 
+nlohmann::json collect_dispatched_precomputed_point_jsons(
+    const nlohmann::json& group_json,
+    const std::vector<fast_image_solve::PointCoords>& dispatched_points
+)
+{
+    nlohmann::json dispatched_point_jsons = nlohmann::json::array();
+    if (!group_json.contains("points") || !group_json["points"].is_array()) {
+        return dispatched_point_jsons;
+    }
+
+    std::unordered_set<int> dispatched_point_indices;
+    for (const auto& dispatched_point : dispatched_points) {
+        dispatched_point_indices.insert(dispatched_point.idx);
+    }
+
+    for (const auto& point_json : group_json["points"]) {
+        const int point_idx = point_json.value("local_idx", point_json.value("idx", -1));
+        if (dispatched_point_indices.count(point_idx) <= 0) {
+            continue;
+        }
+        dispatched_point_jsons.push_back(point_json);
+    }
+
+    return dispatched_point_jsons;
+}
+
 bool find_nearest_bind_area_for_current_cabin_pose(
     const nlohmann::json& areas_json,
     float current_cabin_x,
@@ -3443,8 +3469,12 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             continue;
         }
 
-        for (const auto& point_json : execution_group_json["points"]) {
-            record_successful_execution_point(bind_execution_memory, point_json);
+        const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
+            execution_group_json,
+            local_points
+        );
+        for (const auto& dispatched_point_json : dispatched_point_jsons) {
+            record_successful_execution_point(bind_execution_memory, dispatched_point_json);
         }
         std::string bind_execution_memory_error;
         if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
@@ -3714,8 +3744,12 @@ bool run_bind_from_scan(std::string& message)
                 continue;
             }
 
-            for (const auto& point_json : execution_group_json["points"]) {
-                record_successful_execution_point(bind_execution_memory, point_json);
+            const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
+                execution_group_json,
+                local_points
+            );
+            for (const auto& dispatched_point_json : dispatched_point_jsons) {
+                record_successful_execution_point(bind_execution_memory, dispatched_point_json);
             }
             std::string bind_execution_memory_error;
             if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {

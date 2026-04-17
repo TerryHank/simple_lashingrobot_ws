@@ -797,6 +797,14 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("record_successful_execution_point", suoqu_text)
         self.assertIn('point_json.value("global_row"', suoqu_text)
 
+    def test_slam_precomputed_records_only_dispatched_points_after_prepare_filtering(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("collect_dispatched_precomputed_point_jsons", suoqu_text)
+        self.assertIn("const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(", suoqu_text)
+        self.assertIn("for (const auto& dispatched_point_json : dispatched_point_jsons)", suoqu_text)
+        self.assertNotIn('for (const auto& point_json : execution_group_json["points"])', suoqu_text)
+
     def test_live_visual_reprojects_points_into_global_checkerboard_before_execution(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
