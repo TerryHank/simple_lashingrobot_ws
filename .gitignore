@@ -13,6 +13,7 @@ __pycache__/
 .vscode/
 .idea/
 .codex
+.worktrees/
 
 # Data captures and local runtime files
 *.bag
