@@ -54,7 +54,9 @@
 #include "chassis_ctrl/area_choose.h" // 区域选择消息
 #include "chassis_ctrl/motion.h"
 #include "chassis_ctrl/MotionControl.h" // 运动控制服务  
+#include "chassis_ctrl/StartGlobalWork.h"
 #include "chassis_ctrl/Pathguihua.h"      // 路径规划服务
+#include "chassis_ctrl/StartPseudoSlamScan.h"
 #include "chassis_ctrl/SingleMove.h"      // 单轴移动服务
 
 #include "fast_image_solve/PointCoords.h"

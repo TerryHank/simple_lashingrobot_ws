@@ -138,7 +138,7 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         scan_function = extract_cpp_block(
             suoqu_text,
-            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+            "bool run_pseudo_slam_scan(",
         )
 
         self.assertIn("bool write_pseudo_slam_points_json(", suoqu_text)
@@ -162,7 +162,7 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         scan_function = extract_cpp_block(
             suoqu_text,
-            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+            "bool run_pseudo_slam_scan(",
         )
 
         self.assertIn(
@@ -193,7 +193,7 @@ class PointAIOrderTest(unittest.TestCase):
         )
         scan_function = extract_cpp_block(
             suoqu_text,
-            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+            "bool run_pseudo_slam_scan(",
         )
 
         self.assertIn("const std::string& scan_session_id", write_points_text)
@@ -355,7 +355,7 @@ class PointAIOrderTest(unittest.TestCase):
         )
         scan_function = extract_cpp_block(
             suoqu_text,
-            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+            "bool run_pseudo_slam_scan(",
         )
 
         self.assertIn("std::string path_signature;", suoqu_text)
@@ -581,7 +581,7 @@ class PointAIOrderTest(unittest.TestCase):
         lock_stmt = "std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);"
         anchors_and_followups = [
             (
-                "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+                "bool run_pseudo_slam_scan(",
                 "set_pseudo_slam_tf_points({});",
             ),
             (
@@ -607,7 +607,7 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         scan_function = extract_cpp_block(
             suoqu_text,
-            "bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)",
+            "bool run_pseudo_slam_scan(",
         )
         live_visual_function = extract_cpp_block(
             suoqu_text,
@@ -1325,6 +1325,10 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("enum class GlobalExecutionMode", suoqu_text)
         self.assertIn("kSlamPrecomputed", suoqu_text)
         self.assertIn("kLiveVisual", suoqu_text)
+        self.assertIn(
+            "std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLiveVisual)};",
+            suoqu_text,
+        )
         self.assertIn("run_bind_from_scan(res.message)", suoqu_text)
         self.assertIn("run_live_visual_global_work(res.message)", suoqu_text)
         self.assertIn('sg_live_visual_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg")', suoqu_text)
@@ -1409,15 +1413,40 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("pseudo_slam_points.json中的全局行中心不完整", suoqu_text)
         self.assertNotIn("pseudo_slam_points.json中的全局列中心不完整", suoqu_text)
 
-    def test_pseudo_slam_scan_retries_visual_until_five_points_are_detected(self):
+    def test_live_visual_uses_scanned_area_points_as_coarse_reference(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        live_visual_section = extract_cpp_block(
+            suoqu_text,
+            "bool run_live_visual_global_work(std::string& message)",
+        )
+
+        self.assertIn("find_planned_bind_area_json_by_area_index", suoqu_text)
+        self.assertIn("collect_planned_area_world_points_by_global_index", suoqu_text)
+        self.assertIn("build_live_visual_execution_points_from_planned_area", suoqu_text)
+        self.assertIn("find_planned_bind_area_json_by_area_index(", live_visual_section)
+        self.assertIn("build_live_visual_execution_points_from_planned_area(", live_visual_section)
+
+    def test_live_visual_skips_points_outside_current_scanned_area_reference(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr float kLiveVisualMicroAdjustAxisToleranceMm = 5.0f;", suoqu_text)
+        self.assertIn("不在当前区域扫描参考点中", suoqu_text)
+        self.assertIn("超出xyz微调范围", suoqu_text)
+        self.assertNotIn("constexpr float kLiveVisualPlannedPointRefineMaxDistanceMm", suoqu_text)
+        self.assertNotIn("constexpr float kLiveVisualPlannedPointRefineMaxZDeltaMm = 5.0f;", suoqu_text)
+
+    def test_pseudo_slam_scan_merges_two_visual_frames_per_area(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         self.assertIn("constexpr int kPseudoSlamScanMinPointCount = 5;", suoqu_text)
+        self.assertIn("constexpr int kPseudoSlamScanFrameCount = 2;", suoqu_text)
         self.assertIn("constexpr double kPseudoSlamScanRetryIntervalSec = 0.2;", suoqu_text)
         self.assertIn("const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();", suoqu_text)
         self.assertIn("while (ros::ok())", suoqu_text)
-        self.assertIn("srv.response.PointCoordinatesArray.size()", suoqu_text)
-        self.assertIn("pseudo_slam scan_only区域%d白色矩形内点数%d<%d，继续轮询视觉。", suoqu_text)
+        self.assertIn("collected_scan_frame_count < kPseudoSlamScanFrameCount", suoqu_text)
+        self.assertIn("area_world_points.insert(area_world_points.end(), frame_world_points.begin(), frame_world_points.end());", suoqu_text)
+        self.assertIn("pseudo_slam scan_only区域%d第%d/%d帧识别完成", suoqu_text)
+        self.assertIn("pseudo_slam scan_only区域%d两帧合并后点数%d<%d，继续轮询视觉。", suoqu_text)
         self.assertIn("config.scan_min_point_count", suoqu_text)
         self.assertIn("ros::Duration(config.scan_retry_interval_sec).sleep();", suoqu_text)
 
@@ -1432,6 +1461,17 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("bool wait_for_pseudo_slam_capture_gate(", suoqu_text)
         self.assertIn("pseudo_slam scan_only区域%d等待最终采集门通过", suoqu_text)
         self.assertIn("pseudo_slam scan_only区域%d最终采集门已通过", suoqu_text)
+
+    def test_pseudo_slam_scan_can_skip_capture_gate_when_request_disables_it(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+
+        self.assertIn("if (enable_capture_gate)", scan_function)
+        self.assertIn("wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)", scan_function)
+        self.assertIn("已关闭最终采集门，直接请求视觉", scan_function)
 
     def test_pseudo_slam_capture_gate_waits_for_new_ir_frame_without_resetting_stability(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1480,6 +1520,33 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('marker.header.frame_id = "cabin_frame"', suoqu_text)
         self.assertIn("global_idx", suoqu_text)
 
+    def test_suoqu_restores_pseudo_slam_markers_from_points_json_on_startup(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        main_function = extract_cpp_block(suoqu_text, "int main(int argc, char **argv)")
+
+        self.assertIn("bool load_pseudo_slam_marker_points_from_json(", suoqu_text)
+        self.assertIn('pseudo_slam_points_json_file', suoqu_text)
+        self.assertIn('if (!points_json.contains("pseudo_slam_points") ||', suoqu_text)
+        self.assertIn('publish_pseudo_slam_markers(restored_marker_points);', suoqu_text)
+        self.assertIn('Cabin_log: 已从pseudo_slam_points.json恢复%d个历史扫描点到/cabin/pseudo_slam_markers。', suoqu_text)
+        self.assertIn('Cabin_Warn: 启动时恢复/cabin/pseudo_slam_markers失败：%s', suoqu_text)
+        self.assertIn('restore_pseudo_slam_markers_from_json_on_startup();', main_function)
+
+    def test_suoqu_rviz_markers_highlight_current_execution_area_and_dispatched_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("struct PseudoSlamMarkerExecutionState", suoqu_text)
+        self.assertIn("std::unordered_set<int> highlighted_area_global_indices;", suoqu_text)
+        self.assertIn("std::unordered_set<int> active_dispatch_global_indices;", suoqu_text)
+        self.assertIn("std_msgs::ColorRGBA point_color;", suoqu_text)
+        self.assertIn("points_marker.colors.push_back(point_color);", suoqu_text)
+        self.assertIn("point_color.r = 1.0f;", suoqu_text)
+        self.assertIn("point_color.g = 0.20f;", suoqu_text)
+        self.assertIn("point_color.b = 0.20f;", suoqu_text)
+        self.assertIn("point_color.g = 0.92f;", suoqu_text)
+        self.assertIn("set_pseudo_slam_marker_execution_state(", suoqu_text)
+        self.assertIn("clear_pseudo_slam_marker_execution_state();", suoqu_text)
+
     def test_suoqu_publishes_pseudo_slam_world_point_tfs(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
@@ -1492,8 +1559,17 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         self.assertIn("kPseudoSlamPlanningZOutlierMm", suoqu_text)
-        self.assertIn("constexpr float kPseudoSlamPlanningZOutlierMm = 50.0f;", suoqu_text)
+        self.assertIn("constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;", suoqu_text)
+        self.assertIn('ros::param::param("~pseudo_slam_planning_z_outlier_mm"', suoqu_text)
+        self.assertIn("fit_pseudo_slam_plane", suoqu_text)
+        self.assertIn("fit_pseudo_slam_plane_least_squares", suoqu_text)
+        self.assertIn("solve_pseudo_slam_plane_from_three_points", suoqu_text)
+        self.assertIn("compute_pseudo_slam_plane_z_residual_mm", suoqu_text)
         self.assertIn("filter_pseudo_slam_planning_outliers", suoqu_text)
+        self.assertIn("RANSAC", suoqu_text)
+        self.assertIn("used_ransac", suoqu_text)
+        self.assertIn("拟合平面", suoqu_text)
+        self.assertNotIn("z中位数=", suoqu_text)
         self.assertIn(
             "std::vector<fast_image_solve::PointCoords> planning_world_points = filter_pseudo_slam_planning_outliers(merged_world_points);",
             suoqu_text,
@@ -1510,6 +1586,14 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("publish_pseudo_slam_markers(merged_world_points)", suoqu_text)
         self.assertIn("set_pseudo_slam_tf_points(merged_world_points)", suoqu_text)
 
+    def test_pseudo_slam_marker_outlier_threshold_can_hot_refresh_rviz(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("refresh_pseudo_slam_marker_outlier_state_from_current_points", suoqu_text)
+        self.assertIn("maybe_refresh_pseudo_slam_marker_outlier_threshold", suoqu_text)
+        self.assertIn("pseudo_slam离群阈值热更新", suoqu_text)
+        self.assertIn("publish_pseudo_slam_markers(marker_points_snapshot)", suoqu_text)
+
     def test_pseudo_slam_does_not_block_neighbor_columns_around_parallel_outliers(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
@@ -1517,6 +1601,101 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("collect_pseudo_slam_blocked_columns_from_outliers", suoqu_text)
         self.assertNotIn("filter_pseudo_slam_parallel_outlier_neighbor_columns", suoqu_text)
         self.assertNotIn("pseudo_slam平行离群列屏蔽", suoqu_text)
+
+    def test_pseudo_slam_filters_normal_points_near_z_outlier_columns_within_ten_mm(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr float kPseudoSlamOutlierColumnAxisToleranceMm = 10.0f;", suoqu_text)
+        self.assertIn("constexpr float kPseudoSlamOutlierColumnPointToleranceMm = 10.0f;", suoqu_text)
+        self.assertIn("collect_pseudo_slam_planning_z_outliers", suoqu_text)
+        self.assertIn("filter_pseudo_slam_points_near_outlier_columns", suoqu_text)
+        self.assertIn("拟合成列的z离群点附近±10mm内正常点视为不可执行", suoqu_text)
+        self.assertIn(
+            "const std::vector<fast_image_solve::PointCoords> planning_z_outlier_points =",
+            suoqu_text,
+        )
+        self.assertIn(
+            "planning_world_points = filter_pseudo_slam_points_near_outlier_columns(",
+            suoqu_text,
+        )
+
+    def test_points_removed_by_outlier_column_filter_are_not_kept_as_checkerboard_members(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("sync_merged_checkerboard_membership_with_planning", suoqu_text)
+        self.assertIn("merged_checkerboard_info_by_idx = sync_merged_checkerboard_membership_with_planning(", suoqu_text)
+        self.assertIn("merged_info.is_checkerboard_member = false;", suoqu_text)
+        self.assertIn("planning_checkerboard_info_by_idx.find(entry.first)", suoqu_text)
+
+    def test_pseudo_slam_points_json_persists_outlier_marker_flag(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+
+        self.assertIn('"is_planning_outlier"', write_points_text)
+        self.assertIn("const bool is_planning_outlier =", write_points_text)
+        self.assertIn("!is_planning_checkerboard_member", write_points_text)
+
+    def test_pseudo_slam_points_json_persists_outlier_column_neighbor_blocked_flag(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+
+        self.assertIn('"is_outlier_column_neighbor_blocked"', write_points_text)
+        self.assertIn("const bool is_outlier_column_neighbor_blocked =", write_points_text)
+        self.assertIn("outlier_column_neighbor_blocked_global_indices.count(point.idx) > 0", write_points_text)
+
+    def test_pseudo_slam_marker_restore_loads_outlier_flags(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        restore_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_pseudo_slam_marker_points_from_json(",
+        )
+
+        self.assertIn("restored_outlier_global_indices.clear()", restore_function)
+        self.assertIn('point_json.value("is_planning_outlier", false)', restore_function)
+        self.assertIn("restored_outlier_global_indices.insert(point.idx);", restore_function)
+
+    def test_pseudo_slam_marker_restore_loads_outlier_column_neighbor_flags(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        restore_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_pseudo_slam_marker_points_from_json(",
+        )
+
+        self.assertIn("restored_outlier_column_neighbor_global_indices.clear()", restore_function)
+        self.assertIn('point_json.value("is_outlier_column_neighbor_blocked", false)', restore_function)
+        self.assertIn("restored_outlier_column_neighbor_global_indices.insert(point.idx);", restore_function)
+
+    def test_pseudo_slam_markers_use_distinct_color_for_outliers(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        publish_function = extract_cpp_block(
+            suoqu_text,
+            "void publish_pseudo_slam_markers(",
+        )
+
+        self.assertIn("const bool is_outlier_point =", publish_function)
+        self.assertIn("pseudo_slam_marker_outlier_global_indices", publish_function)
+        self.assertIn("point_color.r = 1.0f;", publish_function)
+        self.assertIn("point_color.g = 0.35f;", publish_function)
+        self.assertIn("point_color.b = 1.0f;", publish_function)
+
+    def test_pseudo_slam_markers_use_distinct_color_for_outlier_column_neighbor_blocked_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        publish_function = extract_cpp_block(
+            suoqu_text,
+            "void publish_pseudo_slam_markers(",
+        )
+
+        self.assertIn("const bool is_outlier_column_neighbor_blocked =", publish_function)
+        self.assertIn("pseudo_slam_marker_outlier_column_neighbor_global_indices", publish_function)
+        self.assertIn("point_color.r = 1.0f;", publish_function)
+        self.assertIn("point_color.g = 0.55f;", publish_function)
+        self.assertIn("point_color.b = 0.15f;", publish_function)
 
     def test_pseudo_slam_only_executes_points_that_belong_to_checkerboard(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1542,6 +1721,166 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("扫描建图", debug_button_text)
         self.assertIn("/web/cabin/start_pseudo_slam_scan", topics_transfer_text)
         self.assertIn("收到扫描建图命令", topics_transfer_text)
+
+    def test_scan_entry_supports_parameterized_capture_gate_service(self):
+        cmake_text = (CHASSIS_CTRL_DIR / "CMakeLists.txt").read_text(encoding="utf-8")
+        topics_transfer_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(
+            encoding="utf-8"
+        )
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        service_definition = (
+            CHASSIS_CTRL_DIR / "srv" / "StartPseudoSlamScan.srv"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("StartPseudoSlamScan.srv", cmake_text)
+        self.assertIn("bool enable_capture_gate", service_definition)
+        self.assertIn("---", service_definition)
+        self.assertIn("bool success", service_definition)
+        self.assertIn("string message", service_definition)
+        self.assertIn("ros::ServiceClient Chassis_scan_with_options_client;", topics_transfer_text)
+        self.assertIn(
+            'nh.serviceClient<chassis_ctrl::StartPseudoSlamScan>("/cabin/start_pseudo_slam_scan_with_options")',
+            topics_transfer_text,
+        )
+        self.assertIn(
+            'nh.advertiseService("/cabin/start_pseudo_slam_scan_with_options", startPseudoSlamScanWithOptions)',
+            suoqu_text,
+        )
+
+    def test_start_work_supports_parameterized_clear_execution_memory_service(self):
+        cmake_text = (CHASSIS_CTRL_DIR / "CMakeLists.txt").read_text(encoding="utf-8")
+        topics_transfer_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(
+            encoding="utf-8"
+        )
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        service_definition = (
+            CHASSIS_CTRL_DIR / "srv" / "StartGlobalWork.srv"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("StartGlobalWork.srv", cmake_text)
+        self.assertIn("string command", service_definition)
+        self.assertIn("bool clear_execution_memory", service_definition)
+        self.assertIn("---", service_definition)
+        self.assertIn("bool success", service_definition)
+        self.assertIn("string message", service_definition)
+        self.assertIn("ros::ServiceClient Chassis_start_work_with_options_client;", topics_transfer_text)
+        self.assertIn(
+            'nh.serviceClient<chassis_ctrl::StartGlobalWork>("/cabin/start_work_with_options")',
+            topics_transfer_text,
+        )
+        self.assertIn(
+            'nh.advertiseService("/cabin/start_work_with_options", startGlobalWorkWithOptions)',
+            suoqu_text,
+        )
+
+    def test_start_work_topic_uses_msg_value_to_toggle_clear_execution_memory(self):
+        topics_transfer_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("const bool clear_execution_memory = msg->data >= 2.0f;", topics_transfer_text)
+        self.assertIn("start_work_srv.request.clear_execution_memory = clear_execution_memory;", topics_transfer_text)
+        self.assertIn("全局作业命令，模式=", topics_transfer_text)
+
+    def test_start_work_with_options_can_clear_execution_memory_before_execution(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        start_work_with_options_text = extract_cpp_block(
+            suoqu_text,
+            "bool startGlobalWorkWithOptions(",
+        )
+
+        self.assertIn("if (req.clear_execution_memory)", start_work_with_options_text)
+        self.assertIn("reset_bind_execution_memory_from_current_scan_artifacts", start_work_with_options_text)
+        self.assertIn("load_current_path_signature_for_execution", start_work_with_options_text)
+        self.assertIn("clear_execution_memory=true", start_work_with_options_text)
+
+    def test_scan_topic_uses_msg_value_to_toggle_capture_gate(self):
+        topics_transfer_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("const bool enable_capture_gate = msg->data >= 1.0f;", topics_transfer_text)
+        self.assertIn("scan_srv.request.enable_capture_gate = enable_capture_gate;", topics_transfer_text)
+        self.assertIn("扫描建图命令，模式=", topics_transfer_text)
+
+    def test_delay_time_returns_timeout_status_and_logs_axis_snapshot(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        delay_time_function = extract_cpp_block(
+            suoqu_text,
+            "bool delay_time(int Axis, double Target_position)",
+        )
+
+        self.assertIn("return false;", delay_time_function)
+        self.assertIn("return true;", delay_time_function)
+        self.assertIn("Cabin_Error: 等待轴%d到位超时", delay_time_function)
+        self.assertIn("当前(X,Y,Z)=", delay_time_function)
+        self.assertIn("motion_status=%d", delay_time_function)
+
+    def test_pseudo_slam_scan_fails_fast_when_axis_move_times_out(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+
+        self.assertIn("if (!delay_time(AXIS_X, cabin_point.x))", scan_function)
+        self.assertIn('message = "扫描建图因索驱X轴到位超时而中止"', scan_function)
+        self.assertIn("if (!delay_time(AXIS_Y, cabin_point.y))", scan_function)
+        self.assertIn('message = "扫描建图因索驱Y轴到位超时而中止"', scan_function)
+        self.assertIn("if (!delay_time(AXIS_Z, cabin_height))", scan_function)
+        self.assertIn('message = "扫描建图因索驱Z轴到位超时而中止"', scan_function)
+        self.assertIn("const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);", scan_function)
+        self.assertIn("if (send_result < 0)", scan_function)
+        self.assertIn('message = "扫描建图下发索驱移动指令失败"', scan_function)
+
+    def test_frame_generate_logs_nonzero_status_word_from_short_reply(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        frame_generate_function = extract_cpp_block(
+            suoqu_text,
+            "int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockfd)",
+        )
+
+        self.assertIn("decode_tcp_protocol_status", suoqu_text)
+        self.assertIn("format_tcp_protocol_status_message", suoqu_text)
+        self.assertIn("const uint16_t command_word", frame_generate_function)
+        self.assertIn("const auto decoded_status = decode_tcp_protocol_status", frame_generate_function)
+        self.assertIn("Cabin_Warn: 索驱协议返回异常", frame_generate_function)
+        self.assertIn("cache_pending_tcp_status_error(decoded_status.status_word);", frame_generate_function)
+        self.assertIn("return -2;", frame_generate_function)
+
+    def test_protocol_status_map_covers_inverse_enable_and_tcp_move(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn('case 0x0006', suoqu_text)
+        self.assertIn("逆解计算激活", suoqu_text)
+        self.assertIn("电机轴不在零点", suoqu_text)
+        self.assertIn('case 0x0012', suoqu_text)
+        self.assertIn("TCP位置运动", suoqu_text)
+        self.assertIn("电机未全部使能", suoqu_text)
+
+    def test_delay_time_fails_fast_on_pending_tcp_status_error(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        delay_time_function = extract_cpp_block(
+            suoqu_text,
+            "bool delay_time(int Axis, double Target_position)",
+        )
+
+        self.assertIn("bool consume_pending_tcp_status_error", suoqu_text)
+        self.assertIn("consume_pending_tcp_status_error(pending_tcp_status_word)", delay_time_function)
+        self.assertIn("Cabin_Error: 等待轴%d到位前检测到索驱状态字异常", delay_time_function)
+
+    def test_motion_command_retries_until_status_word_is_accepted(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        frame_generate_with_retry_function = extract_cpp_block(
+            suoqu_text,
+            "int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socket = sockfd)",
+        )
+
+        self.assertIn("bool is_motion_move_command_frame", suoqu_text)
+        self.assertIn("const bool keep_retrying_on_status_reject", frame_generate_with_retry_function)
+        self.assertIn("if (frame_result == -2)", frame_generate_with_retry_function)
+        self.assertIn("继续等待索驱上位机接受当前运动指令后重试", frame_generate_with_retry_function)
+        self.assertIn("continue;", frame_generate_with_retry_function)
 
     def test_moduan_precomputed_bind_service_bypasses_local_one_and_four_jump_bind(self):
         moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
@@ -1594,6 +1933,28 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("ros::Duration(0.2).sleep();", current_area_section)
         self.assertNotIn("ros::Duration(0.2).sleep();", global_bind_section)
 
+    def test_execution_paths_update_and_clear_rviz_marker_highlight_state(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        current_area_section = extract_cpp_block(
+            suoqu_text,
+            "bool run_current_area_bind_from_scan_test(std::string& message)",
+        )
+        live_visual_section = extract_cpp_block(
+            suoqu_text,
+            "bool run_live_visual_global_work(std::string& message)",
+        )
+        global_bind_section = extract_cpp_block(
+            suoqu_text,
+            "bool run_bind_from_scan(std::string& message)",
+        )
+
+        self.assertIn("set_pseudo_slam_marker_execution_state(", current_area_section)
+        self.assertIn("clear_pseudo_slam_marker_execution_state();", current_area_section)
+        self.assertIn("set_pseudo_slam_marker_execution_state(", live_visual_section)
+        self.assertIn("clear_pseudo_slam_marker_execution_state();", live_visual_section)
+        self.assertIn("set_pseudo_slam_marker_execution_state(", global_bind_section)
+        self.assertIn("clear_pseudo_slam_marker_execution_state();", global_bind_section)
+
     def test_moduan_supports_fast_precomputed_bind_service(self):
         moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
 
@@ -1602,6 +1963,33 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("execute_bind_points(points, res.message, false)", moduan_text)
         self.assertIn("ScopedModuleSpeedOverride", moduan_text)
         self.assertIn("kPrecomputedFastModuleSpeedMmPerSec", moduan_text)
+
+    def test_moduan_precomputed_bind_rejects_local_z_outside_tcp_travel_range(self):
+        moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
+        execute_bind_points_function = extract_cpp_block(
+            moduan_text,
+            "bool execute_bind_points(",
+        )
+
+        self.assertIn("constexpr double kTcpTravelMinZMm = 0.0;", moduan_text)
+        self.assertIn("constexpr double kTcpTravelMaxZMm = 200.0;", moduan_text)
+        self.assertIn("bool is_valid_precomputed_tcp_travel_z(double local_z_mm)", moduan_text)
+        self.assertIn(
+            "if (!is_valid_precomputed_tcp_travel_z(static_cast<double>(world_z)))",
+            execute_bind_points_function,
+        )
+        self.assertIn("局部z=%.2fmm，不是合法TCP行程", execute_bind_points_function)
+        self.assertIn("预生成点局部z超出TCP行程，当前组无可执行点", execute_bind_points_function)
+
+    def test_moduan_single_move_service_uses_tcp_travel_z_limits(self):
+        moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
+        move_service_function = extract_cpp_block(
+            moduan_text,
+            "bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,",
+        )
+
+        self.assertIn("z < kTcpTravelMinZMm || z > kTcpTravelMaxZMm", move_service_function)
+        self.assertIn("TCP z轴行程仅支持0~200mm", move_service_function)
 
     def test_default_stable_frame_count_is_three(self):
         init_source = inspect.getsource(pointAI.ImageProcessor.__init__)

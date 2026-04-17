@@ -1,0 +1,4 @@
+bool enable_capture_gate
+---
+bool success
+string message

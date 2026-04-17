@@ -64,6 +64,8 @@ ros::ServiceClient trigger_client;
 constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
 constexpr uint8_t kProcessImageModeBindCheck = 2;
 constexpr double kBindMaxHeightMm = 95.0;
+constexpr double kTcpTravelMinZMm = 0.0;
+constexpr double kTcpTravelMaxZMm = 200.0;
 constexpr double kTravelMaxXMm = 320.0;
 constexpr double kTravelMaxYMm = 320.0;
 constexpr double kPrecomputedFastModuleSpeedMmPerSec = 400.0;
@@ -906,6 +908,11 @@ bool should_keep_jump_bind_point(const fast_image_solve::PointCoords& point)
     return point.idx == 1 || point.idx == 4;
 }
 
+bool is_valid_precomputed_tcp_travel_z(double local_z_mm)
+{
+    return local_z_mm >= kTcpTravelMinZMm && local_z_mm <= kTcpTravelMaxZMm;
+}
+
 void inputAllPoints(int i, double x, double y, double z, double rz)
 {
     if (i == 0)
@@ -998,6 +1005,7 @@ bool execute_bind_points(
     }
 
     int selected_bind_point_count = 0;
+    int rejected_invalid_tcp_travel_count = 0;
     bind_data.first.push_back(0);
 
     for (int i = 0; i < filteredPoints.size(); i++) {
@@ -1010,6 +1018,19 @@ bool execute_bind_points(
         float_t world_y = point.World_coord[1];
         float_t world_z = point.World_coord[2];
         float_t angle = point.Angle;
+
+        if (!is_valid_precomputed_tcp_travel_z(static_cast<double>(world_z))) {
+            rejected_invalid_tcp_travel_count++;
+            printCurrentTime();
+            printf(
+                "Moduan_Warn: 预生成点 idx=%d 的局部z=%.2fmm，不是合法TCP行程[%.2f, %.2f]mm，已拒绝下发。\n",
+                point.idx,
+                world_z,
+                kTcpTravelMinZMm,
+                kTcpTravelMaxZMm
+            );
+            continue;
+        }
 
         printCurrentTime();
         ROS_INFO(
@@ -1028,6 +1049,19 @@ bool execute_bind_points(
 
         inputAllPoints(selected_bind_point_count, world_x, world_y, world_z, angle);
         selected_bind_point_count++;
+    }
+
+    if (selected_bind_point_count == 0 && rejected_invalid_tcp_travel_count > 0) {
+        printCurrentTime();
+        printf(
+            "Moduan_Warn: 当前组全部点的局部z都超出TCP行程[%.2f, %.2f]mm，跳过当前组。\n",
+            kTcpTravelMinZMm,
+            kTcpTravelMaxZMm
+        );
+        response_message = "预生成点局部z超出TCP行程，当前组无可执行点";
+        bind_data.first.back() = 0;
+        bind_all_data.push_back(bind_data);
+        return false;
     }
 
     bind_data.first.back() = selected_bind_point_count;
@@ -1244,12 +1278,12 @@ bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,
     
     printCurrentTime();
     printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n",x,y,z);
-    if(x < 0 || x > kTravelMaxXMm || y < 0 || y > kTravelMaxYMm || z < 0 || z > kBindMaxHeightMm)
+    if(x < 0 || x > kTravelMaxXMm || y < 0 || y > kTravelMaxYMm || z < kTcpTravelMinZMm || z > kTcpTravelMaxZMm)
     {
         printCurrentTime();
         printf("Moduan_log:目标点超出范围。\n");
         res.success = false;
-        res.message = "目标点超出范围";
+        res.message = "目标点超出范围，TCP z轴行程仅支持0~200mm";
         return res.success;
     }
     

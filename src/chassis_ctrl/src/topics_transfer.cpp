@@ -69,6 +69,7 @@ fast_image_solve::ProcessImage image_srv;
 // 索驱
 chassis_ctrl::SingleMove single_chassis_move_srv;
 chassis_ctrl::MotionControl global_chassis_move_srv;
+chassis_ctrl::StartGlobalWork start_work_srv;
 // 全局路径规划
 chassis_ctrl::Pathguihua global_chassis_path_srv;
 // 末端
@@ -86,7 +87,9 @@ typedef struct {
     ros::ServiceClient Chassis_client_1;
     ros::ServiceClient Chassis_client_2;
     ros::ServiceClient Chassis_client_3;
+    ros::ServiceClient Chassis_start_work_with_options_client;
     ros::ServiceClient Chassis_scan_client;
+    ros::ServiceClient Chassis_scan_with_options_client;
 } ServiceClients;
 ServiceClients g_service_clients;
 
@@ -162,20 +165,27 @@ void robotClearPathCallback(const std_msgs::Float32::ConstPtr& msg) {
     return;
 }
 
-void pub_startglobalwork_service(chassis_ctrl::MotionControl global_chassis_move_srv)
+void pub_startglobalwork_service(chassis_ctrl::StartGlobalWork start_work_srv)
 {
     // 发布全局运动控制请求
-    g_service_clients.Chassis_client_3.call(global_chassis_move_srv);
+    g_service_clients.Chassis_start_work_with_options_client.call(start_work_srv);
     return;
 
 }
 // 4. 开始全局作业 - /web/cabin/start_global_work
 void startGlobalWorkCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    logMessage("/web/cabin/start_global_work", "收到开始全局作业命令，值: " + to_string(msg->data));
-    global_chassis_move_srv.request.command = "全局运动请求";
+    const bool clear_execution_memory = msg->data >= 2.0f;
+    logMessage(
+        "/web/cabin/start_global_work",
+        "收到开始全局作业命令，模式="
+        + string(clear_execution_memory ? "清空记忆后开始" : "保留记忆直接开始")
+        + "，值: " + to_string(msg->data)
+    );
+    start_work_srv.request.command = "全局运动请求";
+    start_work_srv.request.clear_execution_memory = clear_execution_memory;
     
-    std::thread pub_startglobalwork_service_thread(pub_startglobalwork_service, global_chassis_move_srv);
+    std::thread pub_startglobalwork_service_thread(pub_startglobalwork_service, start_work_srv);
     pub_startglobalwork_service_thread.detach();
     return;
 }
@@ -197,17 +207,25 @@ void setGlobalExecutionModeCallback(const std_msgs::Float32::ConstPtr& msg) {
 
 void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    logMessage("/web/cabin/start_pseudo_slam_scan", "收到扫描建图命令，值: " + to_string(msg->data));
-    std_srvs::Trigger trigger_srv;
-    if (!g_service_clients.Chassis_scan_client.call(trigger_srv)) {
+    const bool enable_capture_gate = msg->data >= 1.0f;
+    logMessage(
+        "/web/cabin/start_pseudo_slam_scan",
+        "收到扫描建图命令，模式="
+        + string(enable_capture_gate ? "开启最终采集门" : "关闭最终采集门")
+        + "，值: " + to_string(msg->data)
+    );
+
+    chassis_ctrl::StartPseudoSlamScan scan_srv;
+    scan_srv.request.enable_capture_gate = enable_capture_gate;
+    if (!g_service_clients.Chassis_scan_with_options_client.call(scan_srv)) {
         ROS_ERROR("扫描建图服务调用失败");
         return;
     }
-    if (!trigger_srv.response.success) {
-        ROS_WARN("扫描建图服务返回失败: %s", trigger_srv.response.message.c_str());
+    if (!scan_srv.response.success) {
+        ROS_WARN("扫描建图服务返回失败: %s", scan_srv.response.message.c_str());
         return;
     }
-    ROS_INFO("扫描建图服务调用成功: %s", trigger_srv.response.message.c_str());
+    ROS_INFO("扫描建图服务调用成功: %s", scan_srv.response.message.c_str());
 }
 
 void restartRobotService(void)
@@ -519,8 +537,12 @@ int main(int argc, char** argv) {
     ros::Subscriber sub4 = nh.subscribe("/web/cabin/start_global_work", 5, startGlobalWorkCallback);
     ros::Subscriber sub26 = nh.subscribe("/web/cabin/set_execution_mode", 5, setGlobalExecutionModeCallback);
     g_service_clients.Chassis_client_3 = nh.serviceClient<chassis_ctrl::MotionControl>("/cabin/start_work");
+    g_service_clients.Chassis_start_work_with_options_client =
+        nh.serviceClient<chassis_ctrl::StartGlobalWork>("/cabin/start_work_with_options");
     ros::Subscriber sub25 = nh.subscribe("/web/cabin/start_pseudo_slam_scan", 5, pseudoSlamScanCallback);
     g_service_clients.Chassis_scan_client = nh.serviceClient<std_srvs::Trigger>("/cabin/start_pseudo_slam_scan");
+    g_service_clients.Chassis_scan_with_options_client =
+        nh.serviceClient<chassis_ctrl::StartPseudoSlamScan>("/cabin/start_pseudo_slam_scan_with_options");
     // 末端单点调试（含绑扎）
     ros::Subscriber sub9 = nh.subscribe("/web/moduan/single_bind", 5, moduanSingleBindCallback);
     g_service_clients.lashing_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg");

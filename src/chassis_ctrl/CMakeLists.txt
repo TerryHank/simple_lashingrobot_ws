@@ -35,6 +35,8 @@ add_service_files(
   ResetPLCWarning.srv
   Resetzero.srv
   MotionControl.srv
+  StartGlobalWork.srv
+  StartPseudoSlamScan.srv
 )
 
 add_action_files(

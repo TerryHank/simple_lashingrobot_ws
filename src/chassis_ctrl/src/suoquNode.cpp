@@ -21,6 +21,8 @@
 #include <limits>
 #include <mutex>
 #include <atomic>
+#include <sstream>
+#include <random>
 #include <unordered_map>
 #include <unordered_set>
 #include <pthread.h>
@@ -33,6 +35,7 @@
 #include <omp.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/ColorRGBA.h>
 #include <sensor_msgs/Image.h>
 #include <chassis_ctrl/motion.h>
 #include "chassis_ctrl/cabin_upload.h" //用于上传索驱模块反馈
@@ -80,6 +83,8 @@ std::mutex socket_mutex;
 std::mutex pseudo_slam_workflow_mutex;
 std::mutex pseudo_slam_tf_points_mutex;
 std::mutex pseudo_slam_ir_image_mutex;
+std::mutex pseudo_slam_marker_state_mutex;
+std::mutex pseudo_slam_marker_path_origin_mutex;
 
 [[noreturn]] void emergency_exit_with_flush(int exit_code)
 {
@@ -87,6 +92,8 @@ std::mutex pseudo_slam_ir_image_mutex;
     fflush(stderr);
     _exit(exit_code);
 }
+
+void clear_pseudo_slam_marker_execution_state();
 
 //右上角标定区域坐标
 float marking_x;
@@ -129,14 +136,19 @@ constexpr int RECV_BUFFER_SIZE = 256;
 constexpr int WRITE_DELAY_MS = 300;
 constexpr int DELAY_TIME_TIMEOUT_SEC = 30;
 constexpr int DELAY_TIME_LOG_INTERVAL_SEC = 2;
+constexpr int MOTION_COMMAND_STATUS_RETRY_LOG_INTERVAL_SEC = 2;
 constexpr uint8_t kProcessImageModeScanOnly = 3;
 constexpr float kTravelMaxXMm = 320.0f;
 constexpr float kTravelMaxYMm = 320.0f;
 constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
-constexpr float kPseudoSlamPlanningZOutlierMm = 50.0f;
+constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;
+constexpr float kPseudoSlamOutlierColumnAxisToleranceMm = 10.0f;
+constexpr float kPseudoSlamOutlierColumnPointToleranceMm = 10.0f;
 constexpr float kPseudoSlamCheckerboardAxisThresholdMm = 80.0f;
+constexpr float kLiveVisualMicroAdjustAxisToleranceMm = 5.0f;
 constexpr float kCurrentAreaBindTestCabinSpeedMultiplier = 1.5f;
 constexpr float kCurrentAreaBindTestMinCabinSpeedMmPerSec = 450.0f;
+constexpr int kPseudoSlamScanFrameCount = 2;
 constexpr int kPseudoSlamScanMinPointCount = 5;
 constexpr double kPseudoSlamScanRetryIntervalSec = 0.2;
 const std::string kPseudoSlamCaptureGateImageTopic = "/Scepter/ir/image_raw";
@@ -157,7 +169,18 @@ enum class GlobalExecutionMode
     kLiveVisual = 1,
 };
 
-std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kSlamPrecomputed)};
+std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLiveVisual)};
+std::atomic<uint16_t> pending_tcp_status_word{0};
+std::atomic<bool> pending_tcp_status_word_valid{false};
+
+struct TcpProtocolStatusDecode
+{
+    uint16_t command_word = 0;
+    uint16_t status_word = 0;
+    std::string command_name;
+    std::vector<std::string> reasons;
+    bool has_error = false;
+};
 
 const char* global_execution_mode_name(GlobalExecutionMode mode)
 {
@@ -168,6 +191,260 @@ const char* global_execution_mode_name(GlobalExecutionMode mode)
         default:
             return "slam_precomputed";
     }
+}
+
+void cache_pending_tcp_status_error(uint16_t status_word)
+{
+    pending_tcp_status_word.store(status_word, std::memory_order_relaxed);
+    pending_tcp_status_word_valid.store(true, std::memory_order_release);
+}
+
+bool consume_pending_tcp_status_error(uint16_t& status_word)
+{
+    const bool had_pending_error =
+        pending_tcp_status_word_valid.exchange(false, std::memory_order_acq_rel);
+    if (!had_pending_error) {
+        status_word = 0;
+        return false;
+    }
+    status_word = pending_tcp_status_word.exchange(0, std::memory_order_acq_rel);
+    return status_word != 0;
+}
+
+bool is_motion_move_command_frame(const uint8_t* control_word, int tlen)
+{
+    if (control_word == nullptr || tlen != 36) {
+        return false;
+    }
+    return control_word[0] == 0xEB &&
+           control_word[1] == 0x90 &&
+           control_word[2] == 0x00 &&
+           control_word[3] == 0x12;
+}
+
+const char* tcp_protocol_command_name(uint16_t command_word)
+{
+    switch (command_word) {
+        case 0x0002:
+            return "电机使能控制";
+        case 0x0003:
+            return "电机复位控制";
+        case 0x0004:
+            return "运动到关节零点启动";
+        case 0x0005:
+            return "运动到关节零点停止";
+        case 0x0006:
+            return "逆解计算激活";
+        case 0x0007:
+            return "TCP复位";
+        case 0x0010:
+            return "TCP连续运动";
+        case 0x0011:
+            return "TCP增量运动";
+        case 0x0012:
+            return "TCP位置运动";
+        case 0x0013:
+            return "TCP位置运动停止";
+        default:
+            return "未知索驱指令";
+    }
+}
+
+void append_tcp_status_reason_if_set(
+    std::vector<std::string>& reasons,
+    uint16_t status_word,
+    int bit_index,
+    const char* reason)
+{
+    if ((status_word & (static_cast<uint16_t>(1u) << bit_index)) != 0) {
+        reasons.emplace_back(reason);
+    }
+}
+
+std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_word, uint16_t status_word)
+{
+    std::vector<std::string> reasons;
+    switch (command_word) {
+        case 0x0004:
+            append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解激活");
+            append_tcp_status_reason_if_set(reasons, status_word, 1, "电机未全部使能");
+            append_tcp_status_reason_if_set(reasons, status_word, 2, "设备运动中");
+            append_tcp_status_reason_if_set(reasons, status_word, 3, "设备报警");
+            break;
+        case 0x0005:
+            append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解激活");
+            append_tcp_status_reason_if_set(reasons, status_word, 1, "电机未全部使能");
+            append_tcp_status_reason_if_set(reasons, status_word, 2, "设备未运动");
+            append_tcp_status_reason_if_set(reasons, status_word, 3, "设备报警");
+            break;
+        case 0x0006:
+            append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解激活");
+            append_tcp_status_reason_if_set(reasons, status_word, 1, "电机轴不在零点");
+            append_tcp_status_reason_if_set(reasons, status_word, 2, "TCP不在零点");
+            break;
+        case 0x0007:
+            append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解激活");
+            append_tcp_status_reason_if_set(reasons, status_word, 1, "设备运动中");
+            break;
+        case 0x0010:
+        case 0x0011:
+        case 0x0012:
+            append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解未激活");
+            append_tcp_status_reason_if_set(reasons, status_word, 1, "电机未全部使能");
+            append_tcp_status_reason_if_set(reasons, status_word, 2, "设备运动中");
+            append_tcp_status_reason_if_set(reasons, status_word, 3, "设备报警");
+            append_tcp_status_reason_if_set(reasons, status_word, 4, "速度错误");
+            append_tcp_status_reason_if_set(reasons, status_word, 5, "X超正限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 6, "X超负限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 7, "Y超正限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 8, "Y超负限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 9, "Z超正限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 10, "Z超负限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 11, "A超正限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 12, "A超负限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 13, "B超正限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 14, "B超负限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 15, "C超正限位");
+            break;
+        case 0x0013:
+            append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解未激活");
+            append_tcp_status_reason_if_set(reasons, status_word, 1, "电机未全部使能");
+            append_tcp_status_reason_if_set(reasons, status_word, 2, "设备未运动");
+            append_tcp_status_reason_if_set(reasons, status_word, 3, "设备报警");
+            break;
+        default:
+            break;
+    }
+    return reasons;
+}
+
+uint16_t extract_tcp_protocol_status_word(
+    uint16_t command_word,
+    const uint8_t* buffer,
+    ssize_t recv_len)
+{
+    if (buffer == nullptr || recv_len < 4) {
+        return 0;
+    }
+
+    switch (command_word) {
+        case 0x0004:
+        case 0x0005:
+        case 0x0006:
+        case 0x0007:
+            return static_cast<uint16_t>(buffer[2]) |
+                   (static_cast<uint16_t>(buffer[3]) << 8);
+        case 0x0010:
+        case 0x0011:
+        case 0x0012:
+        case 0x0013:
+            if (recv_len >= 6) {
+                // 现场 8 字节短回包里，有效拒绝位落在字节4~5；按实机兼容解析。
+                return static_cast<uint16_t>(buffer[4]) |
+                       (static_cast<uint16_t>(buffer[5]) << 8);
+            }
+            return 0;
+        default:
+            if (recv_len >= 6) {
+                return static_cast<uint16_t>(buffer[4]) |
+                       (static_cast<uint16_t>(buffer[5]) << 8);
+            }
+            return static_cast<uint16_t>(buffer[2]) |
+                   (static_cast<uint16_t>(buffer[3]) << 8);
+    }
+}
+
+TcpProtocolStatusDecode decode_tcp_protocol_status(
+    uint16_t command_word,
+    const uint8_t* buffer,
+    ssize_t recv_len)
+{
+    TcpProtocolStatusDecode decoded_status;
+    decoded_status.command_word = command_word;
+    decoded_status.command_name = tcp_protocol_command_name(command_word);
+
+    if (buffer == nullptr || recv_len < 4) {
+        return decoded_status;
+    }
+
+    if ((command_word == 0x0002 || command_word == 0x0003) && recv_len >= 18) {
+        static const char* const kMotorStatusReasons[] = {
+            "设备运动中",
+            "电机运动中",
+            "电机初始化未完成",
+            "电机报警",
+        };
+        for (int motor_index = 0; motor_index < 8; ++motor_index) {
+            const int base = 2 + motor_index * 2;
+            const uint16_t motor_status =
+                static_cast<uint16_t>(buffer[base]) |
+                (static_cast<uint16_t>(buffer[base + 1]) << 8);
+            if (motor_status == 0) {
+                continue;
+            }
+            if (decoded_status.status_word == 0) {
+                decoded_status.status_word = motor_status;
+            }
+            decoded_status.has_error = true;
+            std::vector<std::string> motor_reasons;
+            for (int bit_index = 0; bit_index < 4; ++bit_index) {
+                if ((motor_status & (static_cast<uint16_t>(1u) << bit_index)) != 0) {
+                    motor_reasons.emplace_back(kMotorStatusReasons[bit_index]);
+                }
+            }
+            if (motor_reasons.empty()) {
+                std::ostringstream reason_stream;
+                reason_stream << "电机" << (motor_index + 1) << ": 未知状态0x"
+                              << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                              << motor_status;
+                decoded_status.reasons.push_back(reason_stream.str());
+            } else {
+                std::ostringstream reason_stream;
+                reason_stream << "电机" << (motor_index + 1) << ": ";
+                for (size_t reason_index = 0; reason_index < motor_reasons.size(); ++reason_index) {
+                    if (reason_index > 0) {
+                        reason_stream << "、";
+                    }
+                    reason_stream << motor_reasons[reason_index];
+                }
+                decoded_status.reasons.push_back(reason_stream.str());
+            }
+        }
+        return decoded_status;
+    }
+
+    decoded_status.status_word = extract_tcp_protocol_status_word(command_word, buffer, recv_len);
+    decoded_status.has_error = decoded_status.status_word != 0;
+    if (decoded_status.has_error) {
+        decoded_status.reasons = decode_tcp_protocol_status_reasons(command_word, decoded_status.status_word);
+        if (decoded_status.reasons.empty()) {
+            std::ostringstream reason_stream;
+            reason_stream << "未在协议表中找到状态字0x"
+                          << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                          << decoded_status.status_word << "的中文映射";
+            decoded_status.reasons.push_back(reason_stream.str());
+        }
+    }
+    return decoded_status;
+}
+
+std::string format_tcp_protocol_status_message(const TcpProtocolStatusDecode& decoded_status)
+{
+    std::ostringstream message_stream;
+    message_stream << "指令=" << decoded_status.command_name << "(0x"
+                   << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                   << decoded_status.command_word << ")"
+                   << "，状态字=0x" << std::setw(4) << decoded_status.status_word;
+    if (!decoded_status.reasons.empty()) {
+        message_stream << "，含义=";
+        for (size_t reason_index = 0; reason_index < decoded_status.reasons.size(); ++reason_index) {
+            if (reason_index > 0) {
+                message_stream << "；";
+            }
+            message_stream << decoded_status.reasons[reason_index];
+        }
+    }
+    return message_stream.str();
 }
 
 // 由计算模块得出的索驱路径点的X序列
@@ -200,10 +477,18 @@ struct PseudoSlamGroupedAreaEntry
 
 struct PseudoSlamCheckerboardInfo
 {
+    int global_idx = -1;
     int global_row = -1;
     int global_col = -1;
     int checkerboard_parity = -1;
     bool is_checkerboard_member = false;
+};
+
+struct PseudoSlamMarkerExecutionState
+{
+    int current_area_index = -1;
+    std::unordered_set<int> highlighted_area_global_indices;
+    std::unordered_set<int> active_dispatch_global_indices;
 };
 
 struct LiveVisualCheckerboardGrid
@@ -251,6 +536,49 @@ struct PseudoSlamCaptureGateConfig
     int roi_max_y = kPseudoSlamCaptureGateRoiMaxY;
 };
 
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_points_near_outlier_columns(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+);
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_planning_outliers(
+    const std::vector<fast_image_solve::PointCoords>& world_points
+);
+std::vector<fast_image_solve::PointCoords> collect_pseudo_slam_planning_z_outliers(
+    const std::vector<fast_image_solve::PointCoords>& world_points
+);
+std::unordered_set<int> collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+);
+std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_global_index(
+    const std::vector<fast_image_solve::PointCoords>& world_points,
+    const Cabin_Point& path_origin
+);
+std::unordered_map<int, PseudoSlamCheckerboardInfo> sync_merged_checkerboard_membership_with_planning(
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& merged_checkerboard_info_by_idx,
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx
+);
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_non_checkerboard_points(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx
+);
+
+std::vector<fast_image_solve::PointCoords> pseudo_slam_marker_points;
+std::unordered_set<int> pseudo_slam_marker_outlier_global_indices;
+std::unordered_set<int> pseudo_slam_marker_outlier_column_neighbor_global_indices;
+PseudoSlamMarkerExecutionState pseudo_slam_marker_execution_state;
+Cabin_Point pseudo_slam_marker_path_origin{};
+bool pseudo_slam_marker_path_origin_valid = false;
+std::atomic<float> pseudo_slam_marker_last_outlier_threshold_mm{kPseudoSlamPlanningZOutlierMm};
+
+struct ScopedPseudoSlamMarkerExecutionStateClear
+{
+    ~ScopedPseudoSlamMarkerExecutionStateClear()
+    {
+        clear_pseudo_slam_marker_execution_state();
+    }
+};
+
 PseudoSlamCaptureGateConfig load_pseudo_slam_capture_gate_config()
 {
     PseudoSlamCaptureGateConfig config;
@@ -276,6 +604,13 @@ PseudoSlamCaptureGateConfig load_pseudo_slam_capture_gate_config()
     config.target_tolerance_mm = std::max(0.0f, config.target_tolerance_mm);
     config.pose_delta_tolerance_mm = std::max(0.0f, config.pose_delta_tolerance_mm);
     return config;
+}
+
+float load_pseudo_slam_planning_z_outlier_threshold_mm()
+{
+    float threshold_mm = kPseudoSlamPlanningZOutlierMm;
+    ros::param::param("~pseudo_slam_planning_z_outlier_mm", threshold_mm, kPseudoSlamPlanningZOutlierMm);
+    return std::max(0.0f, threshold_mm);
 }
 
 GlobalExecutionMode get_global_execution_mode()
@@ -898,6 +1233,19 @@ void clear_pseudo_slam_markers()
         return;
     }
 
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_points.clear();
+        pseudo_slam_marker_outlier_global_indices.clear();
+        pseudo_slam_marker_outlier_column_neighbor_global_indices.clear();
+        pseudo_slam_marker_execution_state = PseudoSlamMarkerExecutionState{};
+    }
+    {
+        std::lock_guard<std::mutex> path_origin_lock(pseudo_slam_marker_path_origin_mutex);
+        pseudo_slam_marker_path_origin = Cabin_Point{};
+        pseudo_slam_marker_path_origin_valid = false;
+    }
+
     visualization_msgs::Marker clear_marker;
     clear_marker.header.stamp = ros::Time::now();
     clear_marker.header.frame_id = "cabin_frame";
@@ -914,6 +1262,18 @@ void publish_pseudo_slam_markers(const std::vector<fast_image_solve::PointCoords
         return;
     }
 
+    PseudoSlamMarkerExecutionState marker_execution_state_snapshot;
+    std::unordered_set<int> marker_outlier_global_indices_snapshot;
+    std::unordered_set<int> marker_outlier_column_neighbor_global_indices_snapshot;
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_points = world_points;
+        marker_outlier_global_indices_snapshot = pseudo_slam_marker_outlier_global_indices;
+        marker_outlier_column_neighbor_global_indices_snapshot =
+            pseudo_slam_marker_outlier_column_neighbor_global_indices;
+        marker_execution_state_snapshot = pseudo_slam_marker_execution_state;
+    }
+
     visualization_msgs::MarkerArray marker_array;
 
     visualization_msgs::Marker points_marker;
@@ -927,19 +1287,50 @@ void publish_pseudo_slam_markers(const std::vector<fast_image_solve::PointCoords
     points_marker.scale.x = 0.025;
     points_marker.scale.y = 0.025;
     points_marker.scale.z = 0.025;
-    points_marker.color.r = 0.10f;
-    points_marker.color.g = 0.95f;
-    points_marker.color.b = 0.85f;
     points_marker.color.a = 1.0f;
 
     for (size_t point_pos = 0; point_pos < world_points.size(); ++point_pos) {
         const auto& world_point = world_points[point_pos];
+        const int global_idx = world_point.idx > 0 ? world_point.idx : static_cast<int>(point_pos) + 1;
+        const bool is_active_dispatch_point =
+            marker_execution_state_snapshot.active_dispatch_global_indices.count(global_idx) > 0;
+        const bool is_highlighted_area_point =
+            marker_execution_state_snapshot.highlighted_area_global_indices.count(global_idx) > 0;
+        const bool is_outlier_column_neighbor_blocked =
+            marker_outlier_column_neighbor_global_indices_snapshot.count(global_idx) > 0;
+        const bool is_outlier_point =
+            marker_outlier_global_indices_snapshot.count(global_idx) > 0;
 
         geometry_msgs::Point point_msg;
         point_msg.x = static_cast<double>(world_point.World_coord[0]) / 1000.0;
         point_msg.y = static_cast<double>(world_point.World_coord[1]) / 1000.0;
         point_msg.z = static_cast<double>(world_point.World_coord[2]) / 1000.0;
         points_marker.points.push_back(point_msg);
+
+        std_msgs::ColorRGBA point_color;
+        point_color.a = 1.0f;
+        if (is_active_dispatch_point) {
+            point_color.r = 1.0f;
+            point_color.g = 0.20f;
+            point_color.b = 0.20f;
+        } else if (is_highlighted_area_point) {
+            point_color.r = 1.0f;
+            point_color.g = 0.92f;
+            point_color.b = 0.10f;
+        } else if (is_outlier_column_neighbor_blocked) {
+            point_color.r = 1.0f;
+            point_color.g = 0.55f;
+            point_color.b = 0.15f;
+        } else if (is_outlier_point) {
+            point_color.r = 1.0f;
+            point_color.g = 0.35f;
+            point_color.b = 1.0f;
+        } else {
+            point_color.r = 0.10f;
+            point_color.g = 0.95f;
+            point_color.b = 0.85f;
+        }
+        points_marker.colors.push_back(point_color);
 
         visualization_msgs::Marker label_marker;
         label_marker.header.stamp = points_marker.header.stamp;
@@ -952,17 +1343,215 @@ void publish_pseudo_slam_markers(const std::vector<fast_image_solve::PointCoords
         label_marker.pose.position.z += 0.05;
         label_marker.pose.orientation.w = 1.0;
         label_marker.scale.z = 0.05;
-        label_marker.color.r = 1.0f;
-        label_marker.color.g = 1.0f;
-        label_marker.color.b = 1.0f;
-        label_marker.color.a = 1.0f;
-        const int global_idx = world_point.idx > 0 ? world_point.idx : static_cast<int>(point_pos) + 1;
+        label_marker.color = point_color;
         label_marker.text = std::to_string(global_idx);
         marker_array.markers.push_back(label_marker);
     }
 
     marker_array.markers.insert(marker_array.markers.begin(), points_marker);
     pub_pseudo_slam_markers.publish(marker_array);
+}
+
+std::unordered_set<int> collect_global_indices_from_point_json_array(const nlohmann::json& points_json)
+{
+    std::unordered_set<int> global_indices;
+    if (!points_json.is_array()) {
+        return global_indices;
+    }
+
+    for (const auto& point_json : points_json) {
+        const int global_idx = point_json.value(
+            "global_idx",
+            point_json.value("idx", -1)
+        );
+        if (global_idx > 0) {
+            global_indices.insert(global_idx);
+        }
+    }
+    return global_indices;
+}
+
+std::unordered_set<int> collect_global_indices_from_group_json(const nlohmann::json& group_json)
+{
+    if (group_json.is_array()) {
+        return collect_global_indices_from_point_json_array(group_json);
+    }
+    if (!group_json.contains("points")) {
+        return {};
+    }
+    return collect_global_indices_from_point_json_array(group_json["points"]);
+}
+
+std::unordered_set<int> collect_global_indices_from_area_json(const nlohmann::json& area_json)
+{
+    std::unordered_set<int> global_indices;
+    if (!area_json.contains("groups") || !area_json["groups"].is_array()) {
+        return global_indices;
+    }
+
+    for (const auto& group_json : area_json["groups"]) {
+        const auto group_global_indices = collect_global_indices_from_group_json(group_json);
+        global_indices.insert(group_global_indices.begin(), group_global_indices.end());
+    }
+    return global_indices;
+}
+
+void set_pseudo_slam_marker_execution_state(
+    int area_index,
+    const std::unordered_set<int>& highlighted_area_global_indices,
+    const std::unordered_set<int>& active_dispatch_global_indices
+)
+{
+    std::vector<fast_image_solve::PointCoords> marker_points_snapshot;
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_execution_state.current_area_index = area_index;
+        pseudo_slam_marker_execution_state.highlighted_area_global_indices =
+            highlighted_area_global_indices;
+        pseudo_slam_marker_execution_state.active_dispatch_global_indices =
+            active_dispatch_global_indices;
+        marker_points_snapshot = pseudo_slam_marker_points;
+    }
+
+    if (!marker_points_snapshot.empty()) {
+        publish_pseudo_slam_markers(marker_points_snapshot);
+    }
+}
+
+void set_pseudo_slam_marker_path_origin(const Cabin_Point& path_origin)
+{
+    std::lock_guard<std::mutex> lock(pseudo_slam_marker_path_origin_mutex);
+    pseudo_slam_marker_path_origin = path_origin;
+    pseudo_slam_marker_path_origin_valid = true;
+}
+
+bool recompute_pseudo_slam_marker_outlier_sets(
+    const std::vector<fast_image_solve::PointCoords>& marker_points_snapshot,
+    const Cabin_Point& path_origin,
+    std::unordered_set<int>& outlier_global_indices,
+    std::unordered_set<int>& outlier_column_neighbor_global_indices)
+{
+    outlier_global_indices.clear();
+    outlier_column_neighbor_global_indices.clear();
+    if (marker_points_snapshot.empty()) {
+        return true;
+    }
+
+    std::unordered_map<int, PseudoSlamCheckerboardInfo> merged_checkerboard_info_by_idx =
+        build_checkerboard_info_by_global_index(marker_points_snapshot, path_origin);
+    const std::vector<fast_image_solve::PointCoords> planning_z_outlier_points =
+        collect_pseudo_slam_planning_z_outliers(marker_points_snapshot);
+    std::vector<fast_image_solve::PointCoords> planning_world_points =
+        filter_pseudo_slam_planning_outliers(marker_points_snapshot);
+    outlier_column_neighbor_global_indices =
+        collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
+            planning_world_points,
+            planning_z_outlier_points
+        );
+    planning_world_points = filter_pseudo_slam_points_near_outlier_columns(
+        planning_world_points,
+        planning_z_outlier_points
+    );
+    std::unordered_map<int, PseudoSlamCheckerboardInfo> checkerboard_info_by_idx =
+        build_checkerboard_info_by_global_index(planning_world_points, path_origin);
+    planning_world_points = filter_pseudo_slam_non_checkerboard_points(
+        planning_world_points,
+        checkerboard_info_by_idx
+    );
+    checkerboard_info_by_idx = build_checkerboard_info_by_global_index(planning_world_points, path_origin);
+    merged_checkerboard_info_by_idx = sync_merged_checkerboard_membership_with_planning(
+        merged_checkerboard_info_by_idx,
+        checkerboard_info_by_idx
+    );
+
+    for (const auto& world_point : marker_points_snapshot) {
+        const auto merged_checkerboard_it = merged_checkerboard_info_by_idx.find(world_point.idx);
+        if (merged_checkerboard_it == merged_checkerboard_info_by_idx.end() ||
+            !merged_checkerboard_it->second.is_checkerboard_member) {
+            if (outlier_column_neighbor_global_indices.count(world_point.idx) == 0) {
+                outlier_global_indices.insert(world_point.idx);
+            }
+        }
+    }
+    return true;
+}
+
+bool refresh_pseudo_slam_marker_outlier_state_from_current_points(bool log_refresh)
+{
+    std::vector<fast_image_solve::PointCoords> marker_points_snapshot;
+    Cabin_Point path_origin{};
+    bool has_path_origin = false;
+    {
+        std::lock_guard<std::mutex> marker_lock(pseudo_slam_marker_state_mutex);
+        marker_points_snapshot = pseudo_slam_marker_points;
+    }
+    {
+        std::lock_guard<std::mutex> path_origin_lock(pseudo_slam_marker_path_origin_mutex);
+        path_origin = pseudo_slam_marker_path_origin;
+        has_path_origin = pseudo_slam_marker_path_origin_valid;
+    }
+
+    if (marker_points_snapshot.empty() || !has_path_origin) {
+        return false;
+    }
+
+    std::unordered_set<int> refreshed_outlier_global_indices;
+    std::unordered_set<int> refreshed_outlier_column_neighbor_global_indices;
+    recompute_pseudo_slam_marker_outlier_sets(
+        marker_points_snapshot,
+        path_origin,
+        refreshed_outlier_global_indices,
+        refreshed_outlier_column_neighbor_global_indices
+    );
+    {
+        std::lock_guard<std::mutex> marker_lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_outlier_global_indices = refreshed_outlier_global_indices;
+        pseudo_slam_marker_outlier_column_neighbor_global_indices =
+            refreshed_outlier_column_neighbor_global_indices;
+    }
+
+    if (log_refresh) {
+        printCurrentTime();
+        printf(
+            "Cabin_log: pseudo_slam离群阈值热更新后已重算Marker离群状态，当前离群点%d个，列邻域屏蔽点%d个。\n",
+            static_cast<int>(refreshed_outlier_global_indices.size()),
+            static_cast<int>(refreshed_outlier_column_neighbor_global_indices.size())
+        );
+    }
+    publish_pseudo_slam_markers(marker_points_snapshot);
+    return true;
+}
+
+void maybe_refresh_pseudo_slam_marker_outlier_threshold()
+{
+    const float current_threshold_mm = load_pseudo_slam_planning_z_outlier_threshold_mm();
+    const float previous_threshold_mm =
+        pseudo_slam_marker_last_outlier_threshold_mm.exchange(current_threshold_mm);
+    if (std::fabs(current_threshold_mm - previous_threshold_mm) < 1e-3f) {
+        return;
+    }
+
+    printCurrentTime();
+    printf(
+        "Cabin_log: pseudo_slam离群阈值热更新：%.2fmm -> %.2fmm，开始刷新RViz离群点显示。\n",
+        previous_threshold_mm,
+        current_threshold_mm
+    );
+    refresh_pseudo_slam_marker_outlier_state_from_current_points(true);
+}
+
+void clear_pseudo_slam_marker_execution_state()
+{
+    std::vector<fast_image_solve::PointCoords> marker_points_snapshot;
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_execution_state = PseudoSlamMarkerExecutionState{};
+        marker_points_snapshot = pseudo_slam_marker_points;
+    }
+
+    if (!marker_points_snapshot.empty()) {
+        publish_pseudo_slam_markers(marker_points_snapshot);
+    }
 }
 
 double point_distance_mm(const fast_image_solve::PointCoords& lhs, const fast_image_solve::PointCoords& rhs)
@@ -1051,6 +1640,268 @@ float median_world_z_mm(const std::vector<fast_image_solve::PointCoords>& world_
     return (z_values[middle_index - 1] + z_values[middle_index]) * 0.5f;
 }
 
+struct PseudoSlamPlaneModel
+{
+    float a = 0.0f;
+    float b = 0.0f;
+    float c = 0.0f;
+    bool used_horizontal_fallback = false;
+    bool used_ransac = false;
+    int inlier_count = 0;
+};
+
+float compute_pseudo_slam_plane_z_residual_mm(
+    const fast_image_solve::PointCoords& world_point,
+    const PseudoSlamPlaneModel& plane_model);
+
+PseudoSlamPlaneModel fit_pseudo_slam_plane_least_squares(
+    const std::vector<fast_image_solve::PointCoords>& world_points)
+{
+    PseudoSlamPlaneModel plane_model;
+    if (world_points.empty()) {
+        return plane_model;
+    }
+
+    double sum_x = 0.0;
+    double sum_y = 0.0;
+    double sum_z = 0.0;
+    double sum_xx = 0.0;
+    double sum_xy = 0.0;
+    double sum_yy = 0.0;
+    double sum_xz = 0.0;
+    double sum_yz = 0.0;
+
+    for (const auto& world_point : world_points) {
+        const double x = world_point.World_coord[0];
+        const double y = world_point.World_coord[1];
+        const double z = world_point.World_coord[2];
+        sum_x += x;
+        sum_y += y;
+        sum_z += z;
+        sum_xx += x * x;
+        sum_xy += x * y;
+        sum_yy += y * y;
+        sum_xz += x * z;
+        sum_yz += y * z;
+    }
+
+    const double n = static_cast<double>(world_points.size());
+    const double matrix[3][4] = {
+        {sum_xx, sum_xy, sum_x, sum_xz},
+        {sum_xy, sum_yy, sum_y, sum_yz},
+        {sum_x,  sum_y,  n,     sum_z },
+    };
+    double reduced_matrix[3][4];
+    std::memcpy(reduced_matrix, matrix, sizeof(matrix));
+
+    for (int pivot_index = 0; pivot_index < 3; ++pivot_index) {
+        int best_row = pivot_index;
+        for (int row = pivot_index + 1; row < 3; ++row) {
+            if (std::fabs(reduced_matrix[row][pivot_index]) >
+                std::fabs(reduced_matrix[best_row][pivot_index])) {
+                best_row = row;
+            }
+        }
+        if (std::fabs(reduced_matrix[best_row][pivot_index]) < 1e-6) {
+            plane_model.used_horizontal_fallback = true;
+            plane_model.c = static_cast<float>(sum_z / n);
+            return plane_model;
+        }
+        if (best_row != pivot_index) {
+            for (int column = 0; column < 4; ++column) {
+                std::swap(reduced_matrix[pivot_index][column], reduced_matrix[best_row][column]);
+            }
+        }
+
+        const double pivot_value = reduced_matrix[pivot_index][pivot_index];
+        for (int column = pivot_index; column < 4; ++column) {
+            reduced_matrix[pivot_index][column] /= pivot_value;
+        }
+        for (int row = 0; row < 3; ++row) {
+            if (row == pivot_index) {
+                continue;
+            }
+            const double factor = reduced_matrix[row][pivot_index];
+            if (std::fabs(factor) < 1e-9) {
+                continue;
+            }
+            for (int column = pivot_index; column < 4; ++column) {
+                reduced_matrix[row][column] -= factor * reduced_matrix[pivot_index][column];
+            }
+        }
+    }
+
+    plane_model.a = static_cast<float>(reduced_matrix[0][3]);
+    plane_model.b = static_cast<float>(reduced_matrix[1][3]);
+    plane_model.c = static_cast<float>(reduced_matrix[2][3]);
+    plane_model.inlier_count = static_cast<int>(world_points.size());
+    return plane_model;
+}
+
+bool solve_pseudo_slam_plane_from_three_points(
+    const fast_image_solve::PointCoords& point_a,
+    const fast_image_solve::PointCoords& point_b,
+    const fast_image_solve::PointCoords& point_c,
+    PseudoSlamPlaneModel& plane_model)
+{
+    const double matrix[3][4] = {
+        {point_a.World_coord[0], point_a.World_coord[1], 1.0, point_a.World_coord[2]},
+        {point_b.World_coord[0], point_b.World_coord[1], 1.0, point_b.World_coord[2]},
+        {point_c.World_coord[0], point_c.World_coord[1], 1.0, point_c.World_coord[2]},
+    };
+    double reduced_matrix[3][4];
+    std::memcpy(reduced_matrix, matrix, sizeof(matrix));
+
+    for (int pivot_index = 0; pivot_index < 3; ++pivot_index) {
+        int best_row = pivot_index;
+        for (int row = pivot_index + 1; row < 3; ++row) {
+            if (std::fabs(reduced_matrix[row][pivot_index]) >
+                std::fabs(reduced_matrix[best_row][pivot_index])) {
+                best_row = row;
+            }
+        }
+        if (std::fabs(reduced_matrix[best_row][pivot_index]) < 1e-6) {
+            return false;
+        }
+        if (best_row != pivot_index) {
+            for (int column = 0; column < 4; ++column) {
+                std::swap(reduced_matrix[pivot_index][column], reduced_matrix[best_row][column]);
+            }
+        }
+
+        const double pivot_value = reduced_matrix[pivot_index][pivot_index];
+        for (int column = pivot_index; column < 4; ++column) {
+            reduced_matrix[pivot_index][column] /= pivot_value;
+        }
+        for (int row = 0; row < 3; ++row) {
+            if (row == pivot_index) {
+                continue;
+            }
+            const double factor = reduced_matrix[row][pivot_index];
+            if (std::fabs(factor) < 1e-9) {
+                continue;
+            }
+            for (int column = pivot_index; column < 4; ++column) {
+                reduced_matrix[row][column] -= factor * reduced_matrix[pivot_index][column];
+            }
+        }
+    }
+
+    plane_model.a = static_cast<float>(reduced_matrix[0][3]);
+    plane_model.b = static_cast<float>(reduced_matrix[1][3]);
+    plane_model.c = static_cast<float>(reduced_matrix[2][3]);
+    plane_model.used_horizontal_fallback = false;
+    return true;
+}
+
+PseudoSlamPlaneModel fit_pseudo_slam_plane(
+    const std::vector<fast_image_solve::PointCoords>& world_points)
+{
+    if (world_points.size() < 3) {
+        return fit_pseudo_slam_plane_least_squares(world_points);
+    }
+
+    const float outlier_threshold_mm = load_pseudo_slam_planning_z_outlier_threshold_mm();
+    const float ransac_inlier_threshold_mm = std::max(outlier_threshold_mm * 2.0f, 12.0f);
+    const int max_iterations = std::min(
+        120,
+        std::max(30, static_cast<int>(world_points.size()) * 2)
+    );
+
+    std::mt19937 rng(20260418u + static_cast<unsigned int>(world_points.size()));
+    std::uniform_int_distribution<int> index_distribution(
+        0,
+        static_cast<int>(world_points.size()) - 1
+    );
+
+    int best_inlier_count = -1;
+    double best_residual_sum = std::numeric_limits<double>::max();
+    PseudoSlamPlaneModel best_plane_model;
+    std::vector<int> best_inlier_indices;
+
+    for (int iteration = 0; iteration < max_iterations; ++iteration) {
+        const int index_a = index_distribution(rng);
+        int index_b = index_distribution(rng);
+        int index_c = index_distribution(rng);
+        if (index_b == index_a) {
+            index_b = (index_b + 1) % static_cast<int>(world_points.size());
+        }
+        if (index_c == index_a || index_c == index_b) {
+            index_c = (index_c + 2) % static_cast<int>(world_points.size());
+        }
+        if (index_a == index_b || index_a == index_c || index_b == index_c) {
+            continue;
+        }
+
+        PseudoSlamPlaneModel candidate_plane_model;
+        if (!solve_pseudo_slam_plane_from_three_points(
+                world_points[static_cast<size_t>(index_a)],
+                world_points[static_cast<size_t>(index_b)],
+                world_points[static_cast<size_t>(index_c)],
+                candidate_plane_model)) {
+            continue;
+        }
+
+        int inlier_count = 0;
+        double residual_sum = 0.0;
+        std::vector<int> candidate_inlier_indices;
+        candidate_inlier_indices.reserve(world_points.size());
+        for (size_t point_index = 0; point_index < world_points.size(); ++point_index) {
+            const float residual_mm =
+                std::fabs(compute_pseudo_slam_plane_z_residual_mm(
+                    world_points[point_index],
+                    candidate_plane_model
+                ));
+            if (residual_mm <= ransac_inlier_threshold_mm) {
+                inlier_count++;
+                residual_sum += residual_mm;
+                candidate_inlier_indices.push_back(static_cast<int>(point_index));
+            }
+        }
+
+        if (inlier_count > best_inlier_count ||
+            (inlier_count == best_inlier_count && residual_sum < best_residual_sum)) {
+            best_inlier_count = inlier_count;
+            best_residual_sum = residual_sum;
+            best_plane_model = candidate_plane_model;
+            best_inlier_indices = std::move(candidate_inlier_indices);
+        }
+    }
+
+    if (best_inlier_count < 3 || best_inlier_indices.empty()) {
+        return fit_pseudo_slam_plane_least_squares(world_points);
+    }
+
+    std::vector<fast_image_solve::PointCoords> inlier_points;
+    inlier_points.reserve(best_inlier_indices.size());
+    for (const int point_index : best_inlier_indices) {
+        inlier_points.push_back(world_points[static_cast<size_t>(point_index)]);
+    }
+
+    PseudoSlamPlaneModel refined_plane_model = fit_pseudo_slam_plane_least_squares(inlier_points);
+    refined_plane_model.used_ransac = true;
+    refined_plane_model.inlier_count = static_cast<int>(inlier_points.size());
+    return refined_plane_model;
+}
+
+float compute_pseudo_slam_plane_z_residual_mm(
+    const fast_image_solve::PointCoords& world_point,
+    const PseudoSlamPlaneModel& plane_model)
+{
+    const float fitted_z =
+        plane_model.a * world_point.World_coord[0] +
+        plane_model.b * world_point.World_coord[1] +
+        plane_model.c;
+    return world_point.World_coord[2] - fitted_z;
+}
+
+std::vector<float> cluster_checkerboard_axis_centers(
+    const std::vector<fast_image_solve::PointCoords>& world_points,
+    int axis_index,
+    float threshold_mm
+);
+int find_nearest_checkerboard_center_index(float axis_value, const std::vector<float>& centers);
+
 std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_planning_outliers(
     const std::vector<fast_image_solve::PointCoords>& world_points
 )
@@ -1059,11 +1910,13 @@ std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_planning_outliers(
         return {};
     }
 
-    const float median_z = median_world_z_mm(world_points);
+    const PseudoSlamPlaneModel plane_model = fit_pseudo_slam_plane(world_points);
+    const float outlier_threshold_mm = load_pseudo_slam_planning_z_outlier_threshold_mm();
     std::vector<fast_image_solve::PointCoords> planning_points;
     planning_points.reserve(world_points.size());
     for (const auto& world_point : world_points) {
-        if (std::fabs(world_point.World_coord[2] - median_z) <= kPseudoSlamPlanningZOutlierMm) {
+        if (std::fabs(compute_pseudo_slam_plane_z_residual_mm(world_point, plane_model)) <=
+            outlier_threshold_mm) {
             planning_points.push_back(world_point);
         }
     }
@@ -1071,16 +1924,188 @@ std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_planning_outliers(
     if (planning_points.size() != world_points.size()) {
         printCurrentTime();
         printf(
-            "Cabin_log: pseudo_slam规划离群过滤：可视化保留%d个点，规划使用%d个点，剔除%d个点，z中位数=%.1fmm，阈值=±%.1fmm。\n",
+            "Cabin_log: pseudo_slam规划离群过滤：可视化保留%d个点，规划使用%d个点，剔除%d个点，%s拟合平面z=%.4fx+%.4fy+%.2f，内点=%d，阈值=±%.1fmm%s。\n",
             static_cast<int>(world_points.size()),
             static_cast<int>(planning_points.size()),
             static_cast<int>(world_points.size() - planning_points.size()),
-            median_z,
-            kPseudoSlamPlanningZOutlierMm
+            plane_model.used_ransac ? "RANSAC" : "最小二乘",
+            plane_model.a,
+            plane_model.b,
+            plane_model.c,
+            plane_model.inlier_count,
+            outlier_threshold_mm,
+            plane_model.used_horizontal_fallback ? "，当前使用水平面退化拟合" : ""
         );
     }
 
     return planning_points;
+}
+
+std::vector<fast_image_solve::PointCoords> collect_pseudo_slam_planning_z_outliers(
+    const std::vector<fast_image_solve::PointCoords>& world_points
+)
+{
+    if (world_points.empty()) {
+        return {};
+    }
+
+    const PseudoSlamPlaneModel plane_model = fit_pseudo_slam_plane(world_points);
+    const float outlier_threshold_mm = load_pseudo_slam_planning_z_outlier_threshold_mm();
+    std::vector<fast_image_solve::PointCoords> outlier_points;
+    outlier_points.reserve(world_points.size());
+    for (const auto& world_point : world_points) {
+        if (std::fabs(compute_pseudo_slam_plane_z_residual_mm(world_point, plane_model)) >
+            outlier_threshold_mm) {
+            outlier_points.push_back(world_point);
+        }
+    }
+    return outlier_points;
+}
+
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_points_near_outlier_columns(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+)
+{
+    if (planning_points.empty() || outlier_points.size() < 2) {
+        return planning_points;
+    }
+
+    const std::vector<float> outlier_column_centers = cluster_checkerboard_axis_centers(
+        outlier_points,
+        0,
+        kPseudoSlamOutlierColumnAxisToleranceMm
+    );
+    if (outlier_column_centers.empty()) {
+        return planning_points;
+    }
+
+    std::unordered_map<int, std::vector<fast_image_solve::PointCoords>> outlier_points_by_column;
+    for (const auto& outlier_point : outlier_points) {
+        const int column_index = find_nearest_checkerboard_center_index(
+            outlier_point.World_coord[0],
+            outlier_column_centers
+        );
+        if (column_index < 0) {
+            continue;
+        }
+        const float column_center = outlier_column_centers[static_cast<size_t>(column_index)];
+        if (std::fabs(outlier_point.World_coord[0] - column_center) <=
+            kPseudoSlamOutlierColumnAxisToleranceMm) {
+            outlier_points_by_column[column_index].push_back(outlier_point);
+        }
+    }
+
+    std::vector<fast_image_solve::PointCoords> qualified_outlier_points;
+    for (const auto& entry : outlier_points_by_column) {
+        if (entry.second.size() >= 2) {
+            qualified_outlier_points.insert(
+                qualified_outlier_points.end(),
+                entry.second.begin(),
+                entry.second.end()
+            );
+        }
+    }
+    if (qualified_outlier_points.empty()) {
+        return planning_points;
+    }
+
+    std::vector<fast_image_solve::PointCoords> filtered_points;
+    filtered_points.reserve(planning_points.size());
+    int removed_point_count = 0;
+    for (const auto& planning_point : planning_points) {
+        bool should_remove = false;
+        for (const auto& outlier_point : qualified_outlier_points) {
+            if (std::fabs(planning_point.World_coord[0] - outlier_point.World_coord[0]) <=
+                    kPseudoSlamOutlierColumnPointToleranceMm &&
+                std::fabs(planning_point.World_coord[1] - outlier_point.World_coord[1]) <=
+                    kPseudoSlamOutlierColumnPointToleranceMm) {
+                should_remove = true;
+                break;
+            }
+        }
+
+        if (should_remove) {
+            removed_point_count++;
+            continue;
+        }
+        filtered_points.push_back(planning_point);
+    }
+
+    if (removed_point_count > 0) {
+        printCurrentTime();
+        printf(
+            "Cabin_log: pseudo_slam离群列点位过滤：拟合成列的z离群点附近±10mm内正常点视为不可执行，移除%d个点，剩余%d个规划点。\n",
+            removed_point_count,
+            static_cast<int>(filtered_points.size())
+        );
+    }
+
+    return filtered_points;
+}
+
+std::unordered_set<int> collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+)
+{
+    std::unordered_set<int> blocked_global_indices;
+    if (planning_points.empty() || outlier_points.size() < 2) {
+        return blocked_global_indices;
+    }
+
+    const std::vector<float> outlier_column_centers = cluster_checkerboard_axis_centers(
+        outlier_points,
+        0,
+        kPseudoSlamOutlierColumnAxisToleranceMm
+    );
+    if (outlier_column_centers.empty()) {
+        return blocked_global_indices;
+    }
+
+    std::unordered_map<int, std::vector<fast_image_solve::PointCoords>> outlier_points_by_column;
+    for (const auto& outlier_point : outlier_points) {
+        const int column_index = find_nearest_checkerboard_center_index(
+            outlier_point.World_coord[0],
+            outlier_column_centers
+        );
+        if (column_index < 0) {
+            continue;
+        }
+        const float column_center = outlier_column_centers[static_cast<size_t>(column_index)];
+        if (std::fabs(outlier_point.World_coord[0] - column_center) <=
+            kPseudoSlamOutlierColumnAxisToleranceMm) {
+            outlier_points_by_column[column_index].push_back(outlier_point);
+        }
+    }
+
+    std::vector<fast_image_solve::PointCoords> qualified_outlier_points;
+    for (const auto& entry : outlier_points_by_column) {
+        if (entry.second.size() >= 2) {
+            qualified_outlier_points.insert(
+                qualified_outlier_points.end(),
+                entry.second.begin(),
+                entry.second.end()
+            );
+        }
+    }
+    if (qualified_outlier_points.empty()) {
+        return blocked_global_indices;
+    }
+
+    for (const auto& planning_point : planning_points) {
+        for (const auto& outlier_point : qualified_outlier_points) {
+            if (std::fabs(planning_point.World_coord[0] - outlier_point.World_coord[0]) <=
+                    kPseudoSlamOutlierColumnPointToleranceMm &&
+                std::fabs(planning_point.World_coord[1] - outlier_point.World_coord[1]) <=
+                    kPseudoSlamOutlierColumnPointToleranceMm) {
+                blocked_global_indices.insert(planning_point.idx);
+                break;
+            }
+        }
+    }
+
+    return blocked_global_indices;
 }
 
 std::vector<float> cluster_checkerboard_axis_centers(
@@ -1204,6 +2229,7 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
         }
 
         PseudoSlamCheckerboardInfo info;
+        info.global_idx = world_point.idx;
         info.global_col = find_nearest_checkerboard_center_index(world_point.World_coord[0], x_centers);
         info.global_row = find_nearest_checkerboard_center_index(world_point.World_coord[1], y_centers);
         if (info.global_row < 0 || info.global_col < 0) {
@@ -1238,6 +2264,24 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
         info.is_checkerboard_member = can_form_matrix || can_form_edge_pair;
     }
     return checkerboard_info_by_idx;
+}
+
+std::unordered_map<int, PseudoSlamCheckerboardInfo> sync_merged_checkerboard_membership_with_planning(
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& merged_checkerboard_info_by_idx,
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx
+)
+{
+    std::unordered_map<int, PseudoSlamCheckerboardInfo> synced_checkerboard_info_by_idx =
+        merged_checkerboard_info_by_idx;
+    for (auto& entry : synced_checkerboard_info_by_idx) {
+        if (planning_checkerboard_info_by_idx.find(entry.first) !=
+            planning_checkerboard_info_by_idx.end()) {
+            continue;
+        }
+        auto& merged_info = entry.second;
+        merged_info.is_checkerboard_member = false;
+    }
+    return synced_checkerboard_info_by_idx;
 }
 
 bool validate_scan_session_alignment(
@@ -1364,6 +2408,152 @@ bool load_scan_artifact_json(
     return true;
 }
 
+bool load_pseudo_slam_marker_points_from_json(
+    std::vector<fast_image_solve::PointCoords>& restored_marker_points,
+    std::unordered_set<int>& restored_outlier_global_indices,
+    std::unordered_set<int>& restored_outlier_column_neighbor_global_indices,
+    std::string& error_message
+)
+{
+    restored_marker_points.clear();
+    restored_outlier_global_indices.clear();
+    restored_outlier_column_neighbor_global_indices.clear();
+    error_message.clear();
+
+    nlohmann::json points_json;
+    std::string points_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_points_json_file,
+            "pseudo_slam_points.json",
+            points_json,
+            points_error
+        )) {
+        error_message = points_error;
+        return false;
+    }
+
+    try {
+        if (!points_json.contains("pseudo_slam_points") ||
+            !points_json["pseudo_slam_points"].is_array()) {
+            error_message = "pseudo_slam_points.json格式错误";
+            return false;
+        }
+
+        int fallback_idx = 1;
+        for (const auto& point_json : points_json["pseudo_slam_points"]) {
+            fast_image_solve::PointCoords point;
+            point.idx = point_json.value(
+                "global_idx",
+                point_json.value("idx", fallback_idx)
+            );
+            point.Pix_coord[0] = 0;
+            point.Pix_coord[1] = 0;
+            point.World_coord[0] = point_json.value("world_x", point_json.value("x", 0.0f));
+            point.World_coord[1] = point_json.value("world_y", point_json.value("y", 0.0f));
+            point.World_coord[2] = point_json.value("world_z", point_json.value("z", 0.0f));
+            point.Angle = point_json.value("angle", -45.0f);
+            point.is_shuiguan = false;
+            restored_marker_points.push_back(point);
+            if (point_json.value("is_planning_outlier", false)) {
+                restored_outlier_global_indices.insert(point.idx);
+            }
+            if (point_json.value("is_outlier_column_neighbor_blocked", false)) {
+                restored_outlier_column_neighbor_global_indices.insert(point.idx);
+            }
+            fallback_idx++;
+        }
+    } catch (const std::exception&) {
+        restored_marker_points.clear();
+        restored_outlier_global_indices.clear();
+        restored_outlier_column_neighbor_global_indices.clear();
+        error_message = "pseudo_slam_points.json读取失败";
+        return false;
+    }
+
+    return true;
+}
+
+bool load_pseudo_slam_marker_path_origin_from_bind_path_json(
+    Cabin_Point& restored_path_origin,
+    std::string& error_message)
+{
+    restored_path_origin = Cabin_Point{};
+    error_message.clear();
+
+    std::ifstream bind_path_file(pseudo_slam_bind_path_json_file);
+    if (!bind_path_file.is_open()) {
+        error_message = "pseudo_slam_bind_path.json不存在";
+        return false;
+    }
+
+    try {
+        nlohmann::json bind_path_json;
+        bind_path_file >> bind_path_json;
+        if (!bind_path_json.contains("path_origin") || !bind_path_json["path_origin"].is_object()) {
+            error_message = "pseudo_slam_bind_path.json缺少path_origin";
+            return false;
+        }
+        restored_path_origin.x = bind_path_json["path_origin"].value("x", 0.0f);
+        restored_path_origin.y = bind_path_json["path_origin"].value("y", 0.0f);
+    } catch (const std::exception&) {
+        error_message = "pseudo_slam_bind_path.json读取失败";
+        return false;
+    }
+
+    return true;
+}
+
+void restore_pseudo_slam_markers_from_json_on_startup()
+{
+    std::vector<fast_image_solve::PointCoords> restored_marker_points;
+    std::unordered_set<int> restored_outlier_global_indices;
+    std::unordered_set<int> restored_outlier_column_neighbor_global_indices;
+    Cabin_Point restored_path_origin{};
+    std::string restore_error;
+    if (!load_pseudo_slam_marker_points_from_json(
+            restored_marker_points,
+            restored_outlier_global_indices,
+            restored_outlier_column_neighbor_global_indices,
+            restore_error
+        )) {
+        printCurrentTime();
+        printf(
+            "Cabin_Warn: 启动时恢复/cabin/pseudo_slam_markers失败：%s\n",
+            restore_error.c_str()
+        );
+        return;
+    }
+
+    if (restored_marker_points.empty()) {
+        printCurrentTime();
+        printf("Cabin_log: pseudo_slam_points.json存在，但没有可恢复的历史扫描点。\n");
+        return;
+    }
+    if (!load_pseudo_slam_marker_path_origin_from_bind_path_json(restored_path_origin, restore_error)) {
+        printCurrentTime();
+        printf(
+            "Cabin_Warn: 启动时恢复/cabin/pseudo_slam_markers缺少path_origin：%s\n",
+            restore_error.c_str()
+        );
+    } else {
+        set_pseudo_slam_marker_path_origin(restored_path_origin);
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_outlier_global_indices = restored_outlier_global_indices;
+        pseudo_slam_marker_outlier_column_neighbor_global_indices =
+            restored_outlier_column_neighbor_global_indices;
+    }
+    publish_pseudo_slam_markers(restored_marker_points);
+    refresh_pseudo_slam_marker_outlier_state_from_current_points(false);
+    printCurrentTime();
+    printf(
+        "Cabin_log: 已从pseudo_slam_points.json恢复%d个历史扫描点到/cabin/pseudo_slam_markers。\n",
+        static_cast<int>(restored_marker_points.size())
+    );
+}
+
 bool load_scan_artifacts_for_execution(
     nlohmann::json& points_json,
     nlohmann::json& bind_path_json,
@@ -1476,6 +2666,7 @@ bool load_live_visual_checkerboard_grid(
             col_counts_by_global_col[global_col] += 1;
 
             PseudoSlamCheckerboardInfo info;
+            info.global_idx = point_json.value("global_idx", point_json.value("idx", -1));
             info.global_row = global_row;
             info.global_col = global_col;
             info.checkerboard_parity = point_json.value("planning_checkerboard_parity", -1);
@@ -1554,7 +2745,7 @@ bool classify_live_visual_point_into_checkerboard(
     classified_point_json = {
         {"idx", world_point.idx},
         {"local_idx", world_point.idx},
-        {"global_idx", world_point.idx},
+        {"global_idx", checkerboard_it->second.global_idx},
         {"global_row", global_row},
         {"global_col", global_col},
         {"checkerboard_parity", checkerboard_it->second.checkerboard_parity},
@@ -2434,6 +3625,93 @@ BindExecutionMemory reset_bind_execution_memory_for_scan_session(
     return memory;
 }
 
+bool reset_bind_execution_memory_from_current_scan_artifacts(
+    const std::string& current_path_signature,
+    std::string& error_message
+)
+{
+    error_message.clear();
+
+    nlohmann::json points_json;
+    std::string points_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_points_json_file,
+            "pseudo_slam_points.json",
+            points_json,
+            points_error
+        )) {
+        error_message = points_error;
+        return false;
+    }
+
+    nlohmann::json bind_path_json;
+    std::string bind_path_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_bind_path_json_file,
+            "pseudo_slam_bind_path.json",
+            bind_path_json,
+            bind_path_error
+        )) {
+        error_message = bind_path_error;
+        return false;
+    }
+
+    const std::string points_scan_session_id = points_json.value("scan_session_id", std::string());
+    const std::string bind_path_scan_session_id = bind_path_json.value("scan_session_id", std::string());
+    if (points_scan_session_id.empty() ||
+        bind_path_scan_session_id.empty() ||
+        points_scan_session_id != bind_path_scan_session_id) {
+        error_message = "扫描产物scan_session_id不一致，无法按请求清空执行记忆，请先重新扫描建图";
+        return false;
+    }
+
+    const std::string points_path_signature = points_json.value("path_signature", std::string());
+    const std::string bind_path_signature = bind_path_json.value("path_signature", std::string());
+    if (points_path_signature.empty() ||
+        bind_path_signature.empty() ||
+        points_path_signature != bind_path_signature ||
+        bind_path_signature != current_path_signature) {
+        error_message = "扫描产物path_signature与当前路径不一致，无法按请求清空执行记忆，请先重新扫描建图";
+        return false;
+    }
+
+    Cabin_Point path_origin{};
+    if (bind_path_json.contains("path_origin") && bind_path_json["path_origin"].is_object()) {
+        path_origin.x = bind_path_json["path_origin"].value("x", 0.0f);
+        path_origin.y = bind_path_json["path_origin"].value("y", 0.0f);
+    } else if (bind_path_json.contains("areas") &&
+               bind_path_json["areas"].is_array() &&
+               !bind_path_json["areas"].empty() &&
+               bind_path_json["areas"].front().contains("cabin_pose")) {
+        const auto& first_cabin_pose = bind_path_json["areas"].front()["cabin_pose"];
+        path_origin.x = first_cabin_pose.value("x", 0.0f);
+        path_origin.y = first_cabin_pose.value("y", 0.0f);
+    } else {
+        error_message = "pseudo_slam_bind_path.json缺少path_origin，无法按请求清空执行记忆";
+        return false;
+    }
+
+    BindExecutionMemory bind_execution_memory =
+        reset_bind_execution_memory_for_scan_session(
+            bind_path_scan_session_id,
+            current_path_signature,
+            path_origin
+        );
+    std::string bind_execution_memory_error;
+    if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
+        error_message = "按请求清空bind_execution_memory.json失败：" + bind_execution_memory_error;
+        return false;
+    }
+
+    printCurrentTime();
+    printf(
+        "Cabin_log: 已按请求清空bind_execution_memory.json，scan_session_id=%s，path_signature=%s。\n",
+        bind_path_scan_session_id.c_str(),
+        current_path_signature.c_str()
+    );
+    return true;
+}
+
 bool is_point_already_executed(
     const BindExecutionMemory& memory,
     int global_row,
@@ -2560,6 +3838,7 @@ bool write_pseudo_slam_points_json(
     const std::vector<fast_image_solve::PointCoords>& merged_points,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx,
+    const std::unordered_set<int>& outlier_column_neighbor_blocked_global_indices,
     const std::string& scan_session_id,
     const std::string& path_signature,
     std::string* error_message
@@ -2587,6 +3866,9 @@ bool write_pseudo_slam_points_json(
             planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ?
                 planning_checkerboard_it->second.is_checkerboard_member :
                 false;
+        const bool is_planning_outlier = !is_planning_checkerboard_member;
+        const bool is_outlier_column_neighbor_blocked =
+            outlier_column_neighbor_blocked_global_indices.count(point.idx) > 0;
         points_json["pseudo_slam_points"].push_back(
             {
                 {"idx", point.idx},
@@ -2599,6 +3881,8 @@ bool write_pseudo_slam_points_json(
                 {"planning_global_col", planning_global_col},
                 {"planning_checkerboard_parity", planning_checkerboard_parity},
                 {"is_planning_checkerboard_member", is_planning_checkerboard_member},
+                {"is_planning_outlier", is_planning_outlier},
+                {"is_outlier_column_neighbor_blocked", is_outlier_column_neighbor_blocked},
                 {"x", point.World_coord[0]},
                 {"y", point.World_coord[1]},
                 {"z", point.World_coord[2]},
@@ -2965,6 +4249,10 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
         return -1;
     }
 
+    const uint16_t command_word =
+        (static_cast<uint16_t>(Control_Word[2]) << 8) |
+        static_cast<uint16_t>(Control_Word[3]);
+
     const bool is_heartbeat_frame =
         Tlen == static_cast<int>(sizeof(TCP_Normal_Connection)) &&
         memcmp(Control_Word, TCP_Normal_Connection, Tlen) == 0;
@@ -3050,6 +4338,22 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
     if (!is_heartbeat_frame) {
         printCurrentTime();
         printFrameBytes("Cabin_log: TCP recv frame: ", buffer, static_cast<size_t>(recv_len));
+        const auto decoded_status = decode_tcp_protocol_status(command_word, buffer, recv_len);
+        if (decoded_status.has_error) {
+            cache_pending_tcp_status_error(decoded_status.status_word);
+            const std::string protocol_status_message =
+                format_tcp_protocol_status_message(decoded_status);
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: 索驱协议返回异常，%s，recv_len=%zd。\n",
+                protocol_status_message.c_str(),
+                recv_len
+            );
+            return -2;
+        } else {
+            pending_tcp_status_word.store(0, std::memory_order_relaxed);
+            pending_tcp_status_word_valid.store(false, std::memory_order_release);
+        }
     }
 
     // 7. 状态缓存逻辑（建议后续改为指令ID判断）
@@ -3071,8 +4375,42 @@ int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socke
 {
     int j = 0;
     bool reconnect_flag = false; //避免多次重连的标志位
+    const bool keep_retrying_on_status_reject = is_motion_move_command_frame(Control_Word, Tlen);
+    auto last_motion_reject_log_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(MOTION_COMMAND_STATUS_RETRY_LOG_INTERVAL_SEC);
     for(int i = 0; i < 5; i++){
-        if (Frame_Generate(Control_Word, Tlen, Rlen,socket) < 0) 
+        int frame_result = 0;
+        while (true) {
+            frame_result = Frame_Generate(Control_Word, Tlen, Rlen,socket);
+            if (frame_result == -2)
+            {
+                const uint16_t status_word = pending_tcp_status_word.load(std::memory_order_relaxed);
+                if (keep_retrying_on_status_reject) {
+                    const auto now = std::chrono::steady_clock::now();
+                    const auto log_elapsed_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - last_motion_reject_log_time
+                    ).count();
+                    if (log_elapsed_sec >= MOTION_COMMAND_STATUS_RETRY_LOG_INTERVAL_SEC) {
+                        printCurrentTime();
+                        printf(
+                            "Cabin_Warn: 索驱上位机暂未接受当前运动指令，status_word=0x%04X，继续等待索驱上位机接受当前运动指令后重试。\n",
+                            status_word
+                        );
+                        last_motion_reject_log_time = now;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    continue;
+                }
+                printCurrentTime();
+                printf(
+                    "Cabin_Error: 索驱上位机拒绝当前运动指令，status_word=0x%04X，立即停止本次等待。\n",
+                    status_word
+                );
+                return -2;
+            }
+            break;
+        }
+        if (frame_result < 0) 
         {
             printCurrentTime();
             printf("Cabin_Error:第%d次发送指令失败。\n",i+1);
@@ -3156,13 +4494,24 @@ void solve_stop(bool &stop_flag)
 输入: 轴 位置
 输出:
 **************************************************************************************************************************************************************/
-void delay_time(int Axis, double Target_position)
+bool delay_time(int Axis, double Target_position)
 {
     const auto start_time = std::chrono::steady_clock::now();
     auto last_log_time = start_time;
 
     while (1)
     {
+        uint16_t pending_tcp_status_word = 0;
+        if (consume_pending_tcp_status_error(pending_tcp_status_word)) {
+            printCurrentTime();
+            printf(
+                "Cabin_Error: 等待轴%d到位前检测到索驱状态字异常0x%04X，目标位置 %.2f，立即停止等待。\n",
+                Axis,
+                pending_tcp_status_word,
+                Target_position
+            );
+            return false;
+        }
         
         // printf("cabin_state - X: %.2f, Y: %.2f, Z: %.2f, motion_status: %.2d, Target traget_coordinate: %.2f\n, Axis: %d\n",
         // cabin_state.X, cabin_state.Y, cabin_state.Z, cabin_state.motion_status,Target_position,Axis);
@@ -3173,19 +4522,38 @@ void delay_time(int Axis, double Target_position)
         // float cur_pos_y = cabin_state.Y;
         // getSuoquTestTimeTxt(cur_pos_y);
             if(Axis == AXIS_X && abs(cabin_state.X - Target_position)<25 && cabin_state.motion_status == 0)
-                break;
+                return true;
             if(Axis == AXIS_Y && abs(cabin_state.Y - Target_position)<25 && cabin_state.motion_status == 0)
-                break;
+                return true;
             if(Axis == AXIS_Z && abs(cabin_state.Z - Target_position)<25 && cabin_state.motion_status == 0)
-                break;
+                return true;
         }
         const auto now = std::chrono::steady_clock::now();
         const auto elapsed_sec =
             std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
         if (elapsed_sec >= DELAY_TIME_TIMEOUT_SEC) {
+            float cur_x = 0.0f;
+            float cur_y = 0.0f;
+            float cur_z = 0.0f;
+            int cur_motion_status = 0;
+            {
+                std::lock_guard<std::mutex> lock1(cabin_state_mutex);
+                cur_x = cabin_state.X;
+                cur_y = cabin_state.Y;
+                cur_z = cabin_state.Z;
+                cur_motion_status = cabin_state.motion_status;
+            }
             printCurrentTime();
-            printf("Cabin_Error: 等待轴%d到位超时，目标位置 %.2f。\n", Axis, Target_position);
-            return;
+            printf(
+                "Cabin_Error: 等待轴%d到位超时，目标位置 %.2f，当前(X,Y,Z)=(%.2f,%.2f,%.2f)，motion_status=%d。\n",
+                Axis,
+                Target_position,
+                cur_x,
+                cur_y,
+                cur_z,
+                cur_motion_status
+            );
+            return false;
         }
 
         const auto log_elapsed_sec =
@@ -3222,8 +4590,6 @@ void delay_time(int Axis, double Target_position)
         }
         solve_stop(stop_flag);
     }
-
-    return;
 }
 
 // 规划路径前下发速度
@@ -3630,7 +4996,12 @@ void assign_global_indices(std::vector<fast_image_solve::PointCoords>& world_poi
     }
 }
 
-bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height, float cabin_speed, std::string& message)
+bool run_pseudo_slam_scan(
+    std::vector<Cabin_Point> con_path,
+    float cabin_height,
+    float cabin_speed,
+    bool enable_capture_gate,
+    std::string& message)
 {
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     std::vector<fast_image_solve::PointCoords> merged_world_points;
@@ -3647,6 +5018,7 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         return false;
     }
     const Cabin_Point path_origin = con_path.front();
+    set_pseudo_slam_marker_path_origin(path_origin);
 
     int area_index = 0;
     for (const auto& cabin_point : con_path) {
@@ -3661,49 +5033,93 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         {
             std::lock_guard<std::mutex> lock2(socket_mutex);
             moveTCPPosition(0x01, TCP_Move);
-            Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+            const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+            if (send_result < 0) {
+                message = "扫描建图下发索驱移动指令失败";
+                return false;
+            }
         }
-        delay_time(AXIS_X, cabin_point.x);
-        delay_time(AXIS_Y, cabin_point.y);
-        delay_time(AXIS_Z, cabin_height);
-        if (!wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)) {
-            printCurrentTime();
-            printf("Cabin_Warn: pseudo_slam scan_only区域%d等待最终采集门时ROS关闭，结束扫描。\n", area_index);
-            message = "扫描建图在等待最终采集门时被中断";
+        if (!delay_time(AXIS_X, cabin_point.x)) {
+            message = "扫描建图因索驱X轴到位超时而中止";
             return false;
+        }
+        if (!delay_time(AXIS_Y, cabin_point.y)) {
+            message = "扫描建图因索驱Y轴到位超时而中止";
+            return false;
+        }
+        if (!delay_time(AXIS_Z, cabin_height)) {
+            message = "扫描建图因索驱Z轴到位超时而中止";
+            return false;
+        }
+        if (enable_capture_gate) {
+            if (!wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)) {
+                printCurrentTime();
+                printf("Cabin_Warn: pseudo_slam scan_only区域%d等待最终采集门时ROS关闭，结束扫描。\n", area_index);
+                message = "扫描建图在等待最终采集门时被中断";
+                return false;
+            }
+        } else {
+            printCurrentTime();
+            printf("Cabin_log: pseudo_slam scan_only区域%d已关闭最终采集门，直接请求视觉。\n", area_index);
         }
 
         while (ros::ok()) {
             const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
-            fast_image_solve::ProcessImage scan_srv;
-            scan_srv.request.request_mode = kProcessImageModeScanOnly;
-            if (!AI_client.call(scan_srv) || !scan_srv.response.success) {
+            std::vector<fast_image_solve::PointCoords> area_world_points;
+            int collected_scan_frame_count = 0;
+            while (ros::ok() && collected_scan_frame_count < kPseudoSlamScanFrameCount) {
+                fast_image_solve::ProcessImage scan_srv;
+                scan_srv.request.request_mode = kProcessImageModeScanOnly;
+                if (!AI_client.call(scan_srv) || !scan_srv.response.success) {
+                    printCurrentTime();
+                    printf(
+                        "Cabin_Warn: pseudo_slam scan_only区域%d第%d/%d帧视觉失败，继续重试，消息：%s\n",
+                        area_index,
+                        collected_scan_frame_count + 1,
+                        kPseudoSlamScanFrameCount,
+                        scan_srv.response.message.c_str()
+                    );
+                    ros::Duration(config.scan_retry_interval_sec).sleep();
+                    continue;
+                }
+
+                std::vector<fast_image_solve::PointCoords> frame_world_points;
+                int point_index = 1;
+                for (const auto& point : scan_srv.response.PointCoordinatesArray) {
+                    frame_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
+                }
+                frame_world_points = dedupe_world_points(frame_world_points);
+                area_world_points.insert(area_world_points.end(), frame_world_points.begin(), frame_world_points.end());
+                ++collected_scan_frame_count;
+
                 printCurrentTime();
                 printf(
-                    "Cabin_Warn: pseudo_slam scan_only区域%d视觉失败，跳过当前区域，消息：%s\n",
+                    "Cabin_log: pseudo_slam scan_only区域%d第%d/%d帧识别完成，当前帧世界点%d个，两帧累计原始点%d个。\n",
                     area_index,
-                    scan_srv.response.message.c_str()
+                    collected_scan_frame_count,
+                    kPseudoSlamScanFrameCount,
+                    static_cast<int>(frame_world_points.size()),
+                    static_cast<int>(area_world_points.size())
                 );
-                break;
+
+                if (collected_scan_frame_count < kPseudoSlamScanFrameCount) {
+                    ros::Duration(config.scan_retry_interval_sec).sleep();
+                }
             }
 
-            if (static_cast<int>(scan_srv.response.PointCoordinatesArray.size()) < config.scan_min_point_count) {
+            area_world_points = dedupe_world_points(area_world_points);
+            if (static_cast<int>(area_world_points.size()) < config.scan_min_point_count) {
                 printCurrentTime();
                 printf(
-                    "Cabin_Warn: pseudo_slam scan_only区域%d白色矩形内点数%d<%d，继续轮询视觉。\n",
+                    "Cabin_Warn: pseudo_slam scan_only区域%d两帧合并后点数%d<%d，继续轮询视觉。\n",
                     area_index,
-                    static_cast<int>(scan_srv.response.PointCoordinatesArray.size()),
+                    static_cast<int>(area_world_points.size()),
                     config.scan_min_point_count
                 );
                 ros::Duration(config.scan_retry_interval_sec).sleep();
                 continue;
             }
 
-            std::vector<fast_image_solve::PointCoords> area_world_points;
-            int point_index = 1;
-            for (const auto& point : scan_srv.response.PointCoordinatesArray) {
-                area_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
-            }
             area_world_points = dedupe_world_points(area_world_points);
             merged_world_points.insert(merged_world_points.end(), area_world_points.begin(), area_world_points.end());
             merged_world_points = dedupe_world_points(merged_world_points);
@@ -3729,9 +5145,20 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
     assign_global_indices(merged_world_points);
     set_pseudo_slam_tf_points(merged_world_points);
     publish_pseudo_slam_markers(merged_world_points);
-    const std::unordered_map<int, PseudoSlamCheckerboardInfo> merged_checkerboard_info_by_idx =
+    std::unordered_map<int, PseudoSlamCheckerboardInfo> merged_checkerboard_info_by_idx =
         build_checkerboard_info_by_global_index(merged_world_points, path_origin);
+    const std::vector<fast_image_solve::PointCoords> planning_z_outlier_points =
+        collect_pseudo_slam_planning_z_outliers(merged_world_points);
     std::vector<fast_image_solve::PointCoords> planning_world_points = filter_pseudo_slam_planning_outliers(merged_world_points);
+    const std::unordered_set<int> outlier_column_neighbor_blocked_global_indices =
+        collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
+            planning_world_points,
+            planning_z_outlier_points
+        );
+    planning_world_points = filter_pseudo_slam_points_near_outlier_columns(
+        planning_world_points,
+        planning_z_outlier_points
+    );
     std::unordered_map<int, PseudoSlamCheckerboardInfo> checkerboard_info_by_idx =
         build_checkerboard_info_by_global_index(planning_world_points, path_origin);
     planning_world_points = filter_pseudo_slam_non_checkerboard_points(
@@ -3739,6 +5166,25 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         checkerboard_info_by_idx
     );
     checkerboard_info_by_idx = build_checkerboard_info_by_global_index(planning_world_points, path_origin);
+    merged_checkerboard_info_by_idx = sync_merged_checkerboard_membership_with_planning(
+        merged_checkerboard_info_by_idx,
+        checkerboard_info_by_idx
+    );
+    {
+        std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
+        pseudo_slam_marker_outlier_global_indices.clear();
+        pseudo_slam_marker_outlier_column_neighbor_global_indices =
+            outlier_column_neighbor_blocked_global_indices;
+        for (const auto& world_point : merged_world_points) {
+            const auto merged_checkerboard_it = merged_checkerboard_info_by_idx.find(world_point.idx);
+            if (merged_checkerboard_it == merged_checkerboard_info_by_idx.end() ||
+                !merged_checkerboard_it->second.is_checkerboard_member) {
+                if (outlier_column_neighbor_blocked_global_indices.count(world_point.idx) == 0) {
+                    pseudo_slam_marker_outlier_global_indices.insert(world_point.idx);
+                }
+            }
+        }
+    }
     std::vector<fast_image_solve::PointCoords> remaining_world_points = planning_world_points;
     std::vector<PseudoSlamGroupedAreaEntry> bind_area_entries;
     int bind_group_count = 0;
@@ -3778,6 +5224,7 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
         merged_world_points,
         merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx,
+        outlier_column_neighbor_blocked_global_indices,
         scan_session_id,
         path_signature,
         &pseudo_slam_points_error
@@ -3866,6 +5313,173 @@ std::vector<fast_image_solve::PointCoords> load_bind_points_from_group_json(
         point_index++;
     }
     return points;
+}
+
+const nlohmann::json* find_planned_bind_area_json_by_area_index(
+    const nlohmann::json& bind_path_json,
+    int area_index
+)
+{
+    if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
+        return nullptr;
+    }
+
+    for (const auto& area_json : bind_path_json["areas"]) {
+        if (area_json.value("area_index", -1) == area_index) {
+            return &area_json;
+        }
+    }
+    return nullptr;
+}
+
+fast_image_solve::PointCoords build_world_point_from_bind_point_json(
+    const nlohmann::json& point_json,
+    int fallback_idx = 1
+)
+{
+    fast_image_solve::PointCoords point;
+    point.idx = point_json.value(
+        "global_idx",
+        point_json.value("local_idx", point_json.value("idx", fallback_idx))
+    );
+    point.Pix_coord[0] = 0;
+    point.Pix_coord[1] = 0;
+    point.World_coord[0] = point_json.value("world_x", point_json.value("x", 0.0f));
+    point.World_coord[1] = point_json.value("world_y", point_json.value("y", 0.0f));
+    point.World_coord[2] = point_json.value("world_z", point_json.value("z", 0.0f));
+    point.Angle = point_json.value("angle", -45.0f);
+    point.is_shuiguan = false;
+    return point;
+}
+
+std::unordered_map<int, fast_image_solve::PointCoords> collect_planned_area_world_points_by_global_index(
+    const nlohmann::json& area_json
+)
+{
+    std::unordered_map<int, fast_image_solve::PointCoords> planned_points_by_global_index;
+    if (!area_json.contains("groups") || !area_json["groups"].is_array()) {
+        return planned_points_by_global_index;
+    }
+
+    int fallback_idx = 1;
+    for (const auto& group_json : area_json["groups"]) {
+        if (!group_json.contains("points") || !group_json["points"].is_array()) {
+            continue;
+        }
+        for (const auto& point_json : group_json["points"]) {
+            const int global_idx = point_json.value("global_idx", -1);
+            if (global_idx <= 0) {
+                fallback_idx++;
+                continue;
+            }
+            if (planned_points_by_global_index.count(global_idx) > 0) {
+                fallback_idx++;
+                continue;
+            }
+            planned_points_by_global_index.emplace(
+                global_idx,
+                build_world_point_from_bind_point_json(point_json, fallback_idx)
+            );
+            fallback_idx++;
+        }
+    }
+    return planned_points_by_global_index;
+}
+
+nlohmann::json build_live_visual_execution_points_from_planned_area(
+    int area_index,
+    const nlohmann::json& planned_area_json,
+    const nlohmann::json& classified_points_json,
+    const std::unordered_map<int, fast_image_solve::PointCoords>& planned_points_by_global_index
+)
+{
+    nlohmann::json execution_points = nlohmann::json::array();
+    if (!planned_area_json.contains("groups") || !planned_area_json["groups"].is_array()) {
+        return execution_points;
+    }
+
+    std::unordered_map<int, nlohmann::json> best_live_point_by_global_index;
+    std::unordered_map<int, double> best_live_point_score_by_global_index;
+    int fallback_idx = 1;
+    for (const auto& point_json : classified_points_json) {
+        const int global_idx = point_json.value("global_idx", -1);
+        const auto planned_point_it = planned_points_by_global_index.find(global_idx);
+        if (planned_point_it == planned_points_by_global_index.end()) {
+            printCurrentTime();
+            printf(
+                "Cabin_log: live_visual区域%d点global_idx=%d不在当前区域扫描参考点中，跳过该点。\n",
+                area_index,
+                global_idx
+            );
+            fallback_idx++;
+            continue;
+        }
+
+        const fast_image_solve::PointCoords live_world_point =
+            build_world_point_from_bind_point_json(point_json, fallback_idx);
+        const double refine_dx_mm = std::fabs(
+            static_cast<double>(live_world_point.World_coord[0]) -
+            static_cast<double>(planned_point_it->second.World_coord[0])
+        );
+        const double refine_dy_mm = std::fabs(
+            static_cast<double>(live_world_point.World_coord[1]) -
+            static_cast<double>(planned_point_it->second.World_coord[1])
+        );
+        const double refine_dz_mm = std::fabs(
+            static_cast<double>(live_world_point.World_coord[2]) -
+            static_cast<double>(planned_point_it->second.World_coord[2])
+        );
+        if (refine_dx_mm > kLiveVisualMicroAdjustAxisToleranceMm ||
+            refine_dy_mm > kLiveVisualMicroAdjustAxisToleranceMm ||
+            refine_dz_mm > kLiveVisualMicroAdjustAxisToleranceMm) {
+            printCurrentTime();
+            printf(
+                "Cabin_log: live_visual区域%d点global_idx=%d超出xyz微调范围(dx=%.1fmm,dy=%.1fmm,dz=%.1fmm)，保留扫描参考点。\n",
+                area_index,
+                global_idx,
+                refine_dx_mm,
+                refine_dy_mm,
+                refine_dz_mm
+            );
+            fallback_idx++;
+            continue;
+        }
+
+        const double refine_score = refine_dx_mm + refine_dy_mm + refine_dz_mm;
+        const auto best_live_point_it = best_live_point_score_by_global_index.find(global_idx);
+        if (best_live_point_it == best_live_point_score_by_global_index.end() ||
+            refine_score < best_live_point_it->second) {
+            best_live_point_score_by_global_index[global_idx] = refine_score;
+            best_live_point_by_global_index[global_idx] = point_json;
+        }
+        fallback_idx++;
+    }
+
+    for (const auto& group_json : planned_area_json["groups"]) {
+        if (!group_json.contains("points") || !group_json["points"].is_array()) {
+            continue;
+        }
+        for (const auto& point_json : group_json["points"]) {
+            nlohmann::json execution_point_json = point_json;
+            const int global_idx = point_json.value("global_idx", -1);
+            const auto live_point_it = best_live_point_by_global_index.find(global_idx);
+            if (live_point_it != best_live_point_by_global_index.end()) {
+                const auto& live_point_json = live_point_it->second;
+                const float live_world_x = live_point_json.value("world_x", live_point_json.value("x", 0.0f));
+                const float live_world_y = live_point_json.value("world_y", live_point_json.value("y", 0.0f));
+                const float live_world_z = live_point_json.value("world_z", live_point_json.value("z", 0.0f));
+                execution_point_json["x"] = live_world_x;
+                execution_point_json["y"] = live_world_y;
+                execution_point_json["z"] = live_world_z;
+                execution_point_json["world_x"] = live_world_x;
+                execution_point_json["world_y"] = live_world_y;
+                execution_point_json["world_z"] = live_world_z;
+            }
+            execution_points.push_back(execution_point_json);
+        }
+    }
+
+    return execution_points;
 }
 
 std::vector<fast_image_solve::PointCoords> convert_bind_world_points_to_gripper_points(
@@ -3999,6 +5613,8 @@ float get_current_area_bind_test_cabin_speed(float configured_cabin_speed)
 
 bool run_current_area_bind_from_scan_test(std::string& message)
 {
+    clear_pseudo_slam_marker_execution_state();
+    ScopedPseudoSlamMarkerExecutionStateClear scoped_marker_execution_state_clear;
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
@@ -4079,16 +5695,32 @@ bool run_current_area_bind_from_scan_test(std::string& message)
     {
         std::lock_guard<std::mutex> lock2(socket_mutex);
         moveTCPPosition(0x01, TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+        const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+        if (send_result < 0) {
+            message = "当前区域预计算直执行下发索驱移动指令失败";
+            return false;
+        }
     }
-    delay_time(AXIS_X, cabin_x);
-    delay_time(AXIS_Y, cabin_y);
-    delay_time(AXIS_Z, cabin_height);
+    if (!delay_time(AXIS_X, cabin_x)) {
+        message = "当前区域预计算直执行因索驱X轴到位失败而中止";
+        return false;
+    }
+    if (!delay_time(AXIS_Y, cabin_y)) {
+        message = "当前区域预计算直执行因索驱Y轴到位失败而中止";
+        return false;
+    }
+    if (!delay_time(AXIS_Z, cabin_height)) {
+        message = "当前区域预计算直执行因索驱Z轴到位失败而中止";
+        return false;
+    }
 
     if (!area_json.contains("groups") || !area_json["groups"].is_array()) {
         message = "当前区域缺少groups，无法执行预计算绑扎测试";
         return false;
     }
+
+    const std::unordered_set<int> area_global_indices = collect_global_indices_from_area_json(area_json);
+    set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
 
     int executed_group_count = 0;
     int skipped_group_count = 0;
@@ -4106,6 +5738,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             load_bind_points_from_group_json(execution_group_json);
         if (world_points.empty()) {
             skipped_group_count++;
+            set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             printCurrentTime();
             printf(
                 "Cabin_log: 当前区域预计算直执行第%d组(%s)经棋盘格/执行记忆过滤后无可执行点，跳过当前组。\n",
@@ -4123,6 +5756,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
                 prepare_failure_reason
             )) {
             skipped_group_count++;
+            set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             printCurrentTime();
             printf(
                 "Cabin_Warn: 当前区域预计算直执行第%d组无法满足虎口执行条件，跳过当前组。原因：%s\n",
@@ -4134,8 +5768,20 @@ bool run_current_area_bind_from_scan_test(std::string& message)
 
         chassis_ctrl::ExecuteBindPoints bind_srv;
         bind_srv.request.points = local_points;
+        const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
+            execution_group_json,
+            local_points
+        );
+        const std::unordered_set<int> active_dispatch_global_indices =
+            collect_global_indices_from_group_json(dispatched_point_jsons);
+        set_pseudo_slam_marker_execution_state(
+            area_index,
+            area_global_indices,
+            active_dispatch_global_indices
+        );
         if (!sg_precomputed_fast_client.call(bind_srv) || !bind_srv.response.success) {
             skipped_group_count++;
+            set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             printCurrentTime();
             printf(
                 "Cabin_Warn: 当前区域预计算直执行第%d组失败，跳过当前组，消息：%s\n",
@@ -4145,10 +5791,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             continue;
         }
 
-        const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
-            execution_group_json,
-            local_points
-        );
+        set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
         for (const auto& dispatched_point_json : dispatched_point_jsons) {
             record_successful_execution_point(bind_execution_memory, dispatched_point_json);
         }
@@ -4206,6 +5849,8 @@ bool run_current_area_bind_from_scan_test(std::string& message)
 
 bool run_live_visual_global_work(std::string& message)
 {
+    clear_pseudo_slam_marker_execution_state();
+    ScopedPseudoSlamMarkerExecutionStateClear scoped_marker_execution_state_clear;
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     std::vector<Cabin_Point> con_path;
     float cabin_height = 0.0f;
@@ -4233,7 +5878,6 @@ bool run_live_visual_global_work(std::string& message)
     if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
-    (void)bind_path_json;
     LiveVisualCheckerboardGrid checkerboard_grid;
     std::string checkerboard_grid_error;
     if (!load_live_visual_checkerboard_grid(points_json, checkerboard_grid, checkerboard_grid_error)) {
@@ -4244,6 +5888,47 @@ bool run_live_visual_global_work(std::string& message)
     for (int area_index = 0; area_index < total_area_count; ++area_index) {
         const Cabin_Point& cabin_point = con_path[area_index];
         publish_area_progress(area_index + 1, total_area_count, 0, false, false);
+        const nlohmann::json* planned_area_json = find_planned_bind_area_json_by_area_index(
+            bind_path_json,
+            area_index + 1
+        );
+        if (planned_area_json == nullptr) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_log: live_visual区域%d在扫描账本中无计划绑扎点，跳过当前区域。\n",
+                area_index + 1
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
+
+        const std::unordered_map<int, fast_image_solve::PointCoords> planned_area_points_by_global_index =
+            collect_planned_area_world_points_by_global_index(*planned_area_json);
+        const std::unordered_set<int> area_global_indices =
+            collect_global_indices_from_area_json(*planned_area_json);
+        if (planned_area_points_by_global_index.empty() || area_global_indices.empty()) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_log: live_visual区域%d扫描账本缺少有效参考点，跳过当前区域。\n",
+                area_index + 1
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
 
         TCP_Move[0] = cabin_speed;
         TCP_Move[1] = cabin_point.x;
@@ -4260,11 +5945,42 @@ bool run_live_visual_global_work(std::string& message)
         {
             std::lock_guard<std::mutex> lock2(socket_mutex);
             moveTCPPosition(0x01, TCP_Move);
-            Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+            const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+            if (send_result < 0) {
+                skipped_area_count++;
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: live_visual区域%d下发索驱移动指令失败，跳过当前区域。\n",
+                    area_index + 1
+                );
+                publish_area_progress(
+                    area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                    total_area_count,
+                    area_index + 1,
+                    true,
+                    false
+                );
+                continue;
+            }
         }
-        delay_time(AXIS_X, cabin_point.x);
-        delay_time(AXIS_Y, cabin_point.y);
-        delay_time(AXIS_Z, cabin_height);
+        if (!delay_time(AXIS_X, cabin_point.x) ||
+            !delay_time(AXIS_Y, cabin_point.y) ||
+            !delay_time(AXIS_Z, cabin_height)) {
+            skipped_area_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: live_visual区域%d索驱到位失败，跳过当前区域。\n",
+                area_index + 1
+            );
+            publish_area_progress(
+                area_index + 1 < total_area_count ? area_index + 2 : area_index + 1,
+                total_area_count,
+                area_index + 1,
+                true,
+                false
+            );
+            continue;
+        }
 
         fast_image_solve::ProcessImage scan_srv;
         scan_srv.request.request_mode = kProcessImageModeScanOnly;
@@ -4310,8 +6026,8 @@ bool run_live_visual_global_work(std::string& message)
         }
         area_world_points = dedupe_world_points(area_world_points);
 
-        nlohmann::json execution_group_json;
-        execution_group_json["points"] = nlohmann::json::array();
+        nlohmann::json classified_group_json;
+        classified_group_json["points"] = nlohmann::json::array();
         for (const auto& world_point : area_world_points) {
             nlohmann::json classified_point_json;
             if (!classify_live_visual_point_into_checkerboard(
@@ -4327,8 +6043,16 @@ bool run_live_visual_global_work(std::string& message)
                 );
                 continue;
             }
-            execution_group_json["points"].push_back(classified_point_json);
+            classified_group_json["points"].push_back(classified_point_json);
         }
+        set_pseudo_slam_marker_execution_state(area_index + 1, area_global_indices, {});
+        nlohmann::json execution_group_json;
+        execution_group_json["points"] = build_live_visual_execution_points_from_planned_area(
+            area_index + 1,
+            *planned_area_json,
+            classified_group_json["points"],
+            planned_area_points_by_global_index
+        );
         execution_group_json["points"] = filter_precomputed_group_points_for_execution(
             execution_group_json,
             bind_execution_memory,
@@ -4339,9 +6063,10 @@ bool run_live_visual_global_work(std::string& message)
             load_bind_points_from_group_json(execution_group_json);
         if (world_points.empty()) {
             skipped_area_count++;
+            set_pseudo_slam_marker_execution_state(area_index + 1, area_global_indices, {});
             printCurrentTime();
             printf(
-                "Cabin_log: live_visual区域%d经全局棋盘格/执行记忆过滤后无可执行点，跳过当前区域。\n",
+                "Cabin_log: live_visual区域%d经扫描参考点/全局棋盘格/执行记忆过滤后无可执行点，跳过当前区域。\n",
                 area_index + 1
             );
             publish_area_progress(
@@ -4362,6 +6087,7 @@ bool run_live_visual_global_work(std::string& message)
                 prepare_failure_reason
             )) {
             skipped_area_count++;
+            set_pseudo_slam_marker_execution_state(area_index + 1, area_global_indices, {});
             printCurrentTime();
             printf(
                 "Cabin_Warn: live_visual区域%d无法满足虎口执行条件，跳过当前区域。原因：%s\n",
@@ -4380,8 +6106,20 @@ bool run_live_visual_global_work(std::string& message)
 
         chassis_ctrl::ExecuteBindPoints bind_srv;
         bind_srv.request.points = local_points;
+        const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
+            execution_group_json,
+            local_points
+        );
+        const std::unordered_set<int> active_dispatch_global_indices =
+            collect_global_indices_from_group_json(dispatched_point_jsons);
+        set_pseudo_slam_marker_execution_state(
+            area_index + 1,
+            area_global_indices,
+            active_dispatch_global_indices
+        );
         if (!sg_precomputed_fast_client.call(bind_srv) || !bind_srv.response.success) {
             skipped_area_count++;
+            set_pseudo_slam_marker_execution_state(area_index + 1, area_global_indices, {});
             printCurrentTime();
             printf(
                 "Cabin_Warn: live_visual区域%d执行失败，跳过当前区域。消息：%s\n",
@@ -4398,10 +6136,7 @@ bool run_live_visual_global_work(std::string& message)
             continue;
         }
 
-        const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
-            execution_group_json,
-            local_points
-        );
+        set_pseudo_slam_marker_execution_state(area_index + 1, area_global_indices, {});
         for (const auto& dispatched_point_json : dispatched_point_jsons) {
             record_successful_execution_point(bind_execution_memory, dispatched_point_json, "live_visual");
         }
@@ -4464,6 +6199,8 @@ bool run_live_visual_global_work(std::string& message)
 
 bool run_bind_from_scan(std::string& message)
 {
+    clear_pseudo_slam_marker_execution_state();
+    ScopedPseudoSlamMarkerExecutionStateClear scoped_marker_execution_state_clear;
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     nlohmann::json points_json;
     nlohmann::json bind_path_json;
@@ -4523,11 +6260,24 @@ bool run_bind_from_scan(std::string& message)
     {
         std::lock_guard<std::mutex> lock2(socket_mutex);
         moveTCPPosition(0x01, TCP_Move);
-        Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+        const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+        if (send_result < 0) {
+            message = "bind_from_scan回到规划原点时下发索驱移动指令失败";
+            return false;
+        }
     }
-    delay_time(AXIS_X, path_origin_x);
-    delay_time(AXIS_Y, path_origin_y);
-    delay_time(AXIS_Z, path_origin_z);
+    if (!delay_time(AXIS_X, path_origin_x)) {
+        message = "bind_from_scan回原点时索驱X轴到位失败";
+        return false;
+    }
+    if (!delay_time(AXIS_Y, path_origin_y)) {
+        message = "bind_from_scan回原点时索驱Y轴到位失败";
+        return false;
+    }
+    if (!delay_time(AXIS_Z, path_origin_z)) {
+        message = "bind_from_scan回原点时索驱Z轴到位失败";
+        return false;
+    }
 
     int area_index = 0;
     for (const auto& area_json : areas_json) {
@@ -4545,17 +6295,33 @@ bool run_bind_from_scan(std::string& message)
         {
             std::lock_guard<std::mutex> lock2(socket_mutex);
             moveTCPPosition(0x01, TCP_Move);
-            Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+            const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+            if (send_result < 0) {
+                message = "bind_from_scan区域" + std::to_string(area_index) + "下发索驱移动指令失败";
+                return false;
+            }
         }
-        delay_time(AXIS_X, cabin_x);
-        delay_time(AXIS_Y, cabin_y);
-        delay_time(AXIS_Z, cabin_height);
+        if (!delay_time(AXIS_X, cabin_x)) {
+            message = "bind_from_scan区域" + std::to_string(area_index) + "索驱X轴到位失败";
+            return false;
+        }
+        if (!delay_time(AXIS_Y, cabin_y)) {
+            message = "bind_from_scan区域" + std::to_string(area_index) + "索驱Y轴到位失败";
+            return false;
+        }
+        if (!delay_time(AXIS_Z, cabin_height)) {
+            message = "bind_from_scan区域" + std::to_string(area_index) + "索驱Z轴到位失败";
+            return false;
+        }
 
         if (!area_json.contains("groups") || !area_json["groups"].is_array()) {
             printCurrentTime();
             printf("Cabin_Warn: bind_from_scan区域%d缺少groups，跳过当前区域。\n", area_index);
             continue;
         }
+
+        const std::unordered_set<int> area_global_indices = collect_global_indices_from_area_json(area_json);
+        set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
 
         int group_index = 0;
         for (const auto& group_json : area_json["groups"]) {
@@ -4570,6 +6336,7 @@ bool run_bind_from_scan(std::string& message)
             const std::vector<fast_image_solve::PointCoords> world_points =
                 load_bind_points_from_group_json(execution_group_json);
             if (world_points.empty()) {
+                set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 printCurrentTime();
                 printf(
                     "Cabin_log: bind_from_scan区域%d第%d组(%s)经棋盘格/执行记忆过滤后无可执行点，跳过当前组。\n",
@@ -4586,6 +6353,7 @@ bool run_bind_from_scan(std::string& message)
                     local_points,
                     prepare_failure_reason
                 )) {
+                set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 printCurrentTime();
                 printf(
                     "Cabin_Warn: bind_from_scan区域%d第%d组无法满足虎口执行条件，跳过当前组。原因：%s\n",
@@ -4597,7 +6365,19 @@ bool run_bind_from_scan(std::string& message)
             }
             chassis_ctrl::ExecuteBindPoints bind_srv;
             bind_srv.request.points = local_points;
+            const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
+                execution_group_json,
+                local_points
+            );
+            const std::unordered_set<int> active_dispatch_global_indices =
+                collect_global_indices_from_group_json(dispatched_point_jsons);
+            set_pseudo_slam_marker_execution_state(
+                area_index,
+                area_global_indices,
+                active_dispatch_global_indices
+            );
             if (!sg_precomputed_client.call(bind_srv) || !bind_srv.response.success) {
+                set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 printCurrentTime();
                 printf(
                     "Cabin_Warn: bind_from_scan区域%d第%d组执行失败，跳过该点所在组，跳过该组继续下一组，消息：%s\n",
@@ -4608,10 +6388,7 @@ bool run_bind_from_scan(std::string& message)
                 continue;
             }
 
-            const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
-                execution_group_json,
-                local_points
-            );
+            set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             for (const auto& dispatched_point_json : dispatched_point_jsons) {
                 record_successful_execution_point(bind_execution_memory, dispatched_point_json);
             }
@@ -4663,7 +6440,30 @@ bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Respons
     float cabin_speed = 0.0f;
     try {
         load_configured_path(con_path, cabin_height, cabin_speed);
-        res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, res.message);
+        res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, true, res.message);
+    } catch (const std::exception& ex) {
+        res.success = false;
+        res.message = ex.what();
+    }
+    return true;
+}
+
+bool startPseudoSlamScanWithOptions(
+    chassis_ctrl::StartPseudoSlamScan::Request& req,
+    chassis_ctrl::StartPseudoSlamScan::Response& res)
+{
+    std::vector<Cabin_Point> con_path;
+    float cabin_height = 0.0f;
+    float cabin_speed = 0.0f;
+    try {
+        load_configured_path(con_path, cabin_height, cabin_speed);
+        res.success = run_pseudo_slam_scan(
+            con_path,
+            cabin_height,
+            cabin_speed,
+            req.enable_capture_gate,
+            res.message
+        );
     } catch (const std::exception& ex) {
         res.success = false;
         res.message = ex.what();
@@ -4713,6 +6513,48 @@ bool startGlobalWork(chassis_ctrl::MotionControl::Request &req,
         res.message = ex.what();
     }
     return true;
+}
+
+bool startGlobalWorkWithOptions(
+    chassis_ctrl::StartGlobalWork::Request& req,
+    chassis_ctrl::StartGlobalWork::Response& res)
+{
+    printCurrentTime();
+    printf(
+        "Cabin_log: 收到%s，clear_execution_memory=%s（clear_execution_memory=true表示先清记忆再执行）。\n",
+        req.command.c_str(),
+        req.clear_execution_memory ? "true" : "false"
+    );
+
+    try {
+        std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
+        if (req.clear_execution_memory) {
+            std::string current_path_signature;
+            if (!load_current_path_signature_for_execution(current_path_signature, res.message)) {
+                res.success = false;
+                return true;
+            }
+            if (!reset_bind_execution_memory_from_current_scan_artifacts(
+                    current_path_signature,
+                    res.message
+                )) {
+                res.success = false;
+                return true;
+            }
+        }
+    } catch (const std::exception& ex) {
+        res.success = false;
+        res.message = ex.what();
+        return true;
+    }
+
+    chassis_ctrl::MotionControl::Request legacy_req;
+    chassis_ctrl::MotionControl::Response legacy_res;
+    legacy_req.command = req.command;
+    const bool handled = startGlobalWork(legacy_req, legacy_res);
+    res.success = legacy_res.success;
+    res.message = legacy_res.message;
+    return handled;
 }
 
 /*
@@ -4795,6 +6637,7 @@ void read_cabin_state(Cabin_State *cab_state) {
         cabin_data_upload.internal_calc_error = cab_state->internal_calc_error;
         publish_cabin_depth_tf();
         publish_pseudo_slam_point_transforms();
+        maybe_refresh_pseudo_slam_marker_outlier_threshold();
 
         // if((abs(x_gesture)>=1.0||abs(y_gesture)>=1.0)&&cab_state->motion_status==0)
         // {
@@ -4880,9 +6723,9 @@ bool suoquInit()
         return false;
     }
     // 索驱使能和逆解激活
-    Frame_Generate_With_Retry(motor_enable, 8, 6);
-    usleep(500000);
-    Frame_Generate_With_Retry(motor_inverse_enable, 8, 6);
+    // Frame_Generate_With_Retry(motor_enable, 8, 6);
+    // usleep(500000);
+    // Frame_Generate_With_Retry(motor_inverse_enable, 8, 6);
     return true;
 }
 
@@ -4917,12 +6760,17 @@ int main(int argc, char **argv)
     ros::Subscriber global_execution_mode_sub = nh.subscribe("/web/cabin/set_execution_mode", 5, &global_execution_mode_callback);
     // 开始全局作业
     ros::ServiceServer update_service = nh.advertiseService("/cabin/start_work", startGlobalWork);
+    ros::ServiceServer update_service_with_options =
+        nh.advertiseService("/cabin/start_work_with_options", startGlobalWorkWithOptions);
     ros::ServiceServer pseudo_slam_scan_service = nh.advertiseService("/cabin/start_pseudo_slam_scan", startPseudoSlamScan);
+    ros::ServiceServer pseudo_slam_scan_with_options_service =
+        nh.advertiseService("/cabin/start_pseudo_slam_scan_with_options", startPseudoSlamScanWithOptions);
     ros::ServiceServer current_area_bind_from_scan_service = nh.advertiseService("/cabin/bind_current_area_from_scan", bind_current_area_from_scan_service);
     // 单点运动调试
     ros::ServiceServer cabin_single_move_service = nh.advertiseService("/cabin/single_move", cabin_single_move);
     pub_area_progress = nh.advertise<chassis_ctrl::AreaProgress>("/cabin/area_progress", 5);
     pub_pseudo_slam_markers = nh.advertise<visualization_msgs::MarkerArray>("/cabin/pseudo_slam_markers", 1, true);
+    restore_pseudo_slam_markers_from_json_on_startup();
     ros::Subscriber pseudo_slam_ir_image_sub = nh.subscribe(kPseudoSlamCaptureGateImageTopic, 1, &pseudo_slam_ir_image_callback);
     // 订阅视觉模块的消息
     AI_client = nh.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");

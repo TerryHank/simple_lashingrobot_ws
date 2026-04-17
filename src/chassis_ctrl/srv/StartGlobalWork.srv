@@ -1,0 +1,5 @@
+string command
+bool clear_execution_memory
+---
+bool success
+string message
