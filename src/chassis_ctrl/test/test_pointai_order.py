@@ -782,6 +782,14 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('bind_path_json["path_origin"]["x"]', suoqu_text)
         self.assertIn("bind_from_scan先回到规划原点", suoqu_text)
 
+    def test_precomputed_execution_filters_by_checkerboard_and_execution_memory(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("filter_precomputed_group_points_for_execution", suoqu_text)
+        self.assertIn("is_point_already_executed", suoqu_text)
+        self.assertIn("record_successful_execution_point", suoqu_text)
+        self.assertIn('group_json.value("group_type"', suoqu_text)
+
     def test_slam_precomputed_skips_points_already_recorded_in_execution_memory(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 

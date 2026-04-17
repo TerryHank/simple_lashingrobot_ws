@@ -1937,6 +1937,78 @@ BindExecutionMemory reset_bind_execution_memory_for_scan_session(
     return memory;
 }
 
+bool is_point_already_executed(
+    const BindExecutionMemory& memory,
+    int global_row,
+    int global_col
+)
+{
+    if (global_row < 0 || global_col < 0) {
+        return false;
+    }
+
+    return std::any_of(
+        memory.executed_points.begin(),
+        memory.executed_points.end(),
+        [global_row, global_col](const BindExecutionPointRecord& point_record) {
+            return point_record.global_row == global_row && point_record.global_col == global_col;
+        }
+    );
+}
+
+nlohmann::json filter_precomputed_group_points_for_execution(
+    const nlohmann::json& group_json,
+    const BindExecutionMemory& memory,
+    bool only_checkerboard_parity_zero
+)
+{
+    nlohmann::json filtered_points = nlohmann::json::array();
+    if (!group_json.contains("points") || !group_json["points"].is_array()) {
+        return filtered_points;
+    }
+
+    for (const auto& point_json : group_json["points"]) {
+        if (only_checkerboard_parity_zero && point_json.value("checkerboard_parity", 0) != 0) {
+            continue;
+        }
+
+        const int global_row = point_json.value("global_row", -1);
+        const int global_col = point_json.value("global_col", -1);
+        if (is_point_already_executed(memory, global_row, global_col)) {
+            continue;
+        }
+
+        filtered_points.push_back(point_json);
+    }
+
+    return filtered_points;
+}
+
+void record_successful_execution_point(
+    BindExecutionMemory& memory,
+    const nlohmann::json& point_json
+)
+{
+    const int global_row = point_json.value("global_row", -1);
+    const int global_col = point_json.value("global_col", -1);
+    if (global_row < 0 || global_col < 0) {
+        return;
+    }
+    if (is_point_already_executed(memory, global_row, global_col)) {
+        return;
+    }
+
+    BindExecutionPointRecord point_record;
+    point_record.global_row = global_row;
+    point_record.global_col = global_col;
+    point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+    point_record.world_x = point_json.value("world_x", point_json.value("x", 0.0f));
+    point_record.world_y = point_json.value("world_y", point_json.value("y", 0.0f));
+    point_record.world_z = point_json.value("world_z", point_json.value("z", 0.0f));
+    point_record.source_mode = "slam_precomputed";
+    memory.executed_points.push_back(point_record);
+}
+
 void write_pseudo_slam_points_json(
     const std::vector<fast_image_solve::PointCoords>& merged_points,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx
@@ -2025,6 +2097,9 @@ void write_pseudo_slam_bind_path_json(
                         {"x", point.World_coord[0]},
                         {"y", point.World_coord[1]},
                         {"z", point.World_coord[2]},
+                        {"world_x", point.World_coord[0]},
+                        {"world_y", point.World_coord[1]},
+                        {"world_z", point.World_coord[2]},
                         {"angle", point.Angle},
                     }
                 );
@@ -3100,8 +3175,7 @@ bool run_pseudo_slam_scan(std::vector<Cabin_Point> con_path, float cabin_height,
 }
 
 std::vector<fast_image_solve::PointCoords> load_bind_points_from_group_json(
-    const nlohmann::json& group_json,
-    bool only_checkerboard_parity_zero
+    const nlohmann::json& group_json
 )
 {
     std::vector<fast_image_solve::PointCoords> points;
@@ -3111,9 +3185,6 @@ std::vector<fast_image_solve::PointCoords> load_bind_points_from_group_json(
 
     int point_index = 1;
     for (const auto& point_json : group_json["points"]) {
-        if (only_checkerboard_parity_zero && point_json.value("checkerboard_parity", 0) != 0) {
-            continue;
-        }
         fast_image_solve::PointCoords point;
         point.idx = point_json.value("local_idx", point_json.value("idx", point_index));
         point.Pix_coord[0] = 0;
@@ -3316,17 +3387,29 @@ bool run_current_area_bind_from_scan_test(std::string& message)
         return false;
     }
 
+    BindExecutionMemory bind_execution_memory = load_bind_execution_memory_json();
     int executed_group_count = 0;
     int skipped_group_count = 0;
     int group_index = 0;
     for (const auto& group_json : area_json["groups"]) {
         group_index++;
-        const std::vector<fast_image_solve::PointCoords> world_points = load_bind_points_from_group_json(
+        const std::string group_type = group_json.value("group_type", std::string("unknown_group"));
+        nlohmann::json execution_group_json = group_json;
+        execution_group_json["points"] = filter_precomputed_group_points_for_execution(
             group_json,
+            bind_execution_memory,
             checkerboard_jump_bind_enabled
         );
+        const std::vector<fast_image_solve::PointCoords> world_points =
+            load_bind_points_from_group_json(execution_group_json);
         if (world_points.empty()) {
             skipped_group_count++;
+            printCurrentTime();
+            printf(
+                "Cabin_log: 当前区域预计算直执行第%d组(%s)经棋盘格/执行记忆过滤后无可执行点，跳过当前组。\n",
+                group_index,
+                group_type.c_str()
+            );
             continue;
         }
 
@@ -3358,6 +3441,19 @@ bool run_current_area_bind_from_scan_test(std::string& message)
                 bind_srv.response.message.c_str()
             );
             continue;
+        }
+
+        for (const auto& point_json : execution_group_json["points"]) {
+            record_successful_execution_point(bind_execution_memory, point_json);
+        }
+        std::string bind_execution_memory_error;
+        if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
+            printCurrentTime();
+            printf(
+                "Cabin_Warn: 当前区域预计算直执行第%d组成功后写入bind_execution_memory.json失败：%s\n",
+                group_index,
+                bind_execution_memory_error.c_str()
+            );
         }
         executed_group_count++;
     }
@@ -3539,6 +3635,7 @@ bool run_bind_from_scan(std::string& message)
     delay_time(AXIS_Z, path_origin_z);
 
     int area_index = 0;
+    BindExecutionMemory bind_execution_memory = load_bind_execution_memory_json();
     for (const auto& area_json : areas_json) {
         area_index++;
         publish_area_progress(area_index, total_area_count, 0, false, false);
@@ -3569,19 +3666,23 @@ bool run_bind_from_scan(std::string& message)
         int group_index = 0;
         for (const auto& group_json : area_json["groups"]) {
             group_index++;
-            const std::vector<fast_image_solve::PointCoords> world_points = load_bind_points_from_group_json(
+            const std::string group_type = group_json.value("group_type", std::string("unknown_group"));
+            nlohmann::json execution_group_json = group_json;
+            execution_group_json["points"] = filter_precomputed_group_points_for_execution(
                 group_json,
+                bind_execution_memory,
                 checkerboard_jump_bind_enabled
             );
+            const std::vector<fast_image_solve::PointCoords> world_points =
+                load_bind_points_from_group_json(execution_group_json);
             if (world_points.empty()) {
-                if (checkerboard_jump_bind_enabled) {
-                    printCurrentTime();
-                    printf(
-                        "Cabin_log: bind_from_scan区域%d第%d组在全局棋盘格跳绑后无可执行点，跳过当前组。\n",
-                        area_index,
-                        group_index
-                    );
-                }
+                printCurrentTime();
+                printf(
+                    "Cabin_log: bind_from_scan区域%d第%d组(%s)经棋盘格/执行记忆过滤后无可执行点，跳过当前组。\n",
+                    area_index,
+                    group_index,
+                    group_type.c_str()
+                );
                 continue;
             }
             std::vector<fast_image_solve::PointCoords> local_points;
@@ -3611,6 +3712,20 @@ bool run_bind_from_scan(std::string& message)
                     bind_srv.response.message.c_str()
                 );
                 continue;
+            }
+
+            for (const auto& point_json : execution_group_json["points"]) {
+                record_successful_execution_point(bind_execution_memory, point_json);
+            }
+            std::string bind_execution_memory_error;
+            if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: bind_from_scan区域%d第%d组成功后写入bind_execution_memory.json失败：%s\n",
+                    area_index,
+                    group_index,
+                    bind_execution_memory_error.c_str()
+                );
             }
         }
         publish_area_progress(area_index < total_area_count ? area_index + 1 : area_index, total_area_count, area_index, true, false);
