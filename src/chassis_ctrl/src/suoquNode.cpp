@@ -206,8 +206,8 @@ struct PseudoSlamCheckerboardInfo
 
 struct LiveVisualCheckerboardGrid
 {
-    std::vector<float> row_centers;
-    std::vector<float> col_centers;
+    std::unordered_map<int, float> row_centers_by_global_row;
+    std::unordered_map<int, float> col_centers_by_global_col;
     std::unordered_map<long long, PseudoSlamCheckerboardInfo> info_by_cell_key;
 };
 
@@ -1137,6 +1137,29 @@ int find_nearest_checkerboard_center_index(float axis_value, const std::vector<f
     return best_index;
 }
 
+int find_nearest_checkerboard_center_key(
+    float axis_value,
+    const std::unordered_map<int, float>& centers_by_key
+)
+{
+    if (centers_by_key.empty()) {
+        return -1;
+    }
+
+    int best_key = -1;
+    float best_gap = 0.0f;
+    bool has_best_key = false;
+    for (const auto& entry : centers_by_key) {
+        const float gap = std::fabs(axis_value - entry.second);
+        if (!has_best_key || gap < best_gap) {
+            best_key = entry.first;
+            best_gap = gap;
+            has_best_key = true;
+        }
+    }
+    return best_key;
+}
+
 long long encode_checkerboard_cell_key(int global_row, int global_col)
 {
     return (static_cast<long long>(global_row) << 32) ^
@@ -1235,10 +1258,10 @@ bool load_live_visual_checkerboard_grid(
             return false;
         }
 
-        std::vector<float> row_sums;
-        std::vector<int> row_counts;
-        std::vector<float> col_sums;
-        std::vector<int> col_counts;
+        std::unordered_map<int, float> row_sums_by_global_row;
+        std::unordered_map<int, int> row_counts_by_global_row;
+        std::unordered_map<int, float> col_sums_by_global_col;
+        std::unordered_map<int, int> col_counts_by_global_col;
         for (const auto& point_json : points_json["pseudo_slam_points"]) {
             if (!point_json.value("is_checkerboard_member", false)) {
                 continue;
@@ -1250,19 +1273,12 @@ bool load_live_visual_checkerboard_grid(
                 continue;
             }
 
-            if (static_cast<int>(row_sums.size()) <= global_row) {
-                row_sums.resize(global_row + 1, 0.0f);
-                row_counts.resize(global_row + 1, 0);
-            }
-            if (static_cast<int>(col_sums.size()) <= global_col) {
-                col_sums.resize(global_col + 1, 0.0f);
-                col_counts.resize(global_col + 1, 0);
-            }
-
-            row_sums[global_row] += point_json.value("y", point_json.value("world_y", 0.0f));
-            row_counts[global_row] += 1;
-            col_sums[global_col] += point_json.value("x", point_json.value("world_x", 0.0f));
-            col_counts[global_col] += 1;
+            row_sums_by_global_row[global_row] +=
+                point_json.value("y", point_json.value("world_y", 0.0f));
+            row_counts_by_global_row[global_row] += 1;
+            col_sums_by_global_col[global_col] +=
+                point_json.value("x", point_json.value("world_x", 0.0f));
+            col_counts_by_global_col[global_col] += 1;
 
             PseudoSlamCheckerboardInfo info;
             info.global_row = global_row;
@@ -1277,24 +1293,16 @@ bool load_live_visual_checkerboard_grid(
             return false;
         }
 
-        checkerboard_grid.row_centers.resize(row_sums.size(), 0.0f);
-        for (size_t row_index = 0; row_index < row_sums.size(); ++row_index) {
-            if (row_counts[row_index] <= 0) {
-                error_message = "pseudo_slam_points.json中的全局行中心不完整";
-                return false;
-            }
-            checkerboard_grid.row_centers[row_index] =
-                row_sums[row_index] / static_cast<float>(row_counts[row_index]);
+        for (const auto& entry : row_sums_by_global_row) {
+            const int global_row = entry.first;
+            checkerboard_grid.row_centers_by_global_row[global_row] =
+                entry.second / static_cast<float>(row_counts_by_global_row[global_row]);
         }
 
-        checkerboard_grid.col_centers.resize(col_sums.size(), 0.0f);
-        for (size_t col_index = 0; col_index < col_sums.size(); ++col_index) {
-            if (col_counts[col_index] <= 0) {
-                error_message = "pseudo_slam_points.json中的全局列中心不完整";
-                return false;
-            }
-            checkerboard_grid.col_centers[col_index] =
-                col_sums[col_index] / static_cast<float>(col_counts[col_index]);
+        for (const auto& entry : col_sums_by_global_col) {
+            const int global_col = entry.first;
+            checkerboard_grid.col_centers_by_global_col[global_col] =
+                entry.second / static_cast<float>(col_counts_by_global_col[global_col]);
         }
     } catch (const std::exception&) {
         error_message = "pseudo_slam_points.json读取失败";
@@ -1311,25 +1319,32 @@ bool classify_live_visual_point_into_checkerboard(
 )
 {
     classified_point_json = nlohmann::json();
-    if (checkerboard_grid.row_centers.empty() || checkerboard_grid.col_centers.empty()) {
+    if (checkerboard_grid.row_centers_by_global_row.empty() ||
+        checkerboard_grid.col_centers_by_global_col.empty()) {
         return false;
     }
 
-    const int global_col = find_nearest_checkerboard_center_index(
+    const int global_col = find_nearest_checkerboard_center_key(
         world_point.World_coord[0],
-        checkerboard_grid.col_centers
+        checkerboard_grid.col_centers_by_global_col
     );
-    const int global_row = find_nearest_checkerboard_center_index(
+    const int global_row = find_nearest_checkerboard_center_key(
         world_point.World_coord[1],
-        checkerboard_grid.row_centers
+        checkerboard_grid.row_centers_by_global_row
     );
     if (global_row < 0 || global_col < 0) {
         return false;
     }
 
-    if (std::fabs(world_point.World_coord[0] - checkerboard_grid.col_centers[global_col]) >
+    if (std::fabs(
+            world_point.World_coord[0] -
+            checkerboard_grid.col_centers_by_global_col.at(global_col)
+        ) >
             kPseudoSlamCheckerboardAxisThresholdMm ||
-        std::fabs(world_point.World_coord[1] - checkerboard_grid.row_centers[global_row]) >
+        std::fabs(
+            world_point.World_coord[1] -
+            checkerboard_grid.row_centers_by_global_row.at(global_row)
+        ) >
             kPseudoSlamCheckerboardAxisThresholdMm) {
         return false;
     }

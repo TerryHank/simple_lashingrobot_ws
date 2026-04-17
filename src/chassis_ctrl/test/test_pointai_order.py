@@ -828,6 +828,15 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("未能归入全局棋盘格", suoqu_text)
         self.assertIn("continue;", suoqu_text)
 
+    def test_live_visual_sparse_checkerboard_indices_do_not_require_dense_center_vectors(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("row_centers_by_global_row", suoqu_text)
+        self.assertIn("col_centers_by_global_col", suoqu_text)
+        self.assertIn("find_nearest_checkerboard_center_key", suoqu_text)
+        self.assertNotIn("pseudo_slam_points.json中的全局行中心不完整", suoqu_text)
+        self.assertNotIn("pseudo_slam_points.json中的全局列中心不完整", suoqu_text)
+
     def test_pseudo_slam_scan_retries_visual_until_five_points_are_detected(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
