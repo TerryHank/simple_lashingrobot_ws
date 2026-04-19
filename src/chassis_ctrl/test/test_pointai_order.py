@@ -1172,10 +1172,15 @@ class PointAIOrderTest(unittest.TestCase):
             "bool run_pseudo_slam_scan(",
         )
 
-        self.assertIn("constexpr float kPseudoSlamClosePointClusterDistanceMm = 100.0f;", suoqu_text)
+        self.assertIn("constexpr float kPseudoSlamClosePointClusterXYToleranceMm = 100.0f;", suoqu_text)
         self.assertIn("filter_pseudo_slam_close_xy_point_clusters", suoqu_text)
         self.assertIn("rejected_indexes.insert(candidate_index);", suoqu_text)
         self.assertIn("rejected_indexes.insert(other_index);", suoqu_text)
+        self.assertIn("std::fabs(candidate_point.World_coord[0] - other_point.World_coord[0]) <", suoqu_text)
+        self.assertIn("std::fabs(candidate_point.World_coord[1] - other_point.World_coord[1]) <", suoqu_text)
+        self.assertIn("kPseudoSlamClosePointClusterXYToleranceMm &&", suoqu_text)
+        self.assertIn("kPseudoSlamClosePointClusterXYToleranceMm) {", suoqu_text)
+        self.assertNotIn("dx * dx + dy * dy < min_distance_sq", suoqu_text)
         self.assertIn("merged_world_points = filter_pseudo_slam_close_xy_point_clusters(merged_world_points);", scan_function)
         self.assertNotIn("frame_world_points = dedupe_world_points(frame_world_points);", scan_function)
         self.assertNotIn("area_world_points = dedupe_world_points(area_world_points);", scan_function)

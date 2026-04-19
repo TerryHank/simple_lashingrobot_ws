@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 980" width="1280" height="980">
+  <defs>
+    <marker id="arrowA" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10a37f"/>
+    </marker>
+    <marker id="arrowB" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#0f766e"/>
+    </marker>
+    <marker id="arrowC" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#0891b2"/>
+    </marker>
+    <marker id="arrowE" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b"/>
+    </marker>
+    <marker id="arrowF" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrowG" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#10a37f"/>
+    </marker>
+    <marker id="arrowH" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/>
+    </marker>
+    <style>
+    text { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+    .title { font-size: 24px; font-weight: 700; fill: #0f172a; }
+    .subtitle { font-size: 13px; font-weight: 500; fill: #64748b; }
+    .section { font-size: 13px; font-weight: 700; fill: #10a37f; letter-spacing: 1.4px; }
+    .section-sub { font-size: 12px; font-weight: 500; fill: #94a3b8; }
+    .node-title { font-size: 18px; font-weight: 700; fill: #0f172a; }
+    .node-sub { font-size: 12px; font-weight: 500; fill: #475569; }
+    .node-type { font-size: 11px; font-weight: 700; fill: #94a3b8; letter-spacing: 0.08em; }
+    .arrow-label { font-size: 12px; font-weight: 600; fill: #475569; }
+    .legend { font-size: 12px; font-weight: 500; fill: #475569; }
+    .footnote { font-size: 12px; font-weight: 500; fill: #94a3b8; }
+    </style>
+  </defs>
+  <rect width="1280.0" height="980.0" fill="#ffffff"/>
+  <text x="48.0" y="48" text-anchor="start" class="title">simple_lashingrobot_ws 操作链总图</text>
+  <text x="48.0" y="72" text-anchor="start" class="subtitle">从前端下发参数，到扫描建图、全局执行、末端绑扎和状态回显</text>
+  <line x1="48" y1="100" x2="1232.0" y2="100" stroke="#e2e8f0" stroke-width="1"/>
+  <rect x="40.0" y="116.0" width="1200.0" height="96.0" rx="16.0" fill="none" stroke="#e2e8f0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="22.0" y="164.0" text-anchor="start" dominant-baseline="middle" font-size="14.0" font-weight="600" fill="#475569">1. 前端输入</text>
+  <rect x="40.0" y="236.0" width="1200.0" height="118.0" rx="16.0" fill="none" stroke="#e2e8f0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="22.0" y="295.0" text-anchor="start" dominant-baseline="middle" font-size="14.0" font-weight="600" fill="#475569">2. 规划作业面</text>
+  <rect x="40.0" y="378.0" width="1200.0" height="168.0" rx="16.0" fill="none" stroke="#e2e8f0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="22.0" y="462.0" text-anchor="start" dominant-baseline="middle" font-size="14.0" font-weight="600" fill="#475569">3. pseudo_slam 扫描建图</text>
+  <rect x="40.0" y="570.0" width="1200.0" height="126.0" rx="16.0" fill="none" stroke="#e2e8f0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="22.0" y="633.0" text-anchor="start" dominant-baseline="middle" font-size="14.0" font-weight="600" fill="#475569">4. 扫描完成后清洗与落盘</text>
+  <rect x="40.0" y="720.0" width="1200.0" height="138.0" rx="16.0" fill="none" stroke="#e2e8f0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="22.0" y="789.0" text-anchor="start" dominant-baseline="middle" font-size="14.0" font-weight="600" fill="#475569">5. 全局执行模式选择</text>
+  <rect x="40.0" y="882.0" width="1200.0" height="66.0" rx="16.0" fill="none" stroke="#e2e8f0" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="22.0" y="915.0" text-anchor="start" dominant-baseline="middle" font-size="14.0" font-weight="600" fill="#475569">6. 回显与运维</text>
+  <path d="M 276.0,166.0 L 392.0,166.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 497.0,198.0 L 468.0,218.0 L 208.0,218.0 L 208.0,266.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 316.0,295.0 L 412.0,295.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 648.0,295.0 L 668.4,295.0 L 793.6,298.0 L 814.0,298.0" fill="none" stroke="#0f766e" stroke-width="2.0" marker-end="url(#arrowB)"/>
+  <path d="M 497.0,198.0 L 496.0,360.0 L 220.0,360.0 L 220.0,420.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 358.0,449.0 L 378.4,449.0 L 413.6,445.0 L 434.0,445.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 682.0,445.0 L 702.4,445.0 L 829.6,443.0 L 850.0,443.0" fill="none" stroke="#0891b2" stroke-width="2.0" marker-end="url(#arrowC)"/>
+  <path d="M 850.0,443.0 L 850.0,444.0 L 930.0,444.0 L 930.0,528.0 L 686.0,528.0 L 686.0,529.0" fill="none" stroke="#0891b2" stroke-width="2.0" marker-end="url(#arrowC)"/>
+  <path d="M 558.0,486.0 L 558.0,500.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 430.0,529.0 L 430.0,528.0 L 360.0,528.0 L 360.0,640.0 L 396.0,640.0 L 396.0,639.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 396.0,639.0 L 416.4,639.0 L 495.6,640.0 L 516.0,640.0" fill="none" stroke="#0f766e" stroke-width="2.0" marker-end="url(#arrowB)"/>
+  <path d="M 396.0,639.0 L 396.0,648.0 L 720.0,648.0 L 720.0,640.0 L 842.0,640.0" fill="none" stroke="#0f766e" stroke-width="2.0" marker-end="url(#arrowB)"/>
+  <path d="M 497.0,198.0 L 540.0,710.0 L 226.0,710.0 L 226.0,758.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 372.0,787.0 L 392.4,787.0 L 465.6,785.0 L 486.0,785.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 372.0,787.0 L 372.0,734.0 L 850.0,734.0 L 850.0,785.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <path d="M 609.0,822.0 L 609.0,842.4 L 589.0,871.6 L 589.0,892.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)" stroke-dasharray="6,4"/>
+  <path d="M 965.0,822.0 L 965.0,842.4 L 589.0,871.6 L 589.0,892.0" fill="none" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)" stroke-dasharray="6,4"/>
+  <rect x="92.0" y="140.0" width="184.0" height="52.0" rx="14.0" fill="#ffffff" stroke="#dce5e3" stroke-width="1.8"/>
+  <text x="184.0" y="158.0" text-anchor="middle" class="node-type">ENTRY</text>
+  <text x="184.0" y="172.0" text-anchor="middle" class="node-title">Web Frontend</text>
+  <rect x="392.0" y="134.0" width="210.0" height="64.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="2.0"/>
+  <rect x="398.0" y="140.0" width="198.0" height="52.0" rx="11.0" fill="none" stroke="#10a37f" stroke-width="1.2" opacity="0.65"/>
+  <text x="497.0" y="152.0" text-anchor="middle" class="node-type">BRIDGE</text>
+  <text x="497.0" y="172.0" text-anchor="middle" class="node-title">topicTransNode</text>
+  <rect x="100.0" y="266.0" width="216.0" height="58.0" rx="14.0" fill="#ffffff" stroke="#dce5e3" stroke-width="1.8"/>
+  <text x="208.0" y="284.0" text-anchor="middle" class="node-type">SERVICE</text>
+  <text x="208.0" y="301.0" text-anchor="middle" class="node-title">/cabin/plan_path</text>
+  <rect x="412.0" y="258.0" width="236.0" height="74.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="2.0"/>
+  <rect x="418.0" y="264.0" width="224.0" height="62.0" rx="11.0" fill="none" stroke="#10a37f" stroke-width="1.2" opacity="0.65"/>
+  <text x="530.0" y="276.0" text-anchor="middle" class="node-type">PLANNER</text>
+  <text x="530.0" y="301.0" text-anchor="middle" class="node-title">suoquNode 规划路径</text>
+  <text x="530.0" y="323.0" text-anchor="middle" class="node-sub">按原点 + 作业区 XY 生成离散点</text>
+  <path d="M 814.0 262.0 L 986.16 262.0 L 1002.0 277.84 L 1002.0 334.0 L 814.0 334.0 Z" fill="#ffffff" stroke="#dce5e3" stroke-width="2.0"/>
+  <path d="M 986.16 262.0 L 986.16 277.84 L 1002.0 277.84" fill="none" stroke="#dce5e3" stroke-width="2.0"/>
+  <line x1="832.0" y1="288.0" x2="974.0" y2="288.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="832.0" y1="302.0" x2="974.0" y2="302.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="832.0" y1="316.0" x2="974.0" y2="316.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="832.0" y1="330.0" x2="974.0" y2="330.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <text x="908.0" y="360.0" text-anchor="middle" class="node-title">path_points.json</text>
+  <rect x="82.0" y="420.0" width="276.0" height="58.0" rx="14.0" fill="#ffffff" stroke="#dce5e3" stroke-width="1.8"/>
+  <text x="220.0" y="438.0" text-anchor="middle" class="node-type">SERVICE</text>
+  <text x="220.0" y="455.0" text-anchor="middle" class="node-title">/cabin/start_pseudo_slam_scan_with_options</text>
+  <rect x="434.0" y="404.0" width="248.0" height="82.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="2.0"/>
+  <rect x="440.0" y="410.0" width="236.0" height="70.0" rx="11.0" fill="none" stroke="#10a37f" stroke-width="1.2" opacity="0.65"/>
+  <text x="558.0" y="422.0" text-anchor="middle" class="node-type">SCAN LOOP</text>
+  <text x="558.0" y="451.0" text-anchor="middle" class="node-title">suoquNode 扫描循环</text>
+  <text x="558.0" y="473.0" text-anchor="middle" class="node-sub">逐区域移动索驱并请求 pointAI scan_only</text>
+  <rect x="850.0" y="414.0" width="212.0" height="58.0" rx="14.0" fill="#ffffff" stroke="#dce5e3" stroke-width="1.8"/>
+  <text x="956.0" y="432.0" text-anchor="middle" class="node-type">VISION</text>
+  <text x="956.0" y="449.0" text-anchor="middle" class="node-title">pointAI scan_only</text>
+  <rect x="430.0" y="500.0" width="256.0" height="58.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="1.8"/>
+  <text x="558.0" y="518.0" text-anchor="middle" class="node-type">FILTER</text>
+  <text x="558.0" y="535.0" text-anchor="middle" class="node-title">扫描时历史去重</text>
+  <text x="558.0" y="557.0" text-anchor="middle" class="node-sub">10 mm 圆形欧式距离</text>
+  <rect x="110.0" y="602.0" width="286.0" height="74.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="2.0"/>
+  <rect x="116.0" y="608.0" width="274.0" height="62.0" rx="11.0" fill="none" stroke="#10a37f" stroke-width="1.2" opacity="0.65"/>
+  <text x="253.0" y="620.0" text-anchor="middle" class="node-type">CLEANUP</text>
+  <text x="253.0" y="645.0" text-anchor="middle" class="node-title">全局簇型清洗</text>
+  <text x="253.0" y="667.0" text-anchor="middle" class="node-sub">XY ±100 mm 方框阈值</text>
+  <path d="M 516.0 604.0 L 702.16 604.0 L 718.0 619.84 L 718.0 676.0 L 516.0 676.0 Z" fill="#ffffff" stroke="#dce5e3" stroke-width="2.0"/>
+  <path d="M 702.16 604.0 L 702.16 619.84 L 718.0 619.84" fill="none" stroke="#dce5e3" stroke-width="2.0"/>
+  <line x1="534.0" y1="630.0" x2="690.0" y2="630.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="534.0" y1="644.0" x2="690.0" y2="644.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="534.0" y1="658.0" x2="690.0" y2="658.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="534.0" y1="672.0" x2="690.0" y2="672.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <text x="617.0" y="702.0" text-anchor="middle" class="node-title">pseudo_slam_points.json</text>
+  <path d="M 842.0 604.0 L 1054.16 604.0 L 1070.0 619.84 L 1070.0 676.0 L 842.0 676.0 Z" fill="#ffffff" stroke="#dce5e3" stroke-width="2.0"/>
+  <path d="M 1054.16 604.0 L 1054.16 619.84 L 1070.0 619.84" fill="none" stroke="#dce5e3" stroke-width="2.0"/>
+  <line x1="860.0" y1="630.0" x2="1042.0" y2="630.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="860.0" y1="644.0" x2="1042.0" y2="644.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="860.0" y1="658.0" x2="1042.0" y2="658.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <line x1="860.0" y1="672.0" x2="1042.0" y2="672.0" stroke="#c4b5fd" stroke-width="1.2"/>
+  <text x="956.0" y="702.0" text-anchor="middle" class="node-title">pseudo_slam_bind_path.json</text>
+  <rect x="80.0" y="758.0" width="292.0" height="58.0" rx="14.0" fill="#ffffff" stroke="#dce5e3" stroke-width="1.8"/>
+  <text x="226.0" y="776.0" text-anchor="middle" class="node-type">SERVICE</text>
+  <text x="226.0" y="793.0" text-anchor="middle" class="node-title">/cabin/start_work_with_options</text>
+  <rect x="486.0" y="748.0" width="246.0" height="74.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="1.8"/>
+  <text x="609.0" y="766.0" text-anchor="middle" class="node-type">MODE A</text>
+  <text x="609.0" y="791.0" text-anchor="middle" class="node-title">slam_precomputed 模式</text>
+  <text x="609.0" y="813.0" text-anchor="middle" class="node-sub">读扫描产物 -&gt; /moduan/sg_precomputed(_fast)</text>
+  <rect x="850.0" y="748.0" width="230.0" height="74.0" rx="14.0" fill="#ffffff" stroke="#10a37f" stroke-width="1.8"/>
+  <text x="965.0" y="766.0" text-anchor="middle" class="node-type">MODE B</text>
+  <text x="965.0" y="791.0" text-anchor="middle" class="node-title">live_visual 模式</text>
+  <text x="965.0" y="813.0" text-anchor="middle" class="node-sub">逐区域实时识别 -&gt; /moduan/sg</text>
+  <rect x="382.0" y="892.0" width="414.0" height="44.0" rx="14.0" fill="#ffffff" stroke="#dce5e3" stroke-width="1.8"/>
+  <text x="589.0" y="910.0" text-anchor="middle" class="node-type">FEEDBACK</text>
+  <text x="589.0" y="920.0" text-anchor="middle" class="node-title">markers / TF / area_progress / 调试图像 / system_log</text>
+  <rect x="306.0" y="136.0" width="56" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="334.0" y="150.0" text-anchor="middle" class="arrow-label">/web/*</text>
+  <rect x="299.5" y="188.0" width="77" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="338.0" y="202.0" text-anchor="middle" class="arrow-label">plan_path</text>
+  <rect x="689.0" y="266.5" width="84" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="731.0" y="280.5" text-anchor="middle" class="arrow-label">write path</text>
+  <rect x="316.0" y="330.0" width="84" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="358.0" y="344.0" text-anchor="middle" class="arrow-label">start scan</text>
+  <rect x="678.5" y="430.0" width="175" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="766.0" y="444.0" text-anchor="middle" class="arrow-label">ProcessImage(scan_only)</text>
+  <rect x="488.0" y="479.0" width="140" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="558.0" y="493.0" text-anchor="middle" class="arrow-label">merge world points</text>
+  <rect x="275.5" y="570.0" width="133" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="342.0" y="584.0" text-anchor="middle" class="arrow-label">all scan finished</text>
+  <rect x="403.5" y="609.5" width="105" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="456.0" y="623.5" text-anchor="middle" class="arrow-label">global points</text>
+  <rect x="739.0" y="610.0" width="84" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="781.0" y="624.0" text-anchor="middle" class="arrow-label">bind route</text>
+  <rect x="341.0" y="680.0" width="84" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="383.0" y="694.0" text-anchor="middle" class="arrow-label">start work</text>
+  <rect x="341.5" y="772.0" width="175" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="429.0" y="786.0" text-anchor="middle" class="arrow-label">mode = slam_precomputed</text>
+  <rect x="541.0" y="704.0" width="140" height="20" rx="6" fill="#ffffff" opacity="0.96"/>
+  <text x="611.0" y="718.0" text-anchor="middle" class="arrow-label">mode = live_visual</text>
+  <rect x="1106.0" y="84.0" width="142" height="112" rx="10" fill="#ffffff" opacity="0.88"/>
+  <line x1="1116.0" y1="98.0" x2="1146.0" y2="98.0" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <text x="1156.0" y="102.0" class="legend">控制与模式切换</text>
+  <line x1="1116.0" y1="120.0" x2="1146.0" y2="120.0" stroke="#0891b2" stroke-width="2.0" marker-end="url(#arrowC)"/>
+  <text x="1156.0" y="124.0" class="legend">视觉处理与识别请求</text>
+  <line x1="1116.0" y1="142.0" x2="1146.0" y2="142.0" stroke="#0f766e" stroke-width="2.0" marker-end="url(#arrowB)"/>
+  <text x="1156.0" y="146.0" class="legend">结果落盘</text>
+  <line x1="1116.0" y1="164.0" x2="1146.0" y2="164.0" stroke="#10a37f" stroke-width="2.0" marker-end="url(#arrowA)"/>
+  <text x="1156.0" y="168.0" class="legend">状态、日志、图像回显</text>
+</svg>

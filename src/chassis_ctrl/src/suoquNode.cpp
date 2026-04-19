@@ -141,7 +141,7 @@ constexpr uint8_t kProcessImageModeScanOnly = 3;
 constexpr float kTravelMaxXMm = 320.0f;
 constexpr float kTravelMaxYMm = 320.0f;
 constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
-constexpr float kPseudoSlamClosePointClusterDistanceMm = 100.0f;
+constexpr float kPseudoSlamClosePointClusterXYToleranceMm = 100.0f;
 constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;
 constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;
 constexpr float kPseudoSlamOutlierColumnAxisToleranceMm = 10.0f;
@@ -1731,21 +1731,15 @@ std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_close_xy_point_clu
         return {};
     }
 
-    const double min_distance_sq =
-        static_cast<double>(kPseudoSlamClosePointClusterDistanceMm) *
-        static_cast<double>(kPseudoSlamClosePointClusterDistanceMm);
     std::unordered_set<size_t> rejected_indexes;
     for (size_t candidate_index = 0; candidate_index < input_points.size(); ++candidate_index) {
         const auto& candidate_point = input_points[candidate_index];
         for (size_t other_index = candidate_index + 1; other_index < input_points.size(); ++other_index) {
             const auto& other_point = input_points[other_index];
-            const double dx =
-                static_cast<double>(candidate_point.World_coord[0]) -
-                static_cast<double>(other_point.World_coord[0]);
-            const double dy =
-                static_cast<double>(candidate_point.World_coord[1]) -
-                static_cast<double>(other_point.World_coord[1]);
-            if (dx * dx + dy * dy < min_distance_sq) {
+            if (std::fabs(candidate_point.World_coord[0] - other_point.World_coord[0]) <
+                    kPseudoSlamClosePointClusterXYToleranceMm &&
+                std::fabs(candidate_point.World_coord[1] - other_point.World_coord[1]) <
+                    kPseudoSlamClosePointClusterXYToleranceMm) {
                 rejected_indexes.insert(candidate_index);
                 rejected_indexes.insert(other_index);
             }

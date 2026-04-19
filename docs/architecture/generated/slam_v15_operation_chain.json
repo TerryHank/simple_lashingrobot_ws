@@ -1,0 +1,560 @@
+{
+  "template_type": "architecture",
+  "style": 7,
+  "width": 1280,
+  "height": 980,
+  "title": "simple_lashingrobot_ws 操作链总图",
+  "subtitle": "从前端下发参数，到扫描建图、全局执行、末端绑扎和状态回显",
+  "containers": [
+    {
+      "x": 40,
+      "y": 116,
+      "width": 1200,
+      "height": 96,
+      "label": "",
+      "side_label": "1. 前端输入",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 236,
+      "width": 1200,
+      "height": 118,
+      "label": "",
+      "side_label": "2. 规划作业面",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 378,
+      "width": 1200,
+      "height": 168,
+      "label": "",
+      "side_label": "3. pseudo_slam 扫描建图",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 570,
+      "width": 1200,
+      "height": 126,
+      "label": "",
+      "side_label": "4. 扫描完成后清洗与落盘",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 720,
+      "width": 1200,
+      "height": 138,
+      "label": "",
+      "side_label": "5. 全局执行模式选择",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 882,
+      "width": 1200,
+      "height": 66,
+      "label": "",
+      "side_label": "6. 回显与运维",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "frontend",
+      "kind": "rect",
+      "x": 92,
+      "y": 140,
+      "width": 184,
+      "height": 52,
+      "label": "Web Frontend",
+      "type_label": "ENTRY",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "bridge",
+      "kind": "double_rect",
+      "x": 392,
+      "y": 134,
+      "width": 210,
+      "height": 64,
+      "label": "topicTransNode",
+      "type_label": "BRIDGE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "plan",
+      "kind": "rect",
+      "x": 100,
+      "y": 266,
+      "width": 216,
+      "height": 58,
+      "label": "/cabin/plan_path",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "planner",
+      "kind": "double_rect",
+      "x": 412,
+      "y": 258,
+      "width": 236,
+      "height": 74,
+      "label": "suoquNode 规划路径",
+      "sublabel": "按原点 + 作业区 XY 生成离散点",
+      "type_label": "PLANNER",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "pathdoc",
+      "kind": "document",
+      "x": 814,
+      "y": 262,
+      "width": 188,
+      "height": 72,
+      "label": "path_points.json",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "scanservice",
+      "kind": "rect",
+      "x": 82,
+      "y": 420,
+      "width": 276,
+      "height": 58,
+      "label": "/cabin/start_pseudo_slam_scan_with_options",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "scanloop",
+      "kind": "double_rect",
+      "x": 434,
+      "y": 404,
+      "width": 248,
+      "height": 82,
+      "label": "suoquNode 扫描循环",
+      "sublabel": "逐区域移动索驱并请求 pointAI scan_only",
+      "type_label": "SCAN LOOP",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "pointai",
+      "kind": "rect",
+      "x": 850,
+      "y": 414,
+      "width": 212,
+      "height": 58,
+      "label": "pointAI scan_only",
+      "type_label": "VISION",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "dedupe10",
+      "kind": "rect",
+      "x": 430,
+      "y": 500,
+      "width": 256,
+      "height": 58,
+      "label": "扫描时历史去重",
+      "sublabel": "10 mm 圆形欧式距离",
+      "type_label": "FILTER",
+      "fill": "#ffffff",
+      "stroke": "#10a37f",
+      "flat": true
+    },
+    {
+      "id": "clean100",
+      "kind": "double_rect",
+      "x": 110,
+      "y": 602,
+      "width": 286,
+      "height": 74,
+      "label": "全局簇型清洗",
+      "sublabel": "XY ±100 mm 方框阈值",
+      "type_label": "CLEANUP",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "slampoints",
+      "kind": "document",
+      "x": 516,
+      "y": 604,
+      "width": 202,
+      "height": 72,
+      "label": "pseudo_slam_points.json",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "bindpath",
+      "kind": "document",
+      "x": 842,
+      "y": 604,
+      "width": 228,
+      "height": 72,
+      "label": "pseudo_slam_bind_path.json",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "workservice",
+      "kind": "rect",
+      "x": 80,
+      "y": 758,
+      "width": 292,
+      "height": 58,
+      "label": "/cabin/start_work_with_options",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "precomputed",
+      "kind": "rect",
+      "x": 486,
+      "y": 748,
+      "width": 246,
+      "height": 74,
+      "label": "slam_precomputed 模式",
+      "sublabel": "读扫描产物 -> /moduan/sg_precomputed(_fast)",
+      "type_label": "MODE A",
+      "fill": "#ffffff",
+      "stroke": "#10a37f",
+      "flat": true
+    },
+    {
+      "id": "livevisual",
+      "kind": "rect",
+      "x": 850,
+      "y": 748,
+      "width": 230,
+      "height": 74,
+      "label": "live_visual 模式",
+      "sublabel": "逐区域实时识别 -> /moduan/sg",
+      "type_label": "MODE B",
+      "fill": "#ffffff",
+      "stroke": "#10a37f",
+      "flat": true
+    },
+    {
+      "id": "feedback",
+      "kind": "rect",
+      "x": 382,
+      "y": 892,
+      "width": 414,
+      "height": 44,
+      "label": "markers / TF / area_progress / 调试图像 / system_log",
+      "type_label": "FEEDBACK",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    }
+  ],
+  "arrows": [
+    {
+      "source": "frontend",
+      "target": "bridge",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control",
+      "label": "/web/*"
+    },
+    {
+      "source": "bridge",
+      "target": "plan",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "plan_path",
+      "route_points": [
+        [
+          468,
+          218
+        ],
+        [
+          208,
+          218
+        ],
+        [
+          208,
+          266
+        ]
+      ]
+    },
+    {
+      "source": "plan",
+      "target": "planner",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "planner",
+      "target": "pathdoc",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "write path"
+    },
+    {
+      "source": "bridge",
+      "target": "scanservice",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "start scan",
+      "route_points": [
+        [
+          496,
+          360
+        ],
+        [
+          220,
+          360
+        ],
+        [
+          220,
+          420
+        ]
+      ]
+    },
+    {
+      "source": "scanservice",
+      "target": "scanloop",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "scanloop",
+      "target": "pointai",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "read",
+      "label": "ProcessImage(scan_only)"
+    },
+    {
+      "source": "pointai",
+      "target": "dedupe10",
+      "source_port": "left",
+      "target_port": "right",
+      "flow": "read",
+      "route_points": [
+        [
+          850,
+          444
+        ],
+        [
+          930,
+          444
+        ],
+        [
+          930,
+          528
+        ],
+        [
+          686,
+          528
+        ]
+      ]
+    },
+    {
+      "source": "scanloop",
+      "target": "dedupe10",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "merge world points"
+    },
+    {
+      "source": "dedupe10",
+      "target": "clean100",
+      "source_port": "left",
+      "target_port": "right",
+      "flow": "control",
+      "label": "all scan finished",
+      "route_points": [
+        [
+          430,
+          528
+        ],
+        [
+          360,
+          528
+        ],
+        [
+          360,
+          640
+        ],
+        [
+          396,
+          640
+        ]
+      ]
+    },
+    {
+      "source": "clean100",
+      "target": "slampoints",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "global points"
+    },
+    {
+      "source": "clean100",
+      "target": "bindpath",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "bind route",
+      "route_points": [
+        [
+          396,
+          648
+        ],
+        [
+          720,
+          648
+        ],
+        [
+          720,
+          640
+        ],
+        [
+          842,
+          640
+        ]
+      ]
+    },
+    {
+      "source": "bridge",
+      "target": "workservice",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "start work",
+      "route_points": [
+        [
+          540,
+          710
+        ],
+        [
+          226,
+          710
+        ],
+        [
+          226,
+          758
+        ]
+      ]
+    },
+    {
+      "source": "workservice",
+      "target": "precomputed",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control",
+      "label": "mode = slam_precomputed"
+    },
+    {
+      "source": "workservice",
+      "target": "livevisual",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control",
+      "label": "mode = live_visual",
+      "route_points": [
+        [
+          372,
+          786
+        ],
+        [
+          372,
+          734
+        ],
+        [
+          850,
+          734
+        ],
+        [
+          850,
+          786
+        ]
+      ]
+    },
+    {
+      "source": "precomputed",
+      "target": "feedback",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "feedback",
+      "dashed": true
+    },
+    {
+      "source": "livevisual",
+      "target": "feedback",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "feedback",
+      "dashed": true
+    }
+  ],
+  "legend": [
+    {
+      "flow": "control",
+      "label": "控制与模式切换"
+    },
+    {
+      "flow": "read",
+      "label": "视觉处理与识别请求"
+    },
+    {
+      "flow": "write",
+      "label": "结果落盘"
+    },
+    {
+      "flow": "feedback",
+      "label": "状态、日志、图像回显"
+    }
+  ],
+  "legend_position": "bottom-right",
+  "legend_box": true,
+  "legend_box_fill": "#ffffff",
+  "legend_y": 98,
+  "footer": ""
+}
