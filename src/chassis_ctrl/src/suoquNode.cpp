@@ -141,11 +141,18 @@ constexpr uint8_t kProcessImageModeScanOnly = 3;
 constexpr float kTravelMaxXMm = 320.0f;
 constexpr float kTravelMaxYMm = 320.0f;
 constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
+constexpr float kPseudoSlamClosePointClusterDistanceMm = 100.0f;
+constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;
 constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;
 constexpr float kPseudoSlamOutlierColumnAxisToleranceMm = 10.0f;
 constexpr float kPseudoSlamOutlierColumnPointToleranceMm = 10.0f;
+constexpr float kPseudoSlamOutlierLineDistanceToleranceMm = 12.0f;
+constexpr int kPseudoSlamOutlierLineMinPointCount = 3;
+constexpr int kPseudoSlamOutlierSecondaryPlaneMinPointCount = 6;
+constexpr float kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm = 100.0f;
 constexpr float kPseudoSlamCheckerboardAxisThresholdMm = 80.0f;
-constexpr float kLiveVisualMicroAdjustAxisToleranceMm = 5.0f;
+constexpr float kLiveVisualMicroAdjustXYToleranceMm = 30.0f;
+constexpr float kLiveVisualMicroAdjustZToleranceMm = 6.0f;
 constexpr float kCurrentAreaBindTestCabinSpeedMultiplier = 1.5f;
 constexpr float kCurrentAreaBindTestMinCabinSpeedMmPerSec = 450.0f;
 constexpr int kPseudoSlamScanFrameCount = 2;
@@ -546,6 +553,16 @@ std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_planning_outliers(
 std::vector<fast_image_solve::PointCoords> collect_pseudo_slam_planning_z_outliers(
     const std::vector<fast_image_solve::PointCoords>& world_points
 );
+std::unordered_set<int> collect_pseudo_slam_outlier_secondary_plane_global_indices(
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+);
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_points_near_outlier_secondary_plane_members(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::vector<fast_image_solve::PointCoords>& secondary_plane_outlier_points
+);
+std::unordered_set<int> collect_pseudo_slam_outlier_line_global_indices(
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+);
 std::unordered_set<int> collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
     const std::vector<fast_image_solve::PointCoords>& planning_points,
     const std::vector<fast_image_solve::PointCoords>& outlier_points
@@ -565,11 +582,17 @@ std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_non_checkerboard_p
 
 std::vector<fast_image_solve::PointCoords> pseudo_slam_marker_points;
 std::unordered_set<int> pseudo_slam_marker_outlier_global_indices;
+std::unordered_set<int> pseudo_slam_marker_outlier_secondary_plane_global_indices;
+std::unordered_set<int> pseudo_slam_marker_outlier_line_global_indices;
 std::unordered_set<int> pseudo_slam_marker_outlier_column_neighbor_global_indices;
 PseudoSlamMarkerExecutionState pseudo_slam_marker_execution_state;
 Cabin_Point pseudo_slam_marker_path_origin{};
 bool pseudo_slam_marker_path_origin_valid = false;
 std::atomic<float> pseudo_slam_marker_last_outlier_threshold_mm{kPseudoSlamPlanningZOutlierMm};
+std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_threshold_mm{kPseudoSlamPlanningZOutlierMm};
+std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_neighbor_tolerance_mm{
+    kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm
+};
 
 struct ScopedPseudoSlamMarkerExecutionStateClear
 {
@@ -611,6 +634,28 @@ float load_pseudo_slam_planning_z_outlier_threshold_mm()
     float threshold_mm = kPseudoSlamPlanningZOutlierMm;
     ros::param::param("~pseudo_slam_planning_z_outlier_mm", threshold_mm, kPseudoSlamPlanningZOutlierMm);
     return std::max(0.0f, threshold_mm);
+}
+
+float load_pseudo_slam_outlier_secondary_plane_threshold_mm()
+{
+    float threshold_mm = kPseudoSlamPlanningZOutlierMm;
+    ros::param::param(
+        "~pseudo_slam_outlier_secondary_plane_z_threshold_mm",
+        threshold_mm,
+        kPseudoSlamPlanningZOutlierMm
+    );
+    return std::max(0.0f, threshold_mm);
+}
+
+float load_pseudo_slam_outlier_secondary_plane_neighbor_tolerance_mm()
+{
+    float tolerance_mm = kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm;
+    ros::param::param(
+        "~pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm",
+        tolerance_mm,
+        kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm
+    );
+    return std::max(0.0f, tolerance_mm);
 }
 
 GlobalExecutionMode get_global_execution_mode()
@@ -1237,6 +1282,8 @@ void clear_pseudo_slam_markers()
         std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
         pseudo_slam_marker_points.clear();
         pseudo_slam_marker_outlier_global_indices.clear();
+        pseudo_slam_marker_outlier_secondary_plane_global_indices.clear();
+        pseudo_slam_marker_outlier_line_global_indices.clear();
         pseudo_slam_marker_outlier_column_neighbor_global_indices.clear();
         pseudo_slam_marker_execution_state = PseudoSlamMarkerExecutionState{};
     }
@@ -1264,11 +1311,16 @@ void publish_pseudo_slam_markers(const std::vector<fast_image_solve::PointCoords
 
     PseudoSlamMarkerExecutionState marker_execution_state_snapshot;
     std::unordered_set<int> marker_outlier_global_indices_snapshot;
+    std::unordered_set<int> marker_outlier_secondary_plane_global_indices_snapshot;
+    std::unordered_set<int> marker_outlier_line_global_indices_snapshot;
     std::unordered_set<int> marker_outlier_column_neighbor_global_indices_snapshot;
     {
         std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
         pseudo_slam_marker_points = world_points;
         marker_outlier_global_indices_snapshot = pseudo_slam_marker_outlier_global_indices;
+        marker_outlier_secondary_plane_global_indices_snapshot =
+            pseudo_slam_marker_outlier_secondary_plane_global_indices;
+        marker_outlier_line_global_indices_snapshot = pseudo_slam_marker_outlier_line_global_indices;
         marker_outlier_column_neighbor_global_indices_snapshot =
             pseudo_slam_marker_outlier_column_neighbor_global_indices;
         marker_execution_state_snapshot = pseudo_slam_marker_execution_state;
@@ -1298,6 +1350,10 @@ void publish_pseudo_slam_markers(const std::vector<fast_image_solve::PointCoords
             marker_execution_state_snapshot.highlighted_area_global_indices.count(global_idx) > 0;
         const bool is_outlier_column_neighbor_blocked =
             marker_outlier_column_neighbor_global_indices_snapshot.count(global_idx) > 0;
+        const bool is_outlier_secondary_plane_point =
+            marker_outlier_secondary_plane_global_indices_snapshot.count(global_idx) > 0;
+        const bool is_outlier_line_point =
+            marker_outlier_line_global_indices_snapshot.count(global_idx) > 0;
         const bool is_outlier_point =
             marker_outlier_global_indices_snapshot.count(global_idx) > 0;
 
@@ -1317,14 +1373,14 @@ void publish_pseudo_slam_markers(const std::vector<fast_image_solve::PointCoords
             point_color.r = 1.0f;
             point_color.g = 0.92f;
             point_color.b = 0.10f;
-        } else if (is_outlier_column_neighbor_blocked) {
-            point_color.r = 1.0f;
-            point_color.g = 0.55f;
-            point_color.b = 0.15f;
-        } else if (is_outlier_point) {
-            point_color.r = 1.0f;
-            point_color.g = 0.35f;
-            point_color.b = 1.0f;
+        } else if (is_outlier_secondary_plane_point) {
+            point_color.r = 0.55f;
+            point_color.g = 0.85f;
+            point_color.b = 0.30f;
+        } else if (is_outlier_column_neighbor_blocked || is_outlier_line_point || is_outlier_point) {
+            point_color.r = 0.05f;
+            point_color.g = 0.05f;
+            point_color.b = 0.05f;
         } else {
             point_color.r = 0.10f;
             point_color.g = 0.95f;
@@ -1429,9 +1485,13 @@ bool recompute_pseudo_slam_marker_outlier_sets(
     const std::vector<fast_image_solve::PointCoords>& marker_points_snapshot,
     const Cabin_Point& path_origin,
     std::unordered_set<int>& outlier_global_indices,
+    std::unordered_set<int>& outlier_secondary_plane_global_indices,
+    std::unordered_set<int>& outlier_line_global_indices,
     std::unordered_set<int>& outlier_column_neighbor_global_indices)
 {
     outlier_global_indices.clear();
+    outlier_secondary_plane_global_indices.clear();
+    outlier_line_global_indices.clear();
     outlier_column_neighbor_global_indices.clear();
     if (marker_points_snapshot.empty()) {
         return true;
@@ -1441,8 +1501,23 @@ bool recompute_pseudo_slam_marker_outlier_sets(
         build_checkerboard_info_by_global_index(marker_points_snapshot, path_origin);
     const std::vector<fast_image_solve::PointCoords> planning_z_outlier_points =
         collect_pseudo_slam_planning_z_outliers(marker_points_snapshot);
+    outlier_secondary_plane_global_indices =
+        collect_pseudo_slam_outlier_secondary_plane_global_indices(planning_z_outlier_points);
+    std::vector<fast_image_solve::PointCoords> secondary_plane_outlier_points;
+    secondary_plane_outlier_points.reserve(planning_z_outlier_points.size());
+    for (const auto& outlier_point : planning_z_outlier_points) {
+        if (outlier_secondary_plane_global_indices.count(outlier_point.idx) > 0) {
+            secondary_plane_outlier_points.push_back(outlier_point);
+        }
+    }
+    outlier_line_global_indices =
+        collect_pseudo_slam_outlier_line_global_indices(planning_z_outlier_points);
     std::vector<fast_image_solve::PointCoords> planning_world_points =
         filter_pseudo_slam_planning_outliers(marker_points_snapshot);
+    planning_world_points = filter_pseudo_slam_points_near_outlier_secondary_plane_members(
+        planning_world_points,
+        secondary_plane_outlier_points
+    );
     outlier_column_neighbor_global_indices =
         collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
             planning_world_points,
@@ -1496,16 +1571,23 @@ bool refresh_pseudo_slam_marker_outlier_state_from_current_points(bool log_refre
     }
 
     std::unordered_set<int> refreshed_outlier_global_indices;
+    std::unordered_set<int> refreshed_outlier_secondary_plane_global_indices;
+    std::unordered_set<int> refreshed_outlier_line_global_indices;
     std::unordered_set<int> refreshed_outlier_column_neighbor_global_indices;
     recompute_pseudo_slam_marker_outlier_sets(
         marker_points_snapshot,
         path_origin,
         refreshed_outlier_global_indices,
+        refreshed_outlier_secondary_plane_global_indices,
+        refreshed_outlier_line_global_indices,
         refreshed_outlier_column_neighbor_global_indices
     );
     {
         std::lock_guard<std::mutex> marker_lock(pseudo_slam_marker_state_mutex);
         pseudo_slam_marker_outlier_global_indices = refreshed_outlier_global_indices;
+        pseudo_slam_marker_outlier_secondary_plane_global_indices =
+            refreshed_outlier_secondary_plane_global_indices;
+        pseudo_slam_marker_outlier_line_global_indices = refreshed_outlier_line_global_indices;
         pseudo_slam_marker_outlier_column_neighbor_global_indices =
             refreshed_outlier_column_neighbor_global_indices;
     }
@@ -1513,8 +1595,10 @@ bool refresh_pseudo_slam_marker_outlier_state_from_current_points(bool log_refre
     if (log_refresh) {
         printCurrentTime();
         printf(
-            "Cabin_log: pseudo_slam离群阈值热更新后已重算Marker离群状态，当前离群点%d个，列邻域屏蔽点%d个。\n",
+            "Cabin_log: pseudo_slam离群阈值热更新后已重算Marker离群状态，当前离群点%d个，离群二次平面成员点%d个，离群线成员点%d个，列邻域屏蔽点%d个。\n",
             static_cast<int>(refreshed_outlier_global_indices.size()),
+            static_cast<int>(refreshed_outlier_secondary_plane_global_indices.size()),
+            static_cast<int>(refreshed_outlier_line_global_indices.size()),
             static_cast<int>(refreshed_outlier_column_neighbor_global_indices.size())
         );
     }
@@ -1527,15 +1611,34 @@ void maybe_refresh_pseudo_slam_marker_outlier_threshold()
     const float current_threshold_mm = load_pseudo_slam_planning_z_outlier_threshold_mm();
     const float previous_threshold_mm =
         pseudo_slam_marker_last_outlier_threshold_mm.exchange(current_threshold_mm);
-    if (std::fabs(current_threshold_mm - previous_threshold_mm) < 1e-3f) {
+    const float current_secondary_plane_threshold_mm =
+        load_pseudo_slam_outlier_secondary_plane_threshold_mm();
+    const float previous_secondary_plane_threshold_mm =
+        pseudo_slam_marker_last_outlier_secondary_plane_threshold_mm.exchange(
+            current_secondary_plane_threshold_mm
+        );
+    const float current_secondary_plane_neighbor_tolerance_mm =
+        load_pseudo_slam_outlier_secondary_plane_neighbor_tolerance_mm();
+    const float previous_secondary_plane_neighbor_tolerance_mm =
+        pseudo_slam_marker_last_outlier_secondary_plane_neighbor_tolerance_mm.exchange(
+            current_secondary_plane_neighbor_tolerance_mm
+        );
+    if (std::fabs(current_threshold_mm - previous_threshold_mm) < 1e-3f &&
+        std::fabs(current_secondary_plane_threshold_mm - previous_secondary_plane_threshold_mm) < 1e-3f &&
+        std::fabs(current_secondary_plane_neighbor_tolerance_mm -
+                  previous_secondary_plane_neighbor_tolerance_mm) < 1e-3f) {
         return;
     }
 
     printCurrentTime();
     printf(
-        "Cabin_log: pseudo_slam离群阈值热更新：%.2fmm -> %.2fmm，开始刷新RViz离群点显示。\n",
+        "Cabin_log: pseudo_slam离群阈值热更新：主平面%.2fmm -> %.2fmm，离群二次平面%.2fmm -> %.2fmm，二次平面邻域xy±%.2fmm -> ±%.2fmm，开始刷新RViz离群点显示。\n",
         previous_threshold_mm,
-        current_threshold_mm
+        current_threshold_mm,
+        previous_secondary_plane_threshold_mm,
+        current_secondary_plane_threshold_mm,
+        previous_secondary_plane_neighbor_tolerance_mm,
+        current_secondary_plane_neighbor_tolerance_mm
     );
     refresh_pseudo_slam_marker_outlier_state_from_current_points(true);
 }
@@ -1618,6 +1721,79 @@ std::vector<fast_image_solve::PointCoords> dedupe_world_points(
         }
     }
     return deduped_points;
+}
+
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_close_xy_point_clusters(
+    const std::vector<fast_image_solve::PointCoords>& input_points
+)
+{
+    if (input_points.empty()) {
+        return {};
+    }
+
+    const double min_distance_sq =
+        static_cast<double>(kPseudoSlamClosePointClusterDistanceMm) *
+        static_cast<double>(kPseudoSlamClosePointClusterDistanceMm);
+    std::unordered_set<size_t> rejected_indexes;
+    for (size_t candidate_index = 0; candidate_index < input_points.size(); ++candidate_index) {
+        const auto& candidate_point = input_points[candidate_index];
+        for (size_t other_index = candidate_index + 1; other_index < input_points.size(); ++other_index) {
+            const auto& other_point = input_points[other_index];
+            const double dx =
+                static_cast<double>(candidate_point.World_coord[0]) -
+                static_cast<double>(other_point.World_coord[0]);
+            const double dy =
+                static_cast<double>(candidate_point.World_coord[1]) -
+                static_cast<double>(other_point.World_coord[1]);
+            if (dx * dx + dy * dy < min_distance_sq) {
+                rejected_indexes.insert(candidate_index);
+                rejected_indexes.insert(other_index);
+            }
+        }
+    }
+
+    std::vector<fast_image_solve::PointCoords> filtered_points;
+    filtered_points.reserve(input_points.size());
+    for (size_t candidate_index = 0; candidate_index < input_points.size(); ++candidate_index) {
+        if (rejected_indexes.count(candidate_index) == 0) {
+            filtered_points.push_back(input_points[candidate_index]);
+        }
+    }
+    return filtered_points;
+}
+
+std::vector<fast_image_solve::PointCoords> filter_new_scan_points_against_existing_xy_tolerance(
+    const std::vector<fast_image_solve::PointCoords>& candidate_points,
+    const std::vector<fast_image_solve::PointCoords>& existing_points,
+    float tolerance_mm
+)
+{
+    std::vector<fast_image_solve::PointCoords> filtered_points;
+    filtered_points.reserve(candidate_points.size());
+    const double tolerance_sq = static_cast<double>(tolerance_mm) * static_cast<double>(tolerance_mm);
+
+    std::vector<fast_image_solve::PointCoords> accepted_history_points = existing_points;
+    accepted_history_points.reserve(existing_points.size() + candidate_points.size());
+    for (const auto& candidate_point : candidate_points) {
+        bool is_duplicate_scan_point = false;
+        for (const auto& existing_point : accepted_history_points) {
+            const double dx =
+                static_cast<double>(candidate_point.World_coord[0]) -
+                static_cast<double>(existing_point.World_coord[0]);
+            const double dy =
+                static_cast<double>(candidate_point.World_coord[1]) -
+                static_cast<double>(existing_point.World_coord[1]);
+            if (dx * dx + dy * dy <= tolerance_sq) {
+                is_duplicate_scan_point = true;
+                break;
+            }
+        }
+        if (!is_duplicate_scan_point) {
+            filtered_points.push_back(candidate_point);
+            accepted_history_points.push_back(candidate_point);
+        }
+    }
+    return filtered_points;
 }
 
 float median_world_z_mm(const std::vector<fast_image_solve::PointCoords>& world_points)
@@ -1960,6 +2136,193 @@ std::vector<fast_image_solve::PointCoords> collect_pseudo_slam_planning_z_outlie
         }
     }
     return outlier_points;
+}
+
+std::unordered_set<int> collect_pseudo_slam_outlier_secondary_plane_global_indices(
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+)
+{
+    std::unordered_set<int> outlier_secondary_plane_global_indices;
+    if (outlier_points.size() < static_cast<size_t>(kPseudoSlamOutlierSecondaryPlaneMinPointCount)) {
+        return outlier_secondary_plane_global_indices;
+    }
+
+    const PseudoSlamPlaneModel secondary_plane_model = fit_pseudo_slam_plane(outlier_points);
+    const float outlier_threshold_mm = load_pseudo_slam_outlier_secondary_plane_threshold_mm();
+    for (const auto& outlier_point : outlier_points) {
+        if (std::fabs(compute_pseudo_slam_plane_z_residual_mm(outlier_point, secondary_plane_model)) <=
+            outlier_threshold_mm) {
+            outlier_secondary_plane_global_indices.insert(outlier_point.idx);
+        }
+    }
+
+    if (outlier_secondary_plane_global_indices.size() <
+        static_cast<size_t>(kPseudoSlamOutlierSecondaryPlaneMinPointCount)) {
+        outlier_secondary_plane_global_indices.clear();
+        return outlier_secondary_plane_global_indices;
+    }
+
+    printCurrentTime();
+    printf(
+        "Cabin_log: pseudo_slam离群点二次平面拟合：方式=%s，平面 z=%.6fx + %.6fy + %.3f，二次平面成员点%d/%d，阈值=±%.2fmm%s。\n",
+        secondary_plane_model.used_ransac ? "RANSAC" : "最小二乘",
+        secondary_plane_model.a,
+        secondary_plane_model.b,
+        secondary_plane_model.c,
+        static_cast<int>(outlier_secondary_plane_global_indices.size()),
+        static_cast<int>(outlier_points.size()),
+        outlier_threshold_mm,
+        secondary_plane_model.used_horizontal_fallback ? "，当前使用水平面退化拟合" : ""
+    );
+    return outlier_secondary_plane_global_indices;
+}
+
+std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_points_near_outlier_secondary_plane_members(
+    const std::vector<fast_image_solve::PointCoords>& planning_points,
+    const std::vector<fast_image_solve::PointCoords>& secondary_plane_outlier_points
+)
+{
+    if (planning_points.empty() || secondary_plane_outlier_points.empty()) {
+        return planning_points;
+    }
+    const float neighbor_tolerance_mm = load_pseudo_slam_outlier_secondary_plane_neighbor_tolerance_mm();
+
+    std::vector<fast_image_solve::PointCoords> filtered_points;
+    filtered_points.reserve(planning_points.size());
+    int removed_point_count = 0;
+    for (const auto& planning_point : planning_points) {
+        bool should_remove = false;
+        for (const auto& outlier_point : secondary_plane_outlier_points) {
+            if (std::fabs(planning_point.World_coord[0] - outlier_point.World_coord[0]) <=
+                    neighbor_tolerance_mm &&
+                std::fabs(planning_point.World_coord[1] - outlier_point.World_coord[1]) <=
+                    neighbor_tolerance_mm) {
+                should_remove = true;
+                break;
+            }
+        }
+
+        if (should_remove) {
+            removed_point_count++;
+            continue;
+        }
+        filtered_points.push_back(planning_point);
+    }
+
+    if (removed_point_count > 0) {
+        printCurrentTime();
+        printf(
+            "Cabin_log: pseudo_slam离群二次平面成员附近xy±%.1fmm内正常点视为不可执行，本次排除%d个点。\n",
+            neighbor_tolerance_mm,
+            removed_point_count
+        );
+    }
+    return filtered_points;
+}
+
+float compute_pseudo_slam_xy_point_to_line_distance_mm(
+    const fast_image_solve::PointCoords& point,
+    const fast_image_solve::PointCoords& line_point_a,
+    const fast_image_solve::PointCoords& line_point_b)
+{
+    const double x0 = point.World_coord[0];
+    const double y0 = point.World_coord[1];
+    const double x1 = line_point_a.World_coord[0];
+    const double y1 = line_point_a.World_coord[1];
+    const double x2 = line_point_b.World_coord[0];
+    const double y2 = line_point_b.World_coord[1];
+    const double dx = x2 - x1;
+    const double dy = y2 - y1;
+    const double denominator = std::sqrt(dx * dx + dy * dy);
+    if (denominator < 1e-6) {
+        return std::numeric_limits<float>::max();
+    }
+    const double numerator = std::fabs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1);
+    return static_cast<float>(numerator / denominator);
+}
+
+std::unordered_set<int> collect_pseudo_slam_outlier_line_global_indices(
+    const std::vector<fast_image_solve::PointCoords>& outlier_points
+)
+{
+    std::unordered_set<int> outlier_line_global_indices;
+    if (outlier_points.size() < static_cast<size_t>(kPseudoSlamOutlierLineMinPointCount)) {
+        return outlier_line_global_indices;
+    }
+
+    std::vector<fast_image_solve::PointCoords> remaining_outlier_points = outlier_points;
+    while (remaining_outlier_points.size() >= static_cast<size_t>(kPseudoSlamOutlierLineMinPointCount)) {
+        int best_inlier_count = -1;
+        double best_residual_sum = std::numeric_limits<double>::max();
+        std::vector<int> best_inlier_positions;
+
+        for (size_t point_a_index = 0; point_a_index < remaining_outlier_points.size(); ++point_a_index) {
+            for (size_t point_b_index = point_a_index + 1; point_b_index < remaining_outlier_points.size(); ++point_b_index) {
+                const float line_length_mm = std::hypot(
+                    remaining_outlier_points[point_a_index].World_coord[0] -
+                        remaining_outlier_points[point_b_index].World_coord[0],
+                    remaining_outlier_points[point_a_index].World_coord[1] -
+                        remaining_outlier_points[point_b_index].World_coord[1]
+                );
+                if (line_length_mm < 1e-3f) {
+                    continue;
+                }
+
+                std::vector<int> candidate_inlier_positions;
+                double residual_sum = 0.0;
+                for (size_t point_index = 0; point_index < remaining_outlier_points.size(); ++point_index) {
+                    const float line_distance_mm = compute_pseudo_slam_xy_point_to_line_distance_mm(
+                        remaining_outlier_points[point_index],
+                        remaining_outlier_points[point_a_index],
+                        remaining_outlier_points[point_b_index]
+                    );
+                    if (line_distance_mm <= kPseudoSlamOutlierLineDistanceToleranceMm) {
+                        candidate_inlier_positions.push_back(static_cast<int>(point_index));
+                        residual_sum += line_distance_mm;
+                    }
+                }
+
+                if (static_cast<int>(candidate_inlier_positions.size()) < kPseudoSlamOutlierLineMinPointCount) {
+                    continue;
+                }
+                if (static_cast<int>(candidate_inlier_positions.size()) > best_inlier_count ||
+                    (static_cast<int>(candidate_inlier_positions.size()) == best_inlier_count &&
+                     residual_sum < best_residual_sum)) {
+                    best_inlier_count = static_cast<int>(candidate_inlier_positions.size());
+                    best_residual_sum = residual_sum;
+                    best_inlier_positions = std::move(candidate_inlier_positions);
+                }
+            }
+        }
+
+        if (best_inlier_count < kPseudoSlamOutlierLineMinPointCount || best_inlier_positions.empty()) {
+            break;
+        }
+
+        std::unordered_set<int> best_inlier_position_set(
+            best_inlier_positions.begin(),
+            best_inlier_positions.end()
+        );
+        std::vector<fast_image_solve::PointCoords> next_remaining_outlier_points;
+        next_remaining_outlier_points.reserve(remaining_outlier_points.size());
+        for (size_t point_index = 0; point_index < remaining_outlier_points.size(); ++point_index) {
+            if (best_inlier_position_set.count(static_cast<int>(point_index)) > 0) {
+                outlier_line_global_indices.insert(remaining_outlier_points[point_index].idx);
+            } else {
+                next_remaining_outlier_points.push_back(remaining_outlier_points[point_index]);
+            }
+        }
+        remaining_outlier_points = std::move(next_remaining_outlier_points);
+    }
+
+    if (!outlier_line_global_indices.empty()) {
+        printCurrentTime();
+        printf(
+            "Cabin_log: pseudo_slam离群线拟合：在离群点中识别出线成员点%d个，使用专色显示。\n",
+            static_cast<int>(outlier_line_global_indices.size())
+        );
+    }
+    return outlier_line_global_indices;
 }
 
 std::vector<fast_image_solve::PointCoords> filter_pseudo_slam_points_near_outlier_columns(
@@ -2411,12 +2774,16 @@ bool load_scan_artifact_json(
 bool load_pseudo_slam_marker_points_from_json(
     std::vector<fast_image_solve::PointCoords>& restored_marker_points,
     std::unordered_set<int>& restored_outlier_global_indices,
+    std::unordered_set<int>& restored_outlier_secondary_plane_global_indices,
+    std::unordered_set<int>& restored_outlier_line_global_indices,
     std::unordered_set<int>& restored_outlier_column_neighbor_global_indices,
     std::string& error_message
 )
 {
     restored_marker_points.clear();
     restored_outlier_global_indices.clear();
+    restored_outlier_secondary_plane_global_indices.clear();
+    restored_outlier_line_global_indices.clear();
     restored_outlier_column_neighbor_global_indices.clear();
     error_message.clear();
 
@@ -2457,6 +2824,12 @@ bool load_pseudo_slam_marker_points_from_json(
             if (point_json.value("is_planning_outlier", false)) {
                 restored_outlier_global_indices.insert(point.idx);
             }
+            if (point_json.value("is_outlier_secondary_plane_member", false)) {
+                restored_outlier_secondary_plane_global_indices.insert(point.idx);
+            }
+            if (point_json.value("is_planning_outlier_line_member", false)) {
+                restored_outlier_line_global_indices.insert(point.idx);
+            }
             if (point_json.value("is_outlier_column_neighbor_blocked", false)) {
                 restored_outlier_column_neighbor_global_indices.insert(point.idx);
             }
@@ -2465,6 +2838,8 @@ bool load_pseudo_slam_marker_points_from_json(
     } catch (const std::exception&) {
         restored_marker_points.clear();
         restored_outlier_global_indices.clear();
+        restored_outlier_secondary_plane_global_indices.clear();
+        restored_outlier_line_global_indices.clear();
         restored_outlier_column_neighbor_global_indices.clear();
         error_message = "pseudo_slam_points.json读取失败";
         return false;
@@ -2507,12 +2882,16 @@ void restore_pseudo_slam_markers_from_json_on_startup()
 {
     std::vector<fast_image_solve::PointCoords> restored_marker_points;
     std::unordered_set<int> restored_outlier_global_indices;
+    std::unordered_set<int> restored_outlier_secondary_plane_global_indices;
+    std::unordered_set<int> restored_outlier_line_global_indices;
     std::unordered_set<int> restored_outlier_column_neighbor_global_indices;
     Cabin_Point restored_path_origin{};
     std::string restore_error;
-    if (!load_pseudo_slam_marker_points_from_json(
+        if (!load_pseudo_slam_marker_points_from_json(
             restored_marker_points,
             restored_outlier_global_indices,
+            restored_outlier_secondary_plane_global_indices,
+            restored_outlier_line_global_indices,
             restored_outlier_column_neighbor_global_indices,
             restore_error
         )) {
@@ -2542,6 +2921,9 @@ void restore_pseudo_slam_markers_from_json_on_startup()
     {
         std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
         pseudo_slam_marker_outlier_global_indices = restored_outlier_global_indices;
+        pseudo_slam_marker_outlier_secondary_plane_global_indices =
+            restored_outlier_secondary_plane_global_indices;
+        pseudo_slam_marker_outlier_line_global_indices = restored_outlier_line_global_indices;
         pseudo_slam_marker_outlier_column_neighbor_global_indices =
             restored_outlier_column_neighbor_global_indices;
     }
@@ -2844,6 +3226,62 @@ struct PseudoSlamCandidatePoint
     fast_image_solve::PointCoords local_point;
     size_t remaining_index;
 };
+
+double compute_bind_group_nearest_path_origin_distance_sq(
+    const PseudoSlamBindGroup& bind_group,
+    const Cabin_Point& path_origin)
+{
+    double best_distance_sq = std::numeric_limits<double>::max();
+    for (const auto& bind_point : bind_group.bind_points_world) {
+        const double dx = static_cast<double>(bind_point.World_coord[0] - path_origin.x);
+        const double dy = static_cast<double>(bind_point.World_coord[1] - path_origin.y);
+        const double distance_sq = dx * dx + dy * dy;
+        if (distance_sq < best_distance_sq) {
+            best_distance_sq = distance_sq;
+        }
+    }
+    return best_distance_sq;
+}
+
+double compute_area_entry_nearest_path_origin_distance_sq(
+    const PseudoSlamGroupedAreaEntry& area_entry,
+    const Cabin_Point& path_origin)
+{
+    double best_distance_sq = std::numeric_limits<double>::max();
+    for (const auto& bind_group : area_entry.bind_groups) {
+        best_distance_sq = std::min(
+            best_distance_sq,
+            compute_bind_group_nearest_path_origin_distance_sq(bind_group, path_origin)
+        );
+    }
+    return best_distance_sq;
+}
+
+void sort_bind_area_entries_by_nearest_path_origin_point(
+    std::vector<PseudoSlamGroupedAreaEntry>& bind_area_entries,
+    const Cabin_Point& path_origin)
+{
+    std::sort(
+        bind_area_entries.begin(),
+        bind_area_entries.end(),
+        [&](const PseudoSlamGroupedAreaEntry& lhs, const PseudoSlamGroupedAreaEntry& rhs) {
+            const double lhs_distance_sq =
+                compute_area_entry_nearest_path_origin_distance_sq(lhs, path_origin);
+            const double rhs_distance_sq =
+                compute_area_entry_nearest_path_origin_distance_sq(rhs, path_origin);
+            if (lhs_distance_sq != rhs_distance_sq) {
+                return lhs_distance_sq < rhs_distance_sq;
+            }
+            if (lhs.cabin_point.x != rhs.cabin_point.x) {
+                return lhs.cabin_point.x < rhs.cabin_point.x;
+            }
+            if (lhs.cabin_point.y != rhs.cabin_point.y) {
+                return lhs.cabin_point.y < rhs.cabin_point.y;
+            }
+            return lhs.area_index < rhs.area_index;
+        }
+    );
+}
 
 double local_origin_distance_sq(const fast_image_solve::PointCoords& point)
 {
@@ -3734,6 +4172,7 @@ bool is_point_already_executed(
 nlohmann::json filter_precomputed_group_points_for_execution(
     const nlohmann::json& group_json,
     const BindExecutionMemory& memory,
+    const std::unordered_set<int>& blocked_global_indices,
     bool only_checkerboard_parity_zero
 )
 {
@@ -3744,6 +4183,11 @@ nlohmann::json filter_precomputed_group_points_for_execution(
 
     std::unordered_set<long long> current_batch_checkerboard_cells;
     for (const auto& point_json : group_json["points"]) {
+        const int global_idx = point_json.value("global_idx", point_json.value("idx", -1));
+        if (global_idx > 0 && blocked_global_indices.count(global_idx) > 0) {
+            continue;
+        }
+
         if (only_checkerboard_parity_zero && point_json.value("checkerboard_parity", 0) != 0) {
             continue;
         }
@@ -3766,6 +4210,35 @@ nlohmann::json filter_precomputed_group_points_for_execution(
     }
 
     return filtered_points;
+}
+
+std::unordered_set<int> collect_blocked_execution_global_indices_from_points_json(
+    const nlohmann::json& points_json
+)
+{
+    std::unordered_set<int> blocked_global_indices;
+    if (!points_json.contains("pseudo_slam_points") || !points_json["pseudo_slam_points"].is_array()) {
+        return blocked_global_indices;
+    }
+
+    for (const auto& point_json : points_json["pseudo_slam_points"]) {
+        const int global_idx = point_json.value("global_idx", point_json.value("idx", -1));
+        if (global_idx <= 0) {
+            continue;
+        }
+
+        const bool is_blocked =
+            point_json.value("is_planning_outlier", false) ||
+            point_json.value("is_planning_outlier_line_member", false) ||
+            point_json.value("is_outlier_secondary_plane_member", false) ||
+            point_json.value("is_outlier_column_neighbor_blocked", false) ||
+            !point_json.value("is_planning_checkerboard_member", false);
+        if (is_blocked) {
+            blocked_global_indices.insert(global_idx);
+        }
+    }
+
+    return blocked_global_indices;
 }
 
 void record_successful_execution_point(
@@ -3838,6 +4311,8 @@ bool write_pseudo_slam_points_json(
     const std::vector<fast_image_solve::PointCoords>& merged_points,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx,
+    const std::unordered_set<int>& outlier_secondary_plane_global_indices,
+    const std::unordered_set<int>& outlier_line_global_indices,
     const std::unordered_set<int>& outlier_column_neighbor_blocked_global_indices,
     const std::string& scan_session_id,
     const std::string& path_signature,
@@ -3867,6 +4342,10 @@ bool write_pseudo_slam_points_json(
                 planning_checkerboard_it->second.is_checkerboard_member :
                 false;
         const bool is_planning_outlier = !is_planning_checkerboard_member;
+        const bool is_planning_outlier_line_member =
+            outlier_line_global_indices.count(point.idx) > 0;
+        const bool is_outlier_secondary_plane_member =
+            outlier_secondary_plane_global_indices.count(point.idx) > 0;
         const bool is_outlier_column_neighbor_blocked =
             outlier_column_neighbor_blocked_global_indices.count(point.idx) > 0;
         points_json["pseudo_slam_points"].push_back(
@@ -3882,6 +4361,8 @@ bool write_pseudo_slam_points_json(
                 {"planning_checkerboard_parity", planning_checkerboard_parity},
                 {"is_planning_checkerboard_member", is_planning_checkerboard_member},
                 {"is_planning_outlier", is_planning_outlier},
+                {"is_planning_outlier_line_member", is_planning_outlier_line_member},
+                {"is_outlier_secondary_plane_member", is_outlier_secondary_plane_member},
                 {"is_outlier_column_neighbor_blocked", is_outlier_column_neighbor_blocked},
                 {"x", point.World_coord[0]},
                 {"y", point.World_coord[1]},
@@ -5066,6 +5547,7 @@ bool run_pseudo_slam_scan(
         while (ros::ok()) {
             const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
             std::vector<fast_image_solve::PointCoords> area_world_points;
+            std::vector<fast_image_solve::PointCoords> scan_history_points = merged_world_points;
             int collected_scan_frame_count = 0;
             while (ros::ok() && collected_scan_frame_count < kPseudoSlamScanFrameCount) {
                 fast_image_solve::ProcessImage scan_srv;
@@ -5088,17 +5570,25 @@ bool run_pseudo_slam_scan(
                 for (const auto& point : scan_srv.response.PointCoordinatesArray) {
                     frame_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
                 }
-                frame_world_points = dedupe_world_points(frame_world_points);
-                area_world_points.insert(area_world_points.end(), frame_world_points.begin(), frame_world_points.end());
+                const int raw_frame_point_count = static_cast<int>(frame_world_points.size());
+                frame_world_points = filter_new_scan_points_against_existing_xy_tolerance(
+                    frame_world_points,
+                    scan_history_points,
+                    kPseudoSlamScanDuplicateXYToleranceMm
+                );
+                std::vector<fast_image_solve::PointCoords> new_area_points = frame_world_points;
+                area_world_points.insert(area_world_points.end(), new_area_points.begin(), new_area_points.end());
+                scan_history_points.insert(scan_history_points.end(), new_area_points.begin(), new_area_points.end());
                 ++collected_scan_frame_count;
 
                 printCurrentTime();
                 printf(
-                    "Cabin_log: pseudo_slam scan_only区域%d第%d/%d帧识别完成，当前帧世界点%d个，两帧累计原始点%d个。\n",
+                    "Cabin_log: pseudo_slam scan_only区域%d第%d/%d帧识别完成，当前帧原始点%d个，本帧新增点%d个，两帧累计新增点%d个。\n",
                     area_index,
                     collected_scan_frame_count,
                     kPseudoSlamScanFrameCount,
-                    static_cast<int>(frame_world_points.size()),
+                    raw_frame_point_count,
+                    static_cast<int>(new_area_points.size()),
                     static_cast<int>(area_world_points.size())
                 );
 
@@ -5107,7 +5597,6 @@ bool run_pseudo_slam_scan(
                 }
             }
 
-            area_world_points = dedupe_world_points(area_world_points);
             if (static_cast<int>(area_world_points.size()) < config.scan_min_point_count) {
                 printCurrentTime();
                 printf(
@@ -5120,9 +5609,7 @@ bool run_pseudo_slam_scan(
                 continue;
             }
 
-            area_world_points = dedupe_world_points(area_world_points);
             merged_world_points.insert(merged_world_points.end(), area_world_points.begin(), area_world_points.end());
-            merged_world_points = dedupe_world_points(merged_world_points);
             assign_global_indices(merged_world_points);
             set_pseudo_slam_tf_points(merged_world_points);
             publish_pseudo_slam_markers(merged_world_points);
@@ -5142,6 +5629,7 @@ bool run_pseudo_slam_scan(
         }
     }
 
+    merged_world_points = filter_pseudo_slam_close_xy_point_clusters(merged_world_points);
     assign_global_indices(merged_world_points);
     set_pseudo_slam_tf_points(merged_world_points);
     publish_pseudo_slam_markers(merged_world_points);
@@ -5149,7 +5637,22 @@ bool run_pseudo_slam_scan(
         build_checkerboard_info_by_global_index(merged_world_points, path_origin);
     const std::vector<fast_image_solve::PointCoords> planning_z_outlier_points =
         collect_pseudo_slam_planning_z_outliers(merged_world_points);
+    const std::unordered_set<int> outlier_secondary_plane_global_indices =
+        collect_pseudo_slam_outlier_secondary_plane_global_indices(planning_z_outlier_points);
+    std::vector<fast_image_solve::PointCoords> secondary_plane_outlier_points;
+    secondary_plane_outlier_points.reserve(planning_z_outlier_points.size());
+    for (const auto& outlier_point : planning_z_outlier_points) {
+        if (outlier_secondary_plane_global_indices.count(outlier_point.idx) > 0) {
+            secondary_plane_outlier_points.push_back(outlier_point);
+        }
+    }
+    const std::unordered_set<int> outlier_line_global_indices =
+        collect_pseudo_slam_outlier_line_global_indices(planning_z_outlier_points);
     std::vector<fast_image_solve::PointCoords> planning_world_points = filter_pseudo_slam_planning_outliers(merged_world_points);
+    planning_world_points = filter_pseudo_slam_points_near_outlier_secondary_plane_members(
+        planning_world_points,
+        secondary_plane_outlier_points
+    );
     const std::unordered_set<int> outlier_column_neighbor_blocked_global_indices =
         collect_pseudo_slam_outlier_column_neighbor_blocked_global_indices(
             planning_world_points,
@@ -5173,6 +5676,9 @@ bool run_pseudo_slam_scan(
     {
         std::lock_guard<std::mutex> lock(pseudo_slam_marker_state_mutex);
         pseudo_slam_marker_outlier_global_indices.clear();
+        pseudo_slam_marker_outlier_secondary_plane_global_indices =
+            outlier_secondary_plane_global_indices;
+        pseudo_slam_marker_outlier_line_global_indices = outlier_line_global_indices;
         pseudo_slam_marker_outlier_column_neighbor_global_indices =
             outlier_column_neighbor_blocked_global_indices;
         for (const auto& world_point : merged_world_points) {
@@ -5216,6 +5722,18 @@ bool run_pseudo_slam_scan(
         );
     }
 
+    sort_bind_area_entries_by_nearest_path_origin_point(bind_area_entries, path_origin);
+    if (!bind_area_entries.empty()) {
+        const double first_distance_sq =
+            compute_area_entry_nearest_path_origin_distance_sq(bind_area_entries.front(), path_origin);
+        printCurrentTime();
+        printf(
+            "Cabin_log: pseudo_slam绑扎路径已按离规划原点最近的实际绑扎点重排，首个执行区域area_index=%d，最近绑点距原点%.1fmm。\n",
+            bind_area_entries.front().area_index,
+            std::sqrt(first_distance_sq)
+        );
+    }
+
     std::string pseudo_slam_points_error;
     std::string pseudo_slam_bind_path_error;
     const std::string scan_session_id = std::to_string(ros::Time::now().toNSec());
@@ -5224,6 +5742,8 @@ bool run_pseudo_slam_scan(
         merged_world_points,
         merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx,
+        outlier_secondary_plane_global_indices,
+        outlier_line_global_indices,
         outlier_column_neighbor_blocked_global_indices,
         scan_session_id,
         path_signature,
@@ -5429,17 +5949,19 @@ nlohmann::json build_live_visual_execution_points_from_planned_area(
             static_cast<double>(live_world_point.World_coord[2]) -
             static_cast<double>(planned_point_it->second.World_coord[2])
         );
-        if (refine_dx_mm > kLiveVisualMicroAdjustAxisToleranceMm ||
-            refine_dy_mm > kLiveVisualMicroAdjustAxisToleranceMm ||
-            refine_dz_mm > kLiveVisualMicroAdjustAxisToleranceMm) {
+        if (refine_dx_mm > kLiveVisualMicroAdjustXYToleranceMm ||
+            refine_dy_mm > kLiveVisualMicroAdjustXYToleranceMm ||
+            refine_dz_mm > kLiveVisualMicroAdjustZToleranceMm) {
             printCurrentTime();
             printf(
-                "Cabin_log: live_visual区域%d点global_idx=%d超出xyz微调范围(dx=%.1fmm,dy=%.1fmm,dz=%.1fmm)，保留扫描参考点。\n",
+                "Cabin_log: live_visual区域%d点global_idx=%d超出xyz微调范围(dx=%.1fmm,dy=%.1fmm,dz=%.1fmm；xy阈值=%.1fmm,z阈值=%.1fmm)，忽略本次视觉修正，保留扫描参考点。\n",
                 area_index,
                 global_idx,
                 refine_dx_mm,
                 refine_dy_mm,
-                refine_dz_mm
+                refine_dz_mm,
+                static_cast<double>(kLiveVisualMicroAdjustXYToleranceMm),
+                static_cast<double>(kLiveVisualMicroAdjustZToleranceMm)
             );
             fallback_idx++;
             continue;
@@ -5631,7 +6153,8 @@ bool run_current_area_bind_from_scan_test(std::string& message)
     if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
-    (void)points_json;
+    const std::unordered_set<int> blocked_global_indices =
+        collect_blocked_execution_global_indices_from_points_json(points_json);
     if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
         message = "pseudo_slam_bind_path.json格式错误";
         return false;
@@ -5732,6 +6255,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
         execution_group_json["points"] = filter_precomputed_group_points_for_execution(
             group_json,
             bind_execution_memory,
+            blocked_global_indices,
             checkerboard_jump_bind_enabled
         );
         const std::vector<fast_image_solve::PointCoords> world_points =
@@ -5878,6 +6402,8 @@ bool run_live_visual_global_work(std::string& message)
     if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
+    const std::unordered_set<int> blocked_global_indices =
+        collect_blocked_execution_global_indices_from_points_json(points_json);
     LiveVisualCheckerboardGrid checkerboard_grid;
     std::string checkerboard_grid_error;
     if (!load_live_visual_checkerboard_grid(points_json, checkerboard_grid, checkerboard_grid_error)) {
@@ -6056,6 +6582,7 @@ bool run_live_visual_global_work(std::string& message)
         execution_group_json["points"] = filter_precomputed_group_points_for_execution(
             execution_group_json,
             bind_execution_memory,
+            blocked_global_indices,
             checkerboard_jump_bind_enabled
         );
 
@@ -6217,7 +6744,8 @@ bool run_bind_from_scan(std::string& message)
     if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message)) {
         return false;
     }
-    (void)points_json;
+    const std::unordered_set<int> blocked_global_indices =
+        collect_blocked_execution_global_indices_from_points_json(points_json);
     if (!bind_path_json.contains("areas") || !bind_path_json["areas"].is_array()) {
         message = "pseudo_slam_bind_path.json格式错误";
         return false;
@@ -6331,6 +6859,7 @@ bool run_bind_from_scan(std::string& message)
             execution_group_json["points"] = filter_precomputed_group_points_for_execution(
                 group_json,
                 bind_execution_memory,
+                blocked_global_indices,
                 checkerboard_jump_bind_enabled
             );
             const std::vector<fast_image_solve::PointCoords> world_points =
@@ -6440,7 +6969,7 @@ bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Respons
     float cabin_speed = 0.0f;
     try {
         load_configured_path(con_path, cabin_height, cabin_speed);
-        res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, true, res.message);
+        res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, false, res.message);
     } catch (const std::exception& ex) {
         res.success = false;
         res.message = ex.what();

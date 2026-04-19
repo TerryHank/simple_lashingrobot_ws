@@ -87,7 +87,7 @@ source devel/setup.bash
 rosservice call /cabin/start_pseudo_slam_scan
 ```
 
-这是兼容老脚本的方式，等价于“开启最终采集门”。
+这是兼容老脚本的方式，默认等价于“关闭最终采集门”，按老版本的快节奏直接扫。
 
 ### 方法 B：直接调带参数的新服务
 
@@ -113,8 +113,9 @@ rostopic pub -1 /web/cabin/start_pseudo_slam_scan std_msgs/Float32 "data: 1.0"
 
 补充：
 
-- `data: 1.0` 表示开启最终采集门
-- `data: 0.0` 表示关闭最终采集门
+- `data: 1.0` 表示关闭最终采集门，按老版本快节奏直接扫
+- `data: 2.0` 表示开启最终采集门
+- `data: 0.0` 也按关闭最终采集门处理
 
 ### 扫描阶段当前行为
 
@@ -211,8 +212,7 @@ rosservice call /cabin/start_work "command: '全局运动请求'"
 如果你要在本次全局作业开始前清空已执行记忆，再用这个新入口：
 
 ```bash
-rosservice call /cabin/start_work_with_options "command: '全局运动请求'
-clear_execution_memory: true"
+rosservice call /cabin/start_work_with_options "{command: '全局运动请求', clear_execution_memory: true}"
 ```
 
 语义：
@@ -479,13 +479,22 @@ rosparam get /suoquNode/pseudo_slam_scan_min_point_count
 
 ```bash
 /suoquNode/pseudo_slam_planning_z_outlier_mm
+/suoquNode/pseudo_slam_outlier_secondary_plane_z_threshold_mm
+/suoquNode/pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm
 ```
 
-它的语义是：
+它们的语义是：
 
 - 扫描点会先拟合出一个工作平面
-- 然后看每个点相对这个平面的 `z` 残差
-- 超出这个阈值的点，就视为离群点
+- `pseudo_slam_planning_z_outlier_mm`
+  - 看每个点相对主平面的 `z` 残差
+  - 超出这个阈值的点，就视为主平面离群点
+- `pseudo_slam_outlier_secondary_plane_z_threshold_mm`
+  - 只作用于“已经被判成离群”的那一批点
+  - 用来判断这些离群点里，哪些点还能构成一个离群二次平面
+- `pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm`
+  - 只作用于“已经判成离群二次平面成员”的那一批点
+  - 抛开 `z` 不看，仅按 `xy` 邻域去排除周围正常点
 
 例如：
 
@@ -493,9 +502,18 @@ rosparam get /suoquNode/pseudo_slam_scan_min_point_count
 rosparam set /suoquNode/pseudo_slam_planning_z_outlier_mm 8
 rosparam set /suoquNode/pseudo_slam_planning_z_outlier_mm 12
 rosparam set /suoquNode/pseudo_slam_planning_z_outlier_mm 3
+rosparam set /suoquNode/pseudo_slam_outlier_secondary_plane_z_threshold_mm 8
+rosparam set /suoquNode/pseudo_slam_outlier_secondary_plane_z_threshold_mm 12
+rosparam set /suoquNode/pseudo_slam_outlier_secondary_plane_z_threshold_mm 3
+rosparam set /suoquNode/pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm 100
+rosparam set /suoquNode/pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm 60
+rosparam set /suoquNode/pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm 150
 ```
 
-当前默认值是 `8mm`。
+当前默认值是：
+- 主平面离群阈值：`8mm`
+- 离群二次平面成员阈值：`8mm`
+- 离群二次平面邻域 `xy` 阈值：`100mm`
 
 热更新行为：
 
@@ -508,13 +526,15 @@ rosparam set /suoquNode/pseudo_slam_planning_z_outlier_mm 3
 
 ```bash
 rosparam get /suoquNode/pseudo_slam_planning_z_outlier_mm
+rosparam get /suoquNode/pseudo_slam_outlier_secondary_plane_z_threshold_mm
+rosparam get /suoquNode/pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm
 ```
 
 如果热更新成功，终端里会出现类似：
 
 ```text
-Cabin_log: pseudo_slam离群阈值热更新：8.00mm -> 12.00mm，开始刷新RViz离群点显示。
-Cabin_log: pseudo_slam离群阈值热更新后已重算Marker离群状态，当前离群点X个，列邻域屏蔽点Y个。
+Cabin_log: pseudo_slam离群阈值热更新：主平面8.00mm -> 12.00mm，离群二次平面8.00mm -> 12.00mm，二次平面邻域xy±100.00mm -> ±60.00mm，开始刷新RViz离群点显示。
+Cabin_log: pseudo_slam离群阈值热更新后已重算Marker离群状态，当前离群点X个，离群二次平面成员点Y个，离群线成员点Z个，列邻域屏蔽点W个。
 ```
 
 注意：
@@ -722,13 +742,13 @@ rostopic pub -1 /web/cabin/set_execution_mode std_msgs/Float32 "data: 1.0"
 稳态扫描：
 
 ```bash
-rosservice call /cabin/start_pseudo_slam_scan
+rosservice call /cabin/start_pseudo_slam_scan_with_options "enable_capture_gate: true"
 ```
 
 快速扫描：
 
 ```bash
-rosservice call /cabin/start_pseudo_slam_scan_with_options "enable_capture_gate: false"
+rosservice call /cabin/start_pseudo_slam_scan
 ```
 
 5. 确认文件已生成
@@ -748,8 +768,7 @@ rosservice call /cabin/start_work "command: '全局运动请求'"
 如果这轮要从头重新判断已绑点，而不是续跑旧账本：
 
 ```bash
-rosservice call /cabin/start_work_with_options "command: '全局运动请求'
-clear_execution_memory: true"
+rosservice call /cabin/start_work_with_options "{command: '全局运动请求', clear_execution_memory: true}"
 ```
 
 ### 当前区域快测

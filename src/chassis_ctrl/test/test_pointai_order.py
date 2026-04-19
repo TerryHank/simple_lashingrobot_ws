@@ -331,6 +331,40 @@ class PointAIOrderTest(unittest.TestCase):
             filter_function.index("filtered_points.push_back(point_json);"),
         )
 
+    def test_execution_filters_blocked_outlier_global_indices_from_points_json(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        filter_function = extract_cpp_block(
+            suoqu_text,
+            "nlohmann::json filter_precomputed_group_points_for_execution(",
+        )
+
+        self.assertIn("const std::unordered_set<int>& blocked_global_indices", filter_function)
+        self.assertIn('const int global_idx = point_json.value("global_idx", point_json.value("idx", -1));', filter_function)
+        self.assertIn("if (global_idx > 0 && blocked_global_indices.count(global_idx) > 0) {", filter_function)
+
+        self.assertIn("collect_blocked_execution_global_indices_from_points_json", suoqu_text)
+        self.assertIn('point_json.value("is_planning_outlier", false)', suoqu_text)
+        self.assertIn('point_json.value("is_planning_outlier_line_member", false)', suoqu_text)
+        self.assertIn('point_json.value("is_outlier_secondary_plane_member", false)', suoqu_text)
+        self.assertIn('point_json.value("is_outlier_column_neighbor_blocked", false)', suoqu_text)
+        self.assertIn('!point_json.value("is_planning_checkerboard_member", false)', suoqu_text)
+
+    def test_execution_entrypoints_use_points_json_outlier_flags_to_block_bind_path_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const std::unordered_set<int> blocked_global_indices =\n        collect_blocked_execution_global_indices_from_points_json(points_json);",
+            suoqu_text,
+        )
+        self.assertIn(
+            "execution_group_json[\"points\"] = filter_precomputed_group_points_for_execution(\n            group_json,\n            bind_execution_memory,\n            blocked_global_indices,",
+            suoqu_text,
+        )
+        self.assertIn(
+            "execution_group_json[\"points\"] = filter_precomputed_group_points_for_execution(\n            execution_group_json,\n            bind_execution_memory,\n            blocked_global_indices,",
+            suoqu_text,
+        )
+
     def test_scan_artifacts_and_execution_memory_persist_path_signature(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         load_memory_text = extract_cpp_block(
@@ -829,17 +863,48 @@ class PointAIOrderTest(unittest.TestCase):
             {8: 1, 4: 2, 9: 3, 7: 4}
         )
 
-    def test_filter_close_points_keeps_origin_nearer_point(self):
+    def test_filter_close_points_default_excludes_all_points_connected_within_one_hundred_mm(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
         points = [
-            (1, [10, 10, [0, 0, 100]], [62.0, -152.0, 0.0]),
-            (2, [20, 20, [0, 0, 100]], [63.0, -197.0, 0.0]),
-            (3, [120, 120, [0, 0, 100]], [180.0, 180.0, 0.0]),
+            (1, [10, 10, [0, 0, 100]], [0.0, 0.0, 0.0]),
+            (2, [20, 20, [0, 0, 100]], [60.0, 0.0, 0.0]),
+            (3, [30, 30, [0, 0, 100]], [120.0, 0.0, 0.0]),
+            (4, [120, 120, [0, 0, 100]], [260.0, 260.0, 0.0]),
         ]
 
-        filtered_points = processor.filter_close_points_by_origin(points, min_distance_mm=100.0)
+        filtered_points = processor.filter_close_points_by_origin(points)
 
-        self.assertEqual([item[0] for item in filtered_points], [1, 3])
+        self.assertEqual([item[0] for item in filtered_points], [4])
+
+    def test_scan_only_keeps_single_frame_close_points_until_global_scan_filter(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        points = [
+            (1, [10, 10, [0, 0, 100]], [0.0, 0.0, 0.0]),
+            (2, [20, 20, [0, 0, 100]], [60.0, 0.0, 0.0]),
+            (3, [30, 30, [0, 0, 100]], [120.0, 0.0, 0.0]),
+            (4, [120, 120, [0, 0, 100]], [260.0, 260.0, 0.0]),
+        ]
+
+        scan_points, scan_removed_count = processor.filter_candidate_centers_for_request_mode(
+            points,
+            pointAI.PROCESS_IMAGE_MODE_SCAN_ONLY,
+        )
+        default_points, default_removed_count = processor.filter_candidate_centers_for_request_mode(
+            points,
+            pointAI.PROCESS_IMAGE_MODE_DEFAULT,
+        )
+
+        self.assertEqual([item[0] for item in scan_points], [1, 2, 3, 4])
+        self.assertEqual(scan_removed_count, 0)
+        self.assertEqual([item[0] for item in default_points], [4])
+        self.assertEqual(default_removed_count, 3)
+
+    def test_close_point_filter_defaults_to_one_hundred_mm_in_visual_scripts(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+
+        self.assertIn("def filter_close_points_by_origin(self, centers, min_distance_mm=100.0):", pointai_text)
+        self.assertIn("def filter_close_points_by_origin(self, centers, min_distance_mm=100.0):", vision_text)
 
     def test_unselected_labels_are_hidden_by_default(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
@@ -883,6 +948,8 @@ class PointAIOrderTest(unittest.TestCase):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
         processor.travel_range_max_x_mm = 320.0
         processor.travel_range_max_y_mm = 360.0
+        processor.matrix_selection_max_x_mm = 500.0
+        processor.matrix_selection_max_y_mm = 500.0
 
         message = processor.build_detection_summary_log(
             request_mode=pointAI.PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT,
@@ -892,30 +959,256 @@ class PointAIOrderTest(unittest.TestCase):
             out_of_range_point_count=24,
             selected_count=0,
             output_count=0,
-            out_of_range_reason_counts={"X小于0": 24, "Y小于0": 24},
+            out_of_range_reason_counts={"超出自适应采集框": 24},
             out_of_range_samples=[
-                "idx=8,pix=(23,434),coord=(-301.0,-67.0,255.0),原因=X小于0+Y小于0",
-                "idx=9,pix=(100,437),coord=(-296.0,-205.0,254.0),原因=X小于0+Y小于0",
+                "idx=8,pix=(23,434),coord=(-301.0,-67.0,255.0),原因=超出自适应采集框",
+                "idx=9,pix=(100,437),coord=(-296.0,-205.0,254.0),原因=超出自适应采集框",
             ],
         )
 
         self.assertIn("pointAI调试:\n", message)
         self.assertIn("  模式: adaptive_height", message)
-        self.assertIn("  可执行范围过滤: 原始候选=24, 去重移除=0, 范围内=0, 范围外=24, 2x2选中=0, 本次输出=0", message)
-        self.assertIn("  范围限制: 0<=x<=320, 0<=y<=360", message)
-        self.assertIn("  范围外原因统计: X小于0=24, Y小于0=24", message)
-        self.assertIn("  样例:\n    - idx=8,pix=(23,434),coord=(-301.0,-67.0,255.0),原因=X小于0+Y小于0", message)
+        self.assertIn("  4点候选范围过滤: 原始候选=24, 去重移除=0, 范围内=0, 范围外=24, 2x2选中=0, 本次输出=0", message)
+        self.assertIn("  范围限制: 白框ROI，并在边缘按全局工作区自适应裁剪", message)
+        self.assertIn("  范围外原因统计: 超出自适应采集框=24", message)
+        self.assertIn("  样例:\n    - idx=8,pix=(23,434),coord=(-301.0,-67.0,255.0),原因=超出自适应采集框", message)
         self.assertIn("  结论: 自适应高度模式当前没有可用于高度平均的范围内点", message)
         self.assertTrue(message.endswith("\n"))
 
-    def test_scan_workspace_expands_path_envelope_by_one_hundred_mm_on_each_side(self):
+    def test_scan_workspace_uses_machine_center_anchor_and_frontend_workspace_geometry(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
 
-        self.assertIn("scan_workspace_padding_mm = 100.0", pointai_text)
-        self.assertIn('"min_x": min(point_x_values) - scan_workspace_padding_mm', pointai_text)
-        self.assertIn('"max_x": max(point_x_values) + float(getattr(self, "travel_range_max_x_mm", 320.0)) + scan_workspace_padding_mm', pointai_text)
-        self.assertIn('"min_y": min(point_y_values) - scan_workspace_padding_mm', pointai_text)
-        self.assertIn('"max_y": max(point_y_values) + float(getattr(self, "travel_range_max_y_mm", 320.0)) + scan_workspace_padding_mm', pointai_text)
+        self.assertIn('marking_x = float(path_json.get("marking_x", point_x_values[0]))', pointai_text)
+        self.assertIn('marking_y = float(path_json.get("marking_y", point_y_values[0]))', pointai_text)
+        self.assertIn('workspace_min_x = marking_x - robot_x_step / 2.0', pointai_text)
+        self.assertIn('workspace_min_y = marking_y - robot_y_step / 2.0', pointai_text)
+        self.assertIn('workspace_max_x = workspace_min_x + zone_x', pointai_text)
+        self.assertIn('workspace_max_y = workspace_min_y + zone_y', pointai_text)
+        self.assertNotIn('workspace_max_x = max(point_x_values) + robot_x_step / 2.0', pointai_text)
+        self.assertNotIn('workspace_max_y = max(point_y_values) + robot_y_step / 2.0', pointai_text)
+        self.assertNotIn("scan_workspace_padding_mm", pointai_text)
+
+    def test_matrix_selection_range_has_independent_x_limit(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn('self.matrix_selection_max_x_mm = float(rospy.get_param("~matrix_selection_max_x_mm", 500.0))', pointai_text)
+        self.assertIn('self.matrix_selection_max_y_mm = float(rospy.get_param("~matrix_selection_max_y_mm", 500.0))', pointai_text)
+        self.assertIn("def is_point_in_matrix_selection_range(self, calibrated_x, calibrated_y):", pointai_text)
+        self.assertIn('0 <= calibrated_x <= getattr(self, "matrix_selection_max_x_mm", 500.0)', pointai_text)
+        self.assertIn('0 <= calibrated_y <= getattr(self, "matrix_selection_max_y_mm", 500.0)', pointai_text)
+
+    def test_non_scan_modes_use_adaptive_roi_clipped_by_scan_workspace_for_matrix_selection(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn("def get_roi_pixel_mask(self):", pointai_text)
+        self.assertIn("def is_point_in_matrix_selection_pixel_mask(self, pixel_x, pixel_y, pixel_mask=None):", pointai_text)
+        self.assertIn(
+            "matrix_selection_pixel_mask = None if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else self.get_travel_range_pixel_mask()",
+            pointai_text,
+        )
+        self.assertIn("point_is_allowed = self.is_point_in_matrix_selection_pixel_mask(", pointai_text)
+
+    def test_scan_workspace_pixel_mask_uses_world_coordinate_channels(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.x_channel = np.array(
+            [
+                [0, 100, 200, 300],
+                [0, 100, 200, 300],
+                [0, 100, 200, 300],
+                [0, 100, 200, 300],
+            ],
+            dtype=np.int32,
+        )
+        processor.y_channel = np.array(
+            [
+                [0, 0, 0, 0],
+                [100, 100, 100, 100],
+                [200, 200, 200, 200],
+                [300, 300, 300, 300],
+            ],
+            dtype=np.int32,
+        )
+        processor.depth_v = np.full((4, 4), 100, dtype=np.int32)
+        processor.lookup_transform_matrix_mm = lambda target_frame, source_frame="Scepter_depth_frame": np.eye(4)
+        processor.load_scan_planning_workspace = lambda: {
+            "min_x": 50.0,
+            "max_x": 250.0,
+            "min_y": 50.0,
+            "max_y": 250.0,
+        }
+
+        mask = processor.get_scan_workspace_pixel_mask()
+
+        expected_mask = np.array(
+            [
+                [0, 0, 0, 0],
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [0, 0, 0, 0],
+            ],
+            dtype=np.uint8,
+        )
+        np.testing.assert_array_equal(mask, expected_mask)
+
+    def test_roi_pixel_mask_uses_white_rectangle_bounds(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.x_channel = np.zeros((4, 4), dtype=np.int32)
+        processor.point1 = (1, 1)
+        processor.point2 = (2, 3)
+
+        mask = processor.get_roi_pixel_mask()
+
+        expected_mask = np.array(
+            [
+                [0, 0, 0, 0],
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+            ],
+            dtype=np.uint8,
+        )
+        np.testing.assert_array_equal(mask, expected_mask)
+
+    def test_travel_range_pixel_mask_clips_white_roi_to_scan_workspace(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.x_channel = np.zeros((4, 4), dtype=np.int32)
+        processor.point1 = (0, 0)
+        processor.point2 = (3, 3)
+        processor.get_scan_workspace_pixel_mask = lambda: np.array(
+            [
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [0, 0, 0, 0],
+            ],
+            dtype=np.uint8,
+        )
+
+        mask = processor.get_travel_range_pixel_mask()
+
+        expected_mask = np.array(
+            [
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [0, 1, 1, 0],
+                [0, 0, 0, 0],
+            ],
+            dtype=np.uint8,
+        )
+        np.testing.assert_array_equal(mask, expected_mask)
+
+    def test_draw_scan_workspace_overlay_draws_workspace_contour_on_result_layer(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.get_scan_workspace_pixel_mask = lambda: np.array(
+            [
+                [0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0],
+                [0, 1, 1, 1, 0, 0],
+                [0, 1, 1, 1, 0, 0],
+                [0, 1, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0, 0],
+            ],
+            dtype=np.uint8,
+        )
+        result_image = np.zeros((6, 6), dtype=np.uint8)
+
+        processor.draw_scan_workspace_overlay(result_image)
+
+        self.assertGreater(int(result_image[1, 2]), 0)
+        self.assertGreater(int(result_image[4, 4]), 0)
+
+    def test_result_image_draws_scan_workspace_and_travel_range_overlays(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn("def lookup_transform_matrix_mm(self, target_frame, source_frame=\"Scepter_depth_frame\"):", pointai_text)
+        self.assertIn("def get_frame_space_pixel_mask(self, target_frame, min_x, max_x, min_y, max_y):", pointai_text)
+        self.assertIn("def get_roi_pixel_mask(self):", pointai_text)
+        self.assertIn("def get_scan_workspace_pixel_mask(self):", pointai_text)
+        self.assertIn("def get_travel_range_pixel_mask(self):", pointai_text)
+        self.assertIn("def draw_scan_workspace_overlay(self, result_image):", pointai_text)
+        self.assertIn("def draw_travel_range_overlay(self, result_image):", pointai_text)
+        self.assertIn("cv2.findContours(", pointai_text)
+        self.assertIn("cv2.drawContours(", pointai_text)
+        self.assertIn("self.draw_scan_workspace_overlay(result_image)", pointai_text)
+        self.assertIn("self.draw_travel_range_overlay(result_image)", pointai_text)
+
+    def test_remove_small_foreground_components_drops_isolated_binary_blobs(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        binary_image = np.zeros((8, 8), dtype=np.uint8)
+        binary_image[1:6, 3] = 255
+        binary_image[5, 3:6] = 255
+        binary_image[6, 3] = 255
+        binary_image[2:4, 6:8] = 255
+
+        filtered = processor.remove_small_foreground_components(binary_image, min_area_px=6)
+
+        self.assertEqual(int(filtered[2, 6]), 0)
+        self.assertEqual(int(filtered[3, 7]), 0)
+        self.assertEqual(int(filtered[1, 3]), 255)
+        self.assertEqual(int(filtered[6, 3]), 255)
+
+    def test_binary_pipeline_filters_small_connected_components_before_thinning(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+
+        self.assertIn("self.binary_small_blob_min_area_px = int(rospy.get_param(", pointai_text)
+        self.assertIn("def remove_small_foreground_components(self, binary_image, min_area_px=None):", pointai_text)
+        self.assertIn(
+            "self.Depth_image_Raw_binary = self.remove_small_foreground_components(",
+            pointai_text,
+        )
+        self.assertIn("cv2.connectedComponentsWithStats(", pointai_text)
+        self.assertIn("self.binary_small_blob_min_area_px = int(rospy.get_param(", vision_text)
+        self.assertIn("def remove_small_foreground_components(self, binary_image, min_area_px=None):", vision_text)
+        self.assertIn(
+            "self.Depth_image_Raw_binary = self.remove_small_foreground_components(",
+            vision_text,
+        )
+
+    def test_pseudo_slam_filters_close_xy_clusters_after_full_scan(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+
+        self.assertIn("constexpr float kPseudoSlamClosePointClusterDistanceMm = 100.0f;", suoqu_text)
+        self.assertIn("filter_pseudo_slam_close_xy_point_clusters", suoqu_text)
+        self.assertIn("rejected_indexes.insert(candidate_index);", suoqu_text)
+        self.assertIn("rejected_indexes.insert(other_index);", suoqu_text)
+        self.assertIn("merged_world_points = filter_pseudo_slam_close_xy_point_clusters(merged_world_points);", scan_function)
+        self.assertNotIn("frame_world_points = dedupe_world_points(frame_world_points);", scan_function)
+        self.assertNotIn("area_world_points = dedupe_world_points(area_world_points);", scan_function)
+        self.assertNotIn("merged_world_points = dedupe_world_points(merged_world_points);", scan_function)
+        self.assertNotIn("filter_pseudo_slam_close_xy_points_keep_highest_z", scan_function)
+
+    def test_pseudo_slam_skips_scan_points_within_ten_mm_of_previous_scan_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+
+        self.assertIn("constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;", suoqu_text)
+        self.assertIn("filter_new_scan_points_against_existing_xy_tolerance", suoqu_text)
+        self.assertIn("const double tolerance_sq = static_cast<double>(tolerance_mm) * static_cast<double>(tolerance_mm);", suoqu_text)
+        self.assertIn("const double dx =", suoqu_text)
+        self.assertIn("const double dy =", suoqu_text)
+        self.assertIn("if (dx * dx + dy * dy <= tolerance_sq)", suoqu_text)
+        self.assertIn("frame_world_points = filter_new_scan_points_against_existing_xy_tolerance(", scan_function)
+        self.assertIn("std::vector<fast_image_solve::PointCoords> scan_history_points = merged_world_points;", scan_function)
+        self.assertIn("std::vector<fast_image_solve::PointCoords> new_area_points =", scan_function)
+        self.assertIn("kPseudoSlamScanDuplicateXYToleranceMm", scan_function)
+        self.assertIn("area_world_points.insert(area_world_points.end(), new_area_points.begin(), new_area_points.end());", scan_function)
+
+    def test_scan_duplicate_filter_uses_circular_euclidean_distance(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("dx * dx + dy * dy <= tolerance_sq", suoqu_text)
+        self.assertNotIn(
+            "std::fabs(candidate_point.World_coord[0] - existing_point.World_coord[0]) <= tolerance_mm &&\n                std::fabs(candidate_point.World_coord[1] - existing_point.World_coord[1]) <= tolerance_mm",
+            suoqu_text,
+        )
 
     def test_jump_bind_visual_selection_keeps_only_points_one_and_four_executing(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
@@ -1429,9 +1722,13 @@ class PointAIOrderTest(unittest.TestCase):
     def test_live_visual_skips_points_outside_current_scanned_area_reference(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
-        self.assertIn("constexpr float kLiveVisualMicroAdjustAxisToleranceMm = 5.0f;", suoqu_text)
+        self.assertIn("constexpr float kLiveVisualMicroAdjustXYToleranceMm = 30.0f;", suoqu_text)
+        self.assertIn("constexpr float kLiveVisualMicroAdjustZToleranceMm = 6.0f;", suoqu_text)
         self.assertIn("不在当前区域扫描参考点中", suoqu_text)
         self.assertIn("超出xyz微调范围", suoqu_text)
+        self.assertIn("保留扫描参考点", suoqu_text)
+        self.assertNotIn("conflicting_live_global_indices", suoqu_text)
+        self.assertIn('{"global_idx", checkerboard_it->second.global_idx}', suoqu_text)
         self.assertNotIn("constexpr float kLiveVisualPlannedPointRefineMaxDistanceMm", suoqu_text)
         self.assertNotIn("constexpr float kLiveVisualPlannedPointRefineMaxZDeltaMm = 5.0f;", suoqu_text)
 
@@ -1561,6 +1858,7 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("kPseudoSlamPlanningZOutlierMm", suoqu_text)
         self.assertIn("constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;", suoqu_text)
         self.assertIn('ros::param::param("~pseudo_slam_planning_z_outlier_mm"', suoqu_text)
+        self.assertIn('ros::param::param(\n        "~pseudo_slam_outlier_secondary_plane_z_threshold_mm"', suoqu_text)
         self.assertIn("fit_pseudo_slam_plane", suoqu_text)
         self.assertIn("fit_pseudo_slam_plane_least_squares", suoqu_text)
         self.assertIn("solve_pseudo_slam_plane_from_three_points", suoqu_text)
@@ -1592,6 +1890,8 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("refresh_pseudo_slam_marker_outlier_state_from_current_points", suoqu_text)
         self.assertIn("maybe_refresh_pseudo_slam_marker_outlier_threshold", suoqu_text)
         self.assertIn("pseudo_slam离群阈值热更新", suoqu_text)
+        self.assertIn("pseudo_slam_outlier_secondary_plane_z_threshold_mm", suoqu_text)
+        self.assertIn("pseudo_slam_outlier_secondary_plane_neighbor_xy_tolerance_mm", suoqu_text)
         self.assertIn("publish_pseudo_slam_markers(marker_points_snapshot)", suoqu_text)
 
     def test_pseudo_slam_does_not_block_neighbor_columns_around_parallel_outliers(self):
@@ -1649,6 +1949,28 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("const bool is_outlier_column_neighbor_blocked =", write_points_text)
         self.assertIn("outlier_column_neighbor_blocked_global_indices.count(point.idx) > 0", write_points_text)
 
+    def test_pseudo_slam_points_json_persists_outlier_line_member_flag(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+
+        self.assertIn('"is_planning_outlier_line_member"', write_points_text)
+        self.assertIn("const bool is_planning_outlier_line_member =", write_points_text)
+        self.assertIn("outlier_line_global_indices.count(point.idx) > 0", write_points_text)
+
+    def test_pseudo_slam_points_json_persists_outlier_secondary_plane_flag(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        write_points_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_points_json(",
+        )
+
+        self.assertIn('"is_outlier_secondary_plane_member"', write_points_text)
+        self.assertIn("const bool is_outlier_secondary_plane_member =", write_points_text)
+        self.assertIn("outlier_secondary_plane_global_indices.count(point.idx) > 0", write_points_text)
+
     def test_pseudo_slam_marker_restore_loads_outlier_flags(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         restore_function = extract_cpp_block(
@@ -1671,6 +1993,28 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('point_json.value("is_outlier_column_neighbor_blocked", false)', restore_function)
         self.assertIn("restored_outlier_column_neighbor_global_indices.insert(point.idx);", restore_function)
 
+    def test_pseudo_slam_marker_restore_loads_outlier_line_flags(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        restore_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_pseudo_slam_marker_points_from_json(",
+        )
+
+        self.assertIn("restored_outlier_line_global_indices.clear()", restore_function)
+        self.assertIn('point_json.value("is_planning_outlier_line_member", false)', restore_function)
+        self.assertIn("restored_outlier_line_global_indices.insert(point.idx);", restore_function)
+
+    def test_pseudo_slam_marker_restore_loads_outlier_secondary_plane_flags(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        restore_function = extract_cpp_block(
+            suoqu_text,
+            "bool load_pseudo_slam_marker_points_from_json(",
+        )
+
+        self.assertIn("restored_outlier_secondary_plane_global_indices.clear()", restore_function)
+        self.assertIn('point_json.value("is_outlier_secondary_plane_member", false)', restore_function)
+        self.assertIn("restored_outlier_secondary_plane_global_indices.insert(point.idx);", restore_function)
+
     def test_pseudo_slam_markers_use_distinct_color_for_outliers(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         publish_function = extract_cpp_block(
@@ -1680,9 +2024,9 @@ class PointAIOrderTest(unittest.TestCase):
 
         self.assertIn("const bool is_outlier_point =", publish_function)
         self.assertIn("pseudo_slam_marker_outlier_global_indices", publish_function)
-        self.assertIn("point_color.r = 1.0f;", publish_function)
-        self.assertIn("point_color.g = 0.35f;", publish_function)
-        self.assertIn("point_color.b = 1.0f;", publish_function)
+        self.assertIn("point_color.r = 0.05f;", publish_function)
+        self.assertIn("point_color.g = 0.05f;", publish_function)
+        self.assertIn("point_color.b = 0.05f;", publish_function)
 
     def test_pseudo_slam_markers_use_distinct_color_for_outlier_column_neighbor_blocked_points(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1693,9 +2037,54 @@ class PointAIOrderTest(unittest.TestCase):
 
         self.assertIn("const bool is_outlier_column_neighbor_blocked =", publish_function)
         self.assertIn("pseudo_slam_marker_outlier_column_neighbor_global_indices", publish_function)
-        self.assertIn("point_color.r = 1.0f;", publish_function)
-        self.assertIn("point_color.g = 0.55f;", publish_function)
-        self.assertIn("point_color.b = 0.15f;", publish_function)
+        self.assertIn("is_outlier_column_neighbor_blocked || is_outlier_line_point || is_outlier_point", publish_function)
+        self.assertIn("point_color.r = 0.05f;", publish_function)
+
+    def test_pseudo_slam_markers_use_distinct_color_for_outlier_line_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        publish_function = extract_cpp_block(
+            suoqu_text,
+            "void publish_pseudo_slam_markers(",
+        )
+
+        self.assertIn("const bool is_outlier_line_point =", publish_function)
+        self.assertIn("pseudo_slam_marker_outlier_line_global_indices", publish_function)
+        self.assertIn("is_outlier_column_neighbor_blocked || is_outlier_line_point || is_outlier_point", publish_function)
+        self.assertIn("point_color.r = 0.05f;", publish_function)
+
+    def test_pseudo_slam_markers_use_distinct_color_for_outlier_secondary_plane_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        publish_function = extract_cpp_block(
+            suoqu_text,
+            "void publish_pseudo_slam_markers(",
+        )
+
+        self.assertIn("const bool is_outlier_secondary_plane_point =", publish_function)
+        self.assertIn("pseudo_slam_marker_outlier_secondary_plane_global_indices", publish_function)
+        self.assertIn("point_color.r = 0.55f;", publish_function)
+        self.assertIn("point_color.g = 0.85f;", publish_function)
+        self.assertIn("point_color.b = 0.30f;", publish_function)
+
+    def test_pseudo_slam_collects_outlier_line_members_from_outlier_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr float kPseudoSlamOutlierLineDistanceToleranceMm = 12.0f;", suoqu_text)
+        self.assertIn("constexpr int kPseudoSlamOutlierLineMinPointCount = 3;", suoqu_text)
+        self.assertIn("collect_pseudo_slam_outlier_line_global_indices", suoqu_text)
+        self.assertIn("compute_pseudo_slam_xy_point_to_line_distance_mm", suoqu_text)
+        self.assertIn("pseudo_slam离群线拟合", suoqu_text)
+
+    def test_pseudo_slam_collects_secondary_plane_members_from_outlier_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr int kPseudoSlamOutlierSecondaryPlaneMinPointCount = 6;", suoqu_text)
+        self.assertIn("constexpr float kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm = 100.0f;", suoqu_text)
+        self.assertIn("collect_pseudo_slam_outlier_secondary_plane_global_indices", suoqu_text)
+        self.assertIn("filter_pseudo_slam_points_near_outlier_secondary_plane_members", suoqu_text)
+        self.assertIn("pseudo_slam离群点二次平面拟合", suoqu_text)
+        self.assertIn("load_pseudo_slam_outlier_secondary_plane_threshold_mm", suoqu_text)
+        self.assertIn("load_pseudo_slam_outlier_secondary_plane_neighbor_tolerance_mm", suoqu_text)
+        self.assertIn("pseudo_slam离群二次平面成员附近xy±", suoqu_text)
 
     def test_pseudo_slam_only_executes_points_that_belong_to_checkerboard(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1709,6 +2098,18 @@ class PointAIOrderTest(unittest.TestCase):
             "planning_world_points = filter_pseudo_slam_non_checkerboard_points(",
             suoqu_text,
         )
+
+    def test_pseudo_slam_bind_areas_are_sorted_by_nearest_bind_point_to_path_origin(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("compute_bind_group_nearest_path_origin_distance_sq", suoqu_text)
+        self.assertIn("compute_area_entry_nearest_path_origin_distance_sq", suoqu_text)
+        self.assertIn("sort_bind_area_entries_by_nearest_path_origin_point", suoqu_text)
+        self.assertIn(
+            "sort_bind_area_entries_by_nearest_path_origin_point(bind_area_entries, path_origin);",
+            suoqu_text,
+        )
+        self.assertIn("pseudo_slam绑扎路径已按离规划原点最近的实际绑扎点重排", suoqu_text)
 
     def test_frontend_exposes_pseudo_slam_scan_entry(self):
         debug_button_text = (CHASSIS_CTRL_DIR / "scripts" / "debug_button_node.py").read_text(
@@ -1799,9 +2200,21 @@ class PointAIOrderTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("const bool enable_capture_gate = msg->data >= 1.0f;", topics_transfer_text)
+        self.assertIn("const bool enable_capture_gate = msg->data >= 2.0f;", topics_transfer_text)
         self.assertIn("scan_srv.request.enable_capture_gate = enable_capture_gate;", topics_transfer_text)
         self.assertIn("扫描建图命令，模式=", topics_transfer_text)
+
+    def test_plain_scan_service_defaults_to_fast_scan_without_capture_gate(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        start_scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)",
+        )
+
+        self.assertIn(
+            "res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, false, res.message);",
+            start_scan_function,
+        )
 
     def test_delay_time_returns_timeout_status_and_logs_axis_snapshot(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")

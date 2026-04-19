@@ -99,6 +99,7 @@ class ImageProcessor:
         self.image_infrared_copy = np.zeros((480, 640), dtype=np.uint8)
         self.image_infrared = None
         self.result_display_points = []
+        self.current_result_request_mode = PROCESS_IMAGE_MODE_DEFAULT
         self.last_detection_debug = {}
         self.show_candidate_labels = rospy.get_param("~show_candidate_labels", False)
         self.jump_bind_enabled = False
@@ -110,8 +111,11 @@ class ImageProcessor:
         self.bind_check_max_height_mm = float(rospy.get_param("~bind_check_max_height_mm", 95.0))
         self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 320.0))
         self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))
-        self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 360.0))
+        self.matrix_selection_max_x_mm = float(rospy.get_param("~matrix_selection_max_x_mm", 500.0))
+        self.matrix_selection_max_y_mm = float(rospy.get_param("~matrix_selection_max_y_mm", 500.0))
+        self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 500.0))
         self.display_bind_range_max_y_mm = float(rospy.get_param("~display_bind_range_max_y_mm", 360.0))
+        self.binary_small_blob_min_area_px = int(rospy.get_param("~binary_small_blob_min_area_px", 20))
         self.world_image_seq = 0
         
         rospy.Subscriber('/Scepter/worldCoord/world_coord', Image, self.image_callback)
@@ -403,6 +407,20 @@ class ImageProcessor:
             reasons.append(f"Y超过{max_y:.0f}")
         return reasons
 
+    def get_matrix_selection_reject_reasons(self, calibrated_x, calibrated_y):
+        max_x = getattr(self, "matrix_selection_max_x_mm", 500.0)
+        max_y = getattr(self, "matrix_selection_max_y_mm", 500.0)
+        reasons = []
+        if calibrated_x < 0:
+            reasons.append("X小于0")
+        elif calibrated_x > max_x:
+            reasons.append(f"X超过{max_x:.0f}")
+        if calibrated_y < 0:
+            reasons.append("Y小于0")
+        elif calibrated_y > max_y:
+            reasons.append(f"Y超过{max_y:.0f}")
+        return reasons
+
     def get_display_status_text(self, status, detail=""):
         if status == "selected":
             return "SEL"
@@ -550,7 +568,7 @@ class ImageProcessor:
         # 确保图像是可写的
         self.image_infrared_copy = np.array(self.image_infrared, copy=True)
         
-    def transform_point_to_frame(self, x, y, z, target_frame, source_frame="Scepter_depth_frame"):
+    def lookup_transform_matrix_mm(self, target_frame, source_frame="Scepter_depth_frame"):
         try:
             transform = self.tf_buffer.lookup_transform(
                 target_frame,
@@ -567,6 +585,18 @@ class ImageProcessor:
             T[:3, 3] = [transform.transform.translation.x * 1000,
                         transform.transform.translation.y * 1000,
                         transform.transform.translation.z * 1000]
+            return T
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn_throttle(5, f"坐标转换失败: {str(e)}")
+        except Exception as e:
+            rospy.logerr_throttle(5, f"坐标转换未知错误: {str(e)}")
+        return None
+
+    def transform_point_to_frame(self, x, y, z, target_frame, source_frame="Scepter_depth_frame"):
+        try:
+            T = self.lookup_transform_matrix_mm(target_frame, source_frame=source_frame)
+            if T is None:
+                return None
 
             point_source = np.array([x, y, z, 1])
             point_target = np.dot(T, point_source)
@@ -576,8 +606,6 @@ class ImageProcessor:
                 int(round(point_target[1])),
                 int(round(point_target[2])),
             )
-        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logwarn_throttle(5, f"坐标转换失败: {str(e)}")
         except Exception as e:
             rospy.logerr_throttle(5, f"坐标转换未知错误: {str(e)}")
 
@@ -609,7 +637,6 @@ class ImageProcessor:
             "min_y": 0.0,
             "max_y": 0.0,
         }
-        scan_workspace_padding_mm = 100.0
         try:
             if not os.path.exists(self.path_points_file):
                 return default_bounds
@@ -623,11 +650,32 @@ class ImageProcessor:
 
             point_x_values = [float(point["x"]) for point in path_points]
             point_y_values = [float(point["y"]) for point in path_points]
+            marking_x = float(path_json.get("marking_x", point_x_values[0]))
+            marking_y = float(path_json.get("marking_y", point_y_values[0]))
+            robot_x_step = float(path_json.get("robot_x_step", 0.0))
+            robot_y_step = float(path_json.get("robot_y_step", 0.0))
+            zone_x = float(path_json.get("zone_x", 0.0))
+            zone_y = float(path_json.get("zone_y", 0.0))
+
+            if robot_x_step > 0.0 and robot_y_step > 0.0 and zone_x > 0.0 and zone_y > 0.0:
+                workspace_min_x = marking_x - robot_x_step / 2.0
+                workspace_min_y = marking_y - robot_y_step / 2.0
+                workspace_max_x = workspace_min_x + zone_x
+                workspace_max_y = workspace_min_y + zone_y
+                return {
+                    "min_x": workspace_min_x,
+                    "max_x": workspace_max_x,
+                    "min_y": workspace_min_y,
+                    "max_y": workspace_max_y,
+                }
+
+            half_x_step = robot_x_step / 2.0 if robot_x_step > 0.0 else 0.0
+            half_y_step = robot_y_step / 2.0 if robot_y_step > 0.0 else 0.0
             return {
-                "min_x": min(point_x_values) - scan_workspace_padding_mm,
-                "max_x": max(point_x_values) + float(getattr(self, "travel_range_max_x_mm", 320.0)) + scan_workspace_padding_mm,
-                "min_y": min(point_y_values) - scan_workspace_padding_mm,
-                "max_y": max(point_y_values) + float(getattr(self, "travel_range_max_y_mm", 320.0)) + scan_workspace_padding_mm,
+                "min_x": min(point_x_values) - half_x_step,
+                "max_x": max(point_x_values) + half_x_step,
+                "min_y": min(point_y_values) - half_y_step,
+                "max_y": max(point_y_values) + half_y_step,
             }
         except Exception as exc:
             rospy.logwarn_throttle(5.0, f"pointAI扫描工作区读取失败: {exc}")
@@ -641,6 +689,154 @@ class ImageProcessor:
             workspace["min_x"] <= world_x <= workspace["max_x"]
             and workspace["min_y"] <= world_y <= workspace["max_y"]
         )
+
+    def get_frame_space_pixel_mask(self, target_frame, min_x, max_x, min_y, max_y):
+        if (not hasattr(self, 'x_channel')) or (not hasattr(self, 'y_channel')) or (not hasattr(self, 'depth_v')):
+            return None
+        if self.x_channel is None or self.y_channel is None or self.depth_v is None:
+            return None
+
+        transform_matrix = self.lookup_transform_matrix_mm(target_frame)
+        if transform_matrix is None:
+            return None
+
+        source_x = self.x_channel.astype(np.float32)
+        source_y = self.y_channel.astype(np.float32)
+        source_z = self.depth_v.astype(np.float32)
+        valid_mask = source_z != 0.0
+
+        target_x = (
+            transform_matrix[0, 0] * source_x
+            + transform_matrix[0, 1] * source_y
+            + transform_matrix[0, 2] * source_z
+            + transform_matrix[0, 3]
+        )
+        target_y = (
+            transform_matrix[1, 0] * source_x
+            + transform_matrix[1, 1] * source_y
+            + transform_matrix[1, 2] * source_z
+            + transform_matrix[1, 3]
+        )
+
+        mask = (
+            valid_mask
+            & (target_x >= min_x)
+            & (target_x <= max_x)
+            & (target_y >= min_y)
+            & (target_y <= max_y)
+        )
+        if not np.any(mask):
+            return None
+        return mask.astype(np.uint8)
+
+    def get_roi_pixel_mask(self):
+        image_shape = None
+        for attr_name in ("x_channel", "y_channel", "depth_v", "image_infrared_copy", "image_infrared"):
+            image_data = getattr(self, attr_name, None)
+            if image_data is not None:
+                image_shape = image_data.shape[:2]
+                break
+
+        if image_shape is None:
+            return None
+
+        image_height, image_width = image_shape
+        left = max(0, min(self.point1[0], self.point2[0]))
+        right = min(image_width - 1, max(self.point1[0], self.point2[0]))
+        top = max(0, min(self.point1[1], self.point2[1]))
+        bottom = min(image_height - 1, max(self.point1[1], self.point2[1]))
+        if left > right or top > bottom:
+            return None
+
+        roi_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+        roi_mask[top:bottom + 1, left:right + 1] = 1
+        return roi_mask
+
+    def get_scan_workspace_pixel_mask(self):
+        workspace = self.load_scan_planning_workspace()
+        if workspace["min_x"] == workspace["max_x"] and workspace["min_y"] == workspace["max_y"]:
+            return None
+        return self.get_frame_space_pixel_mask(
+            "cabin_frame",
+            workspace["min_x"],
+            workspace["max_x"],
+            workspace["min_y"],
+            workspace["max_y"],
+        )
+
+    def get_travel_range_pixel_mask(self):
+        roi_mask = self.get_roi_pixel_mask()
+        if roi_mask is None:
+            return None
+
+        workspace_mask = self.get_scan_workspace_pixel_mask()
+        if workspace_mask is None:
+            return roi_mask
+
+        return (roi_mask & workspace_mask.astype(np.uint8)).astype(np.uint8)
+
+    def is_point_in_matrix_selection_pixel_mask(self, pixel_x, pixel_y, pixel_mask=None):
+        matrix_selection_pixel_mask = self.get_travel_range_pixel_mask() if pixel_mask is None else pixel_mask
+        if matrix_selection_pixel_mask is None:
+            return self.is_point_in_roi(pixel_x, pixel_y)
+
+        pixel_x = int(round(pixel_x))
+        pixel_y = int(round(pixel_y))
+        if (
+            pixel_x < 0 or pixel_y < 0
+            or pixel_y >= matrix_selection_pixel_mask.shape[0]
+            or pixel_x >= matrix_selection_pixel_mask.shape[1]
+        ):
+            return False
+        return bool(matrix_selection_pixel_mask[pixel_y, pixel_x])
+
+    def draw_mask_contours(self, result_image, workspace_mask, color, thickness):
+        if workspace_mask is None:
+            return
+
+        contours, _ = cv2.findContours(
+            workspace_mask,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
+        if not contours:
+            return
+
+        significant_contours = [
+            contour for contour in contours
+            if cv2.contourArea(contour) >= 25.0
+        ]
+        if not significant_contours:
+            significant_contours = [max(contours, key=cv2.contourArea)]
+
+        cv2.drawContours(result_image, significant_contours, -1, color, thickness)
+
+    def draw_scan_workspace_overlay(self, result_image):
+        workspace_mask = self.get_scan_workspace_pixel_mask()
+        self.draw_mask_contours(result_image, workspace_mask, 180, 2)
+
+    def draw_travel_range_overlay(self, result_image):
+        workspace_mask = self.get_travel_range_pixel_mask()
+        self.draw_mask_contours(result_image, workspace_mask, 120, 1)
+
+    def remove_small_foreground_components(self, binary_image, min_area_px=None):
+        if binary_image is None:
+            return binary_image
+
+        min_area_px = (
+            getattr(self, "binary_small_blob_min_area_px", 20)
+            if min_area_px is None else int(min_area_px)
+        )
+        if min_area_px <= 1:
+            return binary_image
+
+        component_count, labels, stats, _ = cv2.connectedComponentsWithStats(binary_image, connectivity=8)
+        filtered_binary = np.zeros_like(binary_image)
+        for component_idx in range(1, component_count):
+            component_area = stats[component_idx, cv2.CC_STAT_AREA]
+            if component_area >= min_area_px:
+                filtered_binary[labels == component_idx] = 255
+        return filtered_binary
 
     def mark_sign_points(self, step=4, max_points=8000):
         """
@@ -701,6 +897,8 @@ class ImageProcessor:
 
         result_image = np.array(self.image_infrared_copy, copy=True)
         cv2.rectangle(result_image, self.point1, self.point2, 255, 2)
+        self.draw_scan_workspace_overlay(result_image)
+        self.draw_travel_range_overlay(result_image)
 
         occupied_label_bboxes = []
         sorted_display_points = sorted(
@@ -1089,7 +1287,7 @@ class ImageProcessor:
             "pointAI调试:",
             f"  模式: {self.get_request_mode_name(request_mode)}",
             (
-                ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  可执行范围过滤: ")
+                ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  4点候选范围过滤: ")
                 +
                 f"原始候选={raw_candidate_count}, "
                 f"去重移除={duplicate_removed_count}, "
@@ -1103,10 +1301,7 @@ class ImageProcessor:
                 + (
                     "按path_points.json规划工作区边界"
                     if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
-                    else (
-                        f"0<=x<={getattr(self, 'travel_range_max_x_mm', 320.0):.0f}, "
-                        f"0<=y<={getattr(self, 'travel_range_max_y_mm', 320.0):.0f}"
-                    )
+                    else "白框ROI，并在边缘按全局工作区自适应裁剪"
                 )
             ),
         ]
@@ -1377,9 +1572,15 @@ class ImageProcessor:
             and 0 <= calibrated_y <= getattr(self, "travel_range_max_y_mm", 320.0)
         )
 
+    def is_point_in_matrix_selection_range(self, calibrated_x, calibrated_y):
+        return (
+            0 <= calibrated_x <= getattr(self, "matrix_selection_max_x_mm", 500.0)
+            and 0 <= calibrated_y <= getattr(self, "matrix_selection_max_y_mm", 500.0)
+        )
+
     def is_point_in_display_bind_range(self, calibrated_x, calibrated_y):
         return (
-            0 <= calibrated_x <= getattr(self, "display_bind_range_max_x_mm", 360.0)
+            0 <= calibrated_x <= getattr(self, "display_bind_range_max_x_mm", 500.0)
             and 0 <= calibrated_y <= getattr(self, "display_bind_range_max_y_mm", 360.0)
         )
 
@@ -1588,13 +1789,12 @@ class ImageProcessor:
 
         return display_points
 
-    def filter_close_points_by_origin(self, centers, min_distance_mm=40.0):
+    def filter_close_points_by_origin(self, centers, min_distance_mm=100.0):
         if not centers:
             return []
 
         min_distance_sq = min_distance_mm * min_distance_mm
-        kept_points = []
-        for candidate in sorted(
+        sorted_centers = sorted(
             centers,
             key=lambda item: (
                 item[2][0] * item[2][0] + item[2][1] * item[2][1],
@@ -1602,20 +1802,32 @@ class ImageProcessor:
                 item[2][1],
                 item[0]
             )
-        ):
-            candidate_x, candidate_y = candidate[2][0], candidate[2][1]
-            too_close = False
-            for kept in kept_points:
-                kept_x, kept_y = kept[2][0], kept[2][1]
-                dx = candidate_x - kept_x
-                dy = candidate_y - kept_y
-                if dx * dx + dy * dy < min_distance_sq:
-                    too_close = True
-                    break
-            if not too_close:
-                kept_points.append(candidate)
+        )
 
-        return kept_points
+        rejected_indexes = set()
+        for candidate_index, candidate in enumerate(sorted_centers):
+            candidate_x, candidate_y = candidate[2][0], candidate[2][1]
+            for other_index in range(candidate_index + 1, len(sorted_centers)):
+                other_x, other_y = sorted_centers[other_index][2][0], sorted_centers[other_index][2][1]
+                dx = candidate_x - other_x
+                dy = candidate_y - other_y
+                if dx * dx + dy * dy < min_distance_sq:
+                    rejected_indexes.add(candidate_index)
+                    rejected_indexes.add(other_index)
+
+        return [
+            candidate
+            for candidate_index, candidate in enumerate(sorted_centers)
+            if candidate_index not in rejected_indexes
+        ]
+
+    def filter_candidate_centers_for_request_mode(self, candidate_centers, request_mode):
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return list(candidate_centers), 0
+
+        raw_candidate_count = len(candidate_centers)
+        filtered_candidate_centers = self.filter_close_points_by_origin(candidate_centers)
+        return filtered_candidate_centers, raw_candidate_count - len(filtered_candidate_centers)
 
     def select_nearest_origin_matrix_points(self, centers, max_points=4, row_threshold=40, column_threshold=45):
         if len(centers) < max_points:
@@ -1669,6 +1881,7 @@ class ImageProcessor:
     def pre_img(self, request_mode=PROCESS_IMAGE_MODE_DEFAULT):
         if self.image is None:
             return None  # 返回空列表
+        self.current_result_request_mode = request_mode
         self.result_display_points = []
         self.last_detection_debug = {}
         self.channels = self.cv2.split(self.image)
@@ -1684,10 +1897,11 @@ class ImageProcessor:
         # self.Depth_image_Raw[self.y3:self.y4, self.x3:self.x4] = 0
         self.Depth_image_Raw_raw = cv2.normalize(self.Depth_image_Raw, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         self.max_depth = int(np.max(self.Depth_image_Raw) - 5)
-        self.Depth_image_Range = self.cv2.inRange(self.Depth_image_Raw, 10, self.max_depth )
+        self.Depth_image_Range = self.cv2.inRange(self.Depth_image_Raw, 11, self.max_depth )
         self.Depth_image_Raw_uni = cv2.normalize(self.Depth_image_Range, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         _, self.Depth_image_Raw_binary = cv2.threshold( self.Depth_image_Raw_uni, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        self.Depth_image_Raw_binary = cv2.medianBlur(self.Depth_image_Raw_binary, 3) 
+        self.Depth_image_Raw_binary = cv2.medianBlur(self.Depth_image_Raw_binary, 3)
+        self.Depth_image_Raw_binary = self.remove_small_foreground_components(self.Depth_image_Raw_binary)
         depth_binary_msg = self.bridge.cv2_to_imgmsg(self.Depth_image_Raw_binary, encoding='mono8')
         depth_binary_msg.header.stamp = rospy.Time.now()
         depth_binary_msg.header.frame_id = 'Scepter_depth_frame'
@@ -1808,8 +2022,11 @@ class ImageProcessor:
             candidate_centers.append(center_record)
 
         raw_candidate_count = len(candidate_centers)
-        candidate_centers = self.filter_close_points_by_origin(candidate_centers)
-        duplicate_removed_count = raw_candidate_count - len(candidate_centers)
+        candidate_centers, duplicate_removed_count = self.filter_candidate_centers_for_request_mode(
+            candidate_centers,
+            request_mode,
+        )
+        matrix_selection_pixel_mask = None if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else self.get_travel_range_pixel_mask()
         in_range_centers = []
         out_of_range_count = 0
         out_of_range_reason_counts = {}
@@ -1819,7 +2036,11 @@ class ImageProcessor:
             if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
                 point_is_allowed = self.is_point_in_scan_workspace(calibrated_x, calibrated_y)
             else:
-                point_is_allowed = self.is_point_in_travel_range(calibrated_x, calibrated_y)
+                point_is_allowed = self.is_point_in_matrix_selection_pixel_mask(
+                    center_record[1][0],
+                    center_record[1][1],
+                    matrix_selection_pixel_mask,
+                )
 
             if point_is_allowed:
                 in_range_centers.append(center_record)
@@ -1828,7 +2049,7 @@ class ImageProcessor:
                 if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
                     reject_reasons = ["规划工作区外"]
                 else:
-                    reject_reasons = self.get_travel_range_reject_reasons(calibrated_x, calibrated_y)
+                    reject_reasons = ["超出自适应采集框"]
                 for reason in reject_reasons:
                     out_of_range_reason_counts[reason] = out_of_range_reason_counts.get(reason, 0) + 1
                 if len(out_of_range_samples) < 5:

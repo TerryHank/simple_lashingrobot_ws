@@ -106,8 +106,11 @@ class ImageProcessor:
         self.bind_check_max_height_mm = float(rospy.get_param("~bind_check_max_height_mm", 95.0))
         self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 320.0))
         self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))
-        self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 360.0))
+        self.matrix_selection_max_x_mm = float(rospy.get_param("~matrix_selection_max_x_mm", 500.0))
+        self.matrix_selection_max_y_mm = float(rospy.get_param("~matrix_selection_max_y_mm", 500.0))
+        self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 500.0))
         self.display_bind_range_max_y_mm = float(rospy.get_param("~display_bind_range_max_y_mm", 360.0))
+        self.binary_small_blob_min_area_px = int(rospy.get_param("~binary_small_blob_min_area_px", 20))
         self.world_image_seq = 0
         
         rospy.Subscriber('/Scepter/worldCoord/world_coord', Image, self.image_callback)
@@ -629,6 +632,25 @@ class ImageProcessor:
         for y, x in neg_idx:
             # 白色
             self.image_infrared_copy[y, x] = 255
+
+    def remove_small_foreground_components(self, binary_image, min_area_px=None):
+        if binary_image is None:
+            return binary_image
+
+        min_area_px = (
+            getattr(self, "binary_small_blob_min_area_px", 20)
+            if min_area_px is None else int(min_area_px)
+        )
+        if min_area_px <= 1:
+            return binary_image
+
+        component_count, labels, stats, _ = cv2.connectedComponentsWithStats(binary_image, connectivity=8)
+        filtered_binary = np.zeros_like(binary_image)
+        for component_idx in range(1, component_count):
+            component_area = stats[component_idx, cv2.CC_STAT_AREA]
+            if component_area >= min_area_px:
+                filtered_binary[labels == component_idx] = 255
+        return filtered_binary
 
     def image_callback(self, msg):
         self.image = self.bridge.imgmsg_to_cv2(msg)
@@ -1254,9 +1276,15 @@ class ImageProcessor:
             and 0 <= calibrated_y <= getattr(self, "travel_range_max_y_mm", 320.0)
         )
 
+    def is_point_in_matrix_selection_range(self, calibrated_x, calibrated_y):
+        return (
+            0 <= calibrated_x <= getattr(self, "matrix_selection_max_x_mm", 500.0)
+            and 0 <= calibrated_y <= getattr(self, "matrix_selection_max_y_mm", 500.0)
+        )
+
     def is_point_in_display_bind_range(self, calibrated_x, calibrated_y):
         return (
-            0 <= calibrated_x <= getattr(self, "display_bind_range_max_x_mm", 360.0)
+            0 <= calibrated_x <= getattr(self, "display_bind_range_max_x_mm", 500.0)
             and 0 <= calibrated_y <= getattr(self, "display_bind_range_max_y_mm", 360.0)
         )
 
@@ -1468,8 +1496,7 @@ class ImageProcessor:
             return []
 
         min_distance_sq = min_distance_mm * min_distance_mm
-        kept_points = []
-        for candidate in sorted(
+        sorted_centers = sorted(
             centers,
             key=lambda item: (
                 item[2][0] * item[2][0] + item[2][1] * item[2][1],
@@ -1477,20 +1504,32 @@ class ImageProcessor:
                 item[2][1],
                 item[0]
             )
-        ):
-            candidate_x, candidate_y = candidate[2][0], candidate[2][1]
-            too_close = False
-            for kept in kept_points:
-                kept_x, kept_y = kept[2][0], kept[2][1]
-                dx = candidate_x - kept_x
-                dy = candidate_y - kept_y
-                if dx * dx + dy * dy < min_distance_sq:
-                    too_close = True
-                    break
-            if not too_close:
-                kept_points.append(candidate)
+        )
 
-        return kept_points
+        rejected_indexes = set()
+        for candidate_index, candidate in enumerate(sorted_centers):
+            candidate_x, candidate_y = candidate[2][0], candidate[2][1]
+            for other_index in range(candidate_index + 1, len(sorted_centers)):
+                other_x, other_y = sorted_centers[other_index][2][0], sorted_centers[other_index][2][1]
+                dx = candidate_x - other_x
+                dy = candidate_y - other_y
+                if dx * dx + dy * dy < min_distance_sq:
+                    rejected_indexes.add(candidate_index)
+                    rejected_indexes.add(other_index)
+
+        return [
+            candidate
+            for candidate_index, candidate in enumerate(sorted_centers)
+            if candidate_index not in rejected_indexes
+        ]
+
+    def filter_candidate_centers_for_request_mode(self, candidate_centers, request_mode):
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return list(candidate_centers), 0
+
+        raw_candidate_count = len(candidate_centers)
+        filtered_candidate_centers = self.filter_close_points_by_origin(candidate_centers)
+        return filtered_candidate_centers, raw_candidate_count - len(filtered_candidate_centers)
 
     def select_nearest_origin_matrix_points(self, centers, max_points=4, row_threshold=40, column_threshold=45):
         if len(centers) < max_points:
@@ -1562,7 +1601,8 @@ class ImageProcessor:
         self.Depth_image_Range = self.cv2.inRange(self.Depth_image_Raw, 10, self.max_depth )
         self.Depth_image_Raw_uni = cv2.normalize(self.Depth_image_Range, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         _, self.Depth_image_Raw_binary = cv2.threshold( self.Depth_image_Raw_uni, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        self.Depth_image_Raw_binary = cv2.medianBlur(self.Depth_image_Raw_binary, 5) 
+        self.Depth_image_Raw_binary = cv2.medianBlur(self.Depth_image_Raw_binary, 5)
+        self.Depth_image_Raw_binary = self.remove_small_foreground_components(self.Depth_image_Raw_binary)
         depth_binary_msg = self.bridge.cv2_to_imgmsg(self.Depth_image_Raw_binary, encoding='mono8')
         depth_binary_msg.header.stamp = rospy.Time.now()
         depth_binary_msg.header.frame_id = 'Scepter_depth_frame'
@@ -1677,12 +1717,15 @@ class ImageProcessor:
             center_record = (source_idx, center, [calibrated_x, calibrated_y, calibrated_z])
             candidate_centers.append(center_record)
 
-        candidate_centers = self.filter_close_points_by_origin(candidate_centers)
+        candidate_centers, _ = self.filter_candidate_centers_for_request_mode(
+            candidate_centers,
+            request_mode,
+        )
         in_range_centers = []
         out_of_range_count = 0
         for center_record in candidate_centers:
             calibrated_x, calibrated_y, _ = center_record[2]
-            if self.is_point_in_travel_range(calibrated_x, calibrated_y):
+            if self.is_point_in_matrix_selection_range(calibrated_x, calibrated_y):
                 in_range_centers.append(center_record)
             else:
                 out_of_range_count += 1

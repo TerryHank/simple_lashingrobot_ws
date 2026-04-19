@@ -207,7 +207,7 @@ void setGlobalExecutionModeCallback(const std_msgs::Float32::ConstPtr& msg) {
 
 void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    const bool enable_capture_gate = msg->data >= 1.0f;
+    const bool enable_capture_gate = msg->data >= 2.0f;
     logMessage(
         "/web/cabin/start_pseudo_slam_scan",
         "收到扫描建图命令，模式="
