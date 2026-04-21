@@ -143,6 +143,7 @@ constexpr float kTravelMaxYMm = 320.0f;
 constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
 constexpr float kPseudoSlamClosePointClusterXYToleranceMm = 100.0f;
 constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;
+constexpr float kPseudoSlamGlobalScanHeightOffsetMm = 1500.0f;
 constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;
 constexpr float kPseudoSlamOutlierColumnAxisToleranceMm = 10.0f;
 constexpr float kPseudoSlamOutlierColumnPointToleranceMm = 10.0f;
@@ -176,6 +177,12 @@ enum class GlobalExecutionMode
     kLiveVisual = 1,
 };
 
+enum class PseudoSlamScanStrategy
+{
+    kSingleCenter = 0,
+    kMultiPose = 1,
+};
+
 std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLiveVisual)};
 std::atomic<uint16_t> pending_tcp_status_word{0};
 std::atomic<bool> pending_tcp_status_word_valid{false};
@@ -197,6 +204,17 @@ const char* global_execution_mode_name(GlobalExecutionMode mode)
         case GlobalExecutionMode::kSlamPrecomputed:
         default:
             return "slam_precomputed";
+    }
+}
+
+PseudoSlamScanStrategy normalize_pseudo_slam_scan_strategy(uint8_t raw_strategy)
+{
+    switch (raw_strategy) {
+        case 1:
+            return PseudoSlamScanStrategy::kMultiPose;
+        case 0:
+        default:
+            return PseudoSlamScanStrategy::kSingleCenter;
     }
 }
 
@@ -1788,6 +1806,193 @@ std::vector<fast_image_solve::PointCoords> filter_new_scan_points_against_existi
         }
     }
     return filtered_points;
+}
+
+struct PseudoSlamOverlapCluster
+{
+    std::vector<fast_image_solve::PointCoords> member_points;
+    double sum_x_mm = 0.0;
+    double sum_y_mm = 0.0;
+};
+
+void add_point_to_overlap_cluster(
+    PseudoSlamOverlapCluster& cluster,
+    const fast_image_solve::PointCoords& point)
+{
+    cluster.member_points.push_back(point);
+    cluster.sum_x_mm += static_cast<double>(point.World_coord[0]);
+    cluster.sum_y_mm += static_cast<double>(point.World_coord[1]);
+}
+
+double compute_overlap_cluster_center_x(const PseudoSlamOverlapCluster& cluster)
+{
+    if (cluster.member_points.empty()) {
+        return 0.0;
+    }
+    return cluster.sum_x_mm / static_cast<double>(cluster.member_points.size());
+}
+
+double compute_overlap_cluster_center_y(const PseudoSlamOverlapCluster& cluster)
+{
+    if (cluster.member_points.empty()) {
+        return 0.0;
+    }
+    return cluster.sum_y_mm / static_cast<double>(cluster.member_points.size());
+}
+
+fast_image_solve::PointCoords select_overlap_cluster_representative(
+    const PseudoSlamOverlapCluster& cluster)
+{
+    if (cluster.member_points.empty()) {
+        return fast_image_solve::PointCoords();
+    }
+
+    const double cluster_center_x = compute_overlap_cluster_center_x(cluster);
+    const double cluster_center_y = compute_overlap_cluster_center_y(cluster);
+    size_t best_member_index = 0;
+    double best_member_distance_sq = std::numeric_limits<double>::infinity();
+    for (size_t member_index = 0; member_index < cluster.member_points.size(); ++member_index) {
+        const auto& member_point = cluster.member_points[member_index];
+        const double dx = static_cast<double>(member_point.World_coord[0]) - cluster_center_x;
+        const double dy = static_cast<double>(member_point.World_coord[1]) - cluster_center_y;
+        const double member_distance_sq = dx * dx + dy * dy;
+        if (member_distance_sq < best_member_distance_sq) {
+            best_member_distance_sq = member_distance_sq;
+            best_member_index = member_index;
+        }
+    }
+    return cluster.member_points[best_member_index];
+}
+
+std::vector<fast_image_solve::PointCoords> build_scan_cluster_representatives(
+    const std::vector<PseudoSlamOverlapCluster>& clusters)
+{
+    std::vector<fast_image_solve::PointCoords> representative_points;
+    representative_points.reserve(clusters.size());
+    for (const auto& cluster : clusters) {
+        if (!cluster.member_points.empty()) {
+            representative_points.push_back(select_overlap_cluster_representative(cluster));
+        }
+    }
+    return representative_points;
+}
+
+void merge_frame_points_into_overlap_clusters(
+    const std::vector<fast_image_solve::PointCoords>& frame_world_points,
+    int scan_pose_index,
+    std::vector<PseudoSlamOverlapCluster>& clusters,
+    float tolerance_mm)
+{
+    (void)scan_pose_index;
+    const size_t cluster_count_before_frame = clusters.size();
+    const double tolerance_sq = static_cast<double>(tolerance_mm) * static_cast<double>(tolerance_mm);
+    std::unordered_map<size_t, std::vector<fast_image_solve::PointCoords>> matched_points_by_cluster;
+    std::vector<fast_image_solve::PointCoords> unmatched_points;
+    unmatched_points.reserve(frame_world_points.size());
+
+    for (const auto& candidate_point : frame_world_points) {
+        bool matched_cluster = false;
+        size_t matched_cluster_index = 0;
+        double best_cluster_distance_sq = std::numeric_limits<double>::infinity();
+        for (size_t cluster_index = 0; cluster_index < cluster_count_before_frame; ++cluster_index) {
+            const double cluster_center_x = compute_overlap_cluster_center_x(clusters[cluster_index]);
+            const double cluster_center_y = compute_overlap_cluster_center_y(clusters[cluster_index]);
+            const double dx =
+                static_cast<double>(candidate_point.World_coord[0]) - cluster_center_x;
+            const double dy =
+                static_cast<double>(candidate_point.World_coord[1]) - cluster_center_y;
+            const double cluster_distance_sq = dx * dx + dy * dy;
+            if (cluster_distance_sq <= tolerance_sq &&
+                cluster_distance_sq < best_cluster_distance_sq) {
+                matched_cluster = true;
+                matched_cluster_index = cluster_index;
+                best_cluster_distance_sq = cluster_distance_sq;
+            }
+        }
+        if (matched_cluster) {
+            matched_points_by_cluster[matched_cluster_index].push_back(candidate_point);
+        } else {
+            unmatched_points.push_back(candidate_point);
+        }
+    }
+
+    for (const auto& matched_entry : matched_points_by_cluster) {
+        auto& cluster = clusters[matched_entry.first];
+        for (const auto& matched_point : matched_entry.second) {
+            add_point_to_overlap_cluster(cluster, matched_point);
+        }
+    }
+
+    for (const auto& unmatched_point : unmatched_points) {
+        PseudoSlamOverlapCluster new_cluster;
+        add_point_to_overlap_cluster(new_cluster, unmatched_point);
+        clusters.push_back(std::move(new_cluster));
+    }
+}
+
+bool compute_pseudo_slam_global_scan_pose(
+    const std::vector<Cabin_Point>& con_path,
+    float planning_cabin_height,
+    Cabin_Point& scan_center,
+    float& scan_height,
+    std::string& error_message)
+{
+    scan_center = Cabin_Point{};
+    scan_height = planning_cabin_height + kPseudoSlamGlobalScanHeightOffsetMm;
+    error_message.clear();
+
+    try {
+        std::ifstream infile(path_points_json_file);
+        if (infile.is_open()) {
+            nlohmann::json path_json;
+            infile >> path_json;
+            const float marking_x = path_json.value("marking_x", 0.0f);
+            const float marking_y = path_json.value("marking_y", 0.0f);
+            const float zone_x = path_json.value("zone_x", 0.0f);
+            const float zone_y = path_json.value("zone_y", 0.0f);
+            const float robot_x_step = path_json.value("robot_x_step", 0.0f);
+            const float robot_y_step = path_json.value("robot_y_step", 0.0f);
+            if (robot_x_step > 0.0f && robot_y_step > 0.0f && zone_x > 0.0f && zone_y > 0.0f) {
+                const float workspace_min_x = marking_x - robot_x_step / 2.0f;
+                const float workspace_min_y = marking_y - robot_y_step / 2.0f;
+                scan_center.x = workspace_min_x + zone_x / 2.0f;
+                scan_center.y = workspace_min_y + zone_y / 2.0f;
+                return true;
+            }
+        }
+    } catch (const std::exception& ex) {
+        printCurrentTime();
+        printf(
+            "Cabin_Warn: 读取path_points.json工作区几何失败，将退回到路径边界中心扫描：%s\n",
+            ex.what()
+        );
+    }
+
+    if (con_path.empty()) {
+        error_message = "没有可执行区域，无法计算全局扫描中心";
+        return false;
+    }
+
+    float min_x = con_path.front().x;
+    float max_x = con_path.front().x;
+    float min_y = con_path.front().y;
+    float max_y = con_path.front().y;
+    for (const auto& cabin_point : con_path) {
+        min_x = std::min(min_x, cabin_point.x);
+        max_x = std::max(max_x, cabin_point.x);
+        min_y = std::min(min_y, cabin_point.y);
+        max_y = std::max(max_y, cabin_point.y);
+    }
+    scan_center.x = (min_x + max_x) / 2.0f;
+    scan_center.y = (min_y + max_y) / 2.0f;
+
+    printCurrentTime();
+    printf(
+        "Cabin_Warn: path_points.json缺少完整工作区几何，已退回到路径边界中心(%f,%f)执行单次全局扫描。\n",
+        scan_center.x,
+        scan_center.y
+    );
+    return true;
 }
 
 float median_world_z_mm(const std::vector<fast_image_solve::PointCoords>& world_points)
@@ -5475,6 +5680,7 @@ bool run_pseudo_slam_scan(
     std::vector<Cabin_Point> con_path,
     float cabin_height,
     float cabin_speed,
+    PseudoSlamScanStrategy scan_strategy,
     bool enable_capture_gate,
     std::string& message)
 {
@@ -5494,69 +5700,191 @@ bool run_pseudo_slam_scan(
     }
     const Cabin_Point path_origin = con_path.front();
     set_pseudo_slam_marker_path_origin(path_origin);
+    int total_scan_area_count = 0;
+    switch (scan_strategy) {
+        case PseudoSlamScanStrategy::kSingleCenter: {
+            Cabin_Point global_scan_center{};
+            float global_scan_height = 0.0f;
+            std::string global_scan_pose_error;
+            if (!compute_pseudo_slam_global_scan_pose(
+                    con_path,
+                    cabin_height,
+                    global_scan_center,
+                    global_scan_height,
+                    global_scan_pose_error)) {
+                message = global_scan_pose_error;
+                return false;
+            }
 
-    int area_index = 0;
-    for (const auto& cabin_point : con_path) {
-        area_index++;
-        publish_area_progress(area_index, total_area_count, 0, false, false);
-        TCP_Move[0] = cabin_speed;
-        TCP_Move[1] = cabin_point.x;
-        TCP_Move[2] = cabin_point.y;
-        TCP_Move[3] = cabin_height;
-        printCurrentTime();
-        printf("Cabin_log: pseudo_slam scan_only区域%d移动到(%f,%f,%f)。\n", area_index, TCP_Move[1], TCP_Move[2], TCP_Move[3]);
-        {
-            std::lock_guard<std::mutex> lock2(socket_mutex);
-            moveTCPPosition(0x01, TCP_Move);
-            const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
-            if (send_result < 0) {
-                message = "扫描建图下发索驱移动指令失败";
-                return false;
-            }
-        }
-        if (!delay_time(AXIS_X, cabin_point.x)) {
-            message = "扫描建图因索驱X轴到位超时而中止";
-            return false;
-        }
-        if (!delay_time(AXIS_Y, cabin_point.y)) {
-            message = "扫描建图因索驱Y轴到位超时而中止";
-            return false;
-        }
-        if (!delay_time(AXIS_Z, cabin_height)) {
-            message = "扫描建图因索驱Z轴到位超时而中止";
-            return false;
-        }
-        if (enable_capture_gate) {
-            if (!wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)) {
-                printCurrentTime();
-                printf("Cabin_Warn: pseudo_slam scan_only区域%d等待最终采集门时ROS关闭，结束扫描。\n", area_index);
-                message = "扫描建图在等待最终采集门时被中断";
-                return false;
-            }
-        } else {
+            total_scan_area_count = 1;
+            publish_area_progress(1, total_scan_area_count, 0, false, false);
+            TCP_Move[0] = cabin_speed;
+            TCP_Move[1] = global_scan_center.x;
+            TCP_Move[2] = global_scan_center.y;
+            TCP_Move[3] = global_scan_height;
             printCurrentTime();
-            printf("Cabin_log: pseudo_slam scan_only区域%d已关闭最终采集门，直接请求视觉。\n", area_index);
+            printf(
+                "Cabin_log: pseudo_slam全局中心扫描移动到(%f,%f,%f)，规划起点高度=%.1f，扫描高度偏移=%.1f。\n",
+                TCP_Move[1],
+                TCP_Move[2],
+                TCP_Move[3],
+                cabin_height,
+                kPseudoSlamGlobalScanHeightOffsetMm
+            );
+            {
+                std::lock_guard<std::mutex> lock2(socket_mutex);
+                moveTCPPosition(0x01, TCP_Move);
+                const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+                if (send_result < 0) {
+                    message = "扫描建图下发索驱移动指令失败";
+                    return false;
+                }
+            }
+            if (!delay_time(AXIS_X, global_scan_center.x)) {
+                message = "扫描建图因索驱X轴到位超时而中止";
+                return false;
+            }
+            if (!delay_time(AXIS_Y, global_scan_center.y)) {
+                message = "扫描建图因索驱Y轴到位超时而中止";
+                return false;
+            }
+            if (!delay_time(AXIS_Z, global_scan_height)) {
+                message = "扫描建图因索驱Z轴到位超时而中止";
+                return false;
+            }
+            if (enable_capture_gate) {
+                if (!wait_for_pseudo_slam_capture_gate(1, global_scan_center, global_scan_height)) {
+                    printCurrentTime();
+                    printf("Cabin_Warn: pseudo_slam全局中心扫描等待最终采集门时ROS关闭，结束扫描。\n");
+                    message = "扫描建图在等待最终采集门时被中断";
+                    return false;
+                }
+            } else {
+                printCurrentTime();
+                printf("Cabin_log: pseudo_slam全局中心扫描已关闭最终采集门，直接请求一次视觉。\n");
+            }
+
+            fast_image_solve::ProcessImage scan_srv;
+            scan_srv.request.request_mode = kProcessImageModeScanOnly;
+            if (!AI_client.call(scan_srv) || !scan_srv.response.success) {
+                printCurrentTime();
+                printf(
+                    "Cabin_Warn: pseudo_slam全局中心单帧视觉失败，消息：%s\n",
+                    scan_srv.response.message.c_str()
+                );
+                message = "扫描建图单帧视觉请求失败";
+                return false;
+            }
+
+            std::vector<fast_image_solve::PointCoords> frame_world_points;
+            int point_index = 1;
+            for (const auto& point : scan_srv.response.PointCoordinatesArray) {
+                frame_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
+            }
+            const int raw_frame_point_count = static_cast<int>(frame_world_points.size());
+            const std::vector<fast_image_solve::PointCoords> scan_history_points = merged_world_points;
+            std::vector<fast_image_solve::PointCoords> accepted_scan_points =
+                filter_new_scan_points_against_existing_xy_tolerance(
+                    frame_world_points,
+                    scan_history_points,
+                    kPseudoSlamScanDuplicateXYToleranceMm
+                );
+            merged_world_points.insert(
+                merged_world_points.end(),
+                accepted_scan_points.begin(),
+                accepted_scan_points.end()
+            );
+            if (merged_world_points.empty()) {
+                message = "扫描建图单帧视觉返回0个可用点";
+                return false;
+            }
+
+            assign_global_indices(merged_world_points);
+            set_pseudo_slam_tf_points(merged_world_points);
+            publish_pseudo_slam_markers(merged_world_points);
+
+            printCurrentTime();
+            printf(
+                "Cabin_log: pseudo_slam全局中心单帧识别完成，工作区中心(%f,%f)，扫描高度=%f，当前帧原始点%d个，去重后保留%d个。\n",
+                global_scan_center.x,
+                global_scan_center.y,
+                global_scan_height,
+                raw_frame_point_count,
+                static_cast<int>(accepted_scan_points.size())
+            );
+            break;
         }
 
-        while (ros::ok()) {
-            const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();
-            std::vector<fast_image_solve::PointCoords> area_world_points;
-            std::vector<fast_image_solve::PointCoords> scan_history_points = merged_world_points;
-            int collected_scan_frame_count = 0;
-            while (ros::ok() && collected_scan_frame_count < kPseudoSlamScanFrameCount) {
+        case PseudoSlamScanStrategy::kMultiPose: {
+            total_scan_area_count = static_cast<int>(con_path.size());
+            std::vector<PseudoSlamOverlapCluster> scan_clusters;
+            int area_index = 0;
+            for (const auto& cabin_point : con_path) {
+                ++area_index;
+                const int scan_pose_index = area_index;
+                publish_area_progress(area_index, total_scan_area_count, 0, false, false);
+                TCP_Move[0] = cabin_speed;
+                TCP_Move[1] = cabin_point.x;
+                TCP_Move[2] = cabin_point.y;
+                TCP_Move[3] = cabin_height;
+                printCurrentTime();
+                printf(
+                    "Cabin_log: pseudo_slam多扫描位区域%d移动到(%f,%f,%f)。\n",
+                    area_index,
+                    TCP_Move[1],
+                    TCP_Move[2],
+                    TCP_Move[3]
+                );
+                {
+                    std::lock_guard<std::mutex> lock2(socket_mutex);
+                    moveTCPPosition(0x01, TCP_Move);
+                    const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);
+                    if (send_result < 0) {
+                        message = "扫描建图下发索驱移动指令失败";
+                        return false;
+                    }
+                }
+                if (!delay_time(AXIS_X, cabin_point.x)) {
+                    message = "扫描建图因索驱X轴到位超时而中止";
+                    return false;
+                }
+                if (!delay_time(AXIS_Y, cabin_point.y)) {
+                    message = "扫描建图因索驱Y轴到位超时而中止";
+                    return false;
+                }
+                if (!delay_time(AXIS_Z, cabin_height)) {
+                    message = "扫描建图因索驱Z轴到位超时而中止";
+                    return false;
+                }
+                if (enable_capture_gate) {
+                    if (!wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)) {
+                        printCurrentTime();
+                        printf(
+                            "Cabin_Warn: pseudo_slam多扫描位区域%d等待最终采集门时ROS关闭，结束扫描。\n",
+                            area_index
+                        );
+                        message = "扫描建图在等待最终采集门时被中断";
+                        return false;
+                    }
+                } else {
+                    printCurrentTime();
+                    printf(
+                        "Cabin_log: pseudo_slam多扫描位区域%d已关闭最终采集门，直接请求一次视觉。\n",
+                        area_index
+                    );
+                }
+
                 fast_image_solve::ProcessImage scan_srv;
                 scan_srv.request.request_mode = kProcessImageModeScanOnly;
                 if (!AI_client.call(scan_srv) || !scan_srv.response.success) {
                     printCurrentTime();
                     printf(
-                        "Cabin_Warn: pseudo_slam scan_only区域%d第%d/%d帧视觉失败，继续重试，消息：%s\n",
+                        "Cabin_Warn: pseudo_slam多扫描位区域%d单帧视觉失败，消息：%s\n",
                         area_index,
-                        collected_scan_frame_count + 1,
-                        kPseudoSlamScanFrameCount,
                         scan_srv.response.message.c_str()
                     );
-                    ros::Duration(config.scan_retry_interval_sec).sleep();
-                    continue;
+                    message = "扫描建图单帧视觉请求失败";
+                    return false;
                 }
 
                 std::vector<fast_image_solve::PointCoords> frame_world_points;
@@ -5565,65 +5893,33 @@ bool run_pseudo_slam_scan(
                     frame_world_points.push_back(build_world_point_from_scan_response(point, point_index++));
                 }
                 const int raw_frame_point_count = static_cast<int>(frame_world_points.size());
-                frame_world_points = filter_new_scan_points_against_existing_xy_tolerance(
+                merge_frame_points_into_overlap_clusters(
                     frame_world_points,
-                    scan_history_points,
+                    scan_pose_index,
+                    scan_clusters,
                     kPseudoSlamScanDuplicateXYToleranceMm
                 );
-                std::vector<fast_image_solve::PointCoords> new_area_points = frame_world_points;
-                area_world_points.insert(area_world_points.end(), new_area_points.begin(), new_area_points.end());
-                scan_history_points.insert(scan_history_points.end(), new_area_points.begin(), new_area_points.end());
-                ++collected_scan_frame_count;
+                merged_world_points = build_scan_cluster_representatives(scan_clusters);
+                assign_global_indices(merged_world_points);
+                set_pseudo_slam_tf_points(merged_world_points);
+                publish_pseudo_slam_markers(merged_world_points);
 
                 printCurrentTime();
                 printf(
-                    "Cabin_log: pseudo_slam scan_only区域%d第%d/%d帧识别完成，当前帧原始点%d个，本帧新增点%d个，两帧累计新增点%d个。\n",
+                    "Cabin_log: pseudo_slam多扫描位区域%d识别完成，当前帧原始点%d个，当前累计代表点%d个。\n",
                     area_index,
-                    collected_scan_frame_count,
-                    kPseudoSlamScanFrameCount,
                     raw_frame_point_count,
-                    static_cast<int>(new_area_points.size()),
-                    static_cast<int>(area_world_points.size())
+                    static_cast<int>(merged_world_points.size())
                 );
-
-                if (collected_scan_frame_count < kPseudoSlamScanFrameCount) {
-                    ros::Duration(config.scan_retry_interval_sec).sleep();
-                }
             }
-
-            if (static_cast<int>(area_world_points.size()) < config.scan_min_point_count) {
-                printCurrentTime();
-                printf(
-                    "Cabin_Warn: pseudo_slam scan_only区域%d两帧合并后点数%d<%d，继续轮询视觉。\n",
-                    area_index,
-                    static_cast<int>(area_world_points.size()),
-                    config.scan_min_point_count
-                );
-                ros::Duration(config.scan_retry_interval_sec).sleep();
-                continue;
+            if (merged_world_points.empty()) {
+                message = "多扫描位建图结束，但没有形成任何可用代表点";
+                return false;
             }
-
-            merged_world_points.insert(merged_world_points.end(), area_world_points.begin(), area_world_points.end());
-            assign_global_indices(merged_world_points);
-            set_pseudo_slam_tf_points(merged_world_points);
-            publish_pseudo_slam_markers(merged_world_points);
-
-            printCurrentTime();
-            printf(
-                "Cabin_log: pseudo_slam区域%d识别完成，世界点%d个，当前累计世界点%d个。\n",
-                area_index,
-                static_cast<int>(area_world_points.size()),
-                static_cast<int>(merged_world_points.size())
-            );
             break;
-        }
-        if (!ros::ok()) {
-            message = "扫描建图在视觉轮询阶段被中断";
-            return false;
         }
     }
 
-    merged_world_points = filter_pseudo_slam_close_xy_point_clusters(merged_world_points);
     assign_global_indices(merged_world_points);
     set_pseudo_slam_tf_points(merged_world_points);
     publish_pseudo_slam_markers(merged_world_points);
@@ -5794,7 +6090,7 @@ bool run_pseudo_slam_scan(
             "扫描建图完成，但bind_execution_memory.json重置失败；为避免旧执行记忆与新扫描结果混用，已将本次扫描判定为失败";
         return false;
     }
-    publish_area_progress(total_area_count, total_area_count, total_area_count, false, true);
+    publish_area_progress(total_scan_area_count, total_scan_area_count, total_scan_area_count, false, true);
     std::ostringstream oss;
     oss << "扫描建图完成，pseudo_slam_points.json=" << merged_world_points.size()
         << "个点，pseudo_slam_bind_path.json=" << grouped_area_count
@@ -6963,7 +7259,14 @@ bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Respons
     float cabin_speed = 0.0f;
     try {
         load_configured_path(con_path, cabin_height, cabin_speed);
-        res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, false, res.message);
+        res.success = run_pseudo_slam_scan(
+            con_path,
+            cabin_height,
+            cabin_speed,
+            PseudoSlamScanStrategy::kSingleCenter,
+            false,
+            res.message
+        );
     } catch (const std::exception& ex) {
         res.success = false;
         res.message = ex.what();
@@ -6984,6 +7287,7 @@ bool startPseudoSlamScanWithOptions(
             con_path,
             cabin_height,
             cabin_speed,
+            normalize_pseudo_slam_scan_strategy(req.scan_strategy),
             req.enable_capture_gate,
             res.message
         );

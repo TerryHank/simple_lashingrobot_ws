@@ -1,5 +1,150 @@
 {
-    "areas": [],
+    "areas": [
+        {
+            "area_index": 4,
+            "cabin_pose": {
+                "x": -650.0,
+                "y": 650.0,
+                "z": 487.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "group_type": "edge_pair",
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 0,
+                            "global_idx": 14,
+                            "global_row": 1,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "world_x": -780.0,
+                            "world_y": 722.0,
+                            "world_z": 4336.0,
+                            "x": -780.0,
+                            "y": 722.0,
+                            "z": 4336.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 1,
+                            "global_idx": 11,
+                            "global_row": 1,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "world_x": -642.0,
+                            "world_y": 718.0,
+                            "world_z": 4345.0,
+                            "x": -642.0,
+                            "y": 718.0,
+                            "z": 4345.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 5,
+            "cabin_pose": {
+                "x": -350.0,
+                "y": 650.0,
+                "z": 487.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "group_type": "edge_pair",
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 2,
+                            "global_idx": 12,
+                            "global_row": 1,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "world_x": -492.0,
+                            "world_y": 724.0,
+                            "world_z": 4331.0,
+                            "x": -492.0,
+                            "y": 724.0,
+                            "z": 4331.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 3,
+                            "global_idx": 13,
+                            "global_row": 1,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "world_x": -332.0,
+                            "world_y": 725.0,
+                            "world_z": 4329.0,
+                            "x": -332.0,
+                            "y": 725.0,
+                            "z": 4329.0
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "area_index": 23,
+            "cabin_pose": {
+                "x": -350.0,
+                "y": 1250.0,
+                "z": 487.0
+            },
+            "groups": [
+                {
+                    "group_index": 1,
+                    "group_type": "edge_pair",
+                    "points": [
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 1,
+                            "global_col": 2,
+                            "global_idx": 4,
+                            "global_row": 2,
+                            "idx": 1,
+                            "is_checkerboard_member": true,
+                            "local_idx": 1,
+                            "world_x": -501.0,
+                            "world_y": 1267.0,
+                            "world_z": 4309.0,
+                            "x": -501.0,
+                            "y": 1267.0,
+                            "z": 4309.0
+                        },
+                        {
+                            "angle": -45.0,
+                            "checkerboard_parity": 0,
+                            "global_col": 3,
+                            "global_idx": 5,
+                            "global_row": 2,
+                            "idx": 2,
+                            "is_checkerboard_member": true,
+                            "local_idx": 2,
+                            "world_x": -341.0,
+                            "world_y": 1272.0,
+                            "world_z": 4306.0,
+                            "x": -341.0,
+                            "y": 1272.0,
+                            "z": 4306.0
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
     "cabin_height": 487.0,
     "cabin_speed": 300.0,
     "path_origin": {
@@ -9,5 +154,5 @@
     },
     "path_signature": "fnv1a64:69b9a1f1f301d7dd",
     "scan_mode": "scan_only",
-    "scan_session_id": "1776605284045771591"
+    "scan_session_id": "1776773379973626644"
 }

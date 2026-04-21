@@ -207,16 +207,20 @@ void setGlobalExecutionModeCallback(const std_msgs::Float32::ConstPtr& msg) {
 
 void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    const bool enable_capture_gate = msg->data >= 2.0f;
+    const bool multi_pose_scan = msg->data >= 3.0f;
+    const bool enable_capture_gate = (msg->data >= 4.0f) || (msg->data >= 2.0f && msg->data < 3.0f);
     logMessage(
         "/web/cabin/start_pseudo_slam_scan",
         "收到扫描建图命令，模式="
+        + string(multi_pose_scan ? "多扫描位" : "单次中心位")
+        + "，"
         + string(enable_capture_gate ? "开启最终采集门" : "关闭最终采集门")
         + "，值: " + to_string(msg->data)
     );
 
     chassis_ctrl::StartPseudoSlamScan scan_srv;
     scan_srv.request.enable_capture_gate = enable_capture_gate;
+    scan_srv.request.scan_strategy = multi_pose_scan ? 1 : 0;
     if (!g_service_clients.Chassis_scan_with_options_client.call(scan_srv)) {
         ROS_ERROR("扫描建图服务调用失败");
         return;

@@ -88,19 +88,32 @@ rosservice call /cabin/start_pseudo_slam_scan
 ```
 
 这是兼容老脚本的方式，默认等价于“关闭最终采集门”，按老版本的快节奏直接扫。
+当前默认走“单次中心位扫描 + 关闭最终采集门”。
 
 ### 方法 B：直接调带参数的新服务
 
-开启“停稳才拍照”：
+单次中心位，开启“停稳才拍照”：
 
 ```bash
-rosservice call /cabin/start_pseudo_slam_scan_with_options "enable_capture_gate: true"
+rosservice call /cabin/start_pseudo_slam_scan_with_options "{enable_capture_gate: true, scan_strategy: 0}"
 ```
 
-关闭“停稳才拍照”，按老版本的快节奏直接扫：
+单次中心位，关闭“停稳才拍照”：
 
 ```bash
-rosservice call /cabin/start_pseudo_slam_scan_with_options "enable_capture_gate: false"
+rosservice call /cabin/start_pseudo_slam_scan_with_options "{enable_capture_gate: false, scan_strategy: 0}"
+```
+
+多扫描位，关闭“停稳才拍照”：
+
+```bash
+rosservice call /cabin/start_pseudo_slam_scan_with_options "{enable_capture_gate: false, scan_strategy: 1}"
+```
+
+多扫描位，开启“停稳才拍照”：
+
+```bash
+rosservice call /cabin/start_pseudo_slam_scan_with_options "{enable_capture_gate: true, scan_strategy: 1}"
 ```
 
 ### 方法 C：走前端同名入口
@@ -113,21 +126,30 @@ rostopic pub -1 /web/cabin/start_pseudo_slam_scan std_msgs/Float32 "data: 1.0"
 
 补充：
 
-- `data: 1.0` 表示关闭最终采集门，按老版本快节奏直接扫
-- `data: 2.0` 表示开启最终采集门
-- `data: 0.0` 也按关闭最终采集门处理
+- `data: 1.0` 表示单次中心位扫描，关闭最终采集门
+- `data: 2.0` 表示单次中心位扫描，开启最终采集门
+- `data: 3.0` 表示多扫描位扫描，关闭最终采集门
+- `data: 4.0` 表示多扫描位扫描，开启最终采集门
+- 其他值默认按单次中心位扫描处理；`data < 2.0` 时关闭最终采集门
 
 ### 扫描阶段当前行为
 
+- `scan_strategy: 0` 是单次中心位扫描
+  - 先根据当前原点和作业区 `zone_x/zone_y` 算全局工作区中心
+  - 索驱移动到工作区中心，并把 `Z` 抬到 `规划起点高度 + 1500 mm`
+  - 只请求一次 `scan_only`
+- `scan_strategy: 1` 是多扫描位扫描
+  - 按规划路径逐扫描位移动
+  - 每个扫描位各请求一次 `scan_only`
+  - 只对“跨扫描位重叠”的点做 `10 mm` 圆形欧式距离聚簇
+  - 每个重叠簇只保留离簇中心最近的一个代表点，发布前会重新连续编号
 - 如果扫描请求里 `enable_capture_gate=false`，会跳过最终采集门，直接请求 `scan_only`
-- 到每个区域后，会先过“最终采集门”
+- 如果扫描请求里 `enable_capture_gate=true`，会先过“最终采集门”
 - 最终采集门同时看：
   - 索驱是否真正静止
   - `/Scepter/ir/image_raw` 白框 ROI 的灰度均差是否足够小
 - 通过后才会请求 `scan_only`
-- 当前扫描最小点数门槛是 `5`
-- 少于 `5` 个点会继续轮询视觉
-- 每次 `scan_only` 都会新建一份视觉服务请求对象，不会把上一轮成功响应误带到下一轮区域
+- 每次 `scan_only` 都会新建一份视觉服务请求对象，不会把上一轮成功响应误带到下一轮扫描位
 - `pseudo_slam` 的扫描和执行主链现在共用同一把串行化锁
   - 扫描、全局执行、当前区域预计算直执行、`live_visual` 不会再并发改同一份扫描产物和执行账本
   - 如果你同时触发两条主链，后来的那条会等待前一条结束，而不是并发踩状态
@@ -742,13 +764,19 @@ rostopic pub -1 /web/cabin/set_execution_mode std_msgs/Float32 "data: 1.0"
 稳态扫描：
 
 ```bash
-rosservice call /cabin/start_pseudo_slam_scan_with_options "enable_capture_gate: true"
+rosservice call /cabin/start_pseudo_slam_scan_with_options "{enable_capture_gate: true, scan_strategy: 0}"
 ```
 
 快速扫描：
 
 ```bash
 rosservice call /cabin/start_pseudo_slam_scan
+```
+
+多扫描位稳态扫描：
+
+```bash
+rosservice call /cabin/start_pseudo_slam_scan_with_options "{enable_capture_gate: true, scan_strategy: 1}"
 ```
 
 5. 确认文件已生成

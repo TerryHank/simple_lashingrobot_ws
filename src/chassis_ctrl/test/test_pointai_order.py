@@ -655,12 +655,13 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertRegex(
             scan_function,
             re.compile(
-                r"while\s*\(ros::ok\(\)\)\s*\{[\s\S]*?fast_image_solve::ProcessImage scan_srv;[\s\S]*?"
+                r"fast_image_solve::ProcessImage scan_srv;[\s\S]*?"
                 r"scan_srv.request.request_mode = kProcessImageModeScanOnly;[\s\S]*?"
                 r"AI_client.call\(scan_srv\)",
                 re.S,
             ),
         )
+        self.assertNotIn("collected_scan_frame_count", scan_function)
         self.assertRegex(
             live_visual_function,
             re.compile(
@@ -1181,30 +1182,36 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("kPseudoSlamClosePointClusterXYToleranceMm &&", suoqu_text)
         self.assertIn("kPseudoSlamClosePointClusterXYToleranceMm) {", suoqu_text)
         self.assertNotIn("dx * dx + dy * dy < min_distance_sq", suoqu_text)
-        self.assertIn("merged_world_points = filter_pseudo_slam_close_xy_point_clusters(merged_world_points);", scan_function)
+        self.assertNotIn("merged_world_points = filter_pseudo_slam_close_xy_point_clusters(merged_world_points);", scan_function)
         self.assertNotIn("frame_world_points = dedupe_world_points(frame_world_points);", scan_function)
         self.assertNotIn("area_world_points = dedupe_world_points(area_world_points);", scan_function)
         self.assertNotIn("merged_world_points = dedupe_world_points(merged_world_points);", scan_function)
         self.assertNotIn("filter_pseudo_slam_close_xy_points_keep_highest_z", scan_function)
 
-    def test_pseudo_slam_skips_scan_points_within_ten_mm_of_previous_scan_points(self):
+    def test_multi_pose_scan_clusters_overlap_points_during_scan_and_reassigns_representatives(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         scan_function = extract_cpp_block(
             suoqu_text,
             "bool run_pseudo_slam_scan(",
         )
+        multi_pose_branch = scan_function.split("case PseudoSlamScanStrategy::kMultiPose:", 1)[1]
 
         self.assertIn("constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;", suoqu_text)
-        self.assertIn("filter_new_scan_points_against_existing_xy_tolerance", suoqu_text)
+        self.assertIn("struct PseudoSlamOverlapCluster", suoqu_text)
+        self.assertIn("std::vector<fast_image_solve::PointCoords> member_points;", suoqu_text)
+        self.assertIn("build_scan_cluster_representatives(", suoqu_text)
+        self.assertIn("merge_frame_points_into_overlap_clusters(", suoqu_text)
+        self.assertIn("const size_t cluster_count_before_frame = clusters.size();", suoqu_text)
+        self.assertIn("for (size_t cluster_index = 0; cluster_index < cluster_count_before_frame; ++cluster_index)", suoqu_text)
+        self.assertIn("const double cluster_center_x =", suoqu_text)
+        self.assertIn("const double cluster_center_y =", suoqu_text)
         self.assertIn("const double tolerance_sq = static_cast<double>(tolerance_mm) * static_cast<double>(tolerance_mm);", suoqu_text)
-        self.assertIn("const double dx =", suoqu_text)
-        self.assertIn("const double dy =", suoqu_text)
-        self.assertIn("if (dx * dx + dy * dy <= tolerance_sq)", suoqu_text)
-        self.assertIn("frame_world_points = filter_new_scan_points_against_existing_xy_tolerance(", scan_function)
-        self.assertIn("std::vector<fast_image_solve::PointCoords> scan_history_points = merged_world_points;", scan_function)
-        self.assertIn("std::vector<fast_image_solve::PointCoords> new_area_points =", scan_function)
+        self.assertIn("dx * dx + dy * dy <= tolerance_sq", suoqu_text)
+        self.assertIn("best_member_distance_sq", suoqu_text)
+        self.assertIn("merged_world_points = build_scan_cluster_representatives(scan_clusters);", scan_function)
         self.assertIn("kPseudoSlamScanDuplicateXYToleranceMm", scan_function)
-        self.assertIn("area_world_points.insert(area_world_points.end(), new_area_points.begin(), new_area_points.end());", scan_function)
+        self.assertIn("assign_global_indices(merged_world_points);", scan_function)
+        self.assertNotIn("filter_new_scan_points_against_existing_xy_tolerance(", multi_pose_branch)
 
     def test_scan_duplicate_filter_uses_circular_euclidean_distance(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1737,20 +1744,45 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("constexpr float kLiveVisualPlannedPointRefineMaxDistanceMm", suoqu_text)
         self.assertNotIn("constexpr float kLiveVisualPlannedPointRefineMaxZDeltaMm = 5.0f;", suoqu_text)
 
-    def test_pseudo_slam_scan_merges_two_visual_frames_per_area(self):
+    def test_pseudo_slam_scan_moves_once_to_global_workspace_center_and_requests_single_frame(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
 
-        self.assertIn("constexpr int kPseudoSlamScanMinPointCount = 5;", suoqu_text)
-        self.assertIn("constexpr int kPseudoSlamScanFrameCount = 2;", suoqu_text)
-        self.assertIn("constexpr double kPseudoSlamScanRetryIntervalSec = 0.2;", suoqu_text)
-        self.assertIn("const PseudoSlamCaptureGateConfig config = load_pseudo_slam_capture_gate_config();", suoqu_text)
-        self.assertIn("while (ros::ok())", suoqu_text)
-        self.assertIn("collected_scan_frame_count < kPseudoSlamScanFrameCount", suoqu_text)
-        self.assertIn("area_world_points.insert(area_world_points.end(), frame_world_points.begin(), frame_world_points.end());", suoqu_text)
-        self.assertIn("pseudo_slam scan_only区域%d第%d/%d帧识别完成", suoqu_text)
-        self.assertIn("pseudo_slam scan_only区域%d两帧合并后点数%d<%d，继续轮询视觉。", suoqu_text)
-        self.assertIn("config.scan_min_point_count", suoqu_text)
-        self.assertIn("ros::Duration(config.scan_retry_interval_sec).sleep();", suoqu_text)
+        self.assertIn("constexpr float kPseudoSlamGlobalScanHeightOffsetMm = 1500.0f;", suoqu_text)
+        self.assertIn("bool compute_pseudo_slam_global_scan_pose(", suoqu_text)
+        self.assertIn('const float marking_x = path_json.value("marking_x", 0.0f);', suoqu_text)
+        self.assertIn('const float zone_x = path_json.value("zone_x", 0.0f);', suoqu_text)
+        self.assertIn("const float workspace_min_x = marking_x - robot_x_step / 2.0f;", suoqu_text)
+        self.assertIn("scan_center.x = workspace_min_x + zone_x / 2.0f;", suoqu_text)
+        self.assertIn("scan_height = planning_cabin_height + kPseudoSlamGlobalScanHeightOffsetMm;", suoqu_text)
+        self.assertIn("total_scan_area_count = 1;", scan_function)
+        self.assertIn("TCP_Move[1] = global_scan_center.x;", scan_function)
+        self.assertIn("TCP_Move[2] = global_scan_center.y;", scan_function)
+        self.assertIn("TCP_Move[3] = global_scan_height;", scan_function)
+        self.assertIn("pseudo_slam全局中心扫描移动到", scan_function)
+        self.assertIn("pseudo_slam全局中心单帧识别完成", scan_function)
+        self.assertNotIn("collected_scan_frame_count", scan_function)
+        self.assertNotIn("area_world_points", scan_function)
+        self.assertNotIn("ros::Duration(config.scan_retry_interval_sec).sleep();", scan_function)
+        self.assertIn("case PseudoSlamScanStrategy::kSingleCenter:", scan_function)
+
+    def test_pseudo_slam_multi_pose_scan_keeps_path_loop_and_clusters_only_cross_pose_overlap(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+
+        self.assertIn("case PseudoSlamScanStrategy::kMultiPose:", scan_function)
+        self.assertIn("total_scan_area_count = static_cast<int>(con_path.size());", scan_function)
+        self.assertIn("for (const auto& cabin_point : con_path)", scan_function)
+        self.assertIn("publish_area_progress(area_index, total_scan_area_count, 0, false, false);", scan_function)
+        self.assertIn("merge_frame_points_into_overlap_clusters(", scan_function)
+        self.assertIn("scan_clusters", scan_function)
+        self.assertIn("scan_pose_index", scan_function)
 
     def test_pseudo_slam_scan_uses_final_capture_gate_before_requesting_visual(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1772,8 +1804,8 @@ class PointAIOrderTest(unittest.TestCase):
         )
 
         self.assertIn("if (enable_capture_gate)", scan_function)
-        self.assertIn("wait_for_pseudo_slam_capture_gate(area_index, cabin_point, cabin_height)", scan_function)
-        self.assertIn("已关闭最终采集门，直接请求视觉", scan_function)
+        self.assertIn("wait_for_pseudo_slam_capture_gate(1, global_scan_center, global_scan_height)", scan_function)
+        self.assertIn("已关闭最终采集门，直接请求一次视觉", scan_function)
 
     def test_pseudo_slam_capture_gate_waits_for_new_ir_frame_without_resetting_stability(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -2139,7 +2171,10 @@ class PointAIOrderTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("StartPseudoSlamScan.srv", cmake_text)
+        self.assertIn("uint8 SCAN_STRATEGY_SINGLE_CENTER=0", service_definition)
+        self.assertIn("uint8 SCAN_STRATEGY_MULTI_POSE=1", service_definition)
         self.assertIn("bool enable_capture_gate", service_definition)
+        self.assertIn("uint8 scan_strategy", service_definition)
         self.assertIn("---", service_definition)
         self.assertIn("bool success", service_definition)
         self.assertIn("string message", service_definition)
@@ -2200,26 +2235,40 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("load_current_path_signature_for_execution", start_work_with_options_text)
         self.assertIn("clear_execution_memory=true", start_work_with_options_text)
 
-    def test_scan_topic_uses_msg_value_to_toggle_capture_gate(self):
+    def test_scan_topic_uses_msg_value_to_select_scan_strategy_and_capture_gate(self):
         topics_transfer_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("const bool enable_capture_gate = msg->data >= 2.0f;", topics_transfer_text)
+        self.assertIn("const bool multi_pose_scan = msg->data >= 3.0f;", topics_transfer_text)
+        self.assertIn(
+            "const bool enable_capture_gate = (msg->data >= 4.0f) || (msg->data >= 2.0f && msg->data < 3.0f);",
+            topics_transfer_text,
+        )
         self.assertIn("scan_srv.request.enable_capture_gate = enable_capture_gate;", topics_transfer_text)
+        self.assertIn("scan_srv.request.scan_strategy = multi_pose_scan ? 1 : 0;", topics_transfer_text)
         self.assertIn("扫描建图命令，模式=", topics_transfer_text)
 
-    def test_plain_scan_service_defaults_to_fast_scan_without_capture_gate(self):
+    def test_plain_scan_service_defaults_to_single_center_scan_without_capture_gate(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         start_scan_function = extract_cpp_block(
             suoqu_text,
             "bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)",
         )
 
-        self.assertIn(
-            "res.success = run_pseudo_slam_scan(con_path, cabin_height, cabin_speed, false, res.message);",
-            start_scan_function,
+        self.assertIn("res.success = run_pseudo_slam_scan(", start_scan_function)
+        self.assertIn("PseudoSlamScanStrategy::kSingleCenter", start_scan_function)
+        self.assertIn("false,", start_scan_function)
+
+    def test_scan_options_service_passes_requested_scan_strategy(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        start_scan_with_options_function = extract_cpp_block(
+            suoqu_text,
+            "bool startPseudoSlamScanWithOptions(",
         )
+
+        self.assertIn("normalize_pseudo_slam_scan_strategy(req.scan_strategy)", start_scan_with_options_function)
+        self.assertIn("req.enable_capture_gate", start_scan_with_options_function)
 
     def test_delay_time_returns_timeout_status_and_logs_axis_snapshot(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -2241,11 +2290,11 @@ class PointAIOrderTest(unittest.TestCase):
             "bool run_pseudo_slam_scan(",
         )
 
-        self.assertIn("if (!delay_time(AXIS_X, cabin_point.x))", scan_function)
+        self.assertIn("if (!delay_time(AXIS_X, global_scan_center.x))", scan_function)
         self.assertIn('message = "扫描建图因索驱X轴到位超时而中止"', scan_function)
-        self.assertIn("if (!delay_time(AXIS_Y, cabin_point.y))", scan_function)
+        self.assertIn("if (!delay_time(AXIS_Y, global_scan_center.y))", scan_function)
         self.assertIn('message = "扫描建图因索驱Y轴到位超时而中止"', scan_function)
-        self.assertIn("if (!delay_time(AXIS_Z, cabin_height))", scan_function)
+        self.assertIn("if (!delay_time(AXIS_Z, global_scan_height))", scan_function)
         self.assertIn('message = "扫描建图因索驱Z轴到位超时而中止"', scan_function)
         self.assertIn("const int send_result = Frame_Generate_With_Retry(TCP_Move_Frame, 36, 8);", scan_function)
         self.assertIn("if (send_result < 0)", scan_function)

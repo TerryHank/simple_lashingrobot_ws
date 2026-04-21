@@ -1,0 +1,3724 @@
+{
+  "frame_count": 10,
+  "xy_cluster_eps_mm": 35.0,
+  "main_plane_median_z_mm": 4318.0,
+  "main_plane_tolerance_mm": 220.0,
+  "single_frame_counts": [
+    24,
+    28,
+    22,
+    6,
+    8,
+    4,
+    4,
+    15,
+    3,
+    19
+  ],
+  "single_frame_min": 3,
+  "single_frame_max": 28,
+  "raw_total_points": 133,
+  "main_plane_points": 117,
+  "cluster_count_all": 55,
+  "cluster_count_support2": 25,
+  "cluster_count_support3": 17,
+  "support_histogram": {
+    "1": 30,
+    "2": 8,
+    "3": 4,
+    "4": 7,
+    "5": 5,
+    "6": 1
+  },
+  "captures": [
+    {
+      "frame": 1,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 24,
+      "elapsed_sec": 0.11825060844421387,
+      "points": [
+        {
+          "frame": 1,
+          "idx": 1,
+          "pix": [
+            407,
+            399
+          ],
+          "world": [
+            254.0,
+            1287.0,
+            4309.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 2,
+          "pix": [
+            409,
+            301
+          ],
+          "world": [
+            -197.0,
+            1281.0,
+            4287.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 3,
+          "pix": [
+            407,
+            431
+          ],
+          "world": [
+            389.0,
+            1292.0,
+            4276.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 4,
+          "pix": [
+            408,
+            333
+          ],
+          "world": [
+            -48.0,
+            1281.0,
+            4314.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 5,
+          "pix": [
+            408,
+            367
+          ],
+          "world": [
+            106.0,
+            1283.0,
+            4303.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 6,
+          "pix": [
+            410,
+            269
+          ],
+          "world": [
+            -341.0,
+            1273.0,
+            4305.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 7,
+          "pix": [
+            223,
+            392
+          ],
+          "world": [
+            221.0,
+            2178.0,
+            4306.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 8,
+          "pix": [
+            224,
+            297
+          ],
+          "world": [
+            -212.0,
+            2176.0,
+            4319.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 9,
+          "pix": [
+            221,
+            456
+          ],
+          "world": [
+            509.0,
+            2186.0,
+            4296.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 10,
+          "pix": [
+            224,
+            330
+          ],
+          "world": [
+            -64.0,
+            2171.0,
+            4295.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 11,
+          "pix": [
+            552,
+            404
+          ],
+          "world": [
+            278.0,
+            581.0,
+            4313.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 12,
+          "pix": [
+            518,
+            402
+          ],
+          "world": [
+            271.0,
+            743.0,
+            4321.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 13,
+          "pix": [
+            598,
+            405
+          ],
+          "world": [
+            -19.0,
+            950.0,
+            3286.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 14,
+          "pix": [
+            552,
+            303
+          ],
+          "world": [
+            -184.0,
+            571.0,
+            4333.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 15,
+          "pix": [
+            518,
+            435
+          ],
+          "world": [
+            420.0,
+            746.0,
+            4314.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 16,
+          "pix": [
+            552,
+            336
+          ],
+          "world": [
+            -32.0,
+            576.0,
+            4323.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 17,
+          "pix": [
+            552,
+            369
+          ],
+          "world": [
+            120.0,
+            575.0,
+            4324.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 18,
+          "pix": [
+            552,
+            237
+          ],
+          "world": [
+            -488.0,
+            569.0,
+            4337.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 19,
+          "pix": [
+            552,
+            140
+          ],
+          "world": [
+            -940.0,
+            563.0,
+            4349.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 20,
+          "pix": [
+            552,
+            271
+          ],
+          "world": [
+            -331.0,
+            570.0,
+            4335.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 21,
+          "pix": [
+            517,
+            335
+          ],
+          "world": [
+            -36.0,
+            743.0,
+            4333.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 22,
+          "pix": [
+            224,
+            364
+          ],
+          "world": [
+            94.0,
+            2175.0,
+            4312.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 23,
+          "pix": [
+            517,
+            369
+          ],
+          "world": [
+            120.0,
+            746.0,
+            4326.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 1,
+          "idx": 24,
+          "pix": [
+            601,
+            370
+          ],
+          "world": [
+            -101.0,
+            918.0,
+            3322.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 2,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 28,
+      "elapsed_sec": 0.14341306686401367,
+      "points": [
+        {
+          "frame": 2,
+          "idx": 1,
+          "pix": [
+            407,
+            398
+          ],
+          "world": [
+            251.0,
+            1285.0,
+            4315.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 2,
+          "pix": [
+            407,
+            431
+          ],
+          "world": [
+            389.0,
+            1292.0,
+            4278.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 3,
+          "pix": [
+            407,
+            123
+          ],
+          "world": [
+            -1025.0,
+            1275.0,
+            4372.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 4,
+          "pix": [
+            407,
+            369
+          ],
+          "world": [
+            119.0,
+            1285.0,
+            4320.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 5,
+          "pix": [
+            407,
+            175
+          ],
+          "world": [
+            -780.0,
+            1277.0,
+            4365.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 6,
+          "pix": [
+            407,
+            333
+          ],
+          "world": [
+            -46.0,
+            1284.0,
+            4325.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 7,
+          "pix": [
+            407,
+            300
+          ],
+          "world": [
+            -197.0,
+            1282.0,
+            4332.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 8,
+          "pix": [
+            578,
+            437
+          ],
+          "world": [
+            -233.0,
+            1448.0,
+            2458.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 9,
+          "pix": [
+            223,
+            392
+          ],
+          "world": [
+            221.0,
+            2179.0,
+            4308.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 10,
+          "pix": [
+            222,
+            425
+          ],
+          "world": [
+            365.0,
+            2179.0,
+            4287.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 11,
+          "pix": [
+            222,
+            457
+          ],
+          "world": [
+            507.0,
+            2177.0,
+            4278.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 12,
+          "pix": [
+            227,
+            124
+          ],
+          "world": [
+            -1017.0,
+            2169.0,
+            4358.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 13,
+          "pix": [
+            227,
+            168
+          ],
+          "world": [
+            -806.0,
+            2163.0,
+            4329.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 14,
+          "pix": [
+            224,
+            362
+          ],
+          "world": [
+            83.0,
+            2172.0,
+            4301.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 15,
+          "pix": [
+            224,
+            297
+          ],
+          "world": [
+            -212.0,
+            2176.0,
+            4318.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 16,
+          "pix": [
+            516,
+            402
+          ],
+          "world": [
+            272.0,
+            751.0,
+            4325.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 17,
+          "pix": [
+            518,
+            435
+          ],
+          "world": [
+            420.0,
+            746.0,
+            4313.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 18,
+          "pix": [
+            508,
+            122
+          ],
+          "world": [
+            -1029.0,
+            773.0,
+            4369.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 19,
+          "pix": [
+            485,
+            122
+          ],
+          "world": [
+            -1029.0,
+            887.0,
+            4369.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 20,
+          "pix": [
+            514,
+            369
+          ],
+          "world": [
+            120.0,
+            761.0,
+            4325.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 21,
+          "pix": [
+            510,
+            155
+          ],
+          "world": [
+            -874.0,
+            764.0,
+            4367.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 22,
+          "pix": [
+            488,
+            156
+          ],
+          "world": [
+            -867.0,
+            876.0,
+            4358.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 23,
+          "pix": [
+            511,
+            183
+          ],
+          "world": [
+            -742.0,
+            760.0,
+            4364.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 24,
+          "pix": [
+            511,
+            335
+          ],
+          "world": [
+            -36.0,
+            773.0,
+            4332.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 25,
+          "pix": [
+            495,
+            216
+          ],
+          "world": [
+            -587.0,
+            842.0,
+            4358.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 26,
+          "pix": [
+            491,
+            182
+          ],
+          "world": [
+            -746.0,
+            860.0,
+            4361.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 27,
+          "pix": [
+            511,
+            213
+          ],
+          "world": [
+            -601.0,
+            762.0,
+            4359.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 2,
+          "idx": 28,
+          "pix": [
+            509,
+            302
+          ],
+          "world": [
+            -187.0,
+            776.0,
+            4347.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 3,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 22,
+      "elapsed_sec": 0.1340646743774414,
+      "points": [
+        {
+          "frame": 3,
+          "idx": 1,
+          "pix": [
+            409,
+            333
+          ],
+          "world": [
+            -51.0,
+            1280.0,
+            4290.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 2,
+          "pix": [
+            408,
+            431
+          ],
+          "world": [
+            388.0,
+            1288.0,
+            4274.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 3,
+          "pix": [
+            408,
+            398
+          ],
+          "world": [
+            244.0,
+            1285.0,
+            4292.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 4,
+          "pix": [
+            408,
+            370
+          ],
+          "world": [
+            118.0,
+            1284.0,
+            4298.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 5,
+          "pix": [
+            410,
+            301
+          ],
+          "world": [
+            -196.0,
+            1275.0,
+            4294.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 6,
+          "pix": [
+            411,
+            202
+          ],
+          "world": [
+            -648.0,
+            1266.0,
+            4316.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 7,
+          "pix": [
+            224,
+            329
+          ],
+          "world": [
+            -69.0,
+            2171.0,
+            4296.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 8,
+          "pix": [
+            222,
+            425
+          ],
+          "world": [
+            366.0,
+            2179.0,
+            4288.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 9,
+          "pix": [
+            223,
+            392
+          ],
+          "world": [
+            221.0,
+            2179.0,
+            4308.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 10,
+          "pix": [
+            223,
+            361
+          ],
+          "world": [
+            83.0,
+            2182.0,
+            4324.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 11,
+          "pix": [
+            225,
+            298
+          ],
+          "world": [
+            -210.0,
+            2167.0,
+            4297.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 12,
+          "pix": [
+            225,
+            267
+          ],
+          "world": [
+            -350.0,
+            2173.0,
+            4329.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 13,
+          "pix": [
+            580,
+            437
+          ],
+          "world": [
+            -234.0,
+            1449.0,
+            2453.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 14,
+          "pix": [
+            604,
+            336
+          ],
+          "world": [
+            -192.0,
+            909.0,
+            3329.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 15,
+          "pix": [
+            552,
+            335
+          ],
+          "world": [
+            -36.0,
+            574.0,
+            4327.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 16,
+          "pix": [
+            518,
+            435
+          ],
+          "world": [
+            420.0,
+            746.0,
+            4312.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 17,
+          "pix": [
+            518,
+            402
+          ],
+          "world": [
+            271.0,
+            743.0,
+            4320.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 18,
+          "pix": [
+            552,
+            403
+          ],
+          "world": [
+            275.0,
+            578.0,
+            4318.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 19,
+          "pix": [
+            552,
+            303
+          ],
+          "world": [
+            -184.0,
+            571.0,
+            4333.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 20,
+          "pix": [
+            601,
+            370
+          ],
+          "world": [
+            -94.0,
+            905.0,
+            3350.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 21,
+          "pix": [
+            552,
+            370
+          ],
+          "world": [
+            124.0,
+            575.0,
+            4324.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 3,
+          "idx": 22,
+          "pix": [
+            552,
+            204
+          ],
+          "world": [
+            -642.0,
+            565.0,
+            4346.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 4,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 6,
+      "elapsed_sec": 0.10646581649780273,
+      "points": [
+        {
+          "frame": 4,
+          "idx": 1,
+          "pix": [
+            418,
+            129
+          ],
+          "world": [
+            -996.0,
+            1221.0,
+            4368.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 4,
+          "idx": 2,
+          "pix": [
+            416,
+            202
+          ],
+          "world": [
+            -651.0,
+            1236.0,
+            4346.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 4,
+          "idx": 3,
+          "pix": [
+            416,
+            222
+          ],
+          "world": [
+            -559.0,
+            1234.0,
+            4356.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 4,
+          "idx": 4,
+          "pix": [
+            227,
+            163
+          ],
+          "world": [
+            -831.0,
+            2165.0,
+            4340.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 4,
+          "idx": 5,
+          "pix": [
+            226,
+            211
+          ],
+          "world": [
+            -609.0,
+            2171.0,
+            4343.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 4,
+          "idx": 6,
+          "pix": [
+            228,
+            118
+          ],
+          "world": [
+            -1036.0,
+            2158.0,
+            4326.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 5,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 8,
+      "elapsed_sec": 0.10401678085327148,
+      "points": [
+        {
+          "frame": 5,
+          "idx": 1,
+          "pix": [
+            413,
+            124
+          ],
+          "world": [
+            -1009.0,
+            1254.0,
+            4328.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 2,
+          "pix": [
+            412,
+            188
+          ],
+          "world": [
+            -714.0,
+            1258.0,
+            4329.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 3,
+          "pix": [
+            226,
+            168
+          ],
+          "world": [
+            -809.0,
+            2171.0,
+            4343.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 4,
+          "pix": [
+            578,
+            459
+          ],
+          "world": [
+            -214.0,
+            1450.0,
+            2454.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 5,
+          "pix": [
+            473,
+            123
+          ],
+          "world": [
+            -1025.0,
+            946.0,
+            4372.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 6,
+          "pix": [
+            476,
+            194
+          ],
+          "world": [
+            -690.0,
+            934.0,
+            4363.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 7,
+          "pix": [
+            442,
+            123
+          ],
+          "world": [
+            -1025.0,
+            1101.0,
+            4371.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 5,
+          "idx": 8,
+          "pix": [
+            444,
+            191
+          ],
+          "world": [
+            -704.0,
+            1093.0,
+            4364.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 6,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 4,
+      "elapsed_sec": 0.10941314697265625,
+      "points": [
+        {
+          "frame": 6,
+          "idx": 1,
+          "pix": [
+            406,
+            449
+          ],
+          "world": [
+            487.0,
+            1289.0,
+            4321.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 6,
+          "idx": 2,
+          "pix": [
+            222,
+            443
+          ],
+          "world": [
+            454.0,
+            2183.0,
+            4305.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 6,
+          "idx": 3,
+          "pix": [
+            586,
+            431
+          ],
+          "world": [
+            -244.0,
+            1449.0,
+            2442.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 6,
+          "idx": 4,
+          "pix": [
+            587,
+            455
+          ],
+          "world": [
+            -220.0,
+            1445.0,
+            2447.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 7,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 4,
+      "elapsed_sec": 0.1071169376373291,
+      "points": [
+        {
+          "frame": 7,
+          "idx": 1,
+          "pix": [
+            406,
+            426
+          ],
+          "world": [
+            379.0,
+            1290.0,
+            4314.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 7,
+          "idx": 2,
+          "pix": [
+            227,
+            135
+          ],
+          "world": [
+            -963.0,
+            2167.0,
+            4346.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 7,
+          "idx": 3,
+          "pix": [
+            223,
+            404
+          ],
+          "world": [
+            270.0,
+            2174.0,
+            4287.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 7,
+          "idx": 4,
+          "pix": [
+            532,
+            441
+          ],
+          "world": [
+            451.0,
+            674.0,
+            4323.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 8,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 15,
+      "elapsed_sec": 0.11153459548950195,
+      "points": [
+        {
+          "frame": 8,
+          "idx": 1,
+          "pix": [
+            223,
+            392
+          ],
+          "world": [
+            221.0,
+            2178.0,
+            4306.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 2,
+          "pix": [
+            224,
+            330
+          ],
+          "world": [
+            -64.0,
+            2171.0,
+            4294.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 3,
+          "pix": [
+            224,
+            298
+          ],
+          "world": [
+            -207.0,
+            2177.0,
+            4323.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 4,
+          "pix": [
+            223,
+            361
+          ],
+          "world": [
+            83.0,
+            2182.0,
+            4323.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 5,
+          "pix": [
+            407,
+            399
+          ],
+          "world": [
+            254.0,
+            1286.0,
+            4311.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 6,
+          "pix": [
+            409,
+            333
+          ],
+          "world": [
+            -51.0,
+            1280.0,
+            4290.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 7,
+          "pix": [
+            409,
+            301
+          ],
+          "world": [
+            -197.0,
+            1281.0,
+            4287.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 8,
+          "pix": [
+            582,
+            437
+          ],
+          "world": [
+            -236.0,
+            1449.0,
+            2449.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 9,
+          "pix": [
+            552,
+            403
+          ],
+          "world": [
+            274.0,
+            579.0,
+            4316.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 10,
+          "pix": [
+            552,
+            436
+          ],
+          "world": [
+            424.0,
+            581.0,
+            4313.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 11,
+          "pix": [
+            552,
+            336
+          ],
+          "world": [
+            -32.0,
+            575.0,
+            4325.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 12,
+          "pix": [
+            552,
+            304
+          ],
+          "world": [
+            -179.0,
+            573.0,
+            4328.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 13,
+          "pix": [
+            552,
+            370
+          ],
+          "world": [
+            124.0,
+            576.0,
+            4322.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 14,
+          "pix": [
+            603,
+            370
+          ],
+          "world": [
+            -118.0,
+            960.0,
+            3246.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 8,
+          "idx": 15,
+          "pix": [
+            221,
+            457
+          ],
+          "world": [
+            512.0,
+            2185.0,
+            4291.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 9,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 3,
+      "elapsed_sec": 0.1161799430847168,
+      "points": [
+        {
+          "frame": 9,
+          "idx": 1,
+          "pix": [
+            409,
+            301
+          ],
+          "world": [
+            -197.0,
+            1281.0,
+            4288.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 9,
+          "idx": 2,
+          "pix": [
+            224,
+            298
+          ],
+          "world": [
+            -208.0,
+            2177.0,
+            4322.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 9,
+          "idx": 3,
+          "pix": [
+            580,
+            459
+          ],
+          "world": [
+            -214.0,
+            1448.0,
+            2454.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    },
+    {
+      "frame": 10,
+      "success": true,
+      "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "count": 19,
+      "elapsed_sec": 0.10161781311035156,
+      "points": [
+        {
+          "frame": 10,
+          "idx": 1,
+          "pix": [
+            408,
+            399
+          ],
+          "world": [
+            248.0,
+            1285.0,
+            4290.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 2,
+          "pix": [
+            409,
+            333
+          ],
+          "world": [
+            -51.0,
+            1280.0,
+            4289.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 3,
+          "pix": [
+            409,
+            300
+          ],
+          "world": [
+            -201.0,
+            1279.0,
+            4295.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 4,
+          "pix": [
+            408,
+            367
+          ],
+          "world": [
+            107.0,
+            1282.0,
+            4308.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 5,
+          "pix": [
+            411,
+            233
+          ],
+          "world": [
+            -505.0,
+            1267.0,
+            4309.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 6,
+          "pix": [
+            222,
+            392
+          ],
+          "world": [
+            226.0,
+            2187.0,
+            4326.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 7,
+          "pix": [
+            224,
+            330
+          ],
+          "world": [
+            -65.0,
+            2169.0,
+            4287.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 8,
+          "pix": [
+            224,
+            364
+          ],
+          "world": [
+            93.0,
+            2174.0,
+            4309.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 9,
+          "pix": [
+            582,
+            436
+          ],
+          "world": [
+            -236.0,
+            1448.0,
+            2451.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 10,
+          "pix": [
+            552,
+            404
+          ],
+          "world": [
+            279.0,
+            579.0,
+            4316.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 11,
+          "pix": [
+            605,
+            336
+          ],
+          "world": [
+            -189.0,
+            906.0,
+            3329.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 12,
+          "pix": [
+            552,
+            335
+          ],
+          "world": [
+            -36.0,
+            572.0,
+            4331.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 13,
+          "pix": [
+            608,
+            303
+          ],
+          "world": [
+            -282.0,
+            935.0,
+            3266.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 14,
+          "pix": [
+            552,
+            302
+          ],
+          "world": [
+            -188.0,
+            570.0,
+            4336.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 15,
+          "pix": [
+            602,
+            370
+          ],
+          "world": [
+            -116.0,
+            957.0,
+            3255.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 16,
+          "pix": [
+            552,
+            370
+          ],
+          "world": [
+            124.0,
+            576.0,
+            4322.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 17,
+          "pix": [
+            552,
+            140
+          ],
+          "world": [
+            -941.0,
+            561.0,
+            4353.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 18,
+          "pix": [
+            552,
+            237
+          ],
+          "world": [
+            -488.0,
+            566.0,
+            4344.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        },
+        {
+          "frame": 10,
+          "idx": 19,
+          "pix": [
+            413,
+            138
+          ],
+          "world": [
+            -946.0,
+            1253.0,
+            4334.0
+          ],
+          "angle": -45.0,
+          "is_shuiguan": false
+        }
+      ]
+    }
+  ],
+  "clusters": [
+    {
+      "cluster_id": 2,
+      "support_count": 6,
+      "support_frames": [
+        1,
+        2,
+        3,
+        8,
+        9,
+        10
+      ],
+      "cluster_size": 6,
+      "centroid_world": [
+        -197.5,
+        1279.8,
+        4297.2
+      ],
+      "representative": {
+        "frame": 9,
+        "idx": 1,
+        "pix": [
+          409,
+          301
+        ],
+        "world": [
+          -197.0,
+          1281.0,
+          4288.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 7,
+      "support_count": 5,
+      "support_frames": [
+        1,
+        2,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 5,
+      "centroid_world": [
+        222.0,
+        2180.2,
+        4310.8
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 9,
+        "pix": [
+          223,
+          392
+        ],
+        "world": [
+          221.0,
+          2179.0,
+          4308.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 8,
+      "support_count": 5,
+      "support_frames": [
+        1,
+        2,
+        3,
+        8,
+        9
+      ],
+      "cluster_size": 5,
+      "centroid_world": [
+        -209.8,
+        2174.6,
+        4315.8
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 15,
+        "pix": [
+          224,
+          297
+        ],
+        "world": [
+          -212.0,
+          2176.0,
+          4318.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 21,
+      "support_count": 5,
+      "support_frames": [
+        1,
+        2,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 5,
+      "centroid_world": [
+        87.2,
+        2177.0,
+        4313.8
+      ],
+      "representative": {
+        "frame": 10,
+        "idx": 8,
+        "pix": [
+          224,
+          364
+        ],
+        "world": [
+          93.0,
+          2174.0,
+          4309.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 1,
+      "support_count": 5,
+      "support_frames": [
+        1,
+        2,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 5,
+      "centroid_world": [
+        250.2,
+        1285.6,
+        4303.4
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 1,
+        "pix": [
+          407,
+          398
+        ],
+        "world": [
+          251.0,
+          1285.0,
+          4315.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 4,
+      "support_count": 5,
+      "support_frames": [
+        1,
+        2,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 5,
+      "centroid_world": [
+        -49.4,
+        1281.0,
+        4301.6
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 4,
+        "pix": [
+          408,
+          333
+        ],
+        "world": [
+          -48.0,
+          1281.0,
+          4314.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 10,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        -65.5,
+        2170.5,
+        4293.0
+      ],
+      "representative": {
+        "frame": 8,
+        "idx": 2,
+        "pix": [
+          224,
+          330
+        ],
+        "world": [
+          -64.0,
+          2171.0,
+          4294.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 3,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        2,
+        3,
+        7
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        386.2,
+        1290.5,
+        4285.5
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 2,
+        "pix": [
+          407,
+          431
+        ],
+        "world": [
+          389.0,
+          1292.0,
+          4278.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 5,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        2,
+        3,
+        10
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        112.5,
+        1283.5,
+        4307.2
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 4,
+        "pix": [
+          408,
+          370
+        ],
+        "world": [
+          118.0,
+          1284.0,
+          4298.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 13,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        -183.8,
+        571.2,
+        4332.5
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 14,
+        "pix": [
+          552,
+          303
+        ],
+        "world": [
+          -184.0,
+          571.0,
+          4333.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 15,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        -34.0,
+        574.2,
+        4326.5
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 15,
+        "pix": [
+          552,
+          335
+        ],
+        "world": [
+          -36.0,
+          574.0,
+          4327.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 16,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        123.0,
+        575.5,
+        4323.0
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 21,
+        "pix": [
+          552,
+          370
+        ],
+        "world": [
+          124.0,
+          575.0,
+          4324.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 11,
+      "support_count": 4,
+      "support_frames": [
+        1,
+        3,
+        8,
+        10
+      ],
+      "cluster_size": 4,
+      "centroid_world": [
+        276.5,
+        579.2,
+        4315.8
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 18,
+        "pix": [
+          552,
+          403
+        ],
+        "world": [
+          275.0,
+          578.0,
+          4318.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 9,
+      "support_count": 3,
+      "support_frames": [
+        1,
+        2,
+        8
+      ],
+      "cluster_size": 3,
+      "centroid_world": [
+        509.3,
+        2182.7,
+        4288.3
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 9,
+        "pix": [
+          221,
+          456
+        ],
+        "world": [
+          509.0,
+          2186.0,
+          4296.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 27,
+      "support_count": 3,
+      "support_frames": [
+        2,
+        4,
+        5
+      ],
+      "cluster_size": 3,
+      "centroid_world": [
+        -815.3,
+        2166.3,
+        4337.3
+      ],
+      "representative": {
+        "frame": 5,
+        "idx": 3,
+        "pix": [
+          226,
+          168
+        ],
+        "world": [
+          -809.0,
+          2171.0,
+          4343.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 12,
+      "support_count": 3,
+      "support_frames": [
+        1,
+        2,
+        3
+      ],
+      "cluster_size": 3,
+      "centroid_world": [
+        271.3,
+        745.7,
+        4322.0
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 12,
+        "pix": [
+          518,
+          402
+        ],
+        "world": [
+          271.0,
+          743.0,
+          4321.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 14,
+      "support_count": 3,
+      "support_frames": [
+        1,
+        2,
+        3
+      ],
+      "cluster_size": 3,
+      "centroid_world": [
+        420.0,
+        746.0,
+        4313.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 17,
+        "pix": [
+          518,
+          435
+        ],
+        "world": [
+          420.0,
+          746.0,
+          4313.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 25,
+      "support_count": 2,
+      "support_frames": [
+        2,
+        3
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        365.5,
+        2179.0,
+        4287.5
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 10,
+        "pix": [
+          222,
+          425
+        ],
+        "world": [
+          365.0,
+          2179.0,
+          4287.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 26,
+      "support_count": 2,
+      "support_frames": [
+        2,
+        4
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        -1026.5,
+        2163.5,
+        4342.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 12,
+        "pix": [
+          227,
+          124
+        ],
+        "world": [
+          -1017.0,
+          2169.0,
+          4358.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 23,
+      "support_count": 2,
+      "support_frames": [
+        2,
+        5
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        -1017.0,
+        1264.5,
+        4350.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 3,
+        "pix": [
+          407,
+          123
+        ],
+        "world": [
+          -1025.0,
+          1275.0,
+          4372.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 37,
+      "support_count": 2,
+      "support_frames": [
+        3,
+        4
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        -649.5,
+        1251.0,
+        4331.0
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 6,
+        "pix": [
+          411,
+          202
+        ],
+        "world": [
+          -648.0,
+          1266.0,
+          4316.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 20,
+      "support_count": 2,
+      "support_frames": [
+        1,
+        2
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        -36.0,
+        758.0,
+        4332.5
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 21,
+        "pix": [
+          517,
+          335
+        ],
+        "world": [
+          -36.0,
+          743.0,
+          4333.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 22,
+      "support_count": 2,
+      "support_frames": [
+        1,
+        2
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        120.0,
+        753.5,
+        4325.5
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 23,
+        "pix": [
+          517,
+          369
+        ],
+        "world": [
+          120.0,
+          746.0,
+          4326.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 18,
+      "support_count": 2,
+      "support_frames": [
+        1,
+        10
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        -940.5,
+        562.0,
+        4351.0
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 19,
+        "pix": [
+          552,
+          140
+        ],
+        "world": [
+          -940.0,
+          563.0,
+          4349.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 17,
+      "support_count": 2,
+      "support_frames": [
+        1,
+        10
+      ],
+      "cluster_size": 2,
+      "centroid_world": [
+        -488.0,
+        567.5,
+        4340.5
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 18,
+        "pix": [
+          552,
+          237
+        ],
+        "world": [
+          -488.0,
+          569.0,
+          4337.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 49,
+      "support_count": 1,
+      "support_frames": [
+        6
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        454.0,
+        2183.0,
+        4305.0
+      ],
+      "representative": {
+        "frame": 6,
+        "idx": 2,
+        "pix": [
+          222,
+          443
+        ],
+        "world": [
+          454.0,
+          2183.0,
+          4305.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 51,
+      "support_count": 1,
+      "support_frames": [
+        7
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        270.0,
+        2174.0,
+        4287.0
+      ],
+      "representative": {
+        "frame": 7,
+        "idx": 3,
+        "pix": [
+          223,
+          404
+        ],
+        "world": [
+          270.0,
+          2174.0,
+          4287.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 38,
+      "support_count": 1,
+      "support_frames": [
+        3
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -350.0,
+        2173.0,
+        4329.0
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 12,
+        "pix": [
+          225,
+          267
+        ],
+        "world": [
+          -350.0,
+          2173.0,
+          4329.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 42,
+      "support_count": 1,
+      "support_frames": [
+        4
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -609.0,
+        2171.0,
+        4343.0
+      ],
+      "representative": {
+        "frame": 4,
+        "idx": 5,
+        "pix": [
+          226,
+          211
+        ],
+        "world": [
+          -609.0,
+          2171.0,
+          4343.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 50,
+      "support_count": 1,
+      "support_frames": [
+        7
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -963.0,
+        2167.0,
+        4346.0
+      ],
+      "representative": {
+        "frame": 7,
+        "idx": 2,
+        "pix": [
+          227,
+          135
+        ],
+        "world": [
+          -963.0,
+          2167.0,
+          4346.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 48,
+      "support_count": 1,
+      "support_frames": [
+        6
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        487.0,
+        1289.0,
+        4321.0
+      ],
+      "representative": {
+        "frame": 6,
+        "idx": 1,
+        "pix": [
+          406,
+          449
+        ],
+        "world": [
+          487.0,
+          1289.0,
+          4321.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 24,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -780.0,
+        1277.0,
+        4365.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 5,
+        "pix": [
+          407,
+          175
+        ],
+        "world": [
+          -780.0,
+          1277.0,
+          4365.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 6,
+      "support_count": 1,
+      "support_frames": [
+        1
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -341.0,
+        1273.0,
+        4305.0
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 6,
+        "pix": [
+          410,
+          269
+        ],
+        "world": [
+          -341.0,
+          1273.0,
+          4305.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 54,
+      "support_count": 1,
+      "support_frames": [
+        10
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -505.0,
+        1267.0,
+        4309.0
+      ],
+      "representative": {
+        "frame": 10,
+        "idx": 5,
+        "pix": [
+          411,
+          233
+        ],
+        "world": [
+          -505.0,
+          1267.0,
+          4309.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 43,
+      "support_count": 1,
+      "support_frames": [
+        5
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -714.0,
+        1258.0,
+        4329.0
+      ],
+      "representative": {
+        "frame": 5,
+        "idx": 2,
+        "pix": [
+          412,
+          188
+        ],
+        "world": [
+          -714.0,
+          1258.0,
+          4329.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 55,
+      "support_count": 1,
+      "support_frames": [
+        10
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -946.0,
+        1253.0,
+        4334.0
+      ],
+      "representative": {
+        "frame": 10,
+        "idx": 19,
+        "pix": [
+          413,
+          138
+        ],
+        "world": [
+          -946.0,
+          1253.0,
+          4334.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 41,
+      "support_count": 1,
+      "support_frames": [
+        4
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -559.0,
+        1234.0,
+        4356.0
+      ],
+      "representative": {
+        "frame": 4,
+        "idx": 3,
+        "pix": [
+          416,
+          222
+        ],
+        "world": [
+          -559.0,
+          1234.0,
+          4356.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 40,
+      "support_count": 1,
+      "support_frames": [
+        4
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -996.0,
+        1221.0,
+        4368.0
+      ],
+      "representative": {
+        "frame": 4,
+        "idx": 1,
+        "pix": [
+          418,
+          129
+        ],
+        "world": [
+          -996.0,
+          1221.0,
+          4368.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 46,
+      "support_count": 1,
+      "support_frames": [
+        5
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -1025.0,
+        1101.0,
+        4371.0
+      ],
+      "representative": {
+        "frame": 5,
+        "idx": 7,
+        "pix": [
+          442,
+          123
+        ],
+        "world": [
+          -1025.0,
+          1101.0,
+          4371.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 47,
+      "support_count": 1,
+      "support_frames": [
+        5
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -704.0,
+        1093.0,
+        4364.0
+      ],
+      "representative": {
+        "frame": 5,
+        "idx": 8,
+        "pix": [
+          444,
+          191
+        ],
+        "world": [
+          -704.0,
+          1093.0,
+          4364.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 44,
+      "support_count": 1,
+      "support_frames": [
+        5
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -1025.0,
+        946.0,
+        4372.0
+      ],
+      "representative": {
+        "frame": 5,
+        "idx": 5,
+        "pix": [
+          473,
+          123
+        ],
+        "world": [
+          -1025.0,
+          946.0,
+          4372.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 45,
+      "support_count": 1,
+      "support_frames": [
+        5
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -690.0,
+        934.0,
+        4363.0
+      ],
+      "representative": {
+        "frame": 5,
+        "idx": 6,
+        "pix": [
+          476,
+          194
+        ],
+        "world": [
+          -690.0,
+          934.0,
+          4363.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 29,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -1029.0,
+        887.0,
+        4369.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 19,
+        "pix": [
+          485,
+          122
+        ],
+        "world": [
+          -1029.0,
+          887.0,
+          4369.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 31,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -867.0,
+        876.0,
+        4358.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 22,
+        "pix": [
+          488,
+          156
+        ],
+        "world": [
+          -867.0,
+          876.0,
+          4358.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 34,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -746.0,
+        860.0,
+        4361.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 26,
+        "pix": [
+          491,
+          182
+        ],
+        "world": [
+          -746.0,
+          860.0,
+          4361.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 33,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -587.0,
+        842.0,
+        4358.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 25,
+        "pix": [
+          495,
+          216
+        ],
+        "world": [
+          -587.0,
+          842.0,
+          4358.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 28,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -1029.0,
+        773.0,
+        4369.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 18,
+        "pix": [
+          508,
+          122
+        ],
+        "world": [
+          -1029.0,
+          773.0,
+          4369.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 36,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -187.0,
+        776.0,
+        4347.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 28,
+        "pix": [
+          509,
+          302
+        ],
+        "world": [
+          -187.0,
+          776.0,
+          4347.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 30,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -874.0,
+        764.0,
+        4367.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 21,
+        "pix": [
+          510,
+          155
+        ],
+        "world": [
+          -874.0,
+          764.0,
+          4367.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 32,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -742.0,
+        760.0,
+        4364.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 23,
+        "pix": [
+          511,
+          183
+        ],
+        "world": [
+          -742.0,
+          760.0,
+          4364.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 35,
+      "support_count": 1,
+      "support_frames": [
+        2
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -601.0,
+        762.0,
+        4359.0
+      ],
+      "representative": {
+        "frame": 2,
+        "idx": 27,
+        "pix": [
+          511,
+          213
+        ],
+        "world": [
+          -601.0,
+          762.0,
+          4359.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 52,
+      "support_count": 1,
+      "support_frames": [
+        7
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        451.0,
+        674.0,
+        4323.0
+      ],
+      "representative": {
+        "frame": 7,
+        "idx": 4,
+        "pix": [
+          532,
+          441
+        ],
+        "world": [
+          451.0,
+          674.0,
+          4323.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 39,
+      "support_count": 1,
+      "support_frames": [
+        3
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -642.0,
+        565.0,
+        4346.0
+      ],
+      "representative": {
+        "frame": 3,
+        "idx": 22,
+        "pix": [
+          552,
+          204
+        ],
+        "world": [
+          -642.0,
+          565.0,
+          4346.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 19,
+      "support_count": 1,
+      "support_frames": [
+        1
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        -331.0,
+        570.0,
+        4335.0
+      ],
+      "representative": {
+        "frame": 1,
+        "idx": 20,
+        "pix": [
+          552,
+          271
+        ],
+        "world": [
+          -331.0,
+          570.0,
+          4335.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    },
+    {
+      "cluster_id": 53,
+      "support_count": 1,
+      "support_frames": [
+        8
+      ],
+      "cluster_size": 1,
+      "centroid_world": [
+        424.0,
+        581.0,
+        4313.0
+      ],
+      "representative": {
+        "frame": 8,
+        "idx": 10,
+        "pix": [
+          552,
+          436
+        ],
+        "world": [
+          424.0,
+          581.0,
+          4313.0
+        ],
+        "angle": -45.0,
+        "is_shuiguan": false
+      }
+    }
+  ]
+}

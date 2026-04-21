@@ -30,6 +30,19 @@
 
 这张图适合回答另一个问题：前端按下一个按钮之后，系统到底会按什么顺序工作。
 
+## 图 3：节点传输总图
+
+![simple_lashingrobot_ws 节点传输总图](generated/slam_v15_node_transport_overview.svg)
+
+这张图专门用来看“节点和节点之间到底在传什么”。
+
+如果你想查的是下面这类问题，就优先看这张：
+
+- `topicTransNode` 到底把哪些前端命令转给了谁
+- `suoquNode` 和 `pointAI.py`、`moduanNode` 分别怎么交互
+- `TF`、调试图像、日志是从哪里回到前端的
+- 哪些 `json` 文件是由哪个节点写出来的
+
 ## 启动链怎么理解
 
 工程平时主要看 3 个 launch：

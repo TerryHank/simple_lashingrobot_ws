@@ -1,0 +1,618 @@
+{
+  "template_type": "architecture",
+  "style": 6,
+  "width": 1440,
+  "height": 980,
+  "title": "simple_lashingrobot_ws 节点传输总图",
+  "subtitle": "按节点关系梳理 topic、service、TF、日志与数据落盘，不强调执行先后，只强调谁在和谁传",
+  "style_overrides": {
+    "title_align": "center"
+  },
+  "containers": [
+    {
+      "x": 40,
+      "y": 116,
+      "width": 1360,
+      "height": 92,
+      "label": "",
+      "side_label": "Web 入口",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#ded8cf",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 232,
+      "width": 1360,
+      "height": 112,
+      "label": "",
+      "side_label": "桥接与传感",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#ded8cf",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 370,
+      "width": 1360,
+      "height": 172,
+      "label": "",
+      "side_label": "运行时节点",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#ded8cf",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 568,
+      "width": 1360,
+      "height": 118,
+      "label": "",
+      "side_label": "TF / 可视化回显",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#ded8cf",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 712,
+      "width": 1360,
+      "height": 126,
+      "label": "",
+      "side_label": "数据落盘",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#ded8cf",
+      "fill": "none"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "frontend",
+      "kind": "rect",
+      "x": 82,
+      "y": 138,
+      "width": 178,
+      "height": 50,
+      "label": "Web Frontend",
+      "type_label": "UI",
+      "fill": "#e9f1fb",
+      "stroke": "#8c6f5a",
+      "flat": true
+    },
+    {
+      "id": "rosbridge",
+      "kind": "double_rect",
+      "x": 340,
+      "y": 132,
+      "width": 198,
+      "height": 62,
+      "label": "rosbridge_websocket",
+      "type_label": "BRIDGE",
+      "fill": "#f7ecda",
+      "stroke": "#d97757"
+    },
+    {
+      "id": "tfweb",
+      "kind": "rect",
+      "x": 642,
+      "y": 136,
+      "width": 212,
+      "height": 54,
+      "label": "tf2_web_republisher",
+      "type_label": "TF WEB",
+      "fill": "#efe8de",
+      "stroke": "#d0c3b3",
+      "flat": true
+    },
+    {
+      "id": "viz",
+      "kind": "rect",
+      "x": 1054,
+      "y": 136,
+      "width": 228,
+      "height": 54,
+      "label": "Web / RViz / Overlay",
+      "type_label": "VIEW",
+      "fill": "#e9f1fb",
+      "stroke": "#8c6f5a",
+      "flat": true
+    },
+    {
+      "id": "topictrans",
+      "kind": "double_rect",
+      "x": 94,
+      "y": 260,
+      "width": 214,
+      "height": 64,
+      "label": "topicTransNode",
+      "type_label": "ROUTER",
+      "fill": "#f7ecda",
+      "stroke": "#d0b893"
+    },
+    {
+      "id": "scepter",
+      "kind": "rect",
+      "x": 470,
+      "y": 266,
+      "width": 194,
+      "height": 54,
+      "label": "ScepterROS",
+      "type_label": "CAMERA",
+      "fill": "#e5e8df",
+      "stroke": "#7b8b5c",
+      "flat": true
+    },
+    {
+      "id": "logmux",
+      "kind": "rect",
+      "x": 856,
+      "y": 266,
+      "width": 198,
+      "height": 54,
+      "label": "system_log_mux.py",
+      "type_label": "LOG MUX",
+      "fill": "#efe8de",
+      "stroke": "#d0c3b3",
+      "flat": true
+    },
+    {
+      "id": "suoqu",
+      "kind": "double_rect",
+      "x": 70,
+      "y": 420,
+      "width": 270,
+      "height": 84,
+      "label": "suoquNode",
+      "sublabel": "规划、pseudo_slam、全局执行主编排",
+      "type_label": "ORCHESTRATOR",
+      "fill": "#c8e4db",
+      "stroke": "#8c6f5a"
+    },
+    {
+      "id": "pointai",
+      "kind": "double_rect",
+      "x": 470,
+      "y": 420,
+      "width": 258,
+      "height": 84,
+      "label": "pointAI.py",
+      "sublabel": "视觉识别、ProcessImage、调试图像",
+      "type_label": "VISION",
+      "fill": "#e9f1fb",
+      "stroke": "#8c6f5a"
+    },
+    {
+      "id": "moduan",
+      "kind": "double_rect",
+      "x": 920,
+      "y": 420,
+      "width": 232,
+      "height": 84,
+      "label": "moduanNode",
+      "sublabel": "线模运动、绑扎动作、预计算执行",
+      "type_label": "ACTUATOR",
+      "fill": "#f7ecda",
+      "stroke": "#d97757"
+    },
+    {
+      "id": "stabletf",
+      "kind": "rect",
+      "x": 182,
+      "y": 598,
+      "width": 256,
+      "height": 58,
+      "label": "stable_point_tf_broadcaster.py",
+      "type_label": "TF NODE",
+      "fill": "#efe8de",
+      "stroke": "#d0c3b3",
+      "flat": true
+    },
+    {
+      "id": "grippertf",
+      "kind": "rect",
+      "x": 608,
+      "y": 598,
+      "width": 240,
+      "height": 58,
+      "label": "gripper_tf_broadcaster.py",
+      "type_label": "TF NODE",
+      "fill": "#efe8de",
+      "stroke": "#d0c3b3",
+      "flat": true
+    },
+    {
+      "id": "pathdoc",
+      "kind": "document",
+      "x": 64,
+      "y": 742,
+      "width": 170,
+      "height": 74,
+      "label": "path_points.json",
+      "fill": "#fffaf3",
+      "stroke": "#d0b893"
+    },
+    {
+      "id": "slampoints",
+      "kind": "document",
+      "x": 326,
+      "y": 742,
+      "width": 192,
+      "height": 74,
+      "label": "pseudo_slam_points.json",
+      "fill": "#fffaf3",
+      "stroke": "#7b8b5c"
+    },
+    {
+      "id": "bindpath",
+      "kind": "document",
+      "x": 624,
+      "y": 742,
+      "width": 226,
+      "height": 74,
+      "label": "pseudo_slam_bind_path.json",
+      "fill": "#fffaf3",
+      "stroke": "#d97757"
+    },
+    {
+      "id": "memory",
+      "kind": "document",
+      "x": 936,
+      "y": 742,
+      "width": 198,
+      "height": 74,
+      "label": "bind_execution_memory.json",
+      "fill": "#fffaf3",
+      "stroke": "#8c6f5a"
+    }
+  ],
+  "arrows": [
+    {
+      "source": "frontend",
+      "target": "rosbridge",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control",
+      "label": "/web/*"
+    },
+    {
+      "source": "rosbridge",
+      "target": "topictrans",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "ROS topic bridge",
+      "corridor_x": [
+        430
+      ]
+    },
+    {
+      "source": "tfweb",
+      "target": "viz",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback",
+      "dashed": true,
+      "label": "TF web stream"
+    },
+    {
+      "source": "logmux",
+      "target": "frontend",
+      "source_port": "top",
+      "target_port": "bottom",
+      "flow": "feedback",
+      "dashed": true,
+      "label": "/system_log/all",
+      "route_points": [
+        [
+          954,
+          250
+        ],
+        [
+          954,
+          108
+        ],
+        [
+          170,
+          108
+        ],
+        [
+          170,
+          188
+        ]
+      ]
+    },
+    {
+      "source": "topictrans",
+      "target": "suoqu",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "/cabin/plan_path + start_*"
+    },
+    {
+      "source": "topictrans",
+      "target": "pointai",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "/pointAI/process_image",
+      "route_points": [
+        [
+          204,
+          354
+        ],
+        [
+          204,
+          396
+        ],
+        [
+          598,
+          396
+        ],
+        [
+          598,
+          420
+        ]
+      ]
+    },
+    {
+      "source": "topictrans",
+      "target": "moduan",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "/moduan/single_move + /moduan/sg",
+      "route_points": [
+        [
+          282,
+          352
+        ],
+        [
+          282,
+          384
+        ],
+        [
+          1036,
+          384
+        ],
+        [
+          1036,
+          420
+        ]
+      ]
+    },
+    {
+      "source": "scepter",
+      "target": "pointai",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "read",
+      "label": "/Scepter/color/* /depth/* /worldCoord/*"
+    },
+    {
+      "source": "suoqu",
+      "target": "pointai",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "read",
+      "label": "ProcessImage.srv"
+    },
+    {
+      "source": "suoqu",
+      "target": "moduan",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control",
+      "label": "/moduan/sg_precomputed(_fast) / /moduan/sg"
+    },
+    {
+      "source": "pointai",
+      "target": "stabletf",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "write",
+      "label": "/coordinate_point",
+      "route_points": [
+        [
+          582,
+          540
+        ],
+        [
+          310,
+          540
+        ],
+        [
+          310,
+          598
+        ]
+      ]
+    },
+    {
+      "source": "stabletf",
+      "target": "viz",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback",
+      "dashed": true,
+      "label": "stable point TF",
+      "route_points": [
+        [
+          438,
+          626
+        ],
+        [
+          1040,
+          626
+        ]
+      ]
+    },
+    {
+      "source": "grippertf",
+      "target": "viz",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback",
+      "dashed": true,
+      "label": "gripper TF",
+      "route_points": [
+        [
+          848,
+          614
+        ],
+        [
+          1040,
+          614
+        ]
+      ]
+    },
+    {
+      "source": "pointai",
+      "target": "viz",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback",
+      "dashed": true,
+      "label": "/pointAI/* debug image",
+      "route_points": [
+        [
+          728,
+          452
+        ],
+        [
+          1180,
+          452
+        ],
+        [
+          1180,
+          190
+        ]
+      ]
+    },
+    {
+      "source": "suoqu",
+      "target": "viz",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback",
+      "dashed": true,
+      "label": "/cabin/pseudo_slam_markers + /cabin/area_progress",
+      "route_points": [
+        [
+          340,
+          470
+        ],
+        [
+          1150,
+          470
+        ],
+        [
+          1150,
+          190
+        ]
+      ]
+    },
+    {
+      "source": "suoqu",
+      "target": "pathdoc",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "write",
+      "label": "write plan"
+    },
+    {
+      "source": "suoqu",
+      "target": "slampoints",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "write",
+      "label": "write scan points",
+      "route_points": [
+        [
+          214,
+          542
+        ],
+        [
+          422,
+          542
+        ],
+        [
+          422,
+          742
+        ]
+      ]
+    },
+    {
+      "source": "suoqu",
+      "target": "bindpath",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "write",
+      "label": "write bind route",
+      "route_points": [
+        [
+          256,
+          550
+        ],
+        [
+          738,
+          550
+        ],
+        [
+          738,
+          742
+        ]
+      ]
+    },
+    {
+      "source": "suoqu",
+      "target": "memory",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "write",
+      "label": "write execution memory",
+      "route_points": [
+        [
+          298,
+          558
+        ],
+        [
+          1034,
+          558
+        ],
+        [
+          1034,
+          742
+        ]
+      ]
+    }
+  ],
+  "legend": [
+    {
+      "flow": "control",
+      "label": "topic / service 控制链"
+    },
+    {
+      "flow": "read",
+      "label": "图像输入与视觉请求"
+    },
+    {
+      "flow": "write",
+      "label": "TF 输出与数据落盘"
+    },
+    {
+      "flow": "feedback",
+      "label": "前端回显、TF、日志与调试图像"
+    }
+  ],
+  "legend_position": "bottom-right",
+  "legend_box": true,
+  "legend_box_fill": "#fffaf3",
+  "legend_x": 1120,
+  "legend_y": 872,
+  "footer": ""
+}
