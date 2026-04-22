@@ -1,0 +1,42 @@
+{
+  "input": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/height_1500_line_experiment_live/classic_line_experiment_v2_topmask_only/height_map.png",
+  "vertical_step_px": 30,
+  "horizontal_step_px": 32,
+  "vertical_lines": [
+    34.0,
+    64.0,
+    94.0,
+    120.0,
+    153.0,
+    184.0,
+    210.0,
+    245.0,
+    272.0,
+    305.0,
+    336.0,
+    366.0,
+    394.0,
+    429.0,
+    461.0,
+    489.0,
+    519.0,
+    551.0,
+    573.0,
+    612.0
+  ],
+  "horizontal_lines": [
+    102.0,
+    132.0,
+    165.0,
+    196.0,
+    227.0,
+    263.0,
+    294.0,
+    324.0,
+    362.0,
+    394.0,
+    427.0,
+    458.0
+  ],
+  "point_count": 232
+}

@@ -12,7 +12,7 @@ import yaml
 from geometry_msgs.msg import Pose, TransformStamped
 from tf.transformations import quaternion_from_euler
 
-LEGACY_OFFSET_TOPIC = "/web/fast_image_solve/set_pointAI_offset"
+POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset"
 
 
 def _read_string(data, key):
@@ -241,11 +241,11 @@ def main():
         except Exception as exc:
             rospy.logerr(
                 "gripper_tf_broadcaster: 处理%s失败，无法实时更新TF平移标定: %s",
-                LEGACY_OFFSET_TOPIC,
+                POINTAI_OFFSET_TOPIC,
                 exc,
             )
 
-    rospy.Subscriber(LEGACY_OFFSET_TOPIC, Pose, handle_legacy_offset)
+    rospy.Subscriber(POINTAI_OFFSET_TOPIC, Pose, handle_legacy_offset)
 
     rospy.loginfo(
         "gripper_tf_broadcaster started: %s -> %s from %s | user_translation_mm=(%.3f, %.3f, %.3f) | published_tf_translation_m=(%.6f, %.6f, %.6f) | rotation_rpy=(%.6f, %.6f, %.6f) rad",

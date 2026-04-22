@@ -1,5 +1,0 @@
-# PlaneDetection.srv
----
-float32 avg_z
-bool is_success
-

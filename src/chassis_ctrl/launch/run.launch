@@ -1,4 +1,13 @@
 <launch>
+    <arg name="include_api_stack" default="true" />
+    <arg name="start_workspace_picker_web" default="true" />
+    <arg name="auto_open_workspace_picker" default="true" />
+    <arg name="workspace_picker_port" default="8765" />
+
+    <group if="$(arg include_api_stack)">
+        <include file="$(find chassis_ctrl)/launch/api.launch" />
+    </group>
+
     <node name="suoquNode" pkg="chassis_ctrl" type="suoquNode"  output="log"></node>
     <node name="moduanNode" pkg="chassis_ctrl" type="moduanNode"  output="log" ></node>
     <node name="gripper_tf_broadcaster"
@@ -18,5 +27,25 @@
         <param name="stable_frame_count" value="2" />
         <param name="stable_z_tolerance_mm" value="4.0" />
         <param name="publish_rate_hz" value="20.0" />
+    </node>
+
+    <node if="$(arg start_workspace_picker_web)"
+          name="workspace_picker_web_server"
+          pkg="chassis_ctrl"
+          type="workspace_picker_web_server.py"
+          output="log">
+        <param name="port" value="$(arg workspace_picker_port)" />
+        <param name="browser_host" value="127.0.0.1" />
+    </node>
+
+    <node if="$(arg auto_open_workspace_picker)"
+          name="workspace_picker_web_open"
+          pkg="chassis_ctrl"
+          type="workspace_picker_web_open.py"
+          output="log">
+        <param name="port" value="$(arg workspace_picker_port)" />
+        <param name="browser_host" value="127.0.0.1" />
+        <param name="wait_timeout_sec" value="8.0" />
+        <param name="open_delay_sec" value="1.0" />
     </node>
 </launch>

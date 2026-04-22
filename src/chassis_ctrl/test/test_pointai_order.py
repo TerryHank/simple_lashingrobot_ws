@@ -6,6 +6,7 @@ import unittest
 import inspect
 import tempfile
 import re
+import json
 from pathlib import Path
 
 import yaml
@@ -24,7 +25,6 @@ import pointAI  # noqa: E402
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CHASSIS_CTRL_DIR = WORKSPACE_ROOT / "chassis_ctrl"
-FAST_IMAGE_SOLVE_DIR = WORKSPACE_ROOT / "fast_image_solve"
 
 
 def make_points_array(z_values, idx_values=None):
@@ -297,7 +297,7 @@ class PointAIOrderTest(unittest.TestCase):
             global_bind_text.index(
                 "if (!load_scan_artifacts_for_execution(points_json, bind_path_json, bind_execution_memory, current_path_signature, message))"
             ),
-            global_bind_text.index('const float cabin_height = bind_path_json.value("cabin_height", 500.0f);'),
+            global_bind_text.index('const auto& areas_json = bind_path_json["areas"];'),
         )
         self.assertLess(
             global_bind_text.index(
@@ -624,7 +624,7 @@ class PointAIOrderTest(unittest.TestCase):
             ),
             (
                 "bool run_live_visual_global_work(std::string& message)",
-                "if (!load_configured_path(con_path, cabin_height, cabin_speed))",
+                "if (!load_bind_execution_memory_json(bind_execution_memory, bind_execution_memory_error))",
             ),
             (
                 "bool run_bind_from_scan(std::string& message)",
@@ -648,14 +648,14 @@ class PointAIOrderTest(unittest.TestCase):
             "bool run_live_visual_global_work(std::string& message)",
         )
 
-        self.assertNotIn("fast_image_solve::ProcessImage srv;", suoqu_text)
+        self.assertNotIn("chassis_ctrl::ProcessImage srv;", suoqu_text)
         self.assertNotIn("AI_client.call(srv)", suoqu_text)
         self.assertNotRegex(scan_function, re.compile(r"(?<![A-Za-z0-9_])srv\.response"))
         self.assertNotRegex(live_visual_function, re.compile(r"(?<![A-Za-z0-9_])srv\.response"))
         self.assertRegex(
             scan_function,
             re.compile(
-                r"fast_image_solve::ProcessImage scan_srv;[\s\S]*?"
+                r"chassis_ctrl::ProcessImage scan_srv;[\s\S]*?"
                 r"scan_srv.request.request_mode = kProcessImageModeScanOnly;[\s\S]*?"
                 r"AI_client.call\(scan_srv\)",
                 re.S,
@@ -665,20 +665,22 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertRegex(
             live_visual_function,
             re.compile(
-                r"for\s*\(int area_index = 0; area_index < total_area_count; \+\+area_index\)\s*\{[\s\S]*?"
-                r"fast_image_solve::ProcessImage scan_srv;[\s\S]*?"
-                r"scan_srv.request.request_mode = kProcessImageModeScanOnly;[\s\S]*?"
+                r"for\s*\(int area_order_index = 0; area_order_index < total_area_count; \+\+area_order_index\)\s*\{[\s\S]*?"
+                r"chassis_ctrl::ProcessImage scan_srv;[\s\S]*?"
+                r"scan_srv.request.request_mode = kProcessImageModeExecutionRefine;[\s\S]*?"
                 r"AI_client.call\(scan_srv\)",
                 re.S,
             ),
         )
 
     def test_process_image_service_supports_request_modes_and_failure_details(self):
-        service_path = FAST_IMAGE_SOLVE_DIR / "srv" / "ProcessImage.srv"
+        service_path = CHASSIS_CTRL_DIR / "srv" / "ProcessImage.srv"
         service_text = service_path.read_text(encoding="utf-8")
         self.assertIn("uint8 MODE_DEFAULT=0", service_text)
         self.assertIn("uint8 MODE_ADAPTIVE_HEIGHT=1", service_text)
         self.assertIn("uint8 MODE_BIND_CHECK=2", service_text)
+        self.assertIn("uint8 MODE_SCAN_ONLY=3", service_text)
+        self.assertIn("uint8 MODE_EXECUTION_REFINE=4", service_text)
         self.assertIn("uint8 request_mode", service_text)
         self.assertIn("bool success", service_text)
         self.assertIn("string message", service_text)
@@ -756,7 +758,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_scripts_only_keep_matrix_sort_logic(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertNotIn("def snake_sort(", pointai_text)
         self.assertNotIn("def snake_sort(", vision_text)
@@ -902,7 +904,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_close_point_filter_defaults_to_one_hundred_mm_in_visual_scripts(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("def filter_close_points_by_origin(self, centers, min_distance_mm=100.0):", pointai_text)
         self.assertIn("def filter_close_points_by_origin(self, centers, min_distance_mm=100.0):", vision_text)
@@ -931,17 +933,18 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_travel_range_reject_reasons_report_axis_and_limit(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
-        processor.travel_range_max_x_mm = 320.0
+        processor.travel_range_max_x_mm = 360.0
         processor.travel_range_max_y_mm = 320.0
 
-        reasons = processor.get_travel_range_reject_reasons(321.0, -1.0)
+        reasons = processor.get_travel_range_reject_reasons(361.0, -1.0)
 
-        self.assertEqual(reasons, ["X超过320", "Y小于0"])
+        self.assertEqual(reasons, ["X超过360", "Y小于0"])
 
     def test_pointai_logs_chinese_range_filter_details(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
 
-        self.assertIn("可执行范围过滤", pointai_text)
+        self.assertIn("范围外原因统计", pointai_text)
+        self.assertIn("可执行范围内点数不足4个", pointai_text)
         self.assertIn("范围外原因统计", pointai_text)
         self.assertIn("无法组成2x2矩阵", pointai_text)
 
@@ -969,7 +972,7 @@ class PointAIOrderTest(unittest.TestCase):
 
         self.assertIn("pointAI调试:\n", message)
         self.assertIn("  模式: adaptive_height", message)
-        self.assertIn("  4点候选范围过滤: 原始候选=24, 去重移除=0, 范围内=0, 范围外=24, 2x2选中=0, 本次输出=0", message)
+        self.assertIn("  可执行范围过滤: 原始候选=24, 去重移除=0, 范围内=0, 范围外=24, 2x2选中=0, 本次输出=0", message)
         self.assertIn("  范围限制: 白框ROI，并在边缘按全局工作区自适应裁剪", message)
         self.assertIn("  范围外原因统计: 超出自适应采集框=24", message)
         self.assertIn("  样例:\n    - idx=8,pix=(23,434),coord=(-301.0,-67.0,255.0),原因=超出自适应采集框", message)
@@ -1050,6 +1053,512 @@ class PointAIOrderTest(unittest.TestCase):
             dtype=np.uint8,
         )
         np.testing.assert_array_equal(mask, expected_mask)
+
+    def test_manual_workspace_quad_pixel_mask_overrides_rectangular_workspace_projection(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.x_channel = np.zeros((6, 6), dtype=np.int32)
+        processor.y_channel = np.zeros((6, 6), dtype=np.int32)
+        processor.depth_v = np.ones((6, 6), dtype=np.int32)
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[1, 1], [4, 1], [4, 4], [1, 4]],
+            "corner_world_cabin_frame": [
+                [100.0, 100.0, 300.0],
+                [400.0, 100.0, 300.0],
+                [400.0, 400.0, 300.0],
+                [100.0, 400.0, 300.0],
+            ],
+        }
+        processor.load_scan_planning_workspace = lambda: {
+            "min_x": 999.0,
+            "max_x": 1000.0,
+            "min_y": 999.0,
+            "max_y": 1000.0,
+        }
+
+        mask = processor.get_scan_workspace_pixel_mask()
+
+        expected_mask = np.array(
+            [
+                [0, 0, 0, 0, 0, 0],
+                [0, 1, 1, 1, 1, 0],
+                [0, 1, 1, 1, 1, 0],
+                [0, 1, 1, 1, 1, 0],
+                [0, 1, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0, 0],
+            ],
+            dtype=np.uint8,
+        )
+        np.testing.assert_array_equal(mask, expected_mask)
+
+    def test_manual_workspace_quad_world_polygon_overrides_rectangular_workspace_filter(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[10, 10], [20, 10], [20, 20], [10, 20]],
+            "corner_world_cabin_frame": [
+                [100.0, 100.0, 300.0],
+                [300.0, 100.0, 300.0],
+                [300.0, 300.0, 300.0],
+                [100.0, 300.0, 300.0],
+            ],
+        }
+        processor.load_scan_planning_workspace = lambda: {
+            "min_x": 0.0,
+            "max_x": 50.0,
+            "min_y": 0.0,
+            "max_y": 50.0,
+        }
+
+        self.assertTrue(processor.is_point_in_scan_workspace(200.0, 200.0))
+        self.assertFalse(processor.is_point_in_scan_workspace(80.0, 200.0))
+
+    def test_workspace_quad_callback_saves_pixel_and_cabin_frame_world_corners(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            processor.manual_workspace_quad_file = os.path.join(temp_dir, "manual_workspace_quad.json")
+            published_messages = []
+            processor.manual_workspace_quad_pixels_pub = type(
+                "PublisherStub",
+                (),
+                {"publish": lambda self, message: published_messages.append(message)},
+            )()
+            processor.get_valid_world_coord_near_pixel = lambda pixel_x, pixel_y, search_radius=6: (
+                [int(pixel_x), int(pixel_y), 100],
+                [int(pixel_x), int(pixel_y)],
+                False,
+            )
+            processor.apply_spatial_calibration = lambda x_value, y_value, z_value, idx, target_frame="gripper_frame": [
+                float(x_value + 100.0),
+                float(y_value + 200.0),
+                float(z_value + 300.0),
+            ]
+
+            msg = pointAI.Float32MultiArray(data=[30.0, 40.0, 50.0, 40.0, 50.0, 70.0, 30.0, 70.0])
+            processor.manual_workspace_quad_callback(msg)
+
+            with open(processor.manual_workspace_quad_file, "r", encoding="utf-8") as file_obj:
+                manual_workspace_json = pointAI.json.load(file_obj)
+
+        self.assertEqual(
+            manual_workspace_json["corner_pixels"],
+            [[30, 40], [50, 40], [50, 70], [30, 70]],
+        )
+        self.assertEqual(
+            manual_workspace_json["corner_world_cabin_frame"],
+            [
+                [130.0, 240.0, 400.0],
+                [150.0, 240.0, 400.0],
+                [150.0, 270.0, 400.0],
+                [130.0, 270.0, 400.0],
+            ],
+        )
+        self.assertEqual(len(published_messages), 1)
+        self.assertEqual(list(published_messages[0].data), [30.0, 40.0, 50.0, 40.0, 50.0, 70.0, 30.0, 70.0])
+
+    def test_publish_current_manual_workspace_quad_pixels_uses_saved_corner_pixels(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        published_messages = []
+        processor.manual_workspace_quad_pixels_pub = type(
+            "PublisherStub",
+            (),
+            {"publish": lambda self, message: published_messages.append(message)},
+        )()
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[11, 22], [33, 44], [55, 66], [77, 88]],
+            "corner_world_cabin_frame": [
+                [100.0, 100.0, 300.0],
+                [300.0, 100.0, 300.0],
+                [300.0, 300.0, 300.0],
+                [100.0, 300.0, 300.0],
+            ],
+        }
+
+        processor.publish_current_manual_workspace_quad_pixels()
+
+        self.assertEqual(len(published_messages), 1)
+        self.assertEqual(list(published_messages[0].data), [11.0, 22.0, 33.0, 44.0, 55.0, 66.0, 77.0, 88.0])
+
+    def test_workspace_s2_period_and_phase_estimation_prefers_periodic_peaks(self):
+        profile = np.zeros(180, dtype=np.float32)
+        for center_index in range(5, profile.size, 18):
+            for offset, value in ((-1, 0.5), (0, 1.0), (1, 0.5)):
+                sample_index = center_index + offset
+                if 0 <= sample_index < profile.size:
+                    profile[sample_index] = value
+
+        estimated = pointAI.ImageProcessor.estimate_workspace_s2_period_and_phase(
+            profile,
+            min_period=10,
+            max_period=30,
+        )
+
+        self.assertIsNotNone(estimated)
+        self.assertEqual(estimated["period"], 18)
+        self.assertEqual(estimated["phase"], 5)
+        self.assertGreater(estimated["score"], 0.8)
+
+    def test_workspace_s2_period_and_phase_estimation_prefers_true_fundamental_over_nearby_distractor(self):
+        sample_x = np.arange(360, dtype=np.float32)
+        rng = np.random.default_rng(0)
+        profile = (
+            1.0 * np.cos((2.0 * np.pi * sample_x) / 18.0)
+            + 0.35 * np.cos((2.0 * np.pi * sample_x) / 14.0)
+            + 0.3 * rng.normal(size=sample_x.shape)
+        ).astype(np.float32)
+
+        estimated = pointAI.ImageProcessor.estimate_workspace_s2_period_and_phase(
+            profile,
+            min_period=10,
+            max_period=30,
+        )
+
+        self.assertIsNotNone(estimated)
+        self.assertEqual(estimated["period"], 18)
+
+    def test_workspace_s2_line_positions_follow_period_and_phase_inside_workspace(self):
+        positions = pointAI.ImageProcessor.build_workspace_s2_line_positions(
+            start_pixel=148,
+            end_pixel=220,
+            period_px=18,
+            phase_px=4,
+        )
+
+        self.assertEqual(positions, [152, 170, 188, 206])
+
+    def test_workspace_s2_projective_line_segments_follow_quad_geometry(self):
+        quad_points = [[10, 10], [120, 28], [102, 102], [24, 86]]
+        rectified_width = 100
+        rectified_height = 80
+
+        segments = pointAI.ImageProcessor.build_workspace_s2_projective_line_segments(
+            quad_points,
+            rectified_width,
+            rectified_height,
+            vertical_lines=[50],
+            horizontal_lines=[40],
+        )
+
+        self.assertEqual(len(segments["vertical"]), 1)
+        self.assertEqual(len(segments["horizontal"]), 1)
+
+        vertical_segment = segments["vertical"][0]
+        horizontal_segment = segments["horizontal"][0]
+
+        self.assertNotEqual(vertical_segment[0][0], vertical_segment[1][0])
+        self.assertNotEqual(horizontal_segment[0][1], horizontal_segment[1][1])
+
+    def test_workspace_s2_rectified_geometry_prefers_world_scale_when_available(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+
+        geometry = processor.build_workspace_s2_rectified_geometry(
+            corner_pixels=[[154, 74], [493, 74], [491, 460], [145, 451]],
+            corner_world_cabin_frame=[
+                [-1465.0, 2877.0, 6356.0],
+                [-1473.0, 490.0, 6378.0],
+                [1082.0, 519.0, 6336.0],
+                [1019.0, 2929.0, 6326.0],
+            ],
+        )
+
+        self.assertEqual(geometry["rectified_width"], 480)
+        self.assertEqual(geometry["rectified_height"], 504)
+
+    def test_pointai_exposes_dedicated_manual_workspace_s2_topics(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn("/web/pointAI/run_workspace_s2", pointai_text)
+        self.assertIn("/pointAI/manual_workspace_s2_result_raw", pointai_text)
+        self.assertIn("/pointAI/manual_workspace_s2_points", pointai_text)
+        self.assertIn("/web/pointAI/move_to_workspace_center_scan_pose", pointai_text)
+
+    def test_workspace_center_scan_pose_callback_runs_only_for_true_trigger(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        callback_invocations = []
+        processor.run_workspace_center_scan_pose_move = (
+            lambda: callback_invocations.append("run") or {"success": True}
+        )
+
+        processor.workspace_center_scan_pose_callback(pointAI.Bool(data=False))
+        processor.workspace_center_scan_pose_callback(pointAI.Bool(data=True))
+
+        self.assertEqual(callback_invocations, ["run"])
+
+    def test_load_workspace_center_scan_pose_target_returns_fixed_scan_pose(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        target = processor.load_workspace_center_scan_pose_target()
+
+        self.assertEqual(
+            target,
+            {
+                "x": -260.0,
+                "y": 1700.0,
+                "z": 2997.0,
+                "speed": 100.0,
+            },
+        )
+
+    def test_run_workspace_center_scan_pose_move_calls_single_move_service(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.load_workspace_center_scan_pose_target = lambda: {
+            "x": -260.0,
+            "y": 1700.0,
+            "z": 2997.0,
+            "speed": 100.0,
+        }
+
+        service_calls = []
+        original_wait_for_service = pointAI.rospy.wait_for_service
+        original_service_proxy = pointAI.rospy.ServiceProxy
+        pointAI.rospy.wait_for_service = lambda name, timeout=None: service_calls.append(
+            ("wait", name, timeout)
+        )
+        pointAI.rospy.ServiceProxy = lambda name, srv_type: (
+            lambda request: service_calls.append(
+                (
+                    "call",
+                    name,
+                    request.command,
+                    request.x,
+                    request.y,
+                    request.z,
+                    request.speed,
+                )
+            )
+            or type("ResponseStub", (), {"success": True, "message": "ok"})()
+        )
+
+        try:
+            result = processor.run_workspace_center_scan_pose_move()
+        finally:
+            pointAI.rospy.wait_for_service = original_wait_for_service
+            pointAI.rospy.ServiceProxy = original_service_proxy
+
+        self.assertTrue(result["success"])
+        self.assertIn(("wait", "/cabin/single_move", 1.0), service_calls)
+        self.assertIn(
+            ("call", "/cabin/single_move", "单点运动请求", -260.0, 1700.0, 2997.0, 100.0),
+            service_calls,
+        )
+
+    def test_manual_workspace_s2_callback_runs_only_for_true_trigger(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        callback_invocations = []
+        processor.run_manual_workspace_s2 = lambda: callback_invocations.append("run") or {"success": True}
+
+        processor.manual_workspace_s2_callback(pointAI.Bool(data=False))
+        processor.manual_workspace_s2_callback(pointAI.Bool(data=True))
+
+        self.assertEqual(callback_invocations, ["run"])
+
+    def test_run_manual_workspace_s2_publishes_result_image_and_points(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.cv2 = pointAI.cv2
+        height, width = 120, 140
+        base_depth = np.full((height, width), 2000.0, dtype=np.float32)
+
+        for x_value in range(24, 121, 18):
+            base_depth[:, max(0, x_value - 1):min(width, x_value + 2)] -= 40.0
+        for y_value in range(14, 91, 18):
+            base_depth[max(0, y_value - 1):min(height, y_value + 2), :] -= 40.0
+
+        image_raw_world = np.zeros((height, width, 3), dtype=np.float32)
+        x_grid = np.tile(np.arange(width, dtype=np.float32), (height, 1))
+        y_grid = np.tile(np.arange(height, dtype=np.float32).reshape(-1, 1), (1, width))
+        image_raw_world[:, :, 0] = x_grid + 1.0
+        image_raw_world[:, :, 1] = y_grid + 1.0
+        image_raw_world[:, :, 2] = base_depth
+
+        processor.image_raw_world = image_raw_world
+        processor.image_infrared_copy = np.zeros((height, width), dtype=np.uint8)
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[20, 10], [120, 10], [120, 90], [20, 90]],
+            "corner_world_cabin_frame": [
+                [20.0, 10.0, 2000.0],
+                [120.0, 10.0, 2000.0],
+                [120.0, 90.0, 2000.0],
+                [20.0, 90.0, 2000.0],
+            ],
+        }
+        processor.apply_spatial_calibration = lambda x_value, y_value, z_value, idx, target_frame="gripper_frame": [
+            float(x_value),
+            float(y_value),
+            float(z_value),
+        ]
+
+        published_images = []
+        published_points = []
+        processor.manual_workspace_s2_result_raw_pub = type(
+            "PublisherStub",
+            (),
+            {"publish": lambda self, message: published_images.append(message)},
+        )()
+        processor.manual_workspace_s2_points_pub = type(
+            "PublisherStub",
+            (),
+            {"publish": lambda self, message: published_points.append(message)},
+        )()
+
+        def stub_cv2_to_imgmsg(image, encoding='mono8'):
+            return type(
+                "ImageMsgStub",
+                (),
+                {"image": image, "encoding": encoding, "header": type("HeaderStub", (), {})()},
+            )()
+
+        processor.bridge = type(
+            "BridgeStub",
+            (),
+            {"cv2_to_imgmsg": staticmethod(stub_cv2_to_imgmsg)},
+        )()
+        original_time_now = pointAI.rospy.Time.now
+        pointAI.rospy.Time.now = staticmethod(lambda: 0)
+
+        try:
+            result = processor.run_manual_workspace_s2()
+        finally:
+            pointAI.rospy.Time.now = original_time_now
+
+        self.assertTrue(result["success"])
+        self.assertGreater(result["point_count"], 0)
+        self.assertEqual(len(published_images), 1)
+        self.assertEqual(len(published_points), 1)
+        self.assertGreater(published_points[0].count, 0)
+
+    def test_run_manual_workspace_s2_pipeline_can_skip_publication(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.prepare_manual_workspace_s2_inputs = lambda: {
+            "manual_workspace": {"corner_pixels": [[10, 10], [30, 10], [30, 30], [10, 30]]},
+            "workspace_mask": np.ones((40, 40), dtype=np.uint8),
+            "workspace_bbox": (10, 10, 30, 30),
+            "rectified_geometry": {"rectified_width": 20, "rectified_height": 20, "inverse_h": np.eye(3, dtype=np.float32)},
+            "vertical_estimate": {"period": 10, "phase": 5},
+            "horizontal_estimate": {"period": 10, "phase": 5},
+        }
+        processor.build_workspace_s2_line_positions = lambda start_pixel, end_pixel, period_px, phase_px: [5, 15]
+        processor.map_workspace_s2_rectified_points_to_image = lambda points, inverse_h: points
+        processor.build_workspace_s2_projective_line_segments = lambda *args, **kwargs: {"vertical": [], "horizontal": []}
+        expected_points = make_points_array_with_world_coords([(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)])
+        processor.build_manual_workspace_s2_points_array = lambda intersection_pixels, workspace_mask: (
+            expected_points,
+            [(1, [5, 5], [1.0, 2.0, 3.0], "selected", "S2")],
+        )
+        processor.render_manual_workspace_s2_result_image = lambda *args, **kwargs: np.zeros((40, 40), dtype=np.uint8)
+        publish_invocations = []
+        processor.publish_manual_workspace_s2_result = lambda result_image, points_array_msg: publish_invocations.append(
+            (result_image, points_array_msg)
+        )
+
+        result = processor.run_manual_workspace_s2_pipeline(publish=False)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["point_coords"].count, 2)
+        self.assertEqual(len(publish_invocations), 0)
+
+    def test_scan_only_prefers_manual_workspace_s2_points_when_saved_quad_exists(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.image = object()
+        processor.image_raw_world = np.zeros((2, 2, 3), dtype=np.float32)
+        processor.world_image_seq = 1
+        processor.process_wait_timeout_sec = 0.1
+        processor.process_request_rate_hz = 1.0
+        processor.stable_frame_count = 3
+        processor.stable_z_tolerance_mm = 5.0
+        processor.pre_img = lambda request_mode=None: make_points_array_with_world_coords([(9.0, 9.0, 9.0)])
+        processor.has_detected_points = lambda point_coords: bool(
+            point_coords and getattr(point_coords, "count", 0) > 0
+        )
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[10, 10], [20, 10], [20, 20], [10, 20]],
+            "corner_world_cabin_frame": [
+                [100.0, 100.0, 300.0],
+                [300.0, 100.0, 300.0],
+                [300.0, 300.0, 300.0],
+                [100.0, 300.0, 300.0],
+            ],
+        }
+        manual_s2_points = make_points_array_with_world_coords(
+            [(1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0)]
+        )
+        processor.run_manual_workspace_s2_pipeline = lambda publish=False: {
+            "success": True,
+            "message": "manual workspace S2 finished",
+            "point_count": 3,
+            "point_coords": manual_s2_points,
+            "result_image": np.zeros((4, 4), dtype=np.uint8),
+        }
+        original_rate = pointAI.rospy.Rate
+        pointAI.rospy.Rate = lambda hz: type("RateStub", (), {"sleep": lambda self: None})()
+        try:
+            result = processor.wait_for_stable_point_coords(pointAI.PROCESS_IMAGE_MODE_SCAN_ONLY)
+        finally:
+            pointAI.rospy.Rate = original_rate
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["point_coords"].count, 3)
+        self.assertIn("手动工作区S2", result["message"])
+
+    def test_try_scan_only_manual_workspace_s2_publishes_result_overlay(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[10, 10], [20, 10], [20, 20], [10, 20]],
+            "corner_world_cabin_frame": [
+                [100.0, 100.0, 300.0],
+                [300.0, 100.0, 300.0],
+                [300.0, 300.0, 300.0],
+                [100.0, 300.0, 300.0],
+            ],
+        }
+        captured_publish_flag = []
+        manual_s2_points = make_points_array_with_world_coords([(1.0, 2.0, 3.0)])
+        processor.run_manual_workspace_s2_pipeline = lambda publish=False: (
+            captured_publish_flag.append(publish)
+            or {
+                "success": True,
+                "message": "manual workspace S2 finished",
+                "point_count": 1,
+                "point_coords": manual_s2_points,
+                "result_image": np.zeros((2, 2), dtype=np.uint8),
+            }
+        )
+
+        result = processor.try_scan_only_manual_workspace_s2()
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["point_coords"].count, 1)
+        self.assertEqual(captured_publish_flag, [True])
+
+    def test_manual_workspace_s2_result_labels_only_show_point_indices(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.image_infrared_copy = np.zeros((40, 40), dtype=np.uint8)
+        processor.load_manual_workspace_quad = lambda: {
+            "corner_pixels": [[5, 5], [35, 5], [35, 35], [5, 35]],
+            "corner_world_cabin_frame": [
+                [5.0, 5.0, 2000.0],
+                [35.0, 5.0, 2000.0],
+                [35.0, 35.0, 2000.0],
+                [5.0, 35.0, 2000.0],
+            ],
+        }
+
+        captured_labels = []
+        processor.find_non_overlapping_label_position = lambda image_shape, anchor_point, text, occupied_bboxes: (
+            (int(anchor_point[0]), int(anchor_point[1])),
+            (0, 0, 1, 1),
+        )
+        processor.draw_text_with_background = lambda image, text, position, **kwargs: captured_labels.append(text)
+
+        processor.render_manual_workspace_s2_result_image(
+            workspace_mask=np.ones((40, 40), dtype=np.uint8),
+            line_segments={
+                "vertical": [([10, 5], [10, 35]), ([20, 5], [20, 35])],
+                "horizontal": [([5, 12], [35, 12]), ([5, 24], [35, 24])],
+            },
+            display_points=[
+                (1, [10, 12], [100.0, 200.0, 300.0], "selected", "S2"),
+                (2, [20, 24], [110.0, 210.0, 310.0], "selected", "S2"),
+            ],
+        )
+
+        self.assertEqual(captured_labels, ["1", "2"])
 
     def test_roi_pixel_mask_uses_white_rectangle_bounds(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
@@ -1150,7 +1659,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_binary_pipeline_filters_small_connected_components_before_thinning(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("self.binary_small_blob_min_area_px = int(rospy.get_param(", pointai_text)
         self.assertIn("def remove_small_foreground_components(self, binary_image, min_area_px=None):", pointai_text)
@@ -1198,7 +1707,7 @@ class PointAIOrderTest(unittest.TestCase):
 
         self.assertIn("constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;", suoqu_text)
         self.assertIn("struct PseudoSlamOverlapCluster", suoqu_text)
-        self.assertIn("std::vector<fast_image_solve::PointCoords> member_points;", suoqu_text)
+        self.assertIn("std::vector<chassis_ctrl::PointCoords> member_points;", suoqu_text)
         self.assertIn("build_scan_cluster_representatives(", suoqu_text)
         self.assertIn("merge_frame_points_into_overlap_clusters(", suoqu_text)
         self.assertIn("const size_t cluster_count_before_frame = clusters.size();", suoqu_text)
@@ -1240,7 +1749,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_scripts_subscribe_to_jump_bind_topic_and_mark_skipped_points(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("/web/moduan/send_odd_points", pointai_text)
         self.assertIn("/web/moduan/send_odd_points", vision_text)
@@ -1257,7 +1766,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_scripts_use_single_axis_alignment_helper(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("def axis_angle_diff_deg", pointai_text)
         self.assertIn("def axis_angle_diff_deg", vision_text)
@@ -1266,36 +1775,47 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("angle_diff <= 60", pointai_text)
         self.assertNotIn("angle_diff <= 60", vision_text)
 
-    def test_visual_travel_range_caps_y_at_three_hundred_twenty(self):
+    def test_visual_travel_range_caps_at_three_hundred_sixty_by_three_hundred_twenty(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
 
-        self.assertTrue(processor.is_point_in_travel_range(320, 320))
-        self.assertFalse(processor.is_point_in_travel_range(320, 321))
+        self.assertTrue(processor.is_point_in_travel_range(360, 320))
+        self.assertFalse(processor.is_point_in_travel_range(361, 320))
+        self.assertFalse(processor.is_point_in_travel_range(360, 321))
 
-    def test_visual_scripts_use_three_hundred_twenty_as_y_limit(self):
+    def test_visual_scripts_use_three_hundred_sixty_by_three_hundred_twenty_as_tcp_xy_limits(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
+        self.assertIn('travel_range_max_x_mm", 360.0', pointai_text)
+        self.assertIn('travel_range_max_x_mm", 360.0', vision_text)
         self.assertIn('travel_range_max_y_mm", 320.0', pointai_text)
         self.assertIn('travel_range_max_y_mm", 320.0', vision_text)
-        self.assertNotIn("calibrated_y <= 360", pointai_text)
-        self.assertNotIn("calibrated_y <= 360", vision_text)
+        self.assertNotIn('travel_range_max_x_mm", 320.0', pointai_text)
+        self.assertNotIn('travel_range_max_x_mm", 320.0', vision_text)
+        self.assertNotIn('travel_range_max_y_mm", 360.0', pointai_text)
+        self.assertNotIn('travel_range_max_y_mm", 360.0', vision_text)
 
-    def test_moduan_uses_three_hundred_twenty_as_y_limit(self):
+    def test_moduan_uses_three_hundred_sixty_by_three_hundred_twenty_as_tcp_xy_limits(self):
         moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
 
+        self.assertIn("kTravelMaxXMm = 360.0", moduan_text)
         self.assertIn("kTravelMaxYMm = 320.0", moduan_text)
+        self.assertIn("x < 0 || x > kTravelMaxXMm", moduan_text)
         self.assertIn("y < 0 || y > kTravelMaxYMm", moduan_text)
-        self.assertNotIn("point.World_coord[1] < 360", moduan_text)
+        self.assertNotIn("x < 0 || x > 320", moduan_text)
         self.assertNotIn("y < 0 || y > 360", moduan_text)
 
-    def test_pointai_defaults_travel_range_y_to_three_hundred_twenty(self):
+    def test_pointai_defaults_travel_range_to_three_hundred_sixty_by_three_hundred_twenty_by_one_forty(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        self.assertIn('self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 360.0))', pointai_text)
         self.assertIn('self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))', pointai_text)
+        self.assertIn('self.travel_range_max_z_mm = float(rospy.get_param("~travel_range_max_z_mm", 140.0))', pointai_text)
 
-    def test_suoqu_uses_three_hundred_twenty_as_local_y_limit(self):
+    def test_suoqu_uses_three_hundred_sixty_by_three_hundred_twenty_by_one_forty_as_local_tcp_limits(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        self.assertIn("constexpr float kTravelMaxXMm = 360.0f;", suoqu_text)
         self.assertIn("constexpr float kTravelMaxYMm = 320.0f;", suoqu_text)
+        self.assertIn("constexpr float kTravelMaxZMm = 140.0f;", suoqu_text)
 
     def test_adaptive_height_outputs_all_in_range_points_without_matrix_count_limit(self):
         processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
@@ -1420,7 +1940,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_display_prefers_downstream_centers_with_bind_display_fallback(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("display_centers = self.select_display_matrix_centers(self.sorted_centers, in_range_centers, candidate_centers)", pointai_text)
         self.assertIn("display_centers = self.select_display_matrix_centers(self.sorted_centers, in_range_centers, candidate_centers)", vision_text)
@@ -1433,7 +1953,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_services_pass_request_mode_to_pre_img(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("def pre_img(self, request_mode=PROCESS_IMAGE_MODE_DEFAULT)", pointai_text)
         self.assertIn("def pre_img(self, request_mode=PROCESS_IMAGE_MODE_DEFAULT)", vision_text)
@@ -1470,7 +1990,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_scripts_use_tf_as_unique_spatial_calibration_source(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("def apply_spatial_calibration(", pointai_text)
         self.assertIn("def apply_spatial_calibration(", vision_text)
@@ -1531,18 +2051,18 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_visual_scripts_keep_legacy_offset_topic_but_defer_live_tf_updates_to_broadcaster(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
         broadcaster_text = (CHASSIS_CTRL_DIR / "scripts" / "gripper_tf_broadcaster.py").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("/web/fast_image_solve/set_pointAI_offset", pointai_text)
-        self.assertIn("/web/fast_image_solve/set_pointAI_offset", vision_text)
+        self.assertIn("/web/pointAI/set_offset", pointai_text)
+        self.assertIn("/web/pointAI/set_offset", vision_text)
         self.assertIn("由gripper_tf_broadcaster实时处理", pointai_text)
         self.assertIn("由gripper_tf_broadcaster实时处理", vision_text)
         self.assertNotIn("请重启pointai_tf_verify.launch后验证", pointai_text)
         self.assertNotIn("请重启pointai_tf_verify.launch后验证", vision_text)
-        self.assertIn("LEGACY_OFFSET_TOPIC", broadcaster_text)
+        self.assertIn("POINTAI_OFFSET_TOPIC", broadcaster_text)
 
     def test_debug_and_transfer_logs_reference_tf_translation_calibration(self):
         debug_button_text = (CHASSIS_CTRL_DIR / "scripts" / "debug_button_node.py").read_text(
@@ -1564,6 +2084,103 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("cabin_frame", pointai_text)
         self.assertIn("display_centers = list(in_range_centers)", pointai_text)
 
+    def test_pointai_cabin_frame_transform_uses_global_upward_z_mapping(self):
+        cabin_transform_text = inspect.getsource(pointAI.ImageProcessor.transform_to_cabin_frame)
+
+        self.assertIn('self.lookup_transform_matrix_mm("cabin_frame", source_frame="Scepter_depth_frame")', cabin_transform_text)
+        self.assertIn('self.lookup_transform_matrix_mm("gripper_frame", source_frame="Scepter_depth_frame")', cabin_transform_text)
+        self.assertIn("float(T[0, 3]) + float(x)", cabin_transform_text)
+        self.assertIn("float(T[1, 3]) + float(y)", cabin_transform_text)
+        self.assertIn("float(T[2, 3]) - float(z) - float(T_gripper[2, 3])", cabin_transform_text)
+        self.assertIn("z 轴大地朝上", cabin_transform_text)
+
+    def test_scan_and_execution_refine_result_overlays_use_explicit_mode_masks(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        draw_overlay_text = inspect.getsource(pointAI.ImageProcessor.draw_scan_workspace_overlay)
+
+        self.assertIn("def get_manual_workspace_cabin_polygon_pixel_mask(self):", pointai_text)
+        self.assertIn("def build_convex_polygon_inside_mask(", pointai_text)
+        self.assertIn("self.current_result_request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY", draw_overlay_text)
+        self.assertIn("workspace_mask = self.get_scan_workspace_pixel_mask()", draw_overlay_text)
+        self.assertIn("self.get_manual_workspace_cabin_polygon_pixel_mask()", draw_overlay_text)
+
+    def test_scan_and_execution_refine_result_labels_use_explicit_coordinate_formats(self):
+        label_text = inspect.getsource(pointAI.ImageProcessor.format_result_display_label)
+
+        self.assertIn("self.current_result_request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY", label_text)
+        self.assertIn('return f"{display_idx}, {world_coord}, {status_text}"', label_text)
+        self.assertIn('return f"{display_idx}, tcp=({tcp_x:.1f},{tcp_y:.1f},{tcp_z:.1f}), {status_text}"', label_text)
+
+    def test_execution_refine_display_filters_to_tcp_travel_volume(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.current_result_request_mode = pointAI.PROCESS_IMAGE_MODE_EXECUTION_REFINE
+        processor.travel_range_max_x_mm = 360.0
+        processor.travel_range_max_y_mm = 320.0
+        processor.travel_range_max_z_mm = 140.0
+        processor.get_selected_point_numbers = lambda matrix_centers: {1: 1, 2: 2}
+        processor.get_selected_point_status = lambda display_idx: "selected"
+        processor.transform_cabin_point_to_gripper_frame = lambda x, y, z: [100.0, 120.0, 80.0] if x < 50.0 else [400.0, 120.0, 80.0]
+
+        display_points = processor.build_matrix_display_points([
+            (1, [10, 20], [10.0, 20.0, 30.0]),
+            (2, [30, 40], [60.0, 20.0, 30.0]),
+        ])
+
+        self.assertEqual(len(display_points), 1)
+        self.assertEqual(display_points[0][0], 1)
+        self.assertEqual(display_points[0][2], [100.0, 120.0, 80.0])
+
+    def test_execution_refine_returns_without_manual_workspace_s2_override(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.current_result_request_mode = pointAI.PROCESS_IMAGE_MODE_EXECUTION_REFINE
+        processor.process_wait_timeout_sec = 0.0
+        processor.process_request_rate_hz = 10.0
+        processor.stable_frame_count = 3
+        processor.stable_z_tolerance_mm = 5.0
+        processor.image = object()
+        processor.image_raw_world = object()
+        processor.world_image_seq = 1
+        processor.has_detected_points = lambda point_coords: True
+        point_coords = object()
+        processor.pre_img = lambda request_mode=None: point_coords
+        processor.evaluate_point_coords_for_mode = lambda latest_point_coords, request_mode: {
+            "success": True,
+            "message": "ok",
+            "point_coords": latest_point_coords,
+        }
+        processor.try_scan_only_manual_workspace_s2 = lambda: self.fail("manual workspace S2 should be disabled during execution display")
+        original_rate = pointAI.rospy.Rate
+        original_is_shutdown = pointAI.rospy.is_shutdown
+        pointAI.rospy.Rate = lambda hz: type("FakeRate", (), {"sleep": staticmethod(lambda: None)})()
+        pointAI.rospy.is_shutdown = lambda: False
+
+        try:
+            result = processor.wait_for_stable_point_coords(pointAI.PROCESS_IMAGE_MODE_EXECUTION_REFINE)
+        finally:
+            pointAI.rospy.Rate = original_rate
+            pointAI.rospy.is_shutdown = original_is_shutdown
+
+        self.assertTrue(result["success"])
+        self.assertIs(result["point_coords"], point_coords)
+
+    def test_suoqu_live_visual_uses_execution_refine_mode(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr uint8_t kProcessImageModeExecutionRefine = 4;", suoqu_text)
+        self.assertIn("scan_srv.request.request_mode = kProcessImageModeExecutionRefine;", suoqu_text)
+        self.assertNotIn("scan_only_execution_display_enabled", suoqu_text)
+        self.assertNotIn("/pointAI/scan_only_execution_display", suoqu_text)
+
+    def test_execution_refine_mode_does_not_depend_on_scan_only_toggle(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+
+        self.assertIn("PROCESS_IMAGE_MODE_EXECUTION_REFINE = 4", pointai_text)
+        self.assertIn('return "execution_refine"', pointai_text)
+        self.assertNotIn("should_use_tcp_display_for_scan_only", pointai_text)
+        self.assertNotIn("scan_only_execution_display_enabled", pointai_text)
+        self.assertNotIn("/pointAI/scan_only_execution_display", pointai_text)
+        self.assertIn("if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:", pointai_text)
+
     def test_suoqu_supports_cabin_frame_and_pseudo_slam_execution(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
@@ -1574,6 +2191,23 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("scan_only", suoqu_text)
         self.assertIn("bind_from_scan", suoqu_text)
         self.assertIn("跳过该点", suoqu_text)
+
+    def test_suoqu_uses_global_upward_z_when_mapping_between_cabin_and_local_bind_frames(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        transform_text = extract_cpp_block(
+            suoqu_text,
+            "bool transform_cabin_world_point_to_planned_gripper_point(",
+        )
+        candidate_pose_text = extract_cpp_block(
+            suoqu_text,
+            "DynamicBindPlanningCandidatePose build_dynamic_bind_candidate_pose_from_world_point(",
+        )
+
+        self.assertIn("static_cast<double>(cabin_height - world_point.World_coord[2]) / 1000.0 -", transform_text)
+        self.assertIn("gripper_from_scepter.getOrigin().z()", transform_text)
+        self.assertIn("average_world_z +", candidate_pose_text)
+        self.assertIn("desired_point_in_scepter_frame.z() * 1000.0 +", candidate_pose_text)
+        self.assertIn("gripper_from_scepter.getOrigin().z() * 1000.0", candidate_pose_text)
 
     def test_pseudo_slam_bind_path_groups_points_after_scan(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1626,6 +2260,10 @@ class PointAIOrderTest(unittest.TestCase):
     def test_start_work_supports_precomputed_and_live_visual_execution_modes(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         topics_text = (CHASSIS_CTRL_DIR / "src" / "topics_transfer.cpp").read_text(encoding="utf-8")
+        start_work_text = extract_cpp_block(
+            suoqu_text,
+            "bool startGlobalWork(chassis_ctrl::MotionControl::Request &req,",
+        )
 
         self.assertIn("enum class GlobalExecutionMode", suoqu_text)
         self.assertIn("kSlamPrecomputed", suoqu_text)
@@ -1639,6 +2277,14 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('sg_live_visual_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg")', suoqu_text)
         self.assertIn("/web/cabin/set_execution_mode", suoqu_text)
         self.assertIn("当前全局执行模式为slam_precomputed", suoqu_text)
+        self.assertIn(
+            "开始执行层检测到pseudo_slam_bind_path.json，优先按预生成路径执行",
+            start_work_text,
+        )
+        self.assertLess(
+            start_work_text.index("if (scan_file.good()) {"),
+            start_work_text.index("if (execution_mode == GlobalExecutionMode::kLiveVisual) {"),
+        )
         self.assertIn("/web/cabin/set_execution_mode", topics_text)
         self.assertIn("live_visual", topics_text)
         self.assertIn("slam_precomputed", topics_text)
@@ -1662,6 +2308,7 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn('bind_path_json["path_origin"]', suoqu_text)
         self.assertIn('bind_path_json["path_origin"]["x"]', suoqu_text)
         self.assertIn("bind_from_scan先回到规划原点", suoqu_text)
+        self.assertIn("live_visual先回到规划原点", suoqu_text)
 
     def test_precomputed_execution_filters_by_checkerboard_and_execution_memory(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1698,7 +2345,7 @@ class PointAIOrderTest(unittest.TestCase):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         self.assertIn("run_live_visual_global_work", suoqu_text)
-        self.assertIn("srv.request.request_mode = kProcessImageModeScanOnly", suoqu_text)
+        self.assertIn("scan_srv.request.request_mode = kProcessImageModeExecutionRefine", suoqu_text)
         self.assertIn("classify_live_visual_point_into_checkerboard", suoqu_text)
         self.assertIn("load_bind_execution_memory_json", suoqu_text)
         self.assertIn("sg_precomputed_fast_client.call", suoqu_text)
@@ -1728,8 +2375,10 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("find_planned_bind_area_json_by_area_index", suoqu_text)
         self.assertIn("collect_planned_area_world_points_by_global_index", suoqu_text)
         self.assertIn("build_live_visual_execution_points_from_planned_area", suoqu_text)
-        self.assertIn("find_planned_bind_area_json_by_area_index(", live_visual_section)
+        self.assertIn("const auto& areas_json = bind_path_json[\"areas\"];", live_visual_section)
+        self.assertIn("collect_planned_area_world_points_by_global_index(", live_visual_section)
         self.assertIn("build_live_visual_execution_points_from_planned_area(", live_visual_section)
+        self.assertIn("assign_planned_gripper_coords_to_bind_point_json(", suoqu_text)
 
     def test_live_visual_skips_points_outside_current_scanned_area_reference(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1906,11 +2555,11 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("拟合平面", suoqu_text)
         self.assertNotIn("z中位数=", suoqu_text)
         self.assertIn(
-            "std::vector<fast_image_solve::PointCoords> planning_world_points = filter_pseudo_slam_planning_outliers(merged_world_points);",
+            "std::vector<chassis_ctrl::PointCoords> planning_world_points = filter_pseudo_slam_planning_outliers(merged_world_points);",
             suoqu_text,
         )
         self.assertIn(
-            "std::vector<fast_image_solve::PointCoords> remaining_world_points = planning_world_points;",
+            "build_dynamic_bind_area_entries_from_scan_world(",
             suoqu_text,
         )
         self.assertIn("merged_checkerboard_info_by_idx", suoqu_text)
@@ -1948,7 +2597,7 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("filter_pseudo_slam_points_near_outlier_columns", suoqu_text)
         self.assertIn("拟合成列的z离群点附近±10mm内正常点视为不可执行", suoqu_text)
         self.assertIn(
-            "const std::vector<fast_image_solve::PointCoords> planning_z_outlier_points =",
+            "const std::vector<chassis_ctrl::PointCoords> planning_z_outlier_points =",
             suoqu_text,
         )
         self.assertIn(
@@ -2136,17 +2785,205 @@ class PointAIOrderTest(unittest.TestCase):
             suoqu_text,
         )
 
-    def test_pseudo_slam_bind_areas_are_sorted_by_nearest_bind_point_to_path_origin(self):
+    def test_pseudo_slam_bind_areas_are_sorted_by_snake_rows_from_corner_origin(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
-        self.assertIn("compute_bind_group_nearest_path_origin_distance_sq", suoqu_text)
-        self.assertIn("compute_area_entry_nearest_path_origin_distance_sq", suoqu_text)
-        self.assertIn("sort_bind_area_entries_by_nearest_path_origin_point", suoqu_text)
+        self.assertIn("constexpr float kDynamicBindSnakeRowToleranceMm = 90.0f;", suoqu_text)
+        self.assertIn("sort_bind_area_entries_by_snake_rows", suoqu_text)
         self.assertIn(
-            "sort_bind_area_entries_by_nearest_path_origin_point(bind_area_entries, path_origin);",
+            "sort_bind_area_entries_by_snake_rows(bind_area_entries, kDynamicBindSnakeRowToleranceMm);",
             suoqu_text,
         )
-        self.assertIn("pseudo_slam绑扎路径已按离规划原点最近的实际绑扎点重排", suoqu_text)
+        self.assertIn("pseudo_slam绑扎路径已改为按索驱坐标系左下角原点蛇形排序", suoqu_text)
+
+    def test_dynamic_bind_execution_origin_uses_first_snake_sorted_area(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+        write_bind_path_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_bind_path_json(",
+        )
+
+        self.assertIn("BindExecutionPathOriginPose build_dynamic_bind_execution_path_origin(", suoqu_text)
+        self.assertIn(
+            "BindExecutionPathOriginPose execution_path_origin =\n        build_dynamic_bind_execution_path_origin(bind_area_entries, path_origin, cabin_height);",
+            scan_function,
+        )
+        self.assertIn(
+            "execution_path_origin.x = bind_area_entries.front().cabin_point.x;",
+            suoqu_text,
+        )
+        self.assertIn(
+            "execution_path_origin.y = bind_area_entries.front().cabin_point.y;",
+            suoqu_text,
+        )
+        self.assertIn("synthetic bounding-box corner", suoqu_text)
+        self.assertIn("const BindExecutionPathOriginPose& path_origin", write_bind_path_text)
+        self.assertIn('{"z", path_origin.z}', write_bind_path_text)
+        self.assertIn(
+            'point.World_coord[0]},\n                    {"world_y", point.World_coord[1]},\n                    {"world_z", point.World_coord[2]}',
+            write_bind_path_text,
+        )
+        self.assertIn("assign_planned_gripper_coords_to_bind_point_json(", write_bind_path_text)
+
+    def test_bind_path_points_store_world_coordinates_and_tcp_local_coordinates_separately(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        helper_text = extract_cpp_block(
+            suoqu_text,
+            "bool assign_planned_gripper_coords_to_bind_point_json(",
+        )
+        write_bind_path_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_bind_path_json(",
+        )
+
+        self.assertIn('point_json["x"] = gripper_point.World_coord[0];', helper_text)
+        self.assertIn('point_json["y"] = gripper_point.World_coord[1];', helper_text)
+        self.assertIn('point_json["z"] = gripper_point.World_coord[2];', helper_text)
+        self.assertIn('{"world_x", point.World_coord[0]}', write_bind_path_text)
+        self.assertIn('{"world_y", point.World_coord[1]}', write_bind_path_text)
+        self.assertIn('{"world_z", point.World_coord[2]}', write_bind_path_text)
+        self.assertNotIn('{"x", point.World_coord[0]}', write_bind_path_text)
+        self.assertNotIn('{"y", point.World_coord[1]}', write_bind_path_text)
+        self.assertNotIn('{"z", point.World_coord[2]}', write_bind_path_text)
+
+    def test_precomputed_bind_loader_reads_absolute_world_coords_from_world_fields(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        load_group_text = extract_cpp_block(
+            suoqu_text,
+            "std::vector<chassis_ctrl::PointCoords> load_bind_points_from_group_json(",
+        )
+
+        self.assertIn(
+            'point.idx = point_json.value("local_idx", point_json.value("idx", point_index));',
+            load_group_text,
+        )
+        self.assertIn(
+            'point.World_coord[0] = point_json.value("world_x", point_json.value("x", 0.0f));',
+            load_group_text,
+        )
+        self.assertIn(
+            'point.World_coord[1] = point_json.value("world_y", point_json.value("y", 0.0f));',
+            load_group_text,
+        )
+        self.assertIn(
+            'point.World_coord[2] = point_json.value("world_z", point_json.value("z", 0.0f));',
+            load_group_text,
+        )
+
+    def test_dynamic_scan_bind_planning_replaces_static_path_area_generation(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        scan_function = extract_cpp_block(
+            suoqu_text,
+            "bool run_pseudo_slam_scan(",
+        )
+
+        self.assertIn("build_dynamic_bind_area_entries_from_scan_world", suoqu_text)
+        self.assertIn(
+            "std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_scan_world(",
+            suoqu_text,
+        )
+        self.assertIn(
+            "std::vector<PseudoSlamGroupedAreaEntry> bind_area_entries =\n        build_dynamic_bind_area_entries_from_scan_world(",
+            scan_function,
+        )
+        self.assertNotIn(
+            "for (const auto& cabin_point : con_path) {\n        grouped_area_index++;",
+            scan_function,
+        )
+
+    def test_dynamic_scan_bind_planning_uses_tcp_travel_range_360_320_140(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode_show.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr float kTravelMaxXMm = 360.0f;", suoqu_text)
+        self.assertIn("constexpr float kTravelMaxYMm = 320.0f;", suoqu_text)
+        self.assertIn("constexpr float kTravelMaxZMm = 140.0f;", suoqu_text)
+        self.assertIn("point.World_coord[2] <= kTravelMaxZMm", suoqu_text)
+        self.assertIn("(double)point.World_coord[0] < 360", moduan_text)
+        self.assertIn("(double)point.World_coord[1] < 320", moduan_text)
+        self.assertIn("(double)point.World_coord[2] < 140", moduan_text)
+
+    def test_dynamic_scan_bind_planning_pads_last_group_to_four_template_points(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("build_dynamic_four_point_template_group", suoqu_text)
+        self.assertIn("unfinished_global_indices", suoqu_text)
+        self.assertIn("template_points.size() < 4", suoqu_text)
+        self.assertIn("bind_group.bind_points_world.size() == 4", suoqu_text)
+        self.assertIn("已绑定点仅作为模板补齐占位", suoqu_text)
+
+    def test_execution_bind_clamps_cabin_z_floor_to_four_hundred_eighty_five(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("constexpr float kBindExecutionCabinMinZMm = 485.0f;", suoqu_text)
+        self.assertIn("float clamp_bind_execution_cabin_z(float planned_cabin_z)", suoqu_text)
+        self.assertIn("return std::max(planned_cabin_z, kBindExecutionCabinMinZMm);", suoqu_text)
+        self.assertIn("constexpr float kExecutionArrivalToleranceMm = 40.0f;", suoqu_text)
+        self.assertIn("constexpr int kExecutionArrivalStableSampleCount = 2;", suoqu_text)
+        self.assertIn("constexpr float kExecutionArrivalPoseDeltaToleranceMm = 5.0f;", suoqu_text)
+        self.assertIn("bool delay_time_for_execution(int Axis, double Target_position, double target_tolerance_mm = kExecutionArrivalToleranceMm)", suoqu_text)
+
+        current_area_text = extract_cpp_block(
+            suoqu_text,
+            "bool run_current_area_bind_from_scan_test(std::string& message)",
+        )
+        self.assertIn("const float move_cabin_z = clamp_bind_execution_cabin_z(cabin_height);", current_area_text)
+        self.assertIn("TCP_Move[3] = move_cabin_z;", current_area_text)
+        self.assertIn("delay_time_for_execution(AXIS_Z, move_cabin_z)", current_area_text)
+
+        live_visual_text = extract_cpp_block(
+            suoqu_text,
+            "bool run_live_visual_global_work(std::string& message)",
+        )
+        self.assertIn("float path_origin_x = 0.0f;", live_visual_text)
+        self.assertIn("align_execution_path_origin_xy_to_first_area_if_needed(", suoqu_text)
+        self.assertIn(
+            "align_execution_path_origin_xy_to_first_area_if_needed(\n        areas_json,\n        path_origin_x,\n        path_origin_y,\n        \"live_visual\"\n    );",
+            live_visual_text,
+        )
+        self.assertIn("const float move_path_origin_z = clamp_bind_execution_cabin_z(path_origin_z);", live_visual_text)
+        self.assertIn("TCP_Move[3] = move_path_origin_z;", live_visual_text)
+        self.assertIn("delay_time_for_execution(AXIS_Z, move_path_origin_z)", live_visual_text)
+        self.assertIn("const float move_cabin_z = clamp_bind_execution_cabin_z(cabin_z);", live_visual_text)
+        self.assertIn("TCP_Move[3] = move_cabin_z;", live_visual_text)
+        self.assertIn("delay_time_for_execution(AXIS_Z, move_cabin_z)", live_visual_text)
+
+        bind_from_scan_text = extract_cpp_block(
+            suoqu_text,
+            "bool run_bind_from_scan(std::string& message)",
+        )
+        self.assertIn(
+            "align_execution_path_origin_xy_to_first_area_if_needed(\n        areas_json,\n        path_origin_x,\n        path_origin_y,\n        \"bind_from_scan\"\n    );",
+            bind_from_scan_text,
+        )
+        self.assertIn("const float move_path_origin_z = clamp_bind_execution_cabin_z(path_origin_z);", bind_from_scan_text)
+        self.assertIn("TCP_Move[3] = move_path_origin_z;", bind_from_scan_text)
+        self.assertIn("delay_time_for_execution(AXIS_Z, move_path_origin_z)", bind_from_scan_text)
+        self.assertIn("const float move_cabin_z = clamp_bind_execution_cabin_z(cabin_z);", bind_from_scan_text)
+        self.assertIn("TCP_Move[3] = move_cabin_z;", bind_from_scan_text)
+        self.assertIn("delay_time_for_execution(AXIS_Z, move_cabin_z)", bind_from_scan_text)
+
+    def test_dynamic_bind_generator_clamps_cabin_z_floor_to_four_hundred_eighty_five(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        dynamic_planning_text = extract_cpp_block(
+            suoqu_text,
+            "std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_scan_world(",
+        )
+        self.assertIn(
+            "area_entry.cabin_z = clamp_bind_execution_cabin_z(\n            best_candidate_pose.cabin_z > 0.0f ? best_candidate_pose.cabin_z : cabin_height\n        );",
+            dynamic_planning_text,
+        )
+
+        write_json_text = extract_cpp_block(
+            suoqu_text,
+            "bool write_pseudo_slam_bind_path_json(",
+        )
+        self.assertIn('{"z", area_entry.cabin_z},', write_json_text)
 
     def test_frontend_exposes_pseudo_slam_scan_entry(self):
         debug_button_text = (CHASSIS_CTRL_DIR / "scripts" / "debug_button_node.py").read_text(
@@ -2173,6 +3010,7 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("StartPseudoSlamScan.srv", cmake_text)
         self.assertIn("uint8 SCAN_STRATEGY_SINGLE_CENTER=0", service_definition)
         self.assertIn("uint8 SCAN_STRATEGY_MULTI_POSE=1", service_definition)
+        self.assertIn("uint8 SCAN_STRATEGY_FIXED_MANUAL_WORKSPACE=2", service_definition)
         self.assertIn("bool enable_capture_gate", service_definition)
         self.assertIn("uint8 scan_strategy", service_definition)
         self.assertIn("---", service_definition)
@@ -2240,13 +3078,14 @@ class PointAIOrderTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("const bool multi_pose_scan = msg->data >= 3.0f;", topics_transfer_text)
+        self.assertIn("const bool fixed_manual_workspace_scan = msg->data >= 5.0f;", topics_transfer_text)
+        self.assertIn("const bool multi_pose_scan = msg->data >= 3.0f && msg->data < 5.0f;", topics_transfer_text)
+        self.assertIn("(msg->data >= 6.0f)", topics_transfer_text)
+        self.assertIn("scan_srv.request.enable_capture_gate = enable_capture_gate;", topics_transfer_text)
         self.assertIn(
-            "const bool enable_capture_gate = (msg->data >= 4.0f) || (msg->data >= 2.0f && msg->data < 3.0f);",
+            "scan_srv.request.scan_strategy = fixed_manual_workspace_scan ? 2 : (multi_pose_scan ? 1 : 0);",
             topics_transfer_text,
         )
-        self.assertIn("scan_srv.request.enable_capture_gate = enable_capture_gate;", topics_transfer_text)
-        self.assertIn("scan_srv.request.scan_strategy = multi_pose_scan ? 1 : 0;", topics_transfer_text)
         self.assertIn("扫描建图命令，模式=", topics_transfer_text)
 
     def test_plain_scan_service_defaults_to_single_center_scan_without_capture_gate(self):
@@ -2270,6 +3109,18 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("normalize_pseudo_slam_scan_strategy(req.scan_strategy)", start_scan_with_options_function)
         self.assertIn("req.enable_capture_gate", start_scan_with_options_function)
 
+    def test_fixed_manual_workspace_scan_strategy_uses_fixed_pose_and_speed(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("kFixedManualWorkspace = 2", suoqu_text)
+        self.assertIn("kPseudoSlamFixedManualWorkspaceScanXmm = -260.0f", suoqu_text)
+        self.assertIn("kPseudoSlamFixedManualWorkspaceScanYmm = 1700.0f", suoqu_text)
+        self.assertIn("kPseudoSlamFixedManualWorkspaceScanZmm = 2997.0f", suoqu_text)
+        self.assertIn("kPseudoSlamFixedManualWorkspaceScanSpeedMmPerSec = 100.0f", suoqu_text)
+        self.assertIn("case 2:", suoqu_text)
+        self.assertIn("PseudoSlamScanStrategy::kFixedManualWorkspace", suoqu_text)
+        self.assertIn("pseudo_slam固定工作区扫描移动到", suoqu_text)
+
     def test_delay_time_returns_timeout_status_and_logs_axis_snapshot(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
         delay_time_function = extract_cpp_block(
@@ -2282,6 +3133,35 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("Cabin_Error: 等待轴%d到位超时", delay_time_function)
         self.assertIn("当前(X,Y,Z)=", delay_time_function)
         self.assertIn("motion_status=%d", delay_time_function)
+
+    def test_execution_delay_time_allows_fast_arrival_without_motion_stopped(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        execution_delay_time_function = extract_cpp_block(
+            suoqu_text,
+            "bool delay_time_for_execution(int Axis, double Target_position, double target_tolerance_mm = kExecutionArrivalToleranceMm)",
+        )
+
+        self.assertIn("normalized_tolerance_mm", execution_delay_time_function)
+        self.assertIn("stable_sample_count", execution_delay_time_function)
+        self.assertIn("pose_delta_mm", execution_delay_time_function)
+        self.assertIn("axis_error_mm", execution_delay_time_function)
+        self.assertIn("axis_error_mm < normalized_tolerance_mm", execution_delay_time_function)
+        self.assertIn("pose_delta_mm <= kExecutionArrivalPoseDeltaToleranceMm", execution_delay_time_function)
+        self.assertIn("stable_sample_count >= kExecutionArrivalStableSampleCount", execution_delay_time_function)
+        self.assertNotIn("cabin_state.motion_status == 0", execution_delay_time_function)
+        self.assertIn("Cabin_log: 执行层等待轴%d到位中", execution_delay_time_function)
+        self.assertIn("连续稳定样本=%d/%d", execution_delay_time_function)
+
+    def test_heartbeat_frames_skip_extra_write_delay_to_reduce_state_latency(self):
+        suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        frame_generate_function = extract_cpp_block(
+            suoqu_text,
+            "int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockfd)",
+        )
+
+        self.assertIn("constexpr int HEARTBEAT_WRITE_DELAY_MS = 0;", suoqu_text)
+        self.assertIn("const int post_send_delay_ms = is_heartbeat_frame ? HEARTBEAT_WRITE_DELAY_MS : WRITE_DELAY_MS;", frame_generate_function)
+        self.assertIn("if (post_send_delay_ms > 0)", frame_generate_function)
 
     def test_pseudo_slam_scan_fails_fast_when_axis_move_times_out(self):
         suoqu_text = (CHASSIS_CTRL_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -2430,6 +3310,7 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertIn("execute_bind_points(points, res.message, false)", moduan_text)
         self.assertIn("ScopedModuleSpeedOverride", moduan_text)
         self.assertIn("kPrecomputedFastModuleSpeedMmPerSec", moduan_text)
+        self.assertIn("clear_finishall_flag_if_needed();", moduan_text)
 
     def test_moduan_precomputed_bind_rejects_local_z_outside_tcp_travel_range(self):
         moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
@@ -2439,7 +3320,7 @@ class PointAIOrderTest(unittest.TestCase):
         )
 
         self.assertIn("constexpr double kTcpTravelMinZMm = 0.0;", moduan_text)
-        self.assertIn("constexpr double kTcpTravelMaxZMm = 200.0;", moduan_text)
+        self.assertIn("constexpr double kTcpTravelMaxZMm = 140.0;", moduan_text)
         self.assertIn("bool is_valid_precomputed_tcp_travel_z(double local_z_mm)", moduan_text)
         self.assertIn(
             "if (!is_valid_precomputed_tcp_travel_z(static_cast<double>(world_z)))",
@@ -2447,6 +3328,21 @@ class PointAIOrderTest(unittest.TestCase):
         )
         self.assertIn("局部z=%.2fmm，不是合法TCP行程", execute_bind_points_function)
         self.assertIn("预生成点局部z超出TCP行程，当前组无可执行点", execute_bind_points_function)
+        self.assertIn("if (!finish_all(150))", execute_bind_points_function)
+        self.assertIn("等待FINISHALL标志超时，当前子区域绑扎未确认完成", execute_bind_points_function)
+
+    def test_moduan_finish_all_wait_has_timeout_and_progress_logs(self):
+        moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
+        finish_all_function = extract_cpp_block(
+            moduan_text,
+            "bool finish_all(int inter_time)",
+        )
+
+        self.assertIn("constexpr int kFinishAllTimeoutSec = 30;", moduan_text)
+        self.assertIn("constexpr int kFinishAllLogIntervalSec = 2;", moduan_text)
+        self.assertIn("Moduan_log: 等待FINISHALL标志中", finish_all_function)
+        self.assertIn("Moduan_Error: 等待FINISHALL标志超时", finish_all_function)
+        self.assertIn("return false;", finish_all_function)
 
     def test_moduan_single_move_service_uses_tcp_travel_z_limits(self):
         moduan_text = (CHASSIS_CTRL_DIR / "src" / "moduanNode.cpp").read_text(encoding="utf-8")
@@ -2456,7 +3352,8 @@ class PointAIOrderTest(unittest.TestCase):
         )
 
         self.assertIn("z < kTcpTravelMinZMm || z > kTcpTravelMaxZMm", move_service_function)
-        self.assertIn("TCP z轴行程仅支持0~200mm", move_service_function)
+        self.assertIn("TCP z轴行程仅支持0~140mm", move_service_function)
+        self.assertIn("等待FINISHALL标志超时，线性模组未确认完成", move_service_function)
 
     def test_default_stable_frame_count_is_three(self):
         init_source = inspect.getsource(pointAI.ImageProcessor.__init__)
@@ -2611,7 +3508,7 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_bind_mode_uses_coordinate_stability_without_height_rejection_in_visual_scripts(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("def build_coordinate_snapshot", pointai_text)
         self.assertIn("def build_coordinate_snapshot", vision_text)
@@ -2624,16 +3521,20 @@ class PointAIOrderTest(unittest.TestCase):
 
     def test_scan_only_returns_immediately_without_stability_wait_in_visual_scripts(self):
         pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
-        vision_text = (FAST_IMAGE_SOLVE_DIR / "scripts" / "vision.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
 
         self.assertIn("request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY", pointai_text)
         self.assertIn("request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY", vision_text)
         self.assertIn(
-            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
+            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n                manual_workspace_s2_result = self.try_scan_only_manual_workspace_s2()\n                if manual_workspace_s2_result is not None:\n                    return manual_workspace_s2_result\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
             pointai_text,
         )
         self.assertIn(
-            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
+            "if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
+            pointai_text,
+        )
+        self.assertIn(
+            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n                manual_workspace_s2_result = self.try_scan_only_manual_workspace_s2()\n                if manual_workspace_s2_result is not None:\n                    return manual_workspace_s2_result\n                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)",
             vision_text,
         )
         self.assertNotIn("def get_mode_stable_frame_count", pointai_text)
@@ -2642,6 +3543,36 @@ class PointAIOrderTest(unittest.TestCase):
         self.assertNotIn("def get_mode_stable_z_tolerance_mm", vision_text)
         self.assertNotIn("pointAI等待扫描点Z稳定写入", pointai_text)
         self.assertNotIn("pointAI等待扫描点Z稳定写入", vision_text)
+
+    def test_scan_only_skips_top_detection_occlusion_but_execute_keeps_it(self):
+        processor = pointAI.ImageProcessor.__new__(pointAI.ImageProcessor)
+        processor.x1, processor.y1 = 1, 1
+        processor.x2, processor.y2 = 4, 3
+
+        processor.Depth_image_Raw = np.ones((5, 6), dtype=np.int32)
+        scan_mask = processor.apply_detection_occlusions(pointAI.PROCESS_IMAGE_MODE_SCAN_ONLY)
+        self.assertTrue(np.all(processor.Depth_image_Raw == 1))
+        self.assertTrue(np.all(scan_mask == 1))
+
+        processor.Depth_image_Raw = np.ones((5, 6), dtype=np.int32)
+        execute_mask = processor.apply_detection_occlusions(pointAI.PROCESS_IMAGE_MODE_DEFAULT)
+        expected = np.ones((5, 6), dtype=np.uint8)
+        expected[1:3, 1:4] = 0
+        self.assertTrue(np.array_equal(execute_mask, expected))
+        expected_depth = np.ones((5, 6), dtype=np.int32)
+        expected_depth[1:3, 1:4] = 0
+        self.assertTrue(np.array_equal(processor.Depth_image_Raw, expected_depth))
+
+    def test_visual_scripts_apply_top_detection_occlusion_only_outside_scan_mode(self):
+        pointai_text = (CHASSIS_CTRL_DIR / "scripts" / "pointAI.py").read_text(encoding="utf-8")
+        vision_text = pointai_text
+
+        self.assertIn("def should_apply_top_detection_occlusion", pointai_text)
+        self.assertIn("def should_apply_top_detection_occlusion", vision_text)
+        self.assertIn("return request_mode != PROCESS_IMAGE_MODE_SCAN_ONLY", pointai_text)
+        self.assertIn("return request_mode != PROCESS_IMAGE_MODE_SCAN_ONLY", vision_text)
+        self.assertIn("self.detection_occlusion_mask = self.apply_detection_occlusions(request_mode)", pointai_text)
+        self.assertIn("self.detection_occlusion_mask = self.apply_detection_occlusions(request_mode)", vision_text)
 
 
 if __name__ == "__main__":

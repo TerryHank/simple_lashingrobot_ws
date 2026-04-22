@@ -65,7 +65,7 @@ void getNodePid(int &move_node_pid, int &moduan_node_pid, int &pointAI_node_pid,
     return;
 }
  // 视觉
-fast_image_solve::ProcessImage image_srv;
+chassis_ctrl::ProcessImage image_srv;
 // 索驱
 chassis_ctrl::SingleMove single_chassis_move_srv;
 chassis_ctrl::MotionControl global_chassis_move_srv;
@@ -207,12 +207,18 @@ void setGlobalExecutionModeCallback(const std_msgs::Float32::ConstPtr& msg) {
 
 void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    const bool multi_pose_scan = msg->data >= 3.0f;
-    const bool enable_capture_gate = (msg->data >= 4.0f) || (msg->data >= 2.0f && msg->data < 3.0f);
+    const bool fixed_manual_workspace_scan = msg->data >= 5.0f;
+    const bool multi_pose_scan = msg->data >= 3.0f && msg->data < 5.0f;
+    const bool enable_capture_gate =
+        (msg->data >= 6.0f)
+        || (msg->data >= 4.0f && msg->data < 5.0f)
+        || (msg->data >= 2.0f && msg->data < 3.0f);
+    const std::string scan_mode =
+        fixed_manual_workspace_scan ? "固定工作区单次扫描" : (multi_pose_scan ? "多扫描位" : "单次中心位");
     logMessage(
         "/web/cabin/start_pseudo_slam_scan",
         "收到扫描建图命令，模式="
-        + string(multi_pose_scan ? "多扫描位" : "单次中心位")
+        + scan_mode
         + "，"
         + string(enable_capture_gate ? "开启最终采集门" : "关闭最终采集门")
         + "，值: " + to_string(msg->data)
@@ -220,7 +226,7 @@ void pseudoSlamScanCallback(const std_msgs::Float32::ConstPtr& msg) {
 
     chassis_ctrl::StartPseudoSlamScan scan_srv;
     scan_srv.request.enable_capture_gate = enable_capture_gate;
-    scan_srv.request.scan_strategy = multi_pose_scan ? 1 : 0;
+    scan_srv.request.scan_strategy = fixed_manual_workspace_scan ? 2 : (multi_pose_scan ? 1 : 0);
     if (!g_service_clients.Chassis_scan_with_options_client.call(scan_srv)) {
         ROS_ERROR("扫描建图服务调用失败");
         return;
@@ -316,7 +322,7 @@ void chassisModuleMoveCallback(const geometry_msgs::Pose::ConstPtr& msg) {
     return;
 }
 
-void pub_pointAIdebug_service(fast_image_solve::ProcessImage image_srv)
+void pub_pointAIdebug_service(chassis_ctrl::ProcessImage image_srv)
 {
      if (g_service_clients.image_solve_client.call(image_srv))
     {
@@ -327,10 +333,10 @@ void pub_pointAIdebug_service(fast_image_solve::ProcessImage image_srv)
     return;
 }
 
-// 8. 视觉识别调试 - /web/fast_image_solve/process_image
+// 8. 视觉识别调试 - /web/pointAI/process_image
 void fastImageSolveProcessImageCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    logMessage("/web/fast_image_solve/process_image", "收到视觉识别调试命令，值: " + to_string(msg->data));
+    logMessage("/web/pointAI/process_image", "收到视觉识别调试命令，值: " + to_string(msg->data));
     std::thread pub_pointAIdebug_service_thread(pub_pointAIdebug_service,image_srv);
     pub_pointAIdebug_service_thread.detach();
     return;
@@ -471,10 +477,10 @@ void moduanForcedStopCallback(const std_msgs::Float32::ConstPtr& msg) {
     return;
 }
 
-// 19. 设置高度阈值 - /web/fast_image_solve/set_height_threshold
+// 19. 设置高度阈值 - /web/pointAI/set_height_threshold
 void fastImageSolveSetHeightThresholdCallback(const std_msgs::Float32::ConstPtr& msg) {
     printCurrentTime();
-    logMessage("/web/fast_image_solve/set_height_threshold", "收到设置高度阈值命令，值: " + to_string(msg->data) + "mm");
+    logMessage("/web/pointAI/set_height_threshold", "收到设置高度阈值命令，值: " + to_string(msg->data) + "mm");
     return;
 }
 
@@ -492,11 +498,11 @@ void robotSaveBindingDataCallback(const std_msgs::Float32::ConstPtr& msg) {
     return;
 }
 
-// 22. 设置TF平移标定(兼容旧话题名) - /web/fast_image_solve/set_pointAI_offset
+// 22. 设置TF平移标定(兼容旧话题名) - /web/pointAI/set_offset
 void fastImageSolveSetPointAIOffsetCallback(const geometry_msgs::Pose::ConstPtr& msg) {
     printCurrentTime();
     logMessage(
-        "/web/fast_image_solve/set_pointAI_offset",
+        "/web/pointAI/set_offset",
         "收到TF平移标定命令，写入gripper_tf.yaml.translation_mm，值: "
         + to_string(msg->position.x) + "mm , "
         + to_string(msg->position.y) + "mm , "
@@ -529,8 +535,8 @@ int main(int argc, char** argv) {
 
     // 初始化服务客户端（需要转换的服务）
     // 视觉调试
-    ros::Subscriber sub8 = nh.subscribe("/web/fast_image_solve/process_image", 5, fastImageSolveProcessImageCallback);
-    g_service_clients.image_solve_client = nh.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");
+    ros::Subscriber sub8 = nh.subscribe("/web/pointAI/process_image", 5, fastImageSolveProcessImageCallback);
+    g_service_clients.image_solve_client = nh.serviceClient<chassis_ctrl::ProcessImage>("/pointAI/process_image");
     // 索驱单点运动
     ros::Subscriber sub7 = nh.subscribe("/web/cabin/cabin_move_debug", 5, chassisModuleMoveCallback);
     g_service_clients.Chassis_client_1 = nh.serviceClient<chassis_ctrl::SingleMove>("/cabin/single_move");
@@ -568,10 +574,10 @@ int main(int argc, char** argv) {
     // ros::Subscriber sub16 = nh.subscribe("/web/moduan/disable_las", 5, moduanDisableLasCallback);
     ros::Subscriber sub17 = nh.subscribe("/web/cabin/shutdown", 5, robotStopCallback);
     // ros::Subscriber sub18 = nh.subscribe("/web/moduan/forced_stop", 5, moduanForcedStopCallback);
-    // ros::Subscriber sub19 = nh.subscribe("/web/fast_image_solve/set_height_threshold", 5, fastImageSolveSetHeightThresholdCallback);
+    // ros::Subscriber sub19 = nh.subscribe("/web/pointAI/set_height_threshold", 5, fastImageSolveSetHeightThresholdCallback);
     // ros::Subscriber sub20 = nh.subscribe("/web/cabin/save_path", 5, robotSavePathCallback);
     // ros::Subscriber sub21 = nh.subscribe("/web/cabin/save_binding_data", 5, robotSaveBindingDataCallback);
-    // ros::Subscriber sub22 = nh.subscribe("/web/fast_image_solve/set_pointAI_offset", 5, fastImageSolveSetPointAIOffsetCallback);
+    // ros::Subscriber sub22 = nh.subscribe("/web/pointAI/set_offset", 5, fastImageSolveSetPointAIOffsetCallback);
     // ros::Subscriber sub23 = nh.subscribe("/web/cabin/set_cabin_speed", 5, robotSetCabinSpeedCallback);
     // ros::Subscriber sub24 = nh.subscribe("/web/moduan/set_moduan_speed", 5, moduanSetModuanSpeedCallback);
     

@@ -1,0 +1,25 @@
+{
+  "plane_normal": [
+    0.0012194727115943625,
+    0.02602736018658968,
+    0.9996604870694966
+  ],
+  "plane_d": -2365.860947583341,
+  "zero_level": -13.575139720192965,
+  "raw_valid_ratio": 0.8138118489583334,
+  "ortho_shape": [
+    416,
+    601
+  ],
+  "resolution_mm_per_px": 5.0,
+  "segments_total": 1,
+  "ori1": 92.5,
+  "ori2": null,
+  "group1_segments": 1,
+  "group2_segments": 0,
+  "group1_repr_lines": 0,
+  "group2_repr_lines": 0,
+  "ortho_intersections_filtered": 0,
+  "result_count": 0,
+  "result_points": []
+}

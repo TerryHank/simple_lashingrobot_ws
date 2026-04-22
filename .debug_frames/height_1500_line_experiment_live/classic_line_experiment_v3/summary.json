@@ -1,0 +1,19 @@
+{
+  "plane_normal": [
+    0.0013114743775025724,
+    0.024651455363909423,
+    0.9996952464543375
+  ],
+  "plane_d": -2365.7040892435516,
+  "zero_level": -13.139994894920584,
+  "segments_total": 118,
+  "ori1": 92.5,
+  "ori2": 2.5,
+  "group1_segments": 89,
+  "group2_segments": 27,
+  "group1_repr_lines": 0,
+  "group2_repr_lines": 3,
+  "ortho_intersections_filtered": 0,
+  "result_count": 0,
+  "result_points": []
+}

@@ -21,7 +21,6 @@
 #include <std_msgs/Int32.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
-#include "simulated_annealing.h"
 #include "chassis_ctrl/motion.h"
 #include <geometry_msgs/Twist.h>  
 #include "modbus_connect.h"
@@ -38,12 +37,16 @@
 #include "chassis_ctrl/linear_module_move_all.h"
 #include "chassis_ctrl/linear_module_move_single.h"
 #include "chassis_ctrl/linear_module_move.h"
-#include <fast_image_solve/ProcessImage.h>
-#include "fast_image_solve/PointCoords.h"
+#include <chassis_ctrl/ProcessImage.h>
+#include "chassis_ctrl/PointCoords.h"
 #include <std_msgs/Bool.h>
 #include <std_srvs/Trigger.h>
 
-// xy轴移动范围为0到380mm
+constexpr double kModuleTravelMaxX = 360.0;
+constexpr double kModuleTravelMaxY = 320.0;
+constexpr double kModuleTravelMaxZ = 140.0;
+
+// xy轴移动范围为x:0到360mm, y:0到320mm
 // 旋转电机角度 0~180°
 #include "modbus_connect.h"
 #define LIGHT 5084
@@ -55,7 +58,7 @@ std::string last_error_msg;
 
 chassis_ctrl::motion transform_msg;
 chassis_ctrl::linear_module_upload linear_module_data_upload;
-fast_image_solve::ProcessImage srv;
+chassis_ctrl::ProcessImage srv;
 ros::ServiceClient client;
 ros::ServiceClient linear_client;
 std_srvs::Trigger Trigger_srv;
@@ -982,12 +985,12 @@ bool GPIO_Lashing_Service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Re
     auto sortedArray = srv.response.PointCoordinatesArray;
 
     // 新增步骤1：过滤满足坐标范围的点（0 < world_x < 380 且 0 < world_y < 330）
-    std::vector<fast_image_solve::PointCoords> filteredPoints;
+    std::vector<chassis_ctrl::PointCoords> filteredPoints;
     for (auto& point : sortedArray) {
     // point.World_coord[2] = 91.0;
-        if (0 < (double)point.World_coord[0] && (double)point.World_coord[0] < 380 && 
-            0 < (double)point.World_coord[1] && (double)point.World_coord[1] < 316
-            &&0 < (double)point.World_coord[2] && (double)point.World_coord[2] < 120) 
+        if (0 < (double)point.World_coord[0] && (double)point.World_coord[0] < 360 && 
+            0 < (double)point.World_coord[1] && (double)point.World_coord[1] < 320
+            &&0 < (double)point.World_coord[2] && (double)point.World_coord[2] < 140) 
         {   
             filteredPoints.push_back(point);
         }
@@ -1191,19 +1194,19 @@ void linear_module_move_origin_all(const chassis_ctrl::linear_module_move_all::C
     double z_zero = 0;
     printCurrentTime();
     printf("Gpio_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n",x,y,z);
-    if(x < 0 || x > 380)
+    if(x < 0 || x > kModuleTravelMaxX)
     {
         printCurrentTime();
         printf("Gpio_Error:X轴距离设置超限。\n");
         return ;
     }
-    if(y < 0 || y > 330)
+    if(y < 0 || y > kModuleTravelMaxY)
     {
         printCurrentTime();
         printf("Gpio_Error:Y轴距离设置超限。\n");
         return ;
     }
-    if(z<0 || z>120)
+    if(z<0 || z>kModuleTravelMaxZ)
     {
         printCurrentTime();
         printf("Gpio_Error:Z轴距离设置超限。\n");
@@ -1334,7 +1337,7 @@ bool linear_module_move_service(chassis_ctrl::linear_module_move::Request &req,
     }
     printCurrentTime();
     printf("Gpio_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n",x,y,z);
-    if(x < 0 || x > 380)
+    if(x < 0 || x > kModuleTravelMaxX)
     {
         printCurrentTime();
         printf("Gpio_Error:X轴距离设置超限。\n");
@@ -1342,7 +1345,7 @@ bool linear_module_move_service(chassis_ctrl::linear_module_move::Request &req,
         res.message = "X轴距离设置超限";
         return true;
     }
-    if(y < 0 || y > 330)
+    if(y < 0 || y > kModuleTravelMaxY)
     {
         printCurrentTime();
         printf("Gpio_Error:Y轴距离设置超限。\n");
@@ -1350,7 +1353,7 @@ bool linear_module_move_service(chassis_ctrl::linear_module_move::Request &req,
         res.message = "Y轴距离设置超限";
         return true;
     }
-    if(z<0 || z>120)
+    if(z<0 || z>kModuleTravelMaxZ)
     {
         printCurrentTime();
         printf("Gpio_Error:Z轴距离设置超限。\n");
@@ -1556,7 +1559,7 @@ int main(int argc, char **argv) {
     pub_linear_module_gb_origin = nh_.advertise<std_msgs::Float32>("/gpio/linear_module_gb_origin", 5);
     linear_module_move_zero(0., 0., 0., reset_angle);
 
-    client = nh_.serviceClient<fast_image_solve::ProcessImage>("/process_image");
+    client = nh_.serviceClient<chassis_ctrl::ProcessImage>("/process_image");
     // linear_client = nh_.serviceClient<chassis_ctrl::linear_module_move>("linear_module_move");
     ros::ServiceServer linear_service = nh_.advertiseService("/linear_module_move", linear_module_move_service);
     ros::ServiceServer lashing_service = nh_.advertiseService("/sg", GPIO_Lashing_Service); // 索驱到位请求绑扎末端

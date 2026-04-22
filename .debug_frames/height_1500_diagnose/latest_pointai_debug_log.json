@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "count": 3,
+  "message": "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+  "logs": [
+    {
+      "name": "/pointAINode",
+      "msg": "pointAI调试: lines=47 intersections=145 centers=17 world_fallback=0 roi_reject=12 zero_world=0 candidate_points=5 in_range_candidates=3 selected_points=0 out_of_range_points=2 duplicate_removed_points=0 output_points=3",
+      "stamp": 1776774621.3715756
+    },
+    {
+      "name": "/pointAINode",
+      "msg": "pointAI调试:\n  模式: scan_only\n  规划工作区过滤: 原始候选=5, 去重移除=0, 范围内=3, 范围外=2, 2x2选中=0, 本次输出=3\n  范围限制: 按path_points.json规划工作区边界\n  范围外原因统计: 规划工作区外=2\n  样例:\n    - idx=7,pix=(66,135),coord=(-964.0,2965.0,4354.0),原因=规划工作区外\n    - idx=13,pix=(580,140),coord=(-938.0,429.0,4342.0),原因=规划工作区外\n  结论: 扫描模式输出3个规划工作区内世界坐标点，不做2x2限制\n",
+      "stamp": 1776774621.3730154
+    },
+    {
+      "name": "/pointAINode",
+      "msg": "pointAI process_image response: mode=scan_only, success=True, count=3, elapsed_ms=129.3, message=扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点",
+      "stamp": 1776774621.3739085
+    }
+  ]
+}

@@ -27,9 +27,8 @@
 #include <std_msgs/Int32.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
-#include "simulated_annealing.h"
 #include "chassis_ctrl/motion.h"
-#include "fast_image_solve/PointCoords.h"
+#include "chassis_ctrl/PointCoords.h"
 #include <geometry_msgs/Twist.h>  
 #include "modbus_connect.h"
 #include "sbus_decoder.h"
@@ -38,13 +37,13 @@
 #include "chassis_ctrl/linear_module_move_single.h"
 #include "chassis_ctrl/linear_module_move.h"
 #include "chassis_ctrl/ExecuteBindPoints.h"
-#include <fast_image_solve/ProcessImage.h>
+#include <chassis_ctrl/ProcessImage.h>
 #include <std_msgs/Bool.h>
 #include <std_srvs/Trigger.h>
 #include "common.hpp"
 
 // Linux-specific code
-// xy轴移动范围为0到380mm
+// TCP / 虎口坐标系移动范围为 x:0~360mm, y:0~320mm, z:0~140mm
 // 旋转电机角度 0~180°
 #define LIGHT 5084
 bool light_state =0;
@@ -55,7 +54,7 @@ std::string last_error_msg;
 
 chassis_ctrl::motion transform_msg;
 chassis_ctrl::linear_module_upload linear_module_data_upload;
-fast_image_solve::ProcessImage srv;
+chassis_ctrl::ProcessImage srv;
 ros::ServiceClient AI_client;
 ros::ServiceClient linear_client;
 std_srvs::Trigger Trigger_srv;
@@ -65,8 +64,8 @@ constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
 constexpr uint8_t kProcessImageModeBindCheck = 2;
 constexpr double kBindMaxHeightMm = 95.0;
 constexpr double kTcpTravelMinZMm = 0.0;
-constexpr double kTcpTravelMaxZMm = 200.0;
-constexpr double kTravelMaxXMm = 320.0;
+constexpr double kTcpTravelMaxZMm = 140.0;
+constexpr double kTravelMaxXMm = 360.0;
 constexpr double kTravelMaxYMm = 320.0;
 constexpr double kPrecomputedFastModuleSpeedMmPerSec = 400.0;
 constexpr const char* kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
@@ -190,6 +189,8 @@ static uint16_t last_JULI = 0;
 double module_speed= 250;
 // 旋转电机运行速度
 double motor_speed= 360;
+constexpr int kFinishAllTimeoutSec = 30;
+constexpr int kFinishAllLogIntervalSec = 2;
 double current_z = 0;
 bool current_z_flag = false;
 std_msgs::Int32 msg;
@@ -724,17 +725,75 @@ bool arrive_z(int axis_z, double &z, bool &is_current_z)
     return true; // 正常完成
 }
 
+void clear_finishall_flag_if_needed()
+{
+    int finishall_flag = 0;
+    {
+        std::lock_guard<std::mutex> lock2(module_state_mutex);
+        finishall_flag = static_cast<int>(module_state.FINISH_ALL_FLAG);
+    }
+    if (!finishall_flag) {
+        return;
+    }
+
+    printCurrentTime();
+    printf("Moduan_log: 检测到上一轮FINISHALL标志仍为1，先清零后再启动本轮末端执行。\n");
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        PLC_Order_Write(FINISHALL,0,plc);
+    }
+}
+
 bool finish_all(int inter_time)
 {
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
     while (true)
     {
         int finishall_flag = 0;
+        double cur_x = 0.0;
+        double cur_y = 0.0;
+        double cur_z = 0.0;
         {
             std::lock_guard<std::mutex> lock2(module_state_mutex);
-            finishall_flag = (int)module_state.FINISH_ALL_FLAG;
+            finishall_flag = static_cast<int>(module_state.FINISH_ALL_FLAG);
+            cur_x = module_state.X;
+            cur_y = module_state.Y;
+            cur_z = module_state.Z;
         }
         
         if (finishall_flag) break;
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+        if (elapsed_sec >= kFinishAllTimeoutSec) {
+            printCurrentTime();
+            printf(
+                "Moduan_Error: 等待FINISHALL标志超时，超时=%ds，当前FINISH_ALL_FLAG=%d，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                kFinishAllTimeoutSec,
+                finishall_flag,
+                cur_x,
+                cur_y,
+                cur_z
+            );
+            return false;
+        }
+
+        const auto log_elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count();
+        if (log_elapsed_sec >= kFinishAllLogIntervalSec) {
+            printCurrentTime();
+            printf(
+                "Moduan_log: 等待FINISHALL标志中，当前FINISH_ALL_FLAG=%d，已等待%lds，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                finishall_flag,
+                static_cast<long>(elapsed_sec),
+                cur_x,
+                cur_y,
+                cur_z
+            );
+            last_log_time = now;
+        }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(inter_time));
     }
@@ -899,7 +958,7 @@ std::string append_bind_height_excess_message(const std::string& message, double
     return oss.str();
 }
 
-bool should_keep_jump_bind_point(const fast_image_solve::PointCoords& point)
+bool should_keep_jump_bind_point(const chassis_ctrl::PointCoords& point)
 {
     if (send_odd_points != 1) {
         return true;
@@ -991,7 +1050,7 @@ void inputAllPoints(int i, double x, double y, double z, double rz)
 }
 
 bool execute_bind_points(
-    const std::vector<fast_image_solve::PointCoords>& filteredPoints,
+    const std::vector<chassis_ctrl::PointCoords>& filteredPoints,
     std::string& response_message,
     bool apply_jump_bind_filter = true
 )
@@ -1070,7 +1129,10 @@ bool execute_bind_points(
         PLC_Order_Write(EN_DISABLE, 1, plc);
     }
     if (selected_bind_point_count != 0) {
-        finish_all(150);
+        if (!finish_all(150)) {
+            response_message = "等待FINISHALL标志超时，当前子区域绑扎未确认完成";
+            return false;
+        }
     }
     bind_all_data.push_back(bind_data);
     response_message = "区域绑扎作业完成";
@@ -1147,7 +1209,7 @@ bool moduan_bind_service(std_srvs::Trigger::Request &req, std_srvs::Trigger::Res
     printf("Moduan_log: 子区域内钢筋绑扎点数量:%zu.\n", srv.response.PointCoordinatesArray.size());
     auto sortedArray = srv.response.PointCoordinatesArray;
 
-    std::vector<fast_image_solve::PointCoords> filteredPoints(sortedArray.begin(), sortedArray.end());
+    std::vector<chassis_ctrl::PointCoords> filteredPoints(sortedArray.begin(), sortedArray.end());
     if (filteredPoints.empty()) {
         printCurrentTime();
         printf(
@@ -1173,8 +1235,9 @@ bool moduan_bind_points_service(
     chassis_ctrl::ExecuteBindPoints::Request &req,
     chassis_ctrl::ExecuteBindPoints::Response &res
 ) {
+    clear_finishall_flag_if_needed();
     pub_moduan_work_state(true);
-    std::vector<fast_image_solve::PointCoords> points(req.points.begin(), req.points.end());
+    std::vector<chassis_ctrl::PointCoords> points(req.points.begin(), req.points.end());
     const bool executed = execute_bind_points(points, res.message, false);
     pub_moduan_work_state(false);
     res.success = executed;
@@ -1189,8 +1252,9 @@ bool moduan_bind_points_fast_service(
     chassis_ctrl::ExecuteBindPoints::Response &res
 ) {
     ScopedModuleSpeedOverride speed_override(kPrecomputedFastModuleSpeedMmPerSec);
+    clear_finishall_flag_if_needed();
     pub_moduan_work_state(true);
-    std::vector<fast_image_solve::PointCoords> points(req.points.begin(), req.points.end());
+    std::vector<chassis_ctrl::PointCoords> points(req.points.begin(), req.points.end());
     const bool executed = execute_bind_points(points, res.message, false);
     pub_moduan_work_state(false);
     res.success = executed;
@@ -1283,7 +1347,7 @@ bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,
         printCurrentTime();
         printf("Moduan_log:目标点超出范围。\n");
         res.success = false;
-        res.message = "目标点超出范围，TCP z轴行程仅支持0~200mm";
+        res.message = "目标点超出范围，TCP z轴行程仅支持0~140mm";
         return res.success;
     }
     
@@ -1292,7 +1356,12 @@ bool moduan_move_service(chassis_ctrl::linear_module_move::Request &req,
         std::lock_guard<std::mutex> lock2(plc_mutex);
         PLC_Order_Write(EN_DISABLE, 1, plc);
     }
-    finish_all(150);
+    if (!finish_all(150)) {
+        pub_moduan_work_state(false);
+        res.success = false;
+        res.message = "等待FINISHALL标志超时，线性模组未确认完成";
+        return true;
+    }
     pub_moduan_work_state(false);
     printf("Moduan_log:线性模组现在已经运行至(%lf,%lf,%lf)mm处。\n",x,y,z);
     res.success = true;
@@ -1647,7 +1716,7 @@ int main(int argc, char **argv) {
     pub_moduan_work = nh_.advertise<std_msgs::Bool>("/moduan_work", 5);
     // pub_linear_module_gb_origin = nh_.advertise<std_msgs::Float32>("/moduan/linear_module_gb_origin", 5);
 
-    AI_client = nh_.serviceClient<fast_image_solve::ProcessImage>("/pointAI/process_image");
+    AI_client = nh_.serviceClient<chassis_ctrl::ProcessImage>("/pointAI/process_image");
     ros::ServiceServer linear_service = nh_.advertiseService("/moduan/single_move", moduan_move_service);
     ros::ServiceServer lashing_service = nh_.advertiseService("/moduan/sg", moduan_bind_service);
     ros::ServiceServer pseudo_slam_lashing_service = nh_.advertiseService("/moduan/sg_precomputed", moduan_bind_points_service);

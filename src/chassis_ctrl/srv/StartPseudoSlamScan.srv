@@ -1,5 +1,6 @@
 uint8 SCAN_STRATEGY_SINGLE_CENTER=0
 uint8 SCAN_STRATEGY_MULTI_POSE=1
+uint8 SCAN_STRATEGY_FIXED_MANUAL_WORKSPACE=2
 bool enable_capture_gate
 uint8 scan_strategy
 ---

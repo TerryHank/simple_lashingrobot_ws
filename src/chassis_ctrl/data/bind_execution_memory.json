@@ -1,10 +1,10 @@
 {
     "executed_points": [],
     "path_origin": {
-        "x": -1550.0,
-        "y": 650.0,
+        "x": -1190.0,
+        "y": 540.0,
         "z": 0.0
     },
     "path_signature": "fnv1a64:69b9a1f1f301d7dd",
-    "scan_session_id": "1776773379973626644"
+    "scan_session_id": "1776822640908246721"
 }

@@ -11,7 +11,7 @@ from tf.transformations import quaternion_from_euler
 
 try:
     from chassis_ctrl.msg import AreaProgress
-    from fast_image_solve.msg import PointsArray
+    from chassis_ctrl.msg import PointsArray
 except ImportError:  # pragma: no cover - helps unit tests import helpers in isolation
     AreaProgress = None
     PointsArray = None

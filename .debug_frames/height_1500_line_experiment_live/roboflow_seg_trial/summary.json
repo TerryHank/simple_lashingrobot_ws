@@ -1,0 +1,14 @@
+{
+  "raw": {
+    "detections": 0,
+    "scores": [],
+    "boxes_xyxy": [],
+    "mask_pixels": []
+  },
+  "top_mask_only": {
+    "detections": 0,
+    "scores": [],
+    "boxes_xyxy": [],
+    "mask_pixels": []
+  }
+}

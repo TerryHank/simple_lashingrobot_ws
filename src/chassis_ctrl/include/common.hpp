@@ -33,7 +33,6 @@
 #include <filesystem>  
 #include "modbus_connect.h"
 #include "sbus_decoder.h"
-#include "simulated_annealing.h"
 
 #include <ros/ros.h>
 #include <ros/package.h>
@@ -59,8 +58,8 @@
 #include "chassis_ctrl/StartPseudoSlamScan.h"
 #include "chassis_ctrl/SingleMove.h"      // 单轴移动服务
 
-#include "fast_image_solve/PointCoords.h"
-#include "fast_image_solve/ProcessImage.h"
+#include "chassis_ctrl/PointCoords.h"
+#include "chassis_ctrl/ProcessImage.h"
 
 #define COLOR_RESET   "\033[0m"      // 重置所有样式
 #define COLOR_BLACK   "\033[0;30m"   // 黑色

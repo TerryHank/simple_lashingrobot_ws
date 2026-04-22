@@ -1,0 +1,33 @@
+{
+  "workspace_bbox": [
+    148,
+    40,
+    495,
+    433
+  ],
+  "corner_pixels": [
+    [
+      490,
+      41
+    ],
+    [
+      495,
+      432
+    ],
+    [
+      148,
+      433
+    ],
+    [
+      153,
+      40
+    ]
+  ],
+  "vertical_period_px": 14,
+  "horizontal_period_px": 14,
+  "vertical_phase_px": 6,
+  "horizontal_phase_px": 0,
+  "vertical_line_count": 26,
+  "horizontal_line_count": 29,
+  "point_count": 754
+}

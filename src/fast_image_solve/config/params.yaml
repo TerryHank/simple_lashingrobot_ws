@@ -1,5 +1,0 @@
-# 钢筋检测参数
-min_rebar_area: 30           # 最小钢筋区域面积(像素)
-line_angle_threshold: 10.0   # 线段角度过滤阈值(度)
-cross_point_min_angle: 10.0  # 交叉点最小夹角(度)
-# grid_merge_size: 10.0        # 网格聚类大小(像素)

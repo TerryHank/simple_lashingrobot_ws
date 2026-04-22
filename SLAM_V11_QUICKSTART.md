@@ -28,9 +28,84 @@ source devel/setup.bash
 
 ## 2. 启动方式
 
-当前版本建议分两个终端启动。
+当前版本建议直接一个终端启动整套系统。
 
-终端 1：启动相机、rosbridge、话题转发、日志汇聚
+```bash
+cd /home/hyq-/simple_lashingrobot_ws
+source devel/setup.bash
+roslaunch chassis_ctrl run.launch
+```
+
+默认行为：
+
+- 会一并拉起 `api.launch`
+- 会启动 IR 工作区四点选取前端的本地静态服务
+- 如果当前桌面环境可用，会自动打开浏览器到：
+  `http://127.0.0.1:8765/index.html`
+
+如果你已经单独启动了 `api.launch`，再开 `run.launch` 时要显式关闭这层自动包含：
+
+```bash
+roslaunch chassis_ctrl run.launch include_api_stack:=false
+```
+
+### 2.1 `run.launch` 参数说明
+
+- `include_api_stack`
+  - 默认：`true`
+  - 含义：启动 `run.launch` 时，是否顺带包含 [api.launch](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/launch/api.launch)
+  - 什么时候改成 `false`：你已经单独开了 `api.launch`，或者你就是想继续用老的双终端拆分方式
+- `start_workspace_picker_web`
+  - 默认：`true`
+  - 含义：是否启动 IR 工作区四点选取前端的本地 Web 服务
+  - 关掉方式：
+
+```bash
+roslaunch chassis_ctrl run.launch start_workspace_picker_web:=false
+```
+
+- `auto_open_workspace_picker`
+  - 默认：`true`
+  - 含义：前端页面服务起来后，是否自动打开浏览器
+  - 关掉方式：
+
+```bash
+roslaunch chassis_ctrl run.launch auto_open_workspace_picker:=false
+```
+
+- `workspace_picker_port`
+  - 默认：`8765`
+  - 含义：IR 工作区四点选取前端的本地端口
+  - 改端口方式：
+
+```bash
+roslaunch chassis_ctrl run.launch workspace_picker_port:=8766
+```
+
+### 2.2 IR 工作区四点选取前端
+
+前端页面源码目录：
+
+```bash
+/home/hyq-/simple_lashingrobot_ws/src/ir_workspace_picker_web
+```
+
+页面打开地址默认是：
+
+```bash
+http://127.0.0.1:8765/index.html
+```
+
+使用方式：
+
+- 在当前 IR 图像上按顺时针或逆时针点 4 个角点
+- 点击“提交四边形”
+- 后端会把这 4 个像素点转换成 `cabin_frame` 下的世界坐标四边形
+- 保存到 [manual_workspace_quad.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/manual_workspace_quad.json)
+
+如果你仍然想按老方式拆成两个终端，也可以继续这样开：
+
+终端 1：启动相机、`rosbridge`、话题转发、日志汇聚
 
 ```bash
 cd /home/hyq-/simple_lashingrobot_ws
@@ -43,7 +118,7 @@ roslaunch chassis_ctrl api.launch
 ```bash
 cd /home/hyq-/simple_lashingrobot_ws
 source devel/setup.bash
-roslaunch chassis_ctrl run.launch
+roslaunch chassis_ctrl run.launch include_api_stack:=false
 ```
 
 也可以直接用脚本：
@@ -736,13 +811,13 @@ source devel/setup.bash
 2. 启动
 
 ```bash
-roslaunch chassis_ctrl api.launch
+roslaunch chassis_ctrl run.launch
 ```
 
-新终端：
+如果你已经单独开了 `api.launch`，这里改成：
 
 ```bash
-roslaunch chassis_ctrl run.launch
+roslaunch chassis_ctrl run.launch include_api_stack:=false
 ```
 
 3. 选择执行模式

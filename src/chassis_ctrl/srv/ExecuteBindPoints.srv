@@ -1,4 +1,4 @@
-fast_image_solve/PointCoords[] points
+chassis_ctrl/PointCoords[] points
 ---
 bool success
 string message

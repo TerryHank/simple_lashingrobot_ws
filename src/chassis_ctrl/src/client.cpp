@@ -34,9 +34,9 @@
 #include "chassis_ctrl/cabin_calibration.h"
 #include "chassis_ctrl/linear_module_move_all.h"
 #include "chassis_ctrl/linear_module_upload.h"
-#include <fast_image_solve/ProcessImage.h>
-#include "fast_image_solve/PointCoords.h"
-#include <fast_image_solve/ProcessImage.h>
+#include <chassis_ctrl/ProcessImage.h>
+#include "chassis_ctrl/PointCoords.h"
+#include <chassis_ctrl/ProcessImage.h>
 #include "chassis_ctrl/area_choose.h"
 #include "std_srvs/Trigger.h" 
 #include <chassis_ctrl/Pathguihua.h>
@@ -72,10 +72,10 @@ int main(int argc, char** argv) {
     global_chassis_path_srv.request.speed = 10;
     std_srvs::Trigger single_move_flag;
     
-    fast_image_solve::ProcessImage image_srv;
+    chassis_ctrl::ProcessImage image_srv;
     std_srvs::Trigger trigger_srv;
     // srv.request.action = true;
-    image_solve_client = nh.serviceClient<fast_image_solve::ProcessImage>("/process_image");
+    image_solve_client = nh.serviceClient<chassis_ctrl::ProcessImage>("/process_image");
 
     Chassis_client_2 = nh.serviceClient<chassis_ctrl::Pathguihua>("/cabin/path_config");
     Chassis_client_3 = nh.serviceClient<std_srvs::Trigger>("/cabin/single_move_flag");

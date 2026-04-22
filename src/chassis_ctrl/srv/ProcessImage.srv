@@ -1,0 +1,15 @@
+uint8 MODE_DEFAULT=0
+uint8 MODE_ADAPTIVE_HEIGHT=1
+uint8 MODE_BIND_CHECK=2
+uint8 MODE_SCAN_ONLY=3
+uint8 MODE_EXECUTION_REFINE=4
+
+uint8 request_mode
+---
+bool success
+string message
+int32 out_of_height_count
+int32[] out_of_height_point_indices
+float32[] out_of_height_z_values
+int32 count
+PointCoords[] PointCoordinatesArray

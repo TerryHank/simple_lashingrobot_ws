@@ -14,14 +14,20 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image, CompressedImage , CameraInfo # 添加CompressedImage
 import numpy as np
 from sklearn.cluster import DBSCAN
-from chassis_ctrl.srv import linear_module_move, linear_module_moveRequest, linear_module_moveResponse
-from fast_image_solve.msg import PointsArray,PointCoords
+from chassis_ctrl.srv import (
+    linear_module_move,
+    linear_module_moveRequest,
+    linear_module_moveResponse,
+    SingleMove,
+    SingleMoveRequest,
+)
+from chassis_ctrl.msg import PointsArray, PointCoords
 import math
 from chassis_ctrl.msg import motion
-from fast_image_solve.srv import ProcessImage, ProcessImageResponse ,PlaneDetection, PlaneDetectionResponse
+from chassis_ctrl.srv import ProcessImage, ProcessImageResponse, PlaneDetection, PlaneDetectionResponse
 from std_srvs.srv import Trigger, TriggerResponse
 import time
-from std_msgs.msg import Int32 ,Float32, Bool
+from std_msgs.msg import Int32 ,Float32, Bool, Float32MultiArray
 from cv2 import ximgproc
 import os
 # from ultralytics import YOLO
@@ -36,6 +42,7 @@ PROCESS_IMAGE_MODE_DEFAULT = 0
 PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT = 1
 PROCESS_IMAGE_MODE_BIND_CHECK = 2
 PROCESS_IMAGE_MODE_SCAN_ONLY = 3  # pseudo_slam scan mode
+PROCESS_IMAGE_MODE_EXECUTION_REFINE = 4  # live_visual execution refine mode
 
 class ImageProcessor:
     def __init__(self):
@@ -87,6 +94,9 @@ class ImageProcessor:
         self.path_points_file = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "data", "path_points.json")
         )
+        self.manual_workspace_quad_file = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "data", "manual_workspace_quad.json")
+        )
         self.gripper_tf_config_file = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "..", "config", "gripper_tf.yaml")
         )
@@ -109,8 +119,9 @@ class ImageProcessor:
         self.stable_frame_count = max(1, int(rospy.get_param("~stable_frame_count", 3)))
         self.stable_z_tolerance_mm = float(rospy.get_param("~stable_z_tolerance_mm", 5.0))
         self.bind_check_max_height_mm = float(rospy.get_param("~bind_check_max_height_mm", 95.0))
-        self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 320.0))
+        self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 360.0))
         self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))
+        self.travel_range_max_z_mm = float(rospy.get_param("~travel_range_max_z_mm", 140.0))
         self.matrix_selection_max_x_mm = float(rospy.get_param("~matrix_selection_max_x_mm", 500.0))
         self.matrix_selection_max_y_mm = float(rospy.get_param("~matrix_selection_max_y_mm", 500.0))
         self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 500.0))
@@ -124,11 +135,14 @@ class ImageProcessor:
         rospy.Subscriber('/Scepter/ir/image_raw', Image, self.image_infrared_callback)
         rospy.Subscriber('/Scepter/depth/image_raw', Image, self.image_depth_callback)
         rospy.Subscriber('/Scepter/ir/camera_info', CameraInfo, self.camera_info_callback)
-        rospy.Subscriber('/web/fast_image_solve/set_pointAI_offset', Pose, self.calibration_offset_callback) # 兼容旧前端，空间标定现仅由TF提供
-        rospy.Subscriber('/web/fast_image_solve/set_height_threshold', Float32, self.fixed_z_value_callback)  # 接收固定z值话题
+        rospy.Subscriber('/web/pointAI/set_offset', Pose, self.calibration_offset_callback) # 兼容旧前端，空间标定现仅由TF提供
+        rospy.Subscriber('/web/pointAI/set_workspace_quad', Float32MultiArray, self.manual_workspace_quad_callback)
+        rospy.Subscriber('/web/pointAI/run_workspace_s2', Bool, self.manual_workspace_s2_callback)
+        rospy.Subscriber('/web/pointAI/move_to_workspace_center_scan_pose', Bool, self.workspace_center_scan_pose_callback)
+        rospy.Subscriber('/web/pointAI/set_height_threshold', Float32, self.fixed_z_value_callback)  # 接收固定z值话题
         rospy.Subscriber('/web/moduan/send_odd_points', Bool, self.jump_bind_callback)
     
-        # self.detect_and_save_pose_srv = rospy.Service('/web/fast_image_solve/detect_and_save_pose', Trigger, self.detect_and_save_pose_service)
+        # self.detect_and_save_pose_srv = rospy.Service('/web/pointAI/detect_and_save_pose', Trigger, self.detect_and_save_pose_service)
         self.service = rospy.Service('/pointAI/process_image', ProcessImage, self.handle_process_image)
         # 新增三个Image格式发布器
         self.cropped_ir_image_pub = rospy.Publisher('/pointAI/cropped_ir_image', Image, queue_size=10)
@@ -138,14 +152,32 @@ class ImageProcessor:
         self.line_image_pub = rospy.Publisher('/pointAI/line_image', Image, queue_size=10)
         self.image_pub = rospy.Publisher('/pointAI/result_image', CompressedImage, queue_size=10)
         self.result_image_raw_pub = rospy.Publisher('/pointAI/result_image_raw', Image, queue_size=10)
+        self.manual_workspace_s2_result_raw_pub = rospy.Publisher(
+            '/pointAI/manual_workspace_s2_result_raw',
+            Image,
+            queue_size=1,
+            latch=True,
+        )
+        self.manual_workspace_quad_pixels_pub = rospy.Publisher(
+            '/pointAI/manual_workspace_quad_pixels',
+            Float32MultiArray,
+            queue_size=1,
+            latch=True,
+        )
         # rospy.Subscriber('/cabin/lashing_request', motion, self.printsomething) 
        
         self.plane_z = None
         self.coordinate_publisher = rospy.Publisher('/coordinate_point', PointsArray, queue_size=10)
+        self.manual_workspace_s2_points_pub = rospy.Publisher(
+            '/pointAI/manual_workspace_s2_points',
+            PointsArray,
+            queue_size=1,
+            latch=True,
+        )
 
         # device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # 加载 YOLO 模型并指定设备
-        # self.yolov11 = YOLO("/home/car/lashingrobots/src/fast_image_solve/scripts/mask2best.pt")
+        # self.yolov11 = YOLO("/home/car/lashingrobots/src/chassis_ctrl/scripts/mask2best.pt")
         # self.yolov11.to(device)
         # print(f"YOLO model loaded on {device}")
         
@@ -167,6 +199,7 @@ class ImageProcessor:
         self.dist_coeffs = None   
 
         self.load_runtime_config()
+        self.publish_current_manual_workspace_quad_pixels()
 
         print("pointAI node initialized!")
         print(
@@ -176,6 +209,46 @@ class ImageProcessor:
                 self.height_threshold
             )
         )
+
+    def get_cabin_frame_xy_channels(self):
+        if not self.ensure_raw_world_channels():
+            return None
+
+        cached_seq = getattr(self, "_cached_cabin_frame_xy_seq", None)
+        current_seq = getattr(self, "world_image_seq", 0)
+        if cached_seq == current_seq:
+            return getattr(self, "_cached_cabin_frame_xy_channels", None)
+
+        transform_matrix = self.lookup_transform_matrix_mm("cabin_frame", source_frame="Scepter_depth_frame")
+        if transform_matrix is None:
+            return None
+
+        source_x = self.x_channel.astype(np.float32)
+        source_y = self.y_channel.astype(np.float32)
+        source_z = self.depth_v.astype(np.float32)
+        valid_mask = source_z != 0.0
+
+        target_x = (
+            transform_matrix[0, 0] * source_x
+            + transform_matrix[0, 1] * source_y
+            + transform_matrix[0, 2] * source_z
+            + transform_matrix[0, 3]
+        )
+        target_y = (
+            transform_matrix[1, 0] * source_x
+            + transform_matrix[1, 1] * source_y
+            + transform_matrix[1, 2] * source_z
+            + transform_matrix[1, 3]
+        )
+
+        cached_channels = {
+            "x": target_x.astype(np.float32),
+            "y": target_y.astype(np.float32),
+            "valid_mask": valid_mask.astype(bool),
+        }
+        self._cached_cabin_frame_xy_seq = current_seq
+        self._cached_cabin_frame_xy_channels = cached_channels
+        return cached_channels
 
     def load_runtime_config(self):
         if not os.path.exists(self.cali_offset_file):
@@ -253,7 +326,7 @@ class ImageProcessor:
         旧的视觉偏差入口现在由 gripper_tf_broadcaster 实时处理。
         """
         rospy.loginfo(
-            "pointAI: /web/fast_image_solve/set_pointAI_offset 现由gripper_tf_broadcaster实时处理，"
+            "pointAI: /web/pointAI/set_offset 现由gripper_tf_broadcaster实时处理，"
             "translation_mm=(%.3f, %.3f, %.3f)，无需重启节点。",
             msg.position.x,
             msg.position.y,
@@ -267,7 +340,19 @@ class ImageProcessor:
         img[:, :, 0], img[:, :, 1] = img[:, :, 1], img[:, :, 0].copy()
         # ② 新 Y 翻符号 → 正向朝上
         img[:, :, 1] *= -1
-        self.image_raw_world = img  
+        self.image_raw_world = img
+        self.ensure_raw_world_channels()
+
+    def ensure_raw_world_channels(self):
+        if getattr(self, "image_raw_world", None) is None:
+            return False
+
+        image_raw_world_channels = self.cv2.split(self.image_raw_world)
+        self.x_channel = (image_raw_world_channels[0]).astype(np.int32)
+        self.y_channel = (image_raw_world_channels[1]).astype(np.int32)
+        self.depth_v = (image_raw_world_channels[2]).astype(np.int32)
+        return True
+
     def printsomething(self, msg):
         print("msg:", msg.data)
     @staticmethod
@@ -394,7 +479,7 @@ class ImageProcessor:
         return "selected" if self.should_execute_selected_point_number(point_number) else "jump_skipped"
 
     def get_travel_range_reject_reasons(self, calibrated_x, calibrated_y):
-        max_x = getattr(self, "travel_range_max_x_mm", 320.0)
+        max_x = getattr(self, "travel_range_max_x_mm", 360.0)
         max_y = getattr(self, "travel_range_max_y_mm", 320.0)
         reasons = []
         if calibrated_x < 0:
@@ -567,7 +652,7 @@ class ImageProcessor:
         
         # 确保图像是可写的
         self.image_infrared_copy = np.array(self.image_infrared, copy=True)
-        
+
     def lookup_transform_matrix_mm(self, target_frame, source_frame="Scepter_depth_frame"):
         try:
             transform = self.tf_buffer.lookup_transform(
@@ -615,7 +700,44 @@ class ImageProcessor:
 
     def transform_to_cabin_frame(self, x, y, z, idx):
         del idx
-        return self.transform_point_to_frame(x, y, z, "cabin_frame")
+        try:
+            T = self.lookup_transform_matrix_mm("cabin_frame", source_frame="Scepter_depth_frame")
+            if T is None:
+                return None
+            T_gripper = self.lookup_transform_matrix_mm("gripper_frame", source_frame="Scepter_depth_frame")
+            if T_gripper is None:
+                return None
+
+            cabin_x = int(round(float(T[0, 3]) + float(x)))
+            cabin_y = int(round(float(T[1, 3]) + float(y)))
+            # raw_world_coord 在当前链路里 z 仍表示相机朝下方向的距离。
+            # cabin_frame 定义为索驱全局坐标系，z 轴大地朝上；
+            # 另外当前索驱高度记录的是工具/索驱位姿，而不是相机光心，所以还需要补回
+            # Scepter_depth_frame -> gripper_frame 的竖向外参（当前为 -730mm）。
+            cabin_z = int(round(float(T[2, 3]) - float(z) - float(T_gripper[2, 3])))
+            return (cabin_x, cabin_y, cabin_z)
+        except Exception as e:
+            rospy.logerr_throttle(5, f"cabin_frame坐标转换未知错误: {str(e)}")
+            return None
+
+    def transform_cabin_point_to_gripper_frame(self, x, y, z):
+        transformed_point = self.transform_point_to_frame(
+            x,
+            y,
+            z,
+            "gripper_frame",
+            source_frame="cabin_frame",
+        )
+        if transformed_point is None:
+            return None
+        return [float(value) for value in transformed_point]
+
+    def is_point_in_tcp_display_range(self, tcp_x, tcp_y, tcp_z):
+        return (
+            0 <= tcp_x <= getattr(self, "travel_range_max_x_mm", 360.0)
+            and 0 <= tcp_y <= getattr(self, "travel_range_max_y_mm", 320.0)
+            and 0 <= tcp_z <= getattr(self, "travel_range_max_z_mm", 140.0)
+        )
 
     def apply_spatial_calibration(self, x_value, y_value, z_value, idx, target_frame="gripper_frame"):
         if target_frame == "cabin_frame":
@@ -681,7 +803,337 @@ class ImageProcessor:
             rospy.logwarn_throttle(5.0, f"pointAI扫描工作区读取失败: {exc}")
             return default_bounds
 
+    @staticmethod
+    def sort_polygon_points_clockwise(points):
+        if len(points) != 4:
+            return points
+
+        points_array = np.asarray(points, dtype=np.float32)
+        center = np.mean(points_array, axis=0)
+        point_angles = np.arctan2(points_array[:, 1] - center[1], points_array[:, 0] - center[0])
+        sorted_indices = np.argsort(point_angles)
+        sorted_points = [points[int(index)] for index in sorted_indices]
+        start_index = min(
+            range(len(sorted_points)),
+            key=lambda index: (sorted_points[index][0] + sorted_points[index][1], sorted_points[index][1], sorted_points[index][0]),
+        )
+        return sorted_points[start_index:] + sorted_points[:start_index]
+
+    @staticmethod
+    def sort_polygon_indices_clockwise(points):
+        if len(points) != 4:
+            return list(range(len(points)))
+
+        points_array = np.asarray(points, dtype=np.float32)
+        center = np.mean(points_array, axis=0)
+        point_angles = np.arctan2(points_array[:, 1] - center[1], points_array[:, 0] - center[0])
+        sorted_indices = list(np.argsort(point_angles))
+        start_index = min(
+            range(len(sorted_indices)),
+            key=lambda index: (
+                points[sorted_indices[index]][0] + points[sorted_indices[index]][1],
+                points[sorted_indices[index]][1],
+                points[sorted_indices[index]][0],
+            ),
+        )
+        return sorted_indices[start_index:] + sorted_indices[:start_index]
+
+    def save_manual_workspace_quad(self, corner_pixels, corner_world_cabin_frame, corner_sample_pixels=None):
+        manual_workspace_json = {
+            "corner_pixels": [[int(point[0]), int(point[1])] for point in corner_pixels],
+            "corner_world_cabin_frame": [
+                [float(point[0]), float(point[1]), float(point[2])]
+                for point in corner_world_cabin_frame
+            ],
+        }
+        if corner_sample_pixels is not None:
+            manual_workspace_json["corner_sample_pixels"] = [
+                [int(point[0]), int(point[1])] for point in corner_sample_pixels
+            ]
+
+        with open(self.manual_workspace_quad_file, "w", encoding="utf-8") as file_obj:
+            json.dump(manual_workspace_json, file_obj, indent=2, ensure_ascii=False)
+
+    def build_manual_workspace_quad_pixels_message(self, manual_workspace=None):
+        manual_workspace = self.load_manual_workspace_quad() if manual_workspace is None else manual_workspace
+        if manual_workspace is None:
+            return None
+
+        corner_pixels = manual_workspace.get("corner_pixels")
+        if not isinstance(corner_pixels, list) or len(corner_pixels) != 4:
+            return None
+
+        payload = []
+        for point in corner_pixels:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                return None
+            payload.extend([float(point[0]), float(point[1])])
+
+        return Float32MultiArray(data=payload)
+
+    def publish_current_manual_workspace_quad_pixels(self):
+        publisher = getattr(self, "manual_workspace_quad_pixels_pub", None)
+        if publisher is None:
+            return
+
+        message = self.build_manual_workspace_quad_pixels_message()
+        if message is None:
+            return
+        publisher.publish(message)
+
+    def load_manual_workspace_quad(self):
+        manual_workspace_file = getattr(self, "manual_workspace_quad_file", None)
+        if not manual_workspace_file or not os.path.exists(manual_workspace_file):
+            return None
+
+        try:
+            with open(manual_workspace_file, "r", encoding="utf-8") as file_obj:
+                manual_workspace_json = json.load(file_obj)
+        except Exception:
+            return None
+
+        corner_pixels = manual_workspace_json.get("corner_pixels")
+        corner_world_cabin_frame = manual_workspace_json.get("corner_world_cabin_frame")
+        if (
+            not isinstance(corner_pixels, list)
+            or not isinstance(corner_world_cabin_frame, list)
+            or len(corner_pixels) != 4
+            or len(corner_world_cabin_frame) != 4
+        ):
+            return None
+
+        normalized_corner_pixels = []
+        normalized_corner_world = []
+        for pixel_point, world_point in zip(corner_pixels, corner_world_cabin_frame):
+            if (
+                not isinstance(pixel_point, (list, tuple))
+                or not isinstance(world_point, (list, tuple))
+                or len(pixel_point) != 2
+                or len(world_point) != 3
+            ):
+                return None
+
+            normalized_corner_pixels.append([int(round(pixel_point[0])), int(round(pixel_point[1]))])
+            normalized_corner_world.append([
+                float(world_point[0]),
+                float(world_point[1]),
+                float(world_point[2]),
+            ])
+
+        return {
+            "corner_pixels": normalized_corner_pixels,
+            "corner_world_cabin_frame": normalized_corner_world,
+        }
+
+    def load_workspace_center_scan_pose_target(self):
+        return {
+            "x": -260.0,
+            "y": 1700.0,
+            "z": 2997.0,
+            "speed": 100.0,
+        }
+
+    def run_workspace_center_scan_pose_move(self):
+        target = self.load_workspace_center_scan_pose_target()
+        service_name = "/cabin/single_move"
+        try:
+            rospy.wait_for_service(service_name, timeout=1.0)
+            single_move_service = rospy.ServiceProxy(service_name, SingleMove)
+            request = SingleMoveRequest()
+            request.command = "单点运动请求"
+            request.x = float(target["x"])
+            request.y = float(target["y"])
+            request.z = float(target["z"])
+            request.speed = float(target["speed"])
+            response = single_move_service(request)
+        except Exception as exc:
+            rospy.logwarn("pointAI调用%s失败: %s", service_name, exc)
+            return {"success": False, "message": str(exc), "target": target}
+
+        success = bool(getattr(response, "success", False))
+        message = getattr(response, "message", "")
+        if success:
+            rospy.loginfo(
+                "pointAI已下发固定扫描位姿: x=%.1f, y=%.1f, z=%.1f, speed=%.1f",
+                target["x"],
+                target["y"],
+                target["z"],
+                target["speed"],
+            )
+        else:
+            rospy.logwarn("pointAI固定扫描位姿下发失败: %s", message)
+
+        return {
+            "success": success,
+            "message": message,
+            "target": target,
+        }
+
+    def manual_workspace_quad_callback(self, msg):
+        raw_data = list(getattr(msg, "data", []))
+        if len(raw_data) != 8:
+            return
+
+        clicked_corner_pixels = []
+        corner_sample_pixels = []
+        corner_world_cabin_frame = []
+        for corner_index in range(0, len(raw_data), 2):
+            pixel_x = int(round(raw_data[corner_index]))
+            pixel_y = int(round(raw_data[corner_index + 1]))
+            raw_world_coord, sample_pixel, _ = self.get_valid_world_coord_near_pixel(pixel_x, pixel_y)
+            if raw_world_coord[0] == 0 or raw_world_coord[1] == 0 or raw_world_coord[2] == 0:
+                return
+
+            calibrated_world_coord = self.apply_spatial_calibration(
+                raw_world_coord[0],
+                raw_world_coord[1],
+                raw_world_coord[2],
+                corner_index // 2,
+                target_frame="cabin_frame",
+            )
+            if calibrated_world_coord is None:
+                return
+
+            clicked_corner_pixels.append([pixel_x, pixel_y])
+            corner_sample_pixels.append([int(sample_pixel[0]), int(sample_pixel[1])])
+            corner_world_cabin_frame.append([
+                float(calibrated_world_coord[0]),
+                float(calibrated_world_coord[1]),
+                float(calibrated_world_coord[2]),
+            ])
+
+        point_records = list(zip(clicked_corner_pixels, corner_sample_pixels, corner_world_cabin_frame))
+        ordered_corner_pixels = self.sort_polygon_points_clockwise(clicked_corner_pixels)
+        ordered_records = []
+        remaining_records = point_records[:]
+        for ordered_pixel in ordered_corner_pixels:
+            for record_index, record in enumerate(remaining_records):
+                if record[0][0] == ordered_pixel[0] and record[0][1] == ordered_pixel[1]:
+                    ordered_records.append(record)
+                    remaining_records.pop(record_index)
+                    break
+
+        if len(ordered_records) != 4:
+            ordered_records = point_records
+
+        self.save_manual_workspace_quad(
+            [record[0] for record in ordered_records],
+            [record[2] for record in ordered_records],
+            corner_sample_pixels=[record[1] for record in ordered_records],
+        )
+        self.publish_current_manual_workspace_quad_pixels()
+
+    def get_manual_workspace_pixel_mask(self):
+        manual_workspace = self.load_manual_workspace_quad()
+        if manual_workspace is None:
+            return None
+
+        image_shape = None
+        for attr_name in ("x_channel", "y_channel", "depth_v", "image_infrared_copy", "image_infrared"):
+            image_data = getattr(self, attr_name, None)
+            if image_data is not None:
+                image_shape = image_data.shape[:2]
+                break
+
+        if image_shape is None:
+            return None
+
+        image_height, image_width = image_shape
+        polygon_points = np.array(manual_workspace["corner_pixels"], dtype=np.int32)
+        polygon_points[:, 0] = np.clip(polygon_points[:, 0], 0, image_width - 1)
+        polygon_points[:, 1] = np.clip(polygon_points[:, 1], 0, image_height - 1)
+
+        polygon_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+        cv2.fillPoly(polygon_mask, [polygon_points.reshape((-1, 1, 2))], 1)
+        if not np.any(polygon_mask):
+            return None
+        return polygon_mask
+
+    @staticmethod
+    def build_convex_polygon_inside_mask(target_x, target_y, polygon_xy, valid_mask):
+        polygon_xy = np.asarray(polygon_xy, dtype=np.float32)
+        if polygon_xy.shape[0] < 3:
+            return None
+
+        inside_mask = np.asarray(valid_mask, dtype=bool).copy()
+        if not np.any(inside_mask):
+            return None
+
+        polygon_center = np.mean(polygon_xy, axis=0)
+        cross_sign = None
+        for edge_index in range(polygon_xy.shape[0]):
+            point_a = polygon_xy[edge_index]
+            point_b = polygon_xy[(edge_index + 1) % polygon_xy.shape[0]]
+            edge_cross = (
+                (point_b[0] - point_a[0]) * (polygon_center[1] - point_a[1])
+                - (point_b[1] - point_a[1]) * (polygon_center[0] - point_a[0])
+            )
+            if abs(float(edge_cross)) > 1e-3:
+                cross_sign = 1.0 if edge_cross > 0.0 else -1.0
+                break
+
+        if cross_sign is None:
+            return None
+
+        for edge_index in range(polygon_xy.shape[0]):
+            point_a = polygon_xy[edge_index]
+            point_b = polygon_xy[(edge_index + 1) % polygon_xy.shape[0]]
+            cross_value = (
+                (point_b[0] - point_a[0]) * (target_y - point_a[1])
+                - (point_b[1] - point_a[1]) * (target_x - point_a[0])
+            )
+            inside_mask &= (cross_sign * cross_value) >= -1e-3
+
+        if not np.any(inside_mask):
+            return None
+        return inside_mask.astype(np.uint8)
+
+    def get_manual_workspace_cabin_polygon_pixel_mask(self):
+        manual_workspace = self.load_manual_workspace_quad()
+        if manual_workspace is None:
+            return None
+
+        cabin_channels = self.get_cabin_frame_xy_channels()
+        if cabin_channels is None:
+            return None
+
+        polygon_xy = np.array(
+            [[float(point[0]), float(point[1])] for point in manual_workspace["corner_world_cabin_frame"]],
+            dtype=np.float32,
+        )
+        if polygon_xy.shape != (4, 2):
+            return None
+
+        return self.build_convex_polygon_inside_mask(
+            cabin_channels["x"],
+            cabin_channels["y"],
+            polygon_xy,
+            cabin_channels["valid_mask"],
+        )
+
+    def is_point_in_manual_workspace_polygon(self, world_x, world_y):
+        manual_workspace = self.load_manual_workspace_quad()
+        if manual_workspace is None:
+            return None
+
+        polygon_xy = np.array(
+            [[point[0], point[1]] for point in manual_workspace["corner_world_cabin_frame"]],
+            dtype=np.float32,
+        )
+        if polygon_xy.shape != (4, 2):
+            return None
+
+        return cv2.pointPolygonTest(
+            polygon_xy.reshape((-1, 1, 2)),
+            (float(world_x), float(world_y)),
+            False,
+        ) >= 0.0
+
     def is_point_in_scan_workspace(self, world_x, world_y):
+        manual_workspace_result = self.is_point_in_manual_workspace_polygon(world_x, world_y)
+        if manual_workspace_result is not None:
+            return manual_workspace_result
+
         workspace = self.load_scan_planning_workspace()
         if workspace["min_x"] == workspace["max_x"] and workspace["min_y"] == workspace["max_y"]:
             return True
@@ -753,6 +1205,10 @@ class ImageProcessor:
         return roi_mask
 
     def get_scan_workspace_pixel_mask(self):
+        manual_workspace_mask = self.get_manual_workspace_pixel_mask()
+        if manual_workspace_mask is not None:
+            return manual_workspace_mask
+
         workspace = self.load_scan_planning_workspace()
         if workspace["min_x"] == workspace["max_x"] and workspace["min_y"] == workspace["max_y"]:
             return None
@@ -763,6 +1219,633 @@ class ImageProcessor:
             workspace["min_y"],
             workspace["max_y"],
         )
+
+    @staticmethod
+    def smooth_workspace_s2_profile(profile):
+        profile = np.asarray(profile, dtype=np.float32).reshape(-1)
+        if profile.size == 0:
+            return profile
+
+        kernel = np.array([1.0, 2.0, 3.0, 2.0, 1.0], dtype=np.float32)
+        kernel /= np.sum(kernel)
+        return np.convolve(profile, kernel, mode="same")
+
+    @classmethod
+    def estimate_workspace_s2_period_and_phase(cls, profile, min_period=10, max_period=30):
+        profile = np.asarray(profile, dtype=np.float32).reshape(-1)
+        if profile.size == 0:
+            return None
+
+        finite_mask = np.isfinite(profile)
+        if not np.any(finite_mask):
+            return None
+
+        if not np.all(finite_mask):
+            fill_value = float(np.median(profile[finite_mask]))
+            profile = np.where(finite_mask, profile, fill_value)
+
+        smoothed_profile = cls.smooth_workspace_s2_profile(profile)
+        centered_profile = smoothed_profile - np.mean(smoothed_profile)
+        if np.linalg.norm(centered_profile) <= 1e-6:
+            return None
+
+        lower_bound = max(2, int(min_period))
+        upper_bound = min(int(max_period), max(profile.size // 2, lower_bound))
+        if upper_bound < lower_bound:
+            return None
+
+        best_period = None
+        best_score = None
+        for candidate_period in range(lower_bound, upper_bound + 1):
+            base_segment = centered_profile[:-candidate_period]
+            shifted_segment = centered_profile[candidate_period:]
+            denominator = np.linalg.norm(base_segment) * np.linalg.norm(shifted_segment)
+            if denominator <= 1e-6:
+                continue
+
+            correlation_score = float(np.dot(base_segment, shifted_segment) / denominator)
+            if (
+                best_score is None
+                or correlation_score > best_score
+                or (
+                    abs(correlation_score - best_score) <= 1e-6
+                    and candidate_period < best_period
+                )
+            ):
+                best_period = candidate_period
+                best_score = correlation_score
+
+        if best_period is None:
+            return None
+
+        best_phase = 0
+        best_phase_score = None
+        for candidate_phase in range(best_period):
+            phase_samples = smoothed_profile[candidate_phase::best_period]
+            if phase_samples.size == 0:
+                continue
+
+            phase_score = float(np.mean(phase_samples))
+            if best_phase_score is None or phase_score > best_phase_score:
+                best_phase = candidate_phase
+                best_phase_score = phase_score
+
+        return {
+            "period": int(best_period),
+            "phase": int(best_phase),
+            "score": float(best_score if best_score is not None else 0.0),
+            "phase_score": float(best_phase_score if best_phase_score is not None else 0.0),
+            "profile": smoothed_profile,
+        }
+
+    @staticmethod
+    def build_workspace_s2_line_positions(start_pixel, end_pixel, period_px, phase_px):
+        start_pixel = int(round(start_pixel))
+        end_pixel = int(round(end_pixel))
+        period_px = int(round(period_px))
+        phase_px = int(round(phase_px))
+        if period_px <= 0 or end_pixel < start_pixel:
+            return []
+
+        first_position = start_pixel + (phase_px % period_px)
+        return list(range(first_position, end_pixel + 1, period_px))
+
+    @staticmethod
+    def build_workspace_s2_bbox(workspace_mask):
+        if workspace_mask is None or not np.any(workspace_mask):
+            return None
+        y_coords, x_coords = np.where(workspace_mask > 0)
+        if x_coords.size == 0 or y_coords.size == 0:
+            return None
+        return (
+            int(x_coords.min()),
+            int(y_coords.min()),
+            int(x_coords.max()),
+            int(y_coords.max()),
+        )
+
+    @staticmethod
+    def build_workspace_s2_axis_profile(response_map, workspace_mask, axis):
+        response_map = np.asarray(response_map, dtype=np.float32)
+        workspace_mask = np.asarray(workspace_mask, dtype=np.uint8)
+        weighted_sum = np.sum(response_map * workspace_mask, axis=axis)
+        valid_count = np.sum(workspace_mask, axis=axis)
+        return np.divide(
+            weighted_sum,
+            valid_count,
+            out=np.zeros_like(weighted_sum, dtype=np.float32),
+            where=valid_count > 0,
+        )
+
+    @staticmethod
+    def normalize_workspace_s2_response(response_map, valid_mask, lower_percentile=5.0, upper_percentile=95.0):
+        response_map = np.asarray(response_map, dtype=np.float32)
+        valid_mask = np.asarray(valid_mask, dtype=bool)
+        normalized = np.zeros_like(response_map, dtype=np.float32)
+        if response_map.size == 0 or not np.any(valid_mask):
+            return normalized
+
+        valid_values = response_map[valid_mask]
+        lower_bound = float(np.percentile(valid_values, lower_percentile))
+        upper_bound = float(np.percentile(valid_values, upper_percentile))
+        if upper_bound <= lower_bound + 1e-6:
+            upper_bound = float(np.max(valid_values))
+            lower_bound = float(np.min(valid_values))
+        if upper_bound <= lower_bound + 1e-6:
+            normalized[valid_mask] = 1.0
+            return normalized
+
+        normalized = (response_map - lower_bound) / (upper_bound - lower_bound)
+        normalized = np.clip(normalized, 0.0, 1.0).astype(np.float32)
+        normalized[~valid_mask] = 0.0
+        return normalized
+
+    def build_workspace_s2_rectified_geometry(
+        self,
+        corner_pixels,
+        corner_world_cabin_frame=None,
+        resolution_mm_per_px=5.0,
+    ):
+        if corner_pixels is None or len(corner_pixels) != 4:
+            return None
+
+        pixel_points = [[float(point[0]), float(point[1])] for point in corner_pixels]
+        ordered_indices = self.sort_polygon_indices_clockwise(pixel_points)
+        ordered_points = [pixel_points[index] for index in ordered_indices]
+        source_points = np.asarray(ordered_points, dtype=np.float32)
+        rectified_width = None
+        rectified_height = None
+
+        if corner_world_cabin_frame is not None and len(corner_world_cabin_frame) == 4:
+            ordered_world_points = [
+                [
+                    float(corner_world_cabin_frame[index][0]),
+                    float(corner_world_cabin_frame[index][1]),
+                    float(corner_world_cabin_frame[index][2]),
+                ]
+                for index in ordered_indices
+            ]
+            world_points = np.asarray(ordered_world_points, dtype=np.float32)
+            top_width_mm = float(np.linalg.norm(world_points[1] - world_points[0]))
+            bottom_width_mm = float(np.linalg.norm(world_points[2] - world_points[3]))
+            left_height_mm = float(np.linalg.norm(world_points[3] - world_points[0]))
+            right_height_mm = float(np.linalg.norm(world_points[2] - world_points[1]))
+            if resolution_mm_per_px > 0:
+                rectified_width = max(
+                    int(round(((top_width_mm + bottom_width_mm) / 2.0) / resolution_mm_per_px)),
+                    2,
+                )
+                rectified_height = max(
+                    int(round(((left_height_mm + right_height_mm) / 2.0) / resolution_mm_per_px)),
+                    2,
+                )
+
+        if rectified_width is None or rectified_height is None:
+            top_width = float(np.linalg.norm(source_points[1] - source_points[0]))
+            bottom_width = float(np.linalg.norm(source_points[2] - source_points[3]))
+            left_height = float(np.linalg.norm(source_points[3] - source_points[0]))
+            right_height = float(np.linalg.norm(source_points[2] - source_points[1]))
+            rectified_width = max(int(round((top_width + bottom_width) / 2.0)), 2)
+            rectified_height = max(int(round((left_height + right_height) / 2.0)), 2)
+        destination_points = np.asarray(
+            [
+                [0.0, 0.0],
+                [float(rectified_width - 1), 0.0],
+                [float(rectified_width - 1), float(rectified_height - 1)],
+                [0.0, float(rectified_height - 1)],
+            ],
+            dtype=np.float32,
+        )
+
+        forward_h = cv2.getPerspectiveTransform(source_points, destination_points)
+        inverse_h = cv2.getPerspectiveTransform(destination_points, source_points)
+        return {
+            "corner_pixels": ordered_points,
+            "rectified_width": rectified_width,
+            "rectified_height": rectified_height,
+            "resolution_mm_per_px": float(resolution_mm_per_px),
+            "forward_h": forward_h,
+            "inverse_h": inverse_h,
+        }
+
+    @staticmethod
+    def map_workspace_s2_rectified_points_to_image(rectified_points, inverse_h):
+        if not rectified_points:
+            return []
+
+        points_array = np.asarray(rectified_points, dtype=np.float32).reshape((-1, 1, 2))
+        mapped_points = cv2.perspectiveTransform(points_array, inverse_h).reshape((-1, 2))
+        return [
+            [int(round(float(point[0]))), int(round(float(point[1])))]
+            for point in mapped_points
+        ]
+
+    @classmethod
+    def build_workspace_s2_projective_line_segments(
+        cls,
+        corner_pixels,
+        rectified_width,
+        rectified_height,
+        vertical_lines,
+        horizontal_lines,
+    ):
+        if corner_pixels is None or len(corner_pixels) != 4:
+            return {"vertical": [], "horizontal": []}
+
+        source_points = np.asarray(
+            cls.sort_polygon_points_clockwise(
+                [[float(point[0]), float(point[1])] for point in corner_pixels]
+            ),
+            dtype=np.float32,
+        )
+        destination_points = np.asarray(
+            [
+                [0.0, 0.0],
+                [float(rectified_width - 1), 0.0],
+                [float(rectified_width - 1), float(rectified_height - 1)],
+                [0.0, float(rectified_height - 1)],
+            ],
+            dtype=np.float32,
+        )
+        inverse_h = cv2.getPerspectiveTransform(destination_points, source_points)
+
+        def map_segment(segment_points):
+            mapped_points = cls.map_workspace_s2_rectified_points_to_image(segment_points, inverse_h)
+            if len(mapped_points) != 2:
+                return None
+            return (mapped_points[0], mapped_points[1])
+
+        vertical_segments = []
+        for vertical_x in vertical_lines:
+            segment = map_segment(
+                [
+                    [float(vertical_x), 0.0],
+                    [float(vertical_x), float(rectified_height - 1)],
+                ]
+            )
+            if segment is not None:
+                vertical_segments.append(segment)
+
+        horizontal_segments = []
+        for horizontal_y in horizontal_lines:
+            segment = map_segment(
+                [
+                    [0.0, float(horizontal_y)],
+                    [float(rectified_width - 1), float(horizontal_y)],
+                ]
+            )
+            if segment is not None:
+                horizontal_segments.append(segment)
+
+        return {
+            "vertical": vertical_segments,
+            "horizontal": horizontal_segments,
+        }
+
+    def prepare_manual_workspace_s2_inputs(self):
+        manual_workspace = self.load_manual_workspace_quad()
+        workspace_mask = self.get_manual_workspace_pixel_mask()
+        if manual_workspace is None or workspace_mask is None:
+            return None
+
+        if not self.ensure_raw_world_channels():
+            return None
+
+        rectified_geometry = self.build_workspace_s2_rectified_geometry(
+            manual_workspace["corner_pixels"],
+            manual_workspace.get("corner_world_cabin_frame"),
+        )
+        if rectified_geometry is None:
+            return None
+
+        raw_depth = self.depth_v.astype(np.float32)
+        valid_mask = np.isfinite(raw_depth) & (raw_depth != 0.0)
+        if np.count_nonzero(valid_mask & workspace_mask.astype(bool)) < 100:
+            return None
+
+        rectified_size = (
+            rectified_geometry["rectified_width"],
+            rectified_geometry["rectified_height"],
+        )
+        rectified_depth = cv2.warpPerspective(
+            raw_depth,
+            rectified_geometry["forward_h"],
+            rectified_size,
+            flags=cv2.INTER_LINEAR,
+        ).astype(np.float32)
+        rectified_valid_mask = cv2.warpPerspective(
+            valid_mask.astype(np.uint8),
+            rectified_geometry["forward_h"],
+            rectified_size,
+            flags=cv2.INTER_NEAREST,
+        ).astype(bool)
+        if np.count_nonzero(rectified_valid_mask) < 100:
+            return None
+
+        median_depth = float(np.median(rectified_depth[rectified_valid_mask]))
+        filled_depth = np.where(rectified_valid_mask, rectified_depth, median_depth).astype(np.float32)
+        background_depth = cv2.GaussianBlur(filled_depth, (0, 0), sigmaX=11.0, sigmaY=11.0)
+
+        response_variants = [
+            background_depth - filled_depth,
+            filled_depth - background_depth,
+        ]
+
+        best_variant = None
+        for response_variant in response_variants:
+            response_variant = response_variant.astype(np.float32)
+            normalized_response = self.normalize_workspace_s2_response(response_variant, rectified_valid_mask)
+            rectified_mask_uint8 = rectified_valid_mask.astype(np.uint8)
+            vertical_profile = self.build_workspace_s2_axis_profile(normalized_response, rectified_mask_uint8, axis=0)
+            horizontal_profile = self.build_workspace_s2_axis_profile(normalized_response, rectified_mask_uint8, axis=1)
+            vertical_estimate = self.estimate_workspace_s2_period_and_phase(vertical_profile, min_period=10, max_period=30)
+            horizontal_estimate = self.estimate_workspace_s2_period_and_phase(horizontal_profile, min_period=10, max_period=30)
+            if vertical_estimate is None or horizontal_estimate is None:
+                continue
+
+            combined_score = float(vertical_estimate["score"] + horizontal_estimate["score"])
+            if best_variant is None or combined_score > best_variant["combined_score"]:
+                best_variant = {
+                    "response": normalized_response,
+                    "vertical_estimate": vertical_estimate,
+                    "horizontal_estimate": horizontal_estimate,
+                    "combined_score": combined_score,
+                }
+
+        if best_variant is None:
+            return None
+
+        return {
+            "manual_workspace": manual_workspace,
+            "workspace_mask": workspace_mask.astype(np.uint8),
+            "workspace_bbox": self.build_workspace_s2_bbox(workspace_mask),
+            "rectified_geometry": rectified_geometry,
+            "response_crop": best_variant["response"],
+            "workspace_mask_crop": rectified_valid_mask.astype(np.uint8),
+            "vertical_estimate": best_variant["vertical_estimate"],
+            "horizontal_estimate": best_variant["horizontal_estimate"],
+        }
+
+    def build_manual_workspace_s2_points_array(self, intersection_pixels, workspace_mask):
+        points_array_msg = PointsArray()
+        points_array_msg.PointCoordinatesArray = []
+        display_points = []
+
+        if workspace_mask is None:
+            points_array_msg.count = 0
+            return points_array_msg, display_points
+
+        point_index = 1
+        for intersection_pixel in intersection_pixels:
+            pixel_x = int(intersection_pixel[0])
+            pixel_y = int(intersection_pixel[1])
+            if (
+                pixel_y < 0 or pixel_x < 0
+                or pixel_y >= workspace_mask.shape[0]
+                or pixel_x >= workspace_mask.shape[1]
+                or not workspace_mask[pixel_y, pixel_x]
+            ):
+                continue
+
+            raw_world_coord, _, _ = self.get_valid_world_coord_near_pixel(pixel_x, pixel_y)
+            if raw_world_coord[0] == 0 or raw_world_coord[1] == 0 or raw_world_coord[2] == 0:
+                continue
+
+            calibrated_world_coord = self.apply_spatial_calibration(
+                raw_world_coord[0],
+                raw_world_coord[1],
+                raw_world_coord[2],
+                point_index - 1,
+                target_frame="cabin_frame",
+            )
+            if calibrated_world_coord is None:
+                continue
+
+            point_msg = PointCoords()
+            point_msg.is_shuiguan = False
+            point_msg.Angle = -45
+            point_msg.idx = point_index
+            point_msg.Pix_coord = [pixel_x, pixel_y]
+            point_msg.World_coord = [
+                float(calibrated_world_coord[0]),
+                float(calibrated_world_coord[1]),
+                float(calibrated_world_coord[2]),
+            ]
+            points_array_msg.PointCoordinatesArray.append(point_msg)
+            display_points.append(
+                (
+                    point_index,
+                    [pixel_x, pixel_y],
+                    [
+                        float(calibrated_world_coord[0]),
+                        float(calibrated_world_coord[1]),
+                        float(calibrated_world_coord[2]),
+                    ],
+                    "selected",
+                    "S2",
+                )
+            )
+            point_index += 1
+
+        points_array_msg.count = len(points_array_msg.PointCoordinatesArray)
+        return points_array_msg, display_points
+
+    def render_manual_workspace_s2_result_image(self, workspace_mask, line_segments, display_points):
+        if getattr(self, "image_infrared_copy", None) is None:
+            result_image = np.zeros(workspace_mask.shape[:2], dtype=np.uint8)
+        else:
+            result_image = np.array(self.image_infrared_copy, copy=True)
+
+        manual_workspace = self.load_manual_workspace_quad()
+        if manual_workspace is not None:
+            polygon_points = np.array(manual_workspace["corner_pixels"], dtype=np.int32).reshape((-1, 1, 2))
+            cv2.polylines(result_image, [polygon_points], True, 180, 2)
+
+        for segment_start, segment_end in line_segments.get("vertical", []):
+            cv2.line(
+                result_image,
+                (int(segment_start[0]), int(segment_start[1])),
+                (int(segment_end[0]), int(segment_end[1])),
+                110,
+                1,
+            )
+        for segment_start, segment_end in line_segments.get("horizontal", []):
+            cv2.line(
+                result_image,
+                (int(segment_start[0]), int(segment_start[1])),
+                (int(segment_end[0]), int(segment_end[1])),
+                110,
+                1,
+            )
+
+        occupied_label_bboxes = []
+        for display_idx, pix_coord, world_coord, _, status_detail in display_points:
+            cv2.circle(result_image, (int(pix_coord[0]), int(pix_coord[1])), 3, 255, -1)
+            label_text = f"{display_idx}"
+            label_position, label_bbox = self.find_non_overlapping_label_position(
+                result_image.shape,
+                pix_coord,
+                label_text,
+                occupied_label_bboxes,
+            )
+            occupied_label_bboxes.append(label_bbox)
+            self.draw_text_with_background(result_image, label_text, label_position)
+
+        return result_image
+
+    def format_result_display_label(self, display_idx, world_coord, status_text):
+        if self.current_result_request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            return f"{display_idx}, {world_coord}, {status_text}"
+
+        tcp_x = float(world_coord[0])
+        tcp_y = float(world_coord[1])
+        tcp_z = float(world_coord[2])
+        return f"{display_idx}, tcp=({tcp_x:.1f},{tcp_y:.1f},{tcp_z:.1f}), {status_text}"
+
+    def publish_manual_workspace_s2_result(self, result_image, points_array_msg):
+        result_image_msg = self.bridge.cv2_to_imgmsg(result_image, encoding='mono8')
+        result_image_msg.header.stamp = rospy.Time.now()
+        result_image_msg.header.frame_id = "infrared_camera"
+        self.manual_workspace_s2_result_raw_pub.publish(result_image_msg)
+        self.manual_workspace_s2_points_pub.publish(points_array_msg)
+
+    def run_manual_workspace_s2_pipeline(self, publish=False):
+        s2_inputs = self.prepare_manual_workspace_s2_inputs()
+        if s2_inputs is None:
+            return {
+                "success": False,
+                "message": "当前工作区或原始世界坐标不足，无法运行S2",
+                "point_coords": None,
+                "result_image": None,
+            }
+
+        rectified_width = s2_inputs["rectified_geometry"]["rectified_width"]
+        rectified_height = s2_inputs["rectified_geometry"]["rectified_height"]
+        vertical_lines = self.build_workspace_s2_line_positions(
+            start_pixel=0,
+            end_pixel=rectified_width - 1,
+            period_px=s2_inputs["vertical_estimate"]["period"],
+            phase_px=s2_inputs["vertical_estimate"]["phase"],
+        )
+        horizontal_lines = self.build_workspace_s2_line_positions(
+            start_pixel=0,
+            end_pixel=rectified_height - 1,
+            period_px=s2_inputs["horizontal_estimate"]["period"],
+            phase_px=s2_inputs["horizontal_estimate"]["phase"],
+        )
+
+        rectified_intersections = [
+            [float(vertical_x), float(horizontal_y)]
+            for horizontal_y in horizontal_lines
+            for vertical_x in vertical_lines
+        ]
+        image_intersections = self.map_workspace_s2_rectified_points_to_image(
+            rectified_intersections,
+            s2_inputs["rectified_geometry"]["inverse_h"],
+        )
+        line_segments = self.build_workspace_s2_projective_line_segments(
+            s2_inputs["manual_workspace"]["corner_pixels"],
+            rectified_width,
+            rectified_height,
+            vertical_lines,
+            horizontal_lines,
+        )
+
+        points_array_msg, display_points = self.build_manual_workspace_s2_points_array(
+            image_intersections,
+            s2_inputs["workspace_mask"],
+        )
+        result_image = self.render_manual_workspace_s2_result_image(
+            s2_inputs["workspace_mask"],
+            line_segments,
+            display_points,
+        )
+        if publish:
+            self.publish_manual_workspace_s2_result(result_image, points_array_msg)
+
+        workspace_bbox = s2_inputs["workspace_bbox"] or (0, 0, 0, 0)
+        min_x, min_y, max_x, max_y = workspace_bbox
+        rospy.loginfo(
+            "pointAI manual workspace S2: bbox=(%d,%d,%d,%d), rectified=(%d,%d), v_period=%d, h_period=%d, points=%d",
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+            rectified_width,
+            rectified_height,
+            s2_inputs["vertical_estimate"]["period"],
+            s2_inputs["horizontal_estimate"]["period"],
+            points_array_msg.count,
+        )
+        return {
+            "success": True,
+            "message": "manual workspace S2 finished",
+            "point_count": points_array_msg.count,
+            "point_coords": points_array_msg,
+            "result_image": result_image,
+        }
+
+    def run_manual_workspace_s2(self):
+        return self.run_manual_workspace_s2_pipeline(publish=True)
+
+    def try_scan_only_manual_workspace_s2(self):
+        if self.load_manual_workspace_quad() is None:
+            return None
+
+        s2_result = self.run_manual_workspace_s2_pipeline(publish=True)
+        if not s2_result.get("success", False):
+            return {
+                "success": False,
+                "message": (
+                    "扫描模式检测到已保存工作区四边形，但手动工作区S2失败："
+                    f"{s2_result.get('message', 'unknown error')}"
+                ),
+                "point_coords": None,
+                "out_of_height_count": 0,
+                "out_of_height_point_indices": [],
+                "out_of_height_z_values": [],
+            }
+
+        point_coords = s2_result.get("point_coords")
+        return {
+            "success": True,
+            "message": (
+                f"扫描模式已直接输出手动工作区S2世界坐标点，共{getattr(point_coords, 'count', 0)}个"
+            ),
+            "point_coords": point_coords,
+            "out_of_height_count": 0,
+            "out_of_height_point_indices": [],
+            "out_of_height_z_values": [],
+        }
+
+    def manual_workspace_s2_callback(self, msg):
+        if not bool(getattr(msg, "data", False)):
+            return
+
+        result = self.run_manual_workspace_s2()
+        if not result.get("success", False):
+            rospy.logwarn("pointAI manual workspace S2 failed: %s", result.get("message", "unknown error"))
+
+    def workspace_center_scan_pose_callback(self, msg):
+        if not bool(getattr(msg, "data", False)):
+            return
+
+        result = self.run_workspace_center_scan_pose_move()
+        if not result.get("success", False):
+            rospy.logwarn(
+                "pointAI workspace center scan pose move failed: %s",
+                result.get("message", "unknown error"),
+            )
+
+    def should_apply_top_detection_occlusion(self, request_mode):
+        return request_mode != PROCESS_IMAGE_MODE_SCAN_ONLY
+
+    def apply_detection_occlusions(self, request_mode):
+        detection_mask = np.ones(self.Depth_image_Raw.shape[:2], dtype=np.uint8)
+        if self.should_apply_top_detection_occlusion(request_mode):
+            self.Depth_image_Raw[self.y1:self.y2, self.x1:self.x2] = 0
+            detection_mask[self.y1:self.y2, self.x1:self.x2] = 0
+        return detection_mask
 
     def get_travel_range_pixel_mask(self):
         roi_mask = self.get_roi_pixel_mask()
@@ -812,7 +1895,12 @@ class ImageProcessor:
         cv2.drawContours(result_image, significant_contours, -1, color, thickness)
 
     def draw_scan_workspace_overlay(self, result_image):
-        workspace_mask = self.get_scan_workspace_pixel_mask()
+        if self.current_result_request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            workspace_mask = self.get_scan_workspace_pixel_mask()
+        else:
+            workspace_mask = self.get_manual_workspace_cabin_polygon_pixel_mask()
+            if workspace_mask is None:
+                workspace_mask = self.get_scan_workspace_pixel_mask()
         self.draw_mask_contours(result_image, workspace_mask, 180, 2)
 
     def draw_travel_range_overlay(self, result_image):
@@ -946,7 +2034,7 @@ class ImageProcessor:
                 continue
 
             status_text = self.get_display_status_text(status, status_detail)
-            text = f"{display_idx}, {world_coord}, {status_text}"
+            text = self.format_result_display_label(display_idx, world_coord, status_text)
             label_position, label_bbox = self.find_non_overlapping_label_position(
                 result_image.shape,
                 pix_coord,
@@ -1243,6 +2331,8 @@ class ImageProcessor:
             return PROCESS_IMAGE_MODE_BIND_CHECK
         if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
             return PROCESS_IMAGE_MODE_SCAN_ONLY
+        if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+            return PROCESS_IMAGE_MODE_EXECUTION_REFINE
         return PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT
 
     def get_request_mode_name(self, request_mode):
@@ -1250,6 +2340,8 @@ class ImageProcessor:
             return "bind_check"
         if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
             return "scan_only"
+        if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+            return "execution_refine"
         if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             return "adaptive_height"
         return "default"
@@ -1287,7 +2379,7 @@ class ImageProcessor:
             "pointAI调试:",
             f"  模式: {self.get_request_mode_name(request_mode)}",
             (
-                ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  4点候选范围过滤: ")
+                ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  可执行范围过滤: ")
                 +
                 f"原始候选={raw_candidate_count}, "
                 f"去重移除={duplicate_removed_count}, "
@@ -1320,6 +2412,11 @@ class ImageProcessor:
                 conclusion = f"扫描模式输出{output_count}个规划工作区内世界坐标点，不做2x2限制"
             else:
                 conclusion = "扫描模式当前没有规划工作区内可用点"
+        elif request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+            if output_count > 0:
+                conclusion = f"执行微调模式输出{output_count}个可执行范围内世界坐标点，不做2x2限制"
+            else:
+                conclusion = "执行微调模式当前没有可用于局部视觉微调的范围内点"
         elif request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             if output_count > 0:
                 conclusion = (
@@ -1383,6 +2480,13 @@ class ImageProcessor:
             result["success"] = True
             result["message"] = (
                 "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点"
+            )
+            return result
+
+        if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+            result["success"] = True
+            result["message"] = (
+                "执行微调模式已直接输出当前局部可执行范围内的世界坐标点"
             )
             return result
 
@@ -1474,6 +2578,11 @@ class ImageProcessor:
 
             latest_point_coords = point_coords
             if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                manual_workspace_s2_result = self.try_scan_only_manual_workspace_s2()
+                if manual_workspace_s2_result is not None:
+                    return manual_workspace_s2_result
+                return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+            if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
                 return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
 
             if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
@@ -1568,7 +2677,7 @@ class ImageProcessor:
 
     def is_point_in_travel_range(self, calibrated_x, calibrated_y):
         return (
-            0 <= calibrated_x <= getattr(self, "travel_range_max_x_mm", 320.0)
+            0 <= calibrated_x <= getattr(self, "travel_range_max_x_mm", 360.0)
             and 0 <= calibrated_y <= getattr(self, "travel_range_max_y_mm", 320.0)
         )
 
@@ -1727,7 +2836,7 @@ class ImageProcessor:
         }
 
     def select_output_centers_for_mode(self, request_mode, in_range_centers, selected_centers):
-        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+        if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):
             return list(in_range_centers)
         if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
             return self.sort_matrix_points(in_range_centers)
@@ -1759,17 +2868,34 @@ class ImageProcessor:
     def build_matrix_display_points(self, matrix_centers, mark_travel_out_of_range=False):
         display_point_numbers = self.get_selected_point_numbers(matrix_centers)
         display_points = []
+        use_tcp_display = self.current_result_request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
         for source_idx, center, calibrated_world_coord in matrix_centers:
             display_idx = display_point_numbers.get(source_idx, "-")
             pix_coord = [int(center[0]), int(center[1])]
-            if (not mark_travel_out_of_range) or self.is_point_in_travel_range(
+            display_coord = calibrated_world_coord
+            status = self.get_selected_point_status(display_idx)
+            status_detail = ""
+
+            if use_tcp_display:
+                tcp_coord = self.transform_cabin_point_to_gripper_frame(
+                    calibrated_world_coord[0],
+                    calibrated_world_coord[1],
+                    calibrated_world_coord[2],
+                )
+                if tcp_coord is None:
+                    continue
+                if not self.is_point_in_tcp_display_range(
+                    tcp_coord[0],
+                    tcp_coord[1],
+                    tcp_coord[2],
+                ):
+                    continue
+                display_coord = tcp_coord
+            elif mark_travel_out_of_range and not self.is_point_in_travel_range(
                 calibrated_world_coord[0],
                 calibrated_world_coord[1]
             ):
-                status = self.get_selected_point_status(display_idx)
-                status_detail = ""
-            else:
                 status = "out_of_range"
                 reject_reasons = self.get_travel_range_reject_reasons(
                     calibrated_world_coord[0],
@@ -1781,7 +2907,7 @@ class ImageProcessor:
                 (
                     display_idx,
                     pix_coord,
-                    calibrated_world_coord,
+                    display_coord,
                     status,
                     status_detail
                 )
@@ -1892,8 +3018,7 @@ class ImageProcessor:
         self.y_channel = (self.image_raw_world_channels[1]).astype(np.int32)
         self.depth_v =(self.image_raw_world_channels[2]).astype(np.int32)
         self.Depth_image_Raw = np.copy((self.channels[2]).astype(np.int32))
-
-        self.Depth_image_Raw[self.y1:self.y2, self.x1:self.x2] = 0
+        self.detection_occlusion_mask = self.apply_detection_occlusions(request_mode)
         # self.Depth_image_Raw[self.y3:self.y4, self.x3:self.x4] = 0
         self.Depth_image_Raw_raw = cv2.normalize(self.Depth_image_Raw, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
         self.max_depth = int(np.max(self.Depth_image_Raw) - 5)
@@ -1993,7 +3118,11 @@ class ImageProcessor:
         candidate_centers = []
         roi_reject_count = 0
         zero_world_count = 0
-        target_frame = "cabin_frame" if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "gripper_frame"
+        target_frame = (
+            "cabin_frame"
+            if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE)
+            else "gripper_frame"
+        )
         for source_idx, center in enumerate(self.centers):
             pix_coord = [int(center[0]), int(center[1])]
             raw_world_coord = [int(center[2][0]), int(center[2][1]), int(center[2][2])]
@@ -2026,7 +3155,11 @@ class ImageProcessor:
             candidate_centers,
             request_mode,
         )
-        matrix_selection_pixel_mask = None if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else self.get_travel_range_pixel_mask()
+        matrix_selection_pixel_mask = (
+            None
+            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
+            else self.get_travel_range_pixel_mask()
+        )
         in_range_centers = []
         out_of_range_count = 0
         out_of_range_reason_counts = {}
@@ -2048,6 +3181,8 @@ class ImageProcessor:
                 out_of_range_count += 1
                 if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
                     reject_reasons = ["规划工作区外"]
+                elif request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+                    reject_reasons = ["超出执行微调框"]
                 else:
                     reject_reasons = ["超出自适应采集框"]
                 for reason in reject_reasons:
@@ -2059,12 +3194,12 @@ class ImageProcessor:
                         f"idx={source_idx},pix=({pix_coord[0]},{pix_coord[1]}),coord=({calibrated_world_coord[0]:.1f},{calibrated_world_coord[1]:.1f},{calibrated_world_coord[2]:.1f}),原因={'+'.join(reject_reasons) if reject_reasons else '未知'}"
                     )
 
-        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+        if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):
             self.sorted_centers = []
         else:
             self.sorted_centers = self.select_nearest_origin_matrix_points(in_range_centers)
         if (
-            request_mode not in (PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT, PROCESS_IMAGE_MODE_SCAN_ONLY)
+            request_mode not in (PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT, PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE)
             and in_range_centers
             and not self.sorted_centers
         ):
@@ -2083,7 +3218,7 @@ class ImageProcessor:
             self.sorted_centers
         )
         output_count = len(output_centers)
-        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+        if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):
             display_centers = list(in_range_centers)
         else:
             display_centers = self.select_display_matrix_centers(self.sorted_centers, in_range_centers, candidate_centers)

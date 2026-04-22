@@ -153,8 +153,8 @@ class GripperTFBroadcasterTest(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn('LEGACY_OFFSET_TOPIC = "/web/fast_image_solve/set_pointAI_offset"', script_text)
-        self.assertIn("rospy.Subscriber(LEGACY_OFFSET_TOPIC, Pose", script_text)
+        self.assertIn('POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset"', script_text)
+        self.assertIn("rospy.Subscriber(POINTAI_OFFSET_TOPIC, Pose", script_text)
         self.assertIn("实时更新TF平移标定", script_text)
         self.assertIn("无需重启节点", script_text)
 
@@ -220,27 +220,6 @@ class GripperTFBroadcasterTest(unittest.TestCase):
                 "publish_aruco_frame_transform",
                 "publish_tf_transform",
                 "publish_gripper_tf_transform",
-            ],
-            WORKSPACE_ROOT / "fast_image_solve" / "scripts" / "vision.py": [
-                "sendTransform(",
-                "publish_aruco_frame_transform",
-                "publish_tf_transform",
-                "publish_gripper_tf_transform",
-            ],
-            WORKSPACE_ROOT / "fast_image_solve" / "src" / "5.18auto.cpp": [
-                "sendTransform(",
-                "publishTfTransform",
-                "publishGripperTfTransform",
-                "pubCamGripperTf",
-            ],
-            WORKSPACE_ROOT
-            / "fast_image_solve"
-            / "include"
-            / "fast_image_solve"
-            / "5.18auto.hpp": [
-                "publishTfTransform",
-                "publishGripperTfTransform",
-                "pubCamGripperTf",
             ],
         }
 

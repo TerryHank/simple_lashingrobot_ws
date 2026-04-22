@@ -1,0 +1,1 @@
+{'ir_shape': (480, 640), 'ir_dtype': 'uint8', 'raw_world_shape': (480, 640, 3), 'raw_world_dtype': 'float32', 'world_shape': (480, 640, 3), 'world_dtype': 'float32', 'timestamps': {'ir': 1776775657.3918953, 'raw_world': 1776775657.5855515, 'world': 1776775657.7970247}}
