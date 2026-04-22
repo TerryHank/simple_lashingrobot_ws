@@ -1,0 +1,7 @@
+---
+bool success
+string message
+---
+string stage
+string detail
+float32 progress

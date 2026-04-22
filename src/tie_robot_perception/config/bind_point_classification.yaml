@@ -1,0 +1,12 @@
+mode: shadow
+event_log_path: /home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_classification_events.jsonl
+evidence_root: /home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_evidence
+patch_half_size_px: 32
+height_band_mm: 15.0
+alignment_search_px: 6
+min_valid_depth_ratio: 0.35
+min_ir_stddev: 5.0
+pre_bind_bound_score_low: 0.42
+pre_bind_bound_score_high: 0.68
+post_bind_success_score_low: 0.38
+post_bind_success_score_high: 0.62

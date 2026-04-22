@@ -24,3 +24,12 @@ __pycache__/
 # Local installers and external SDK drops
 *.deb
 src/ScepterSDK/
+ScepterSDK/
+robot_viewer/
+vzense_wiki/
+
+# Frontend local dependencies
+src/tie_robot_web/frontend/node_modules/
+src/tie_robot_web/help/node_modules/
+src/tie_robot_web/frontend/.vite/
+src/tie_robot_web/help/.vitepress/.temp/

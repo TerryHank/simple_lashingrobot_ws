@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>tie_robot_bringup</name>
+  <version>0.0.0</version>
+  <description>Tie robot launch and runtime assembly package.</description>
+
+  <maintainer email="you@example.com">your_name</maintainer>
+  <license>TODO</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <exec_depend>rosbridge_server</exec_depend>
+  <exec_depend>tf2_web_republisher</exec_depend>
+  <exec_depend>tie_robot_control</exec_depend>
+  <exec_depend>tie_robot_perception</exec_depend>
+  <exec_depend>tie_robot_process</exec_depend>
+  <exec_depend>tie_robot_web</exec_depend>
+</package>

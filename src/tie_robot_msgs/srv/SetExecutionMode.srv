@@ -1,0 +1,7 @@
+uint8 MODE_SLAM_PRECOMPUTED=0
+uint8 MODE_LIVE_VISUAL=1
+
+uint8 execution_mode
+---
+bool success
+string message

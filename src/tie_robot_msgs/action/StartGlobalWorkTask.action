@@ -1,0 +1,12 @@
+uint8 MODE_SLAM_PRECOMPUTED=0
+uint8 MODE_LIVE_VISUAL=1
+
+bool clear_execution_memory
+uint8 execution_mode
+---
+bool success
+string message
+---
+string stage
+string detail
+float32 progress

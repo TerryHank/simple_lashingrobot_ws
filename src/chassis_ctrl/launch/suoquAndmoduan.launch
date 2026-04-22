@@ -1,9 +1,0 @@
-<launch>
-    <arg name="auto_zero_on_start" default="true"/>
-
-    <node name="suoquNode" pkg="chassis_ctrl" type="suoquNode" output="screen"></node>
-    <node name="moduanNode" pkg="chassis_ctrl" type="moduanNode" output="screen">
-        <param name="auto_zero_on_start" value="$(arg auto_zero_on_start)"/>
-    </node>
-    <!-- <node name="pointAINode" pkg="chassis_ctrl" type="pointAI.py"  output="log"></node>  -->
-</launch>

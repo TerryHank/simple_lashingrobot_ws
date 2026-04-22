@@ -1,0 +1,475 @@
+{
+  "template_type": "architecture",
+  "style": 7,
+  "style_overrides": {
+    "font_family": "'Noto Sans CJK SC', 'Droid Sans Fallback', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+  },
+  "width": 1440,
+  "height": 1060,
+  "title": "当前系统动作链",
+  "subtitle": "扫描建图、开始执行层、当前区域预计算直执行三条主动作流程",
+  "containers": [
+    {
+      "x": 40,
+      "y": 116,
+      "width": 1360,
+      "height": 208,
+      "label": "",
+      "side_label": "1. 扫描建图主链",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 352,
+      "width": 1360,
+      "height": 316,
+      "label": "",
+      "side_label": "2. 开始执行层主链",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 704,
+      "width": 1360,
+      "height": 176,
+      "label": "",
+      "side_label": "3. 当前区域预计算直执行",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 908,
+      "width": 1360,
+      "height": 96,
+      "label": "",
+      "side_label": "4. 无账本兜底",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "scan_button",
+      "kind": "rect",
+      "x": 70,
+      "y": 154,
+      "width": 152,
+      "height": 52,
+      "label": "扫描按钮",
+      "type_label": "UI",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "scan_bridge",
+      "kind": "double_rect",
+      "x": 264,
+      "y": 146,
+      "width": 190,
+      "height": 64,
+      "label": "topics_transfer",
+      "type_label": "BRIDGE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "scan_loop",
+      "kind": "double_rect",
+      "x": 510,
+      "y": 140,
+      "width": 230,
+      "height": 82,
+      "label": "run_pseudo_slam_scan",
+      "sublabel": "索驱到扫描位 -> 请求视觉",
+      "type_label": "SCAN LOOP",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "pointai_scan",
+      "kind": "rect",
+      "x": 808,
+      "y": 146,
+      "width": 210,
+      "height": 68,
+      "label": "pointAI scan_only",
+      "sublabel": "S2 / 世界点",
+      "type_label": "VISION",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "persist_scan",
+      "kind": "double_rect",
+      "x": 1080,
+      "y": 142,
+      "width": 260,
+      "height": 76,
+      "label": "落盘扫描产物",
+      "sublabel": "points / bind_path / execution_memory",
+      "type_label": "PERSIST",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "start_button",
+      "kind": "rect",
+      "x": 70,
+      "y": 410,
+      "width": 160,
+      "height": 52,
+      "label": "开始执行层",
+      "type_label": "UI",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "start_service",
+      "kind": "double_rect",
+      "x": 286,
+      "y": 402,
+      "width": 230,
+      "height": 64,
+      "label": "/cabin/start_work_with_options",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "clear_memory",
+      "kind": "rect",
+      "x": 580,
+      "y": 410,
+      "width": 206,
+      "height": 56,
+      "label": "可选先清 execution_memory",
+      "type_label": "OPTION",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "check_bindpath",
+      "kind": "hexagon",
+      "x": 854,
+      "y": 396,
+      "width": 220,
+      "height": 82,
+      "label": "存在 bind_path?",
+      "type_label": "DECISION",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "return_origin",
+      "kind": "rect",
+      "x": 152,
+      "y": 548,
+      "width": 200,
+      "height": 66,
+      "label": "回 path_origin",
+      "type_label": "STEP",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "area_move",
+      "kind": "rect",
+      "x": 410,
+      "y": 548,
+      "width": 200,
+      "height": 66,
+      "label": "移动到 cabin_pose",
+      "type_label": "STEP",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "group_prepare",
+      "kind": "double_rect",
+      "x": 668,
+      "y": 540,
+      "width": 230,
+      "height": 82,
+      "label": "过滤 + 装载 JSON x/y/z",
+      "sublabel": "不再运行时重算局部点",
+      "type_label": "PREPARE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "moduan_exec",
+      "kind": "double_rect",
+      "x": 960,
+      "y": 540,
+      "width": 220,
+      "height": 82,
+      "label": "sg_precomputed -> 模端执行",
+      "sublabel": "等待 FINISHALL",
+      "type_label": "EXECUTE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "commit_memory",
+      "kind": "rect",
+      "x": 1230,
+      "y": 548,
+      "width": 160,
+      "height": 66,
+      "label": "回写 execution_memory",
+      "type_label": "LEDGER",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "single_bind",
+      "kind": "rect",
+      "x": 78,
+      "y": 756,
+      "width": 200,
+      "height": 52,
+      "label": "single_bind = 1",
+      "type_label": "UI",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "current_area_service",
+      "kind": "double_rect",
+      "x": 330,
+      "y": 748,
+      "width": 230,
+      "height": 64,
+      "label": "/cabin/bind_current_area_from_scan",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "nearest_area",
+      "kind": "rect",
+      "x": 630,
+      "y": 748,
+      "width": 210,
+      "height": 64,
+      "label": "匹配最近 area",
+      "type_label": "AREA",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "fast_exec",
+      "kind": "double_rect",
+      "x": 920,
+      "y": 748,
+      "width": 250,
+      "height": 64,
+      "label": "sg_precomputed_fast",
+      "sublabel": "当前区域局部点直执行",
+      "type_label": "FAST PATH",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "live_visual",
+      "kind": "rect",
+      "x": 900,
+      "y": 924,
+      "width": 260,
+      "height": 64,
+      "label": "run_live_visual_global_work",
+      "sublabel": "仅在无账本且模式=live_visual",
+      "type_label": "FALLBACK",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    }
+  ],
+  "arrows": [
+    {
+      "source": "scan_button",
+      "target": "scan_bridge",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "scan_bridge",
+      "target": "scan_loop",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "scan_loop",
+      "target": "pointai_scan",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "pointai_scan",
+      "target": "persist_scan",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "生成账本"
+    },
+    {
+      "source": "start_button",
+      "target": "start_service",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "start_service",
+      "target": "clear_memory",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "clear_memory",
+      "target": "check_bindpath",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "check_bindpath",
+      "target": "return_origin",
+      "source_port": "left",
+      "target_port": "top",
+      "flow": "read",
+      "label": "yes",
+      "route_points": [
+        [854, 520],
+        [252, 520],
+        [252, 548]
+      ]
+    },
+    {
+      "source": "return_origin",
+      "target": "area_move",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "area_move",
+      "target": "group_prepare",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "group_prepare",
+      "target": "moduan_exec",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "moduan_exec",
+      "target": "commit_memory",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "label": "成功后记账"
+    },
+    {
+      "source": "commit_memory",
+      "target": "area_move",
+      "source_port": "bottom",
+      "target_port": "bottom",
+      "flow": "feedback",
+      "label": "next group/area",
+      "dashed": true,
+      "route_points": [
+        [1310, 614],
+        [1310, 652],
+        [510, 652],
+        [510, 614]
+      ]
+    },
+    {
+      "source": "single_bind",
+      "target": "current_area_service",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "current_area_service",
+      "target": "nearest_area",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "nearest_area",
+      "target": "fast_exec",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "check_bindpath",
+      "target": "live_visual",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "feedback",
+      "label": "no + live_visual",
+      "dashed": true,
+      "route_points": [
+        [964, 500],
+        [1188, 500],
+        [1188, 900],
+        [1030, 900],
+        [1030, 924]
+      ]
+    }
+  ],
+  "legend": [
+    {
+      "flow": "control",
+      "label": "主动作链"
+    },
+    {
+      "flow": "read",
+      "label": "账本命中 / 分流"
+    },
+    {
+      "flow": "write",
+      "label": "成功后写账本"
+    },
+    {
+      "flow": "feedback",
+      "label": "循环 / 兜底分支"
+    }
+  ],
+  "legend_position": "bottom-left",
+  "legend_y": 1010,
+  "footer": "当前代码口径: 有 pseudo_slam_bind_path.json 时，开始执行层优先走 run_bind_from_scan"
+}

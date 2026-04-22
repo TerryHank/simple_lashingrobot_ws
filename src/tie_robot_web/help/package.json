@@ -1,0 +1,11 @@
+{
+  "name": "tie-robot-help",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vitepress build . --outDir ../web/help"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}

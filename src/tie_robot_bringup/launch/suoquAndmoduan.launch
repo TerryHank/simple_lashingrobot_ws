@@ -1,0 +1,9 @@
+<launch>
+    <arg name="auto_zero_on_start" default="true"/>
+
+    <node name="suoquNode" pkg="tie_robot_process" type="suoquNode" output="screen"></node>
+    <node name="moduanNode" pkg="tie_robot_control" type="moduanNode" output="screen">
+        <param name="auto_zero_on_start" value="$(arg auto_zero_on_start)"/>
+    </node>
+    <!-- <node name="pointAINode" pkg="tie_robot_perception" type="pointAI.py"  output="log"></node>  -->
+</launch>

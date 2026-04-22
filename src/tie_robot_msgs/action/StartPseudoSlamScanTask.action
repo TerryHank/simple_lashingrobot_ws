@@ -1,0 +1,9 @@
+bool enable_capture_gate
+uint8 scan_strategy
+---
+bool success
+string message
+---
+string stage
+string detail
+float32 progress

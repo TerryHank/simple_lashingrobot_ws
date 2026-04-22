@@ -1,0 +1,436 @@
+{
+  "template_type": "architecture",
+  "style": 7,
+  "style_overrides": {
+    "font_family": "'Noto Sans CJK SC', 'Droid Sans Fallback', 'PingFang SC', 'Microsoft YaHei', sans-serif"
+  },
+  "width": 1360,
+  "height": 940,
+  "title": "当前系统数据链",
+  "subtitle": "从前端请求、视觉世界点，到 pseudo_slam 账本与模端执行闭环",
+  "containers": [
+    {
+      "x": 40,
+      "y": 116,
+      "width": 1280,
+      "height": 100,
+      "label": "",
+      "side_label": "1. 前端与服务入口",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 236,
+      "width": 1280,
+      "height": 196,
+      "label": "",
+      "side_label": "2. 扫描视觉与动态规划",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 456,
+      "width": 1280,
+      "height": 214,
+      "label": "",
+      "side_label": "3. 执行账本与局部点装载",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    },
+    {
+      "x": 40,
+      "y": 694,
+      "width": 1280,
+      "height": 150,
+      "label": "",
+      "side_label": "4. 模端执行与闭环",
+      "side_label_x": 22,
+      "side_label_anchor": "start",
+      "stroke": "#e2e8f0",
+      "fill": "none"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "frontend",
+      "kind": "rect",
+      "x": 90,
+      "y": 140,
+      "width": 180,
+      "height": 52,
+      "label": "新前端",
+      "type_label": "ENTRY",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "bridge",
+      "kind": "double_rect",
+      "x": 410,
+      "y": 132,
+      "width": 228,
+      "height": 64,
+      "label": "topics_transfer",
+      "type_label": "BRIDGE",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "scan_service",
+      "kind": "rect",
+      "x": 86,
+      "y": 274,
+      "width": 332,
+      "height": 58,
+      "label": "/cabin/start_pseudo_slam_scan_with_options",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "pointai_scan",
+      "kind": "double_rect",
+      "x": 470,
+      "y": 262,
+      "width": 248,
+      "height": 78,
+      "label": "pointAI /process_image",
+      "sublabel": "MODE_SCAN_ONLY=3 -> 世界点",
+      "type_label": "VISION",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "scan_world",
+      "kind": "folder",
+      "x": 870,
+      "y": 266,
+      "width": 208,
+      "height": 78,
+      "label": "PointCoordinatesArray",
+      "sublabel": "scan world points",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "planner",
+      "kind": "double_rect",
+      "x": 444,
+      "y": 366,
+      "width": 300,
+      "height": 84,
+      "label": "动态规划生成 area/group",
+      "sublabel": "build_dynamic_bind_area_entries_from_scan_world",
+      "type_label": "PLANNER",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "slam_points",
+      "kind": "document",
+      "x": 826,
+      "y": 370,
+      "width": 220,
+      "height": 76,
+      "label": "pseudo_slam_points.json",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "bind_path",
+      "kind": "document",
+      "x": 1080,
+      "y": 370,
+      "width": 220,
+      "height": 76,
+      "label": "pseudo_slam_bind_path.json",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "work_service",
+      "kind": "rect",
+      "x": 88,
+      "y": 504,
+      "width": 300,
+      "height": 58,
+      "label": "/cabin/start_work_with_options",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "execution_memory",
+      "kind": "document",
+      "x": 426,
+      "y": 500,
+      "width": 220,
+      "height": 76,
+      "label": "bind_execution_memory.json",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3"
+    },
+    {
+      "id": "local_loader",
+      "kind": "double_rect",
+      "x": 886,
+      "y": 488,
+      "width": 260,
+      "height": 92,
+      "label": "装载执行组局部点",
+      "sublabel": "严格读取 groups[].x/y/z",
+      "type_label": "LOADER",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "moduan_service",
+      "kind": "rect",
+      "x": 110,
+      "y": 742,
+      "width": 250,
+      "height": 58,
+      "label": "/moduan/sg_precomputed",
+      "type_label": "SERVICE",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    },
+    {
+      "id": "moduan_exec",
+      "kind": "double_rect",
+      "x": 468,
+      "y": 724,
+      "width": 286,
+      "height": 86,
+      "label": "moduanNode 执行",
+      "sublabel": "execute_bind_points(TCP局部点)",
+      "type_label": "ACTUATOR",
+      "fill": "#ffffff",
+      "stroke": "#10a37f"
+    },
+    {
+      "id": "plc",
+      "kind": "cylinder",
+      "x": 872,
+      "y": 706,
+      "width": 196,
+      "height": 120,
+      "label": "PLC / FINISHALL",
+      "sublabel": "模端完成硬判据"
+    },
+    {
+      "id": "memory_commit",
+      "kind": "rect",
+      "x": 1110,
+      "y": 742,
+      "width": 190,
+      "height": 58,
+      "label": "回写执行记忆",
+      "type_label": "LEDGER",
+      "fill": "#ffffff",
+      "stroke": "#dce5e3",
+      "flat": true
+    }
+  ],
+  "arrows": [
+    {
+      "source": "frontend",
+      "target": "bridge",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "bridge",
+      "target": "scan_service",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "route_points": [
+        [524, 220],
+        [252, 220],
+        [252, 274]
+      ]
+    },
+    {
+      "source": "scan_service",
+      "target": "pointai_scan",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "pointai_scan",
+      "target": "scan_world",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "data",
+      "label": "世界点"
+    },
+    {
+      "source": "scan_world",
+      "target": "planner",
+      "source_port": "bottom",
+      "target_port": "right",
+      "flow": "read",
+      "label": "scan world",
+      "route_points": [
+        [974, 368],
+        [786, 368],
+        [786, 408],
+        [744, 408]
+      ]
+    },
+    {
+      "source": "planner",
+      "target": "slam_points",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write"
+    },
+    {
+      "source": "planner",
+      "target": "bind_path",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "write",
+      "route_points": [
+        [744, 408],
+        [964, 408],
+        [964, 408],
+        [1080, 408]
+      ]
+    },
+    {
+      "source": "bridge",
+      "target": "work_service",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "route_points": [
+        [524, 220],
+        [780, 220],
+        [780, 470],
+        [238, 470],
+        [238, 504]
+      ]
+    },
+    {
+      "source": "work_service",
+      "target": "execution_memory",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "read",
+      "label": "executed_points"
+    },
+    {
+      "source": "execution_memory",
+      "target": "local_loader",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "read",
+      "label": "去重/跳绑"
+    },
+    {
+      "source": "bind_path",
+      "target": "local_loader",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "read",
+      "label": "area/group/cabin_pose",
+      "route_points": [
+        [1190, 446],
+        [1190, 470],
+        [1016, 470],
+        [1016, 488]
+      ]
+    },
+    {
+      "source": "local_loader",
+      "target": "moduan_service",
+      "source_port": "bottom",
+      "target_port": "top",
+      "flow": "control",
+      "label": "TCP局部点",
+      "route_points": [
+        [1016, 580],
+        [1016, 676],
+        [235, 676],
+        [235, 742]
+      ]
+    },
+    {
+      "source": "moduan_service",
+      "target": "moduan_exec",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "moduan_exec",
+      "target": "plc",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "control"
+    },
+    {
+      "source": "plc",
+      "target": "memory_commit",
+      "source_port": "right",
+      "target_port": "left",
+      "flow": "feedback",
+      "label": "FINISHALL",
+      "dashed": true
+    },
+    {
+      "source": "memory_commit",
+      "target": "execution_memory",
+      "source_port": "top",
+      "target_port": "bottom",
+      "flow": "write",
+      "route_points": [
+        [1205, 742],
+        [1205, 620],
+        [536, 620],
+        [536, 576]
+      ]
+    }
+  ],
+  "legend": [
+    {
+      "flow": "control",
+      "label": "请求 / 调用链"
+    },
+    {
+      "flow": "data",
+      "label": "点位数据"
+    },
+    {
+      "flow": "read",
+      "label": "账本读取"
+    },
+    {
+      "flow": "write",
+      "label": "账本写入"
+    },
+    {
+      "flow": "feedback",
+      "label": "PLC 完成反馈"
+    }
+  ],
+  "legend_position": "bottom-left",
+  "legend_y": 866,
+  "footer": "代码口径: topics_transfer -> suoquNode -> pointAI -> pseudo_slam JSON -> moduanNode -> PLC"
+}
