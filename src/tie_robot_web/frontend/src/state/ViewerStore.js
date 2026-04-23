@@ -15,6 +15,10 @@ export class ViewerStore {
         planningPointCount: 0,
         tfFrameCount: 0,
       },
+      topics: {},
+      tf: {
+        frames: [],
+      },
       layout: {
         activeLayoutId: "executionDebug",
       },

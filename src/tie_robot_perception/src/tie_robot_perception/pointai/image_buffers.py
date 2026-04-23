@@ -66,6 +66,7 @@ def test_callback(self):
 def image_color_callback(self, msg):
     # 缓存最新的图像
     self.image_color = self.bridge.imgmsg_to_cv2(msg)
+    self.mark_visual_input("color")
     # # 顺时针旋转90度
     # self.image_infrared = cv2.rotate(self.image_infrared, cv2.ROTATE_90_CLOCKWISE)
 
@@ -76,6 +77,7 @@ def image_color_callback(self, msg):
 def image_depth_callback(self, msg):
     # 缓存最新的图像
     self.raw_depth = self.bridge.imgmsg_to_cv2(msg)
+    self.mark_visual_input("depth")
     # 确保图像是可写的
     self.raw_depth = np.array(self.raw_depth, copy=True)
 
@@ -83,6 +85,7 @@ def image_depth_callback(self, msg):
 def image_infrared_callback(self, msg):
     # 缓存最新的图像
     self.image_infrared = self.bridge.imgmsg_to_cv2(msg)
+    self.mark_visual_input("infrared")
     # # 顺时针旋转90度
     # self.image_infrared = cv2.rotate(self.image_infrared, cv2.ROTATE_90_CLOCKWISE)
 
@@ -92,6 +95,7 @@ def image_infrared_callback(self, msg):
 
 def image_callback(self, msg):
     self.image = self.bridge.imgmsg_to_cv2(msg)
+    self.mark_visual_input("world_coord")
     self.vison_image = np.array(self.image, copy=True)
     normalized = cv2.normalize(self.vison_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     self.vison_image = cv2.applyColorMap(normalized, cv2.COLORMAP_JET)
@@ -108,7 +112,6 @@ def image_callback(self, msg):
     result_image = np.array(self.image_infrared_copy, copy=True)
     cv2.rectangle(result_image, self.point1, self.point2, 255, 2)
     self.draw_scan_workspace_overlay(result_image)
-    self.draw_travel_range_overlay(result_image)
 
     occupied_label_bboxes = []
     sorted_display_points = sorted(
@@ -202,6 +205,7 @@ def camera_info_callback(self,msg):
     # self.dist_coeffs = np.array(msg.D)
     # self.dist_coeffs = np.zeros_like(np.array(msg.D))
     self.dist_coeffs = np.zeros((4, 1)) 
+    self.mark_visual_input("camera_info")
 
 
 def save_image(self,x,y,z_value):

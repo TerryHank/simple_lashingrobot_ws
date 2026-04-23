@@ -1,6 +1,52 @@
 #include "suoqu_runtime_internal.hpp"
+#include "tie_robot_process/suoqu/cabin_transport.hpp"
 
 #include <fstream>
+
+bool cabinDriverStartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    cabin_driver_enabled.store(true);
+    if (!g_cabin_driver) {
+        g_cabin_driver = std::make_unique<tie_robot_hw::driver::CabinDriver>();
+    }
+    res.success = connectToServer();
+    res.message = res.success
+        ? "索驱驱动已启动并建立连接。"
+        : tie_robot_process::suoqu::get_last_cabin_failure_detail();
+    return true;
+}
+
+bool cabinDriverStopService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    cabin_driver_enabled.store(false);
+    if (g_cabin_driver) {
+        g_cabin_driver->stop();
+    }
+    tie_robot_process::suoqu::sync_global_socket_fd_from_cabin_driver();
+    tie_robot_process::suoqu::clear_last_cabin_transport_error_detail();
+    cabin_driver_last_state_stamp_sec.store(0.0);
+    res.success = true;
+    res.message = "索驱驱动已关闭。";
+    return true;
+}
+
+bool cabinDriverRestartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    std_srvs::Trigger::Request dummy_req;
+    std_srvs::Trigger::Response dummy_res;
+    cabinDriverStopService(dummy_req, dummy_res);
+    return cabinDriverStartService(dummy_req, res);
+}
+
+bool cabinMotionStopService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    std::string driver_error_message;
+    res.success = tie_robot_process::suoqu::stop_cabin_motion_via_driver(&driver_error_message);
+    res.message = res.success
+        ? "索驱运动已停止。"
+        : driver_error_message;
+    return true;
+}
 
 bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
 {
@@ -9,6 +55,7 @@ bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Respons
     float cabin_speed = 0.0f;
     try {
         load_configured_path(con_path, cabin_height, cabin_speed);
+        cabin_speed = get_global_cabin_move_speed_mm_per_sec();
         res.success = run_pseudo_slam_scan(
             con_path,
             cabin_height,
@@ -33,6 +80,7 @@ bool startPseudoSlamScanWithOptions(
     float cabin_speed = 0.0f;
     try {
         load_configured_path(con_path, cabin_height, cabin_speed);
+        cabin_speed = get_global_cabin_move_speed_mm_per_sec();
         res.success = run_pseudo_slam_scan(
             con_path,
             cabin_height,

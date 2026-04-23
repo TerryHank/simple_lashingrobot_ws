@@ -10,9 +10,14 @@ import rospy
 import tf2_ros
 import yaml
 from geometry_msgs.msg import Pose, TransformStamped
+from tie_robot_msgs.srv import (
+    SetGripperTfCalibration,
+    SetGripperTfCalibrationResponse,
+)
 from tf.transformations import quaternion_from_euler
 
 POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset"
+SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/pointAI/set_gripper_tf_calibration"
 
 
 def _read_string(data, key):
@@ -100,7 +105,7 @@ def load_gripper_tf_config(config_path, allow_identity_config=False):
         "translation": {
             "x": -translation_mm["x"] / 1000.0,
             "y": -translation_mm["y"] / 1000.0,
-            "z": -translation_mm["z"] / 1000.0,
+            "z": translation_mm["z"] / 1000.0,
         },
         "rotation_rpy": {
             "roll": _read_float(data, ("rotation_rpy", "roll")),
@@ -123,7 +128,7 @@ def with_updated_translation_mm(config, x_mm, y_mm, z_mm, allow_identity_config=
     updated["translation"] = {
         "x": -updated["translation_mm"]["x"] / 1000.0,
         "y": -updated["translation_mm"]["y"] / 1000.0,
-        "z": -updated["translation_mm"]["z"] / 1000.0,
+        "z": updated["translation_mm"]["z"] / 1000.0,
     }
     validate_gripper_tf_config(updated, allow_identity_config=allow_identity_config)
     return updated
@@ -219,24 +224,32 @@ def main():
     runtime_config = {"value": config}
     rate = rospy.Rate(max(1.0, publish_rate_hz))
 
+    def apply_translation_update(x_mm, y_mm, z_mm):
+        with config_lock:
+            updated_config = with_updated_translation_mm(
+                runtime_config["value"],
+                x_mm,
+                y_mm,
+                z_mm,
+                allow_identity_config=allow_identity_config,
+            )
+            save_gripper_tf_config(config_path, updated_config)
+            runtime_config["value"] = updated_config
+        rospy.loginfo(
+            "gripper_tf_broadcaster: 实时更新TF平移标定，写入%s: translation_mm=(%.3f, %.3f, %.3f)，无需重启节点。",
+            config_path,
+            updated_config["translation_mm"]["x"],
+            updated_config["translation_mm"]["y"],
+            updated_config["translation_mm"]["z"],
+        )
+        return updated_config
+
     def handle_legacy_offset(msg):
         try:
-            with config_lock:
-                updated_config = with_updated_translation_mm(
-                    runtime_config["value"],
-                    msg.position.x,
-                    msg.position.y,
-                    msg.position.z,
-                    allow_identity_config=allow_identity_config,
-                )
-                save_gripper_tf_config(config_path, updated_config)
-                runtime_config["value"] = updated_config
-            rospy.loginfo(
-                "gripper_tf_broadcaster: 实时更新TF平移标定，写入%s: translation_mm=(%.3f, %.3f, %.3f)，无需重启节点。",
-                config_path,
-                updated_config["translation_mm"]["x"],
-                updated_config["translation_mm"]["y"],
-                updated_config["translation_mm"]["z"],
+            apply_translation_update(
+                msg.position.x,
+                msg.position.y,
+                msg.position.z,
             )
         except Exception as exc:
             rospy.logerr(
@@ -245,7 +258,40 @@ def main():
                 exc,
             )
 
+    def handle_set_gripper_tf_calibration(request):
+        try:
+            updated_config = apply_translation_update(
+                request.x_mm,
+                request.y_mm,
+                request.z_mm,
+            )
+            return SetGripperTfCalibrationResponse(
+                success=True,
+                message="相机-TCP外参已热更新，已写回配置文件并更新TF。",
+                applied_x_mm=updated_config["translation_mm"]["x"],
+                applied_y_mm=updated_config["translation_mm"]["y"],
+                applied_z_mm=updated_config["translation_mm"]["z"],
+            )
+        except Exception as exc:
+            rospy.logerr(
+                "gripper_tf_broadcaster: 处理%s失败，无法实时更新TF平移标定: %s",
+                SET_GRIPPER_TF_CALIBRATION_SERVICE,
+                exc,
+            )
+            return SetGripperTfCalibrationResponse(
+                success=False,
+                message=f"相机-TCP外参热更新失败: {exc}",
+                applied_x_mm=runtime_config["value"]["translation_mm"]["x"],
+                applied_y_mm=runtime_config["value"]["translation_mm"]["y"],
+                applied_z_mm=runtime_config["value"]["translation_mm"]["z"],
+            )
+
     rospy.Subscriber(POINTAI_OFFSET_TOPIC, Pose, handle_legacy_offset)
+    rospy.Service(
+        SET_GRIPPER_TF_CALIBRATION_SERVICE,
+        SetGripperTfCalibration,
+        handle_set_gripper_tf_calibration,
+    )
 
     rospy.loginfo(
         "gripper_tf_broadcaster started: %s -> %s from %s | user_translation_mm=(%.3f, %.3f, %.3f) | published_tf_translation_m=(%.6f, %.6f, %.6f) | rotation_rpy=(%.6f, %.6f, %.6f) rad",

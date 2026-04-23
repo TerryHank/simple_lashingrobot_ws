@@ -8,6 +8,7 @@ export default {
     nav: [
       { text: "总览", link: "/" },
       { text: "工程说明", link: "/guide/overview" },
+      { text: "视觉原理", link: "/guide/visual-principles" },
       { text: "相机 SDK", link: "/camera-sdk/index" },
       { text: "文件树", link: "/reference/file-tree" }
     ],
@@ -17,6 +18,7 @@ export default {
         items: [
           { text: "工程总览", link: "/guide/overview" },
           { text: "运行主链", link: "/guide/runtime-flows" },
+          { text: "视觉原理", link: "/guide/visual-principles" },
           { text: "开发入口", link: "/guide/dev-entrypoints" }
         ]
       },

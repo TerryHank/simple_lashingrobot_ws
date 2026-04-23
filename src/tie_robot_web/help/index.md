@@ -9,5 +9,6 @@
 
 [进入工程总览](./guide/overview)
 [查看运行主链](./guide/runtime-flows)
+[查看视觉原理](./guide/visual-principles)
 [查看文件结构树](./reference/file-tree)
 [查看相机 SDK 帮助](./camera-sdk/index)

@@ -96,6 +96,7 @@ def image_raw_world_callback(self, msg):
     # ② 新 Y 翻符号 → 正向朝上
     img[:, :, 1] *= -1
     self.image_raw_world = img
+    self.mark_visual_input("raw_world_coord")
     self.ensure_raw_world_channels()
 
 

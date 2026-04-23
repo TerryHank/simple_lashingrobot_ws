@@ -33,17 +33,17 @@ from tie_robot_msgs.srv import (
     linear_module_moveResponse,
 )
 from tie_robot_perception.perception.workspace_s2 import (
-    build_workspace_s2_axis_profile,
-    build_workspace_s2_bbox,
-    build_workspace_s2_line_positions,
-    build_workspace_s2_projective_line_segments,
-    build_workspace_s2_rectified_geometry,
-    estimate_workspace_s2_period_and_phase,
-    map_workspace_s2_rectified_points_to_image,
-    normalize_workspace_s2_response,
-    smooth_workspace_s2_profile,
-    sort_polygon_indices_clockwise,
-    sort_polygon_points_clockwise,
+    build_workspace_s2_axis_profile as workspace_s2_build_axis_profile,
+    build_workspace_s2_bbox as workspace_s2_build_bbox,
+    build_workspace_s2_line_positions as workspace_s2_build_line_positions,
+    build_workspace_s2_projective_line_segments as workspace_s2_build_projective_line_segments,
+    build_workspace_s2_rectified_geometry as workspace_s2_build_rectified_geometry,
+    estimate_workspace_s2_period_and_phase as workspace_s2_estimate_period_and_phase,
+    map_workspace_s2_rectified_points_to_image as workspace_s2_map_rectified_points_to_image,
+    normalize_workspace_s2_response as workspace_s2_normalize_response,
+    smooth_workspace_s2_profile as workspace_s2_smooth_profile,
+    sort_polygon_indices_clockwise as workspace_s2_sort_polygon_indices_clockwise,
+    sort_polygon_points_clockwise as workspace_s2_sort_polygon_points_clockwise,
 )
 from .constants import *
 
@@ -319,11 +319,11 @@ def manual_workspace_s2_callback(self, msg):
 
 
 def smooth_workspace_s2_profile(profile):
-    return smooth_workspace_s2_profile(profile)
+    return workspace_s2_smooth_profile(profile)
 
 
 def estimate_workspace_s2_period_and_phase(cls, profile, min_period=10, max_period=30):
-    return estimate_workspace_s2_period_and_phase(
+    return workspace_s2_estimate_period_and_phase(
         profile,
         min_period=min_period,
         max_period=max_period,
@@ -331,7 +331,7 @@ def estimate_workspace_s2_period_and_phase(cls, profile, min_period=10, max_peri
 
 
 def build_workspace_s2_line_positions(start_pixel, end_pixel, period_px, phase_px):
-    return build_workspace_s2_line_positions(
+    return workspace_s2_build_line_positions(
         start_pixel,
         end_pixel,
         period_px,
@@ -340,15 +340,15 @@ def build_workspace_s2_line_positions(start_pixel, end_pixel, period_px, phase_p
 
 
 def build_workspace_s2_bbox(workspace_mask):
-    return build_workspace_s2_bbox(workspace_mask)
+    return workspace_s2_build_bbox(workspace_mask)
 
 
 def build_workspace_s2_axis_profile(response_map, workspace_mask, axis):
-    return build_workspace_s2_axis_profile(response_map, workspace_mask, axis)
+    return workspace_s2_build_axis_profile(response_map, workspace_mask, axis)
 
 
 def normalize_workspace_s2_response(response_map, valid_mask, lower_percentile=5.0, upper_percentile=95.0):
-    return normalize_workspace_s2_response(
+    return workspace_s2_normalize_response(
         response_map,
         valid_mask,
         lower_percentile=lower_percentile,
@@ -362,7 +362,7 @@ def build_workspace_s2_rectified_geometry(
     corner_world_cabin_frame=None,
     resolution_mm_per_px=5.0,
 ):
-    return build_workspace_s2_rectified_geometry(
+    return workspace_s2_build_rectified_geometry(
         corner_pixels,
         corner_world_cabin_frame=corner_world_cabin_frame,
         resolution_mm_per_px=resolution_mm_per_px,
@@ -370,7 +370,7 @@ def build_workspace_s2_rectified_geometry(
 
 
 def map_workspace_s2_rectified_points_to_image(rectified_points, inverse_h):
-    return map_workspace_s2_rectified_points_to_image(rectified_points, inverse_h)
+    return workspace_s2_map_rectified_points_to_image(rectified_points, inverse_h)
 
 
 def build_workspace_s2_projective_line_segments(
@@ -381,7 +381,7 @@ def build_workspace_s2_projective_line_segments(
     vertical_lines,
     horizontal_lines,
 ):
-    return build_workspace_s2_projective_line_segments(
+    return workspace_s2_build_projective_line_segments(
         corner_pixels,
         rectified_width,
         rectified_height,
@@ -391,8 +391,8 @@ def build_workspace_s2_projective_line_segments(
 
 
 def sort_polygon_points_clockwise(points):
-    return sort_polygon_points_clockwise(points)
+    return workspace_s2_sort_polygon_points_clockwise(points)
 
 
 def sort_polygon_indices_clockwise(points):
-    return sort_polygon_indices_clockwise(points)
+    return workspace_s2_sort_polygon_indices_clockwise(points)

@@ -1,6 +1,7 @@
 #include "tie_robot_process/suoqu/cabin_transport.hpp"
 
 #include "common.hpp"
+#include "suoqu_runtime_internal.hpp"
 
 #include <fstream>
 #include <iomanip>
@@ -383,6 +384,14 @@ void sync_global_socket_fd_from_cabin_driver()
 
 bool stop_cabin_motion_via_driver(std::string* error_message)
 {
+    if (!::cabin_driver_enabled.load()) {
+        const std::string detail = "索驱驱动已关闭，停止指令未下发";
+        update_last_cabin_transport_error_detail(detail);
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        return false;
+    }
     if (!::g_cabin_driver) {
         const std::string detail = "索驱驱动未初始化，无法下发停止指令";
         update_last_cabin_transport_error_detail(detail);
@@ -425,6 +434,14 @@ bool move_cabin_pose_via_driver(
     float z_mm,
     std::string* error_message)
 {
+    if (!::cabin_driver_enabled.load()) {
+        const std::string detail = "索驱驱动已关闭，拒绝下发运动指令";
+        update_last_cabin_transport_error_detail(detail);
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        return false;
+    }
     if (!::g_cabin_driver) {
         const std::string detail = "索驱驱动未初始化，无法下发位姿运动指令";
         update_last_cabin_transport_error_detail(detail);

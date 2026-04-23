@@ -70,6 +70,15 @@ std::string compose_linear_module_driver_error_message(
 
 bool ensure_linear_module_driver_started(tie_robot_hw::driver::DriverError* error)
 {
+    if (!g_moduan_driver_enabled.load()) {
+        if (error != nullptr) {
+            error->code = "driver_disabled";
+            error->message = "末端驱动已关闭";
+            error->detail.clear();
+            error->retryable = false;
+        }
+        return false;
+    }
     if (!g_linear_module_driver) {
         g_linear_module_driver = std::make_unique<tie_robot_hw::driver::LinearModuleDriver>();
     }

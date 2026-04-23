@@ -1,11 +1,26 @@
 import { ROSLIB } from "../vendor/roslib.js";
 import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
+const WORKSPACE_QUAD_ACK_TIMEOUT_MS = 4000;
+
+function buildWorkspaceQuadPayloadKey(payload) {
+  if (!Array.isArray(payload) || payload.length !== 8) {
+    return "";
+  }
+
+  const pairs = [];
+  for (let index = 0; index < payload.length; index += 2) {
+    pairs.push(`${Math.round(Number(payload[index]) || 0)},${Math.round(Number(payload[index + 1]) || 0)}`);
+  }
+  return pairs.sort().join("|");
+}
+
 export class TaskActionController {
   constructor({ rosConnection, workspaceView, callbacks = {} }) {
     this.rosConnection = rosConnection;
     this.workspaceView = workspaceView;
     this.callbacks = callbacks;
+    this.pendingWorkspaceQuadSubmission = null;
   }
 
   handle(taskAction) {
@@ -30,31 +45,94 @@ export class TaskActionController {
   publishWorkspaceQuad() {
     const resources = this.rosConnection.getResources();
     const selectedPoints = this.workspaceView.getSelectedPoints();
-    if (!resources?.workspaceQuadPublisher || !resources?.runWorkspaceS2Publisher || selectedPoints.length !== 4) {
+    if (!resources?.workspaceQuadPublisher || selectedPoints.length !== 4) {
       this.report("当前还不能提交工作区四边形，请先连上 ROS 并点满 4 个角点", "warn");
       return;
     }
     const payload = buildWorkspaceQuadPayload(selectedPoints);
     this.workspaceView.setExecutionOverlayMessage(null);
+    this.setPendingWorkspaceQuadSubmission(payload);
     resources.workspaceQuadPublisher.publish(new ROSLIB.Message({ data: payload }));
-    this.callbacks.onResultMessage?.(`工作区四边形已发送，正在触发 S2，覆盖层统一等待 result_img: [${payload.join(", ")}]`);
+    this.callbacks.onResultMessage?.(`工作区四边形已发送，等待 pointAI 保存确认: [${payload.join(", ")}]`);
     this.callbacks.onLog?.(`已发送工作区四边形: [${payload.join(", ")}]`, "success");
-    window.setTimeout(() => {
-      resources.runWorkspaceS2Publisher.publish(new ROSLIB.Message({ data: true }));
-    }, 180);
   }
 
   triggerSavedWorkspaceS2() {
     const resources = this.rosConnection.getResources();
     const savedPoints = this.workspaceView.getSavedWorkspacePoints();
     if (!resources?.runWorkspaceS2Publisher || savedPoints.length !== 4) {
-      this.report("当前没有可复用的已保存工作区，请先点 4 个角点并提交", "warn");
+      if (this.pendingWorkspaceQuadSubmission) {
+        this.report("工作区正在保存，请等保存完成后再触发 S2。", "warn");
+        return;
+      }
+      this.report("当前没有可复用的已保存工作区，请先点 4 个角点并提交四边形。", "warn");
       return;
     }
+    this.clearPendingWorkspaceQuadSubmission();
     this.workspaceView.setExecutionOverlayMessage(null);
-    resources.runWorkspaceS2Publisher.publish(new ROSLIB.Message({ data: true }));
+    this.publishWorkspaceS2Request(resources.runWorkspaceS2Publisher);
     this.callbacks.onResultMessage?.("正在使用当前已保存工作区识别绑扎点，覆盖层统一等待 result_img...");
     this.callbacks.onLog?.("已触发基于已保存工作区的 S2 识别", "success");
+  }
+
+  handleSavedWorkspacePayload(payload) {
+    return this.confirmPendingWorkspaceQuadSubmission(payload);
+  }
+
+  setPendingWorkspaceQuadSubmission(payload) {
+    this.clearPendingWorkspaceQuadSubmission();
+    const payloadKey = buildWorkspaceQuadPayloadKey(payload);
+    if (!payloadKey) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (!this.pendingWorkspaceQuadSubmission || this.pendingWorkspaceQuadSubmission.payloadKey !== payloadKey) {
+        return;
+      }
+      this.pendingWorkspaceQuadSubmission = null;
+      this.report("工作区四边形已发送，但等待 pointAI 保存确认超时。请检查视觉日志后重试。", "warn");
+    }, WORKSPACE_QUAD_ACK_TIMEOUT_MS);
+
+    this.pendingWorkspaceQuadSubmission = {
+      payloadKey,
+      timeoutId,
+    };
+  }
+
+  clearPendingWorkspaceQuadSubmission() {
+    if (this.pendingWorkspaceQuadSubmission?.timeoutId) {
+      window.clearTimeout(this.pendingWorkspaceQuadSubmission.timeoutId);
+    }
+    this.pendingWorkspaceQuadSubmission = null;
+  }
+
+  confirmPendingWorkspaceQuadSubmission(payload) {
+    if (!this.pendingWorkspaceQuadSubmission) {
+      return false;
+    }
+
+    const payloadKey = buildWorkspaceQuadPayloadKey(payload);
+    if (!payloadKey || payloadKey !== this.pendingWorkspaceQuadSubmission.payloadKey) {
+      return false;
+    }
+
+    const resources = this.rosConnection.getResources();
+    if (!resources?.runWorkspaceS2Publisher) {
+      this.clearPendingWorkspaceQuadSubmission();
+      this.report("工作区已保存，但 ROS 未就绪，当前不能触发 S2。", "warn");
+      return false;
+    }
+
+    this.clearPendingWorkspaceQuadSubmission();
+    this.callbacks.onResultMessage?.("工作区已保存，可以手动点击“触发S2”开始识别。");
+    this.callbacks.onLog?.("已收到工作区保存确认，等待手动触发 S2", "success");
+    return true;
+  }
+
+  publishWorkspaceS2Request(runWorkspaceS2Publisher) {
+    runWorkspaceS2Publisher.publish(new ROSLIB.Message({ data: true }));
+    this.callbacks.onWorkspaceS2Triggered?.();
   }
 
   triggerPseudoSlamScan() {
@@ -65,7 +143,7 @@ export class TaskActionController {
     }
     this.workspaceView.setExecutionOverlayMessage(null);
     this.callbacks.onResultMessage?.(
-      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=2997, speed=100，然后触发 S2 并动态规划，覆盖层统一显示 result_img。",
+      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=3197，索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发 S2 并动态规划，覆盖层统一显示 result_img。",
     );
     this.callbacks.onLog?.("已触发固定扫描建图任务", "success");
     this.sendActionGoal(resources.startPseudoSlamScanActionClient, {

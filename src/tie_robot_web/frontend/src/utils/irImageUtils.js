@@ -158,6 +158,42 @@ export function enhanceMono8(bytes, { mode = "auto", gamma = 0.85 } = {}) {
   return applyGammaToMono8(enhanced, gamma);
 }
 
+function normalizeFiniteScalarArrayToMono8(values, {
+  invalidPredicate = (value) => !Number.isFinite(value),
+} = {}) {
+  let minValue = Number.POSITIVE_INFINITY;
+  let maxValue = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (invalidPredicate(value)) {
+      continue;
+    }
+    if (value < minValue) {
+      minValue = value;
+    }
+    if (value > maxValue) {
+      maxValue = value;
+    }
+  }
+
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || maxValue <= minValue) {
+    return new Uint8ClampedArray(values.length);
+  }
+
+  const scale = 255 / (maxValue - minValue);
+  const bytes = new Uint8ClampedArray(values.length);
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (invalidPredicate(value)) {
+      bytes[index] = 0;
+      continue;
+    }
+    bytes[index] = Math.min(Math.max(Math.round((value - minValue) * scale), 0), 255);
+  }
+  return bytes;
+}
+
 export function sensorImageToImageData(message, enhancementSettings) {
   const bytes = decodeImageBytes(message.data);
   const width = Number(message.width) || 0;
@@ -190,6 +226,78 @@ export function sensorImageToImageData(message, enhancementSettings) {
       rgba[rgbaIndex] = rgb[0] ?? 0;
       rgba[rgbaIndex + 1] = rgb[1] ?? 0;
       rgba[rgbaIndex + 2] = rgb[2] ?? 0;
+      rgba[rgbaIndex + 3] = 255;
+    }
+    return new ImageData(rgba, width, height);
+  }
+  if (encoding.includes("mono16") || encoding.includes("16uc1")) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const values = new Uint16Array(width * height);
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+      const sourceIndex = pixelIndex * 2;
+      values[pixelIndex] = sourceIndex + 2 <= view.byteLength ? view.getUint16(sourceIndex, true) : 0;
+    }
+    const displayBytes = normalizeFiniteScalarArrayToMono8(values, {
+      invalidPredicate: (value) => !Number.isFinite(value) || value <= 0 || value === 65535,
+    });
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+      const value = displayBytes[pixelIndex] ?? 0;
+      const rgbaIndex = pixelIndex * 4;
+      rgba[rgbaIndex] = value;
+      rgba[rgbaIndex + 1] = value;
+      rgba[rgbaIndex + 2] = value;
+      rgba[rgbaIndex + 3] = 255;
+    }
+    return new ImageData(rgba, width, height);
+  }
+  if (encoding.includes("32fc1")) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const values = new Float32Array(width * height);
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+      const sourceIndex = pixelIndex * 4;
+      values[pixelIndex] = sourceIndex + 4 <= view.byteLength ? view.getFloat32(sourceIndex, true) : 0;
+    }
+    const displayBytes = normalizeFiniteScalarArrayToMono8(values, {
+      invalidPredicate: (value) => !Number.isFinite(value) || value <= 0,
+    });
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+      const value = displayBytes[pixelIndex] ?? 0;
+      const rgbaIndex = pixelIndex * 4;
+      rgba[rgbaIndex] = value;
+      rgba[rgbaIndex + 1] = value;
+      rgba[rgbaIndex + 2] = value;
+      rgba[rgbaIndex + 3] = 255;
+    }
+    return new ImageData(rgba, width, height);
+  }
+  if (encoding.includes("32fc3")) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const channelValues = [
+      new Float32Array(width * height),
+      new Float32Array(width * height),
+      new Float32Array(width * height),
+    ];
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+      const sourceIndex = pixelIndex * 12;
+      if (sourceIndex + 12 > view.byteLength) {
+        continue;
+      }
+      channelValues[0][pixelIndex] = view.getFloat32(sourceIndex, true);
+      channelValues[1][pixelIndex] = view.getFloat32(sourceIndex + 4, true);
+      channelValues[2][pixelIndex] = view.getFloat32(sourceIndex + 8, true);
+    }
+    const normalizedChannels = channelValues.map((values, channelIndex) =>
+      normalizeFiniteScalarArrayToMono8(values, {
+        invalidPredicate: (value) =>
+          !Number.isFinite(value) ||
+          (channelIndex === 2 ? value <= 0 : false),
+      }),
+    );
+    for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+      const rgbaIndex = pixelIndex * 4;
+      rgba[rgbaIndex] = normalizedChannels[0][pixelIndex] ?? 0;
+      rgba[rgbaIndex + 1] = normalizedChannels[1][pixelIndex] ?? 0;
+      rgba[rgbaIndex + 2] = normalizedChannels[2][pixelIndex] ?? 0;
       rgba[rgbaIndex + 3] = 255;
     }
     return new ImageData(rgba, width, height);

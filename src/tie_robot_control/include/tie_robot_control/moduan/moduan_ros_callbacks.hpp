@@ -44,6 +44,9 @@ std::string getBeijingTimeString();
 void robotSaveBindingDataCallback(const std_msgs::Float32::ConstPtr& msg);
 void initPLC();
 void auto_zero_on_startup(ros::NodeHandle& private_nh);
+bool moduan_driver_start_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+bool moduan_driver_stop_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
+bool moduan_driver_restart_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 int RunModuanNode(int argc, char** argv);
 
 #endif

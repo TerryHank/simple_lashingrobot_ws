@@ -6,16 +6,22 @@ export const PANEL_REGISTRY = [
     defaultVisible: true,
   },
   {
-    id: "workspacePanel",
-    title: "工作区",
+    id: "imagePanel",
+    title: "图像",
     group: "vision",
     defaultVisible: true,
   },
   {
-    id: "topicLayersPanel",
-    title: "话题图层",
-    group: "scene",
+    id: "settingsPanel",
+    title: "设置",
+    group: "settings",
     defaultVisible: true,
+  },
+  {
+    id: "terminalPanel",
+    title: "终端",
+    group: "tools",
+    defaultVisible: false,
   },
   {
     id: "logPanel",

@@ -31,9 +31,13 @@ void publish_chassis_move_debug_service(const tie_robot_msgs::SingleMove& move_s
 {
     tie_robot_msgs::SingleMove request = move_srv;
     if (g_service_clients.chassis_single_move_client.call(request)) {
-        ROS_INFO("Call succeeded: %s", request.response.message.c_str());
+        if (request.response.success) {
+            ROS_INFO("Call succeeded: %s", request.response.message.c_str());
+        } else {
+            ROS_ERROR("Call failed: %s", request.response.message.c_str());
+        }
     } else {
-        ROS_ERROR("Call failed：%s", request.response.message.c_str());
+        ROS_ERROR("Call transport failed：%s", request.response.message.c_str());
     }
 }
 

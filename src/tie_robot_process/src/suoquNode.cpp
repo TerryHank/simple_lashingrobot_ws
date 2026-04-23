@@ -27,6 +27,8 @@
 #include <unordered_set>
 #include <pthread.h>
 #include <ros/ros.h>
+#include <diagnostic_updater/diagnostic_updater.h>
+#include <diagnostic_updater/DiagnosticStatusWrapper.h>
 #include <algorithm>
 #include <numeric>
 #include <arpa/inet.h>
@@ -57,6 +59,7 @@
 #include "std_srvs/Trigger.h" 
 #include <tie_robot_msgs/Pathguihua.h>
 #include <tie_robot_msgs/SingleMove.h>
+#include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -132,6 +135,11 @@ float cabin_start_y;
 float cabin_start_height;
 float global_cabin_speed = 300.0;
 
+float get_global_cabin_move_speed_mm_per_sec()
+{
+    return global_cabin_speed > 0.0f ? global_cabin_speed : 300.0f;
+}
+
 // 发送接收，字符左高右低
 // uint8_t robot_inquire[6]={0xEB,0x90,0x00,0x01,0x7C,0x01};//查询索驱状态
 uint8_t TCP_Normal_Connection[14]={0xEB,0x90,0x00,0x01};//和索驱常态通讯的数据帧，包括位置查询和将机身的xy姿态角信息
@@ -169,8 +177,79 @@ tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner
 }
 
 std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLiveVisual)};
+std::atomic<bool> cabin_driver_enabled{true};
+std::atomic<double> cabin_driver_last_state_stamp_sec{0.0};
 std::atomic<uint16_t> pending_tcp_status_word{0};
 std::atomic<bool> pending_tcp_status_word_valid{false};
+std::unique_ptr<diagnostic_updater::Updater> g_cabin_diagnostic_updater;
+
+namespace {
+
+constexpr const char* kCabinDiagnosticHardwareId = "tie_robot/chassis_driver";
+
+const char* cabin_connection_state_label(tie_robot_hw::driver::ConnectionState state)
+{
+    switch (state) {
+        case tie_robot_hw::driver::ConnectionState::kConnecting:
+            return "connecting";
+        case tie_robot_hw::driver::ConnectionState::kReady:
+            return "ready";
+        case tie_robot_hw::driver::ConnectionState::kReconnecting:
+            return "reconnecting";
+        case tie_robot_hw::driver::ConnectionState::kFault:
+            return "fault";
+        case tie_robot_hw::driver::ConnectionState::kDisconnected:
+        default:
+            return "disconnected";
+    }
+}
+
+void produce_cabin_driver_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat)
+{
+    const bool enabled = cabin_driver_enabled.load();
+    const auto transport_state = g_cabin_driver
+        ? g_cabin_driver->connectionState()
+        : tie_robot_hw::driver::ConnectionState::kDisconnected;
+    const std::string transport_error = g_cabin_driver ? g_cabin_driver->lastErrorText() : std::string();
+    const std::string failure_detail = tie_robot_process::suoqu::get_last_cabin_failure_detail();
+    const double last_state_stamp = cabin_driver_last_state_stamp_sec.load();
+    const double now_sec = ros::Time::now().toSec();
+    const double state_age_sec =
+        (last_state_stamp > 0.0 && now_sec >= last_state_stamp) ? (now_sec - last_state_stamp) : -1.0;
+
+    if (!enabled) {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::WARN, "索驱驱动已关闭");
+    } else if (transport_state == tie_robot_hw::driver::ConnectionState::kReady && state_age_sec >= 0.0 && state_age_sec <= 1.5) {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::OK, "索驱驱动已连接");
+    } else if (!failure_detail.empty() || !transport_error.empty()) {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::ERROR, "索驱驱动通信异常");
+    } else {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::WARN, "索驱驱动未连接");
+    }
+
+    stat.hardware_id = kCabinDiagnosticHardwareId;
+    stat.add("enabled", enabled ? "true" : "false");
+    stat.add("transport_state", cabin_connection_state_label(transport_state));
+    stat.add("socket_fd", sockfd);
+    stat.add("state_age_sec", state_age_sec);
+    stat.add("transport_error", transport_error);
+    stat.add("failure_detail", failure_detail);
+    stat.add("x_mm", cabin_state.X);
+    stat.add("y_mm", cabin_state.Y);
+    stat.add("z_mm", cabin_state.Z);
+    stat.add("motion_status", cabin_state.motion_status);
+    stat.add("device_alarm", cabin_state.device_alarm);
+    stat.add("internal_calc_error", cabin_state.internal_calc_error);
+}
+
+void cabin_diagnostic_timer_callback(const ros::TimerEvent&)
+{
+    if (g_cabin_diagnostic_updater) {
+        g_cabin_diagnostic_updater->force_update();
+    }
+}
+
+}  // namespace
 
 const char* global_execution_mode_name(GlobalExecutionMode mode)
 {
@@ -902,10 +981,15 @@ void publish_cabin_depth_tf()
         transform.transform.translation.y = static_cast<double>(cabin_state.Y) / 1000.0;
         transform.transform.translation.z = static_cast<double>(cabin_state.Z) / 1000.0;
     }
-    transform.transform.rotation.x = 0.0;
-    transform.transform.rotation.y = 0.0;
-    transform.transform.rotation.z = 0.0;
-    transform.transform.rotation.w = 1.0;
+    // 将深度相机坐标系实际发布成“镜头朝下”的右手系：
+    // x 与 cabin_frame 保持一致，z 指向地面，因此 y 反向。
+    tf2::Quaternion scepter_depth_orientation;
+    scepter_depth_orientation.setRPY(M_PI, 0.0, 0.0);
+    scepter_depth_orientation.normalize();
+    transform.transform.rotation.x = scepter_depth_orientation.x();
+    transform.transform.rotation.y = scepter_depth_orientation.y();
+    transform.transform.rotation.z = scepter_depth_orientation.z();
+    transform.transform.rotation.w = scepter_depth_orientation.w();
     cabin_tf_broadcaster->sendTransform(transform);
 }
 
@@ -1055,6 +1139,13 @@ void moveTCPPosition(uint16_t Command_Word,float* TCP) {
 **************************************************************************************************************************************************************/
 bool connectToServer()
 {
+    if (!cabin_driver_enabled.load()) {
+        sync_global_socket_fd_from_cabin_driver();
+        const std::string error_detail = "索驱驱动已关闭，拒绝建立TCP连接";
+        update_last_cabin_transport_error_detail(error_detail);
+        log_cabin_warn_ros(error_detail);
+        return false;
+    }
     if (!g_cabin_driver) {
         g_cabin_driver = std::make_unique<tie_robot_hw::driver::CabinDriver>();
     }
@@ -1082,6 +1173,7 @@ bool connectToServer()
     }
 
     clear_last_cabin_transport_error_detail();
+    cabin_driver_last_state_stamp_sec.store(ros::Time::now().toSec());
     printCurrentTime();
     printf("Cabin_log: TCP连接成功。\n");
     return true;
@@ -1732,9 +1824,9 @@ bool delay_time_for_execution(int Axis, double Target_position, double target_to
 // 规划路径前下发速度
 void change_cabin_speed_callback(const std_msgs::Float32 &debug_mes)
 {
+    global_cabin_speed = debug_mes.data > 0.0f ? debug_mes.data : 300.0f;
     printCurrentTime();
-    printf("Cabin_log: 修改索驱速度指令，速度为: %.2f\n", debug_mes.data);
-    global_cabin_speed = debug_mes.data;
+    printf("Cabin_log: 修改索驱速度指令，速度为: %.2f\n", global_cabin_speed);
     return;
 }
 
@@ -1786,7 +1878,7 @@ bool planGlobalMovePath(tie_robot_msgs::Pathguihua::Request &req, tie_robot_msgs
     float rxs = req.robot_x_step;
     float rys = req.robot_y_step;
     float cabin_height = req.height;
-    float cabin_speed = global_cabin_speed;
+    float cabin_speed = get_global_cabin_move_speed_mm_per_sec();
     printCurrentTime();
     printf("Cabin_log: 当前机器人起点位置为：(%f,%f,%f)\n",mx,my,cabin_height);
     // 生成路径点
@@ -1883,14 +1975,14 @@ bool cabin_single_move(tie_robot_msgs::SingleMove::Request& req, tie_robot_msgs:
         printf("Cabin_Error: 索驱Z轴距离设置超限。\n");
         res.message = "Cabin_log: 索驱单点运动失败（Z轴距离设置超限），位置为(" + std::to_string(cabin_x) + "," + std::to_string(cabin_y) + "," + std::to_string(cabin_height) + ")。";
         res.success = false;
-        return res.success;
+        return true;
     }
 // getSuoquTestTimeTxt(cabin_y);
     std::string driver_error_message;
     if (!move_cabin_pose_via_driver(cabin_speed, cabin_x, cabin_y, cabin_height, &driver_error_message)) {
         res.message = "Cabin_log: 索驱单点运动失败，原因：" + driver_error_message;
         res.success = false;
-        return res.success;
+        return true;
     }
 // getSuoquTestTimeTxt(cabin_y);
     delay_time(AXIS_X,cabin_x);
@@ -1901,7 +1993,7 @@ bool cabin_single_move(tie_robot_msgs::SingleMove::Request& req, tie_robot_msgs:
     printf("Cabin_log: 索驱单点运动完成，位置为(%lf,%lf,%lf)。\n",cabin_x,cabin_y,cabin_height);
     res.message = "Cabin_log: 索驱单点运动完成，位置为(" + std::to_string(cabin_x) + "," + std::to_string(cabin_y) + "," + std::to_string(cabin_height) + ")。";
     res.success = true;
-    return res.success;
+    return true;
 }
 
 /*
@@ -2179,12 +2271,13 @@ bool run_pseudo_slam_scan(
             fixed_scan_pose.x = kPseudoSlamFixedManualWorkspaceScanXmm;
             fixed_scan_pose.y = kPseudoSlamFixedManualWorkspaceScanYmm;
             const float fixed_scan_height = kPseudoSlamFixedManualWorkspaceScanZmm;
+            const float fixed_scan_speed = get_global_cabin_move_speed_mm_per_sec();
             path_origin = fixed_scan_pose;
             set_pseudo_slam_marker_path_origin(path_origin);
 
             total_scan_area_count = 1;
             publish_area_progress(1, total_scan_area_count, 0, false, false);
-            TCP_Move[0] = kPseudoSlamFixedManualWorkspaceScanSpeedMmPerSec;
+            TCP_Move[0] = fixed_scan_speed;
             TCP_Move[1] = fixed_scan_pose.x;
             TCP_Move[2] = fixed_scan_pose.y;
             TCP_Move[3] = fixed_scan_height;
@@ -2198,7 +2291,7 @@ bool run_pseudo_slam_scan(
             );
             std::string driver_error_message;
             if (!move_cabin_pose_via_driver(
-                    kPseudoSlamFixedManualWorkspaceScanSpeedMmPerSec,
+                    fixed_scan_speed,
                     fixed_scan_pose.x,
                     fixed_scan_pose.y,
                     fixed_scan_height,
@@ -3047,9 +3140,9 @@ bool find_nearest_bind_area_for_current_cabin_pose(
     return true;
 }
 
-float get_current_area_bind_test_cabin_speed(float configured_cabin_speed)
+float get_current_area_bind_test_cabin_speed()
 {
-    const float base_speed = configured_cabin_speed > 0.0f ? configured_cabin_speed : global_cabin_speed;
+    const float base_speed = get_global_cabin_move_speed_mm_per_sec();
     return std::max(
         base_speed * kCurrentAreaBindTestCabinSpeedMultiplier,
         kCurrentAreaBindTestMinCabinSpeedMmPerSec
@@ -3117,9 +3210,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
     const float cabin_y = cabin_pose.value("y", 0.0f);
     const float cabin_height = cabin_pose.value("z", bind_path_json.value("cabin_height", 500.0f));
     const float move_cabin_z = clamp_bind_execution_cabin_z(cabin_height);
-    const float fast_cabin_speed = get_current_area_bind_test_cabin_speed(
-        bind_path_json.value("cabin_speed", global_cabin_speed)
-    );
+    const float fast_cabin_speed = get_current_area_bind_test_cabin_speed();
 
     publish_area_progress(area_index, total_area_count, 0, false, false);
     printCurrentTime();
@@ -3299,7 +3390,7 @@ bool run_bind_path_direct_test(std::string& message)
         return false;
     }
 
-    const float cabin_speed = bind_path_json.value("cabin_speed", global_cabin_speed);
+    const float cabin_speed = get_global_cabin_move_speed_mm_per_sec();
     const auto& areas_json = bind_path_json["areas"];
     if (areas_json.empty()) {
         message = "pseudo_slam_bind_path.json没有可执行区域，请先确认扫描分组成功";
@@ -3562,7 +3653,8 @@ bool run_live_visual_global_work(std::string& message)
     );
 
     const float move_path_origin_z = clamp_bind_execution_cabin_z(path_origin_z);
-    TCP_Move[0] = global_cabin_speed;
+    const float cabin_speed = get_global_cabin_move_speed_mm_per_sec();
+    TCP_Move[0] = cabin_speed;
     TCP_Move[1] = path_origin_x;
     TCP_Move[2] = path_origin_y;
     TCP_Move[3] = move_path_origin_z;
@@ -3575,7 +3667,7 @@ bool run_live_visual_global_work(std::string& message)
     );
     std::string live_visual_origin_driver_error_message;
     if (!move_cabin_pose_via_driver(
-            global_cabin_speed,
+            cabin_speed,
             path_origin_x,
             path_origin_y,
             move_path_origin_z,
@@ -3627,7 +3719,6 @@ bool run_live_visual_global_work(std::string& message)
         const float cabin_y = cabin_pose.value("y", 0.0f);
         const float cabin_z = cabin_pose.value("z", bind_path_json.value("cabin_height", 500.0f));
         const float move_cabin_z = clamp_bind_execution_cabin_z(cabin_z);
-        const float cabin_speed = bind_path_json.value("cabin_speed", global_cabin_speed);
         TCP_Move[0] = cabin_speed;
         TCP_Move[1] = cabin_x;
         TCP_Move[2] = cabin_y;
@@ -3904,7 +3995,7 @@ bool run_bind_from_scan(std::string& message)
         return false;
     }
 
-    const float cabin_speed = bind_path_json.value("cabin_speed", global_cabin_speed);
+    const float cabin_speed = get_global_cabin_move_speed_mm_per_sec();
     const auto& areas_json = bind_path_json["areas"];
     if (areas_json.empty()) {
         message = "pseudo_slam_bind_path.json没有可执行区域，请先确认扫描分组成功";
@@ -4131,6 +4222,14 @@ void read_cabin_state(Cabin_State *cab_state) {
     uint16_t check_sum=0;
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100)); //防止固定锁
+        if (!cabin_driver_enabled.load()) {
+            if (g_cabin_driver) {
+                g_cabin_driver->stop();
+            }
+            sync_global_socket_fd_from_cabin_driver();
+            cabin_driver_last_state_stamp_sec.store(0.0);
+            continue;
+        }
         {
             std::lock_guard<std::mutex> lock2(socket_mutex);
             check_sum=0;
@@ -4201,6 +4300,8 @@ void read_cabin_state(Cabin_State *cab_state) {
         cabin_data_upload.motion_status = cab_state->motion_status;
         cabin_data_upload.device_alarm = cab_state->device_alarm;
         cabin_data_upload.internal_calc_error = cab_state->internal_calc_error;
+        cabin_data_upload.cabin_connect_flag = 1;
+        cabin_driver_last_state_stamp_sec.store(ros::Time::now().toSec());
         publish_cabin_depth_tf();
         publish_pseudo_slam_point_transforms();
         maybe_refresh_pseudo_slam_marker_outlier_threshold();
@@ -4345,6 +4446,19 @@ int main(int argc, char **argv)
     ros::ServiceServer current_area_bind_from_scan_service = nh.advertiseService("/cabin/bind_current_area_from_scan", bind_current_area_from_scan_service);
     ros::ServiceServer bind_path_direct_test_service_server =
         nh.advertiseService("/cabin/run_bind_path_direct_test", bind_path_direct_test_service);
+    ros::ServiceServer cabin_driver_start_service =
+        nh.advertiseService("/cabin/driver/start", cabinDriverStartService);
+    ros::ServiceServer cabin_driver_stop_service =
+        nh.advertiseService("/cabin/driver/stop", cabinDriverStopService);
+    ros::ServiceServer cabin_driver_restart_service =
+        nh.advertiseService("/cabin/driver/restart", cabinDriverRestartService);
+    ros::ServiceServer cabin_motion_stop_service =
+        nh.advertiseService("/cabin/motion/stop", cabinMotionStopService);
+    g_cabin_diagnostic_updater = std::make_unique<diagnostic_updater::Updater>(nh);
+    g_cabin_diagnostic_updater->setHardwareID(kCabinDiagnosticHardwareId);
+    g_cabin_diagnostic_updater->add("索驱驱动", produce_cabin_driver_diagnostics);
+    ros::Timer cabin_diagnostic_timer =
+        nh.createTimer(ros::Duration(1.0), cabin_diagnostic_timer_callback);
     // 单点运动调试
     ros::ServiceServer cabin_single_move_service = nh.advertiseService("/cabin/single_move", cabin_single_move);
     pub_area_progress = nh.advertise<tie_robot_msgs::AreaProgress>("/cabin/area_progress", 5);
@@ -4377,6 +4491,10 @@ int main(int argc, char **argv)
     ros::Subscriber send_odd_points_sub = nh.subscribe("/web/moduan/send_odd_points", 5, &checkerboard_jump_bind_callback);
     // 订阅末端安装的姿态传感器数据 （通过末端发送）
     // ros::Subscriber cabin_gesture = nh.subscribe("/moduan/moduan_gesture_data", 5, &cabin_gesture_get);
+    (void)cabin_driver_start_service;
+    (void)cabin_driver_stop_service;
+    (void)cabin_driver_restart_service;
+    (void)cabin_diagnostic_timer;
     
     ros::MultiThreadedSpinner spinner(4);
     spinner.spin();

@@ -9,6 +9,8 @@
 #include <sstream>
 #include <thread>
 
+#include <diagnostic_updater/diagnostic_updater.h>
+#include <diagnostic_updater/DiagnosticStatusWrapper.h>
 #include <ros/ros.h>
 
 #include "common.hpp"
@@ -19,6 +21,146 @@
 #include "tie_robot_control/moduan/runtime_state.hpp"
 
 using namespace tie_robot_control::moduan_registers;
+
+namespace {
+
+constexpr const char* kModuanDiagnosticHardwareId = "tie_robot/moduan_driver";
+std::unique_ptr<diagnostic_updater::Updater> g_moduan_diagnostic_updater;
+
+const char* connection_state_label(tie_robot_hw::driver::ConnectionState state)
+{
+    switch (state) {
+        case tie_robot_hw::driver::ConnectionState::kConnecting:
+            return "connecting";
+        case tie_robot_hw::driver::ConnectionState::kReady:
+            return "ready";
+        case tie_robot_hw::driver::ConnectionState::kReconnecting:
+            return "reconnecting";
+        case tie_robot_hw::driver::ConnectionState::kFault:
+            return "fault";
+        case tie_robot_hw::driver::ConnectionState::kDisconnected:
+        default:
+            return "disconnected";
+    }
+}
+
+bool start_moduan_driver_connection(std::string* detail)
+{
+    g_moduan_driver_enabled.store(true);
+    if (!g_linear_module_driver) {
+        g_linear_module_driver = std::make_unique<tie_robot_hw::driver::LinearModuleDriver>();
+    }
+
+    tie_robot_hw::driver::DriverError driver_error;
+    const bool wrapper_ok = g_linear_module_driver->start(&driver_error);
+
+    {
+        std::lock_guard<std::mutex> lock(plc_mutex);
+        if (plc == nullptr) {
+            plc = PLC_Connection();
+        }
+    }
+
+    if (!wrapper_ok || plc == nullptr) {
+        std::ostringstream oss;
+        oss << "末端驱动启动失败";
+        if (!driver_error.message.empty()) {
+            oss << "，" << driver_error.message;
+        }
+        if (!driver_error.detail.empty()) {
+            oss << "，detail=" << driver_error.detail;
+        }
+        if (plc == nullptr) {
+            oss << "，PLC上下文不可用";
+        }
+        const std::string message = oss.str();
+        {
+            std::lock_guard<std::mutex> lock(error_msg_mutex);
+            last_error_msg = message;
+        }
+        if (detail != nullptr) {
+            *detail = message;
+        }
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(error_msg_mutex);
+        last_error_msg.clear();
+    }
+    if (detail != nullptr) {
+        detail->clear();
+    }
+    return true;
+}
+
+void stop_moduan_driver_connection()
+{
+    g_moduan_driver_enabled.store(false);
+    if (g_linear_module_driver) {
+        g_linear_module_driver->stop();
+    }
+    std::lock_guard<std::mutex> lock(plc_mutex);
+    if (plc != nullptr) {
+        modbus_close(plc);
+        modbus_free(plc);
+        plc = nullptr;
+    }
+}
+
+void produce_moduan_diagnostics(diagnostic_updater::DiagnosticStatusWrapper& stat)
+{
+    const bool enabled = g_moduan_driver_enabled.load();
+    const bool plc_connected = plc != nullptr;
+    const auto transport_state = g_linear_module_driver
+        ? g_linear_module_driver->connectionState()
+        : tie_robot_hw::driver::ConnectionState::kDisconnected;
+    const std::string transport_error = g_linear_module_driver ? g_linear_module_driver->lastErrorText() : std::string();
+    std::string runtime_error;
+    {
+        std::lock_guard<std::mutex> lock(error_msg_mutex);
+        runtime_error = last_error_msg;
+    }
+
+    if (!enabled) {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::WARN, "末端驱动已关闭");
+    } else if (transport_state == tie_robot_hw::driver::ConnectionState::kReady || plc_connected) {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::OK, "末端驱动已连接");
+    } else if (!runtime_error.empty() || !transport_error.empty()) {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::ERROR, "末端驱动通信异常");
+    } else {
+        stat.summary(diagnostic_msgs::DiagnosticStatus::WARN, "末端驱动未连接");
+    }
+
+    stat.hardware_id = kModuanDiagnosticHardwareId;
+    stat.add("enabled", enabled ? "true" : "false");
+    stat.add("plc_connected", plc_connected ? "true" : "false");
+    stat.add("transport_state", connection_state_label(transport_state));
+    stat.add("transport_error", transport_error);
+    stat.add("runtime_error", runtime_error);
+    stat.add("x_mm", module_state.X);
+    stat.add("y_mm", module_state.Y);
+    stat.add("z_mm", module_state.Z);
+    stat.add("motor_angle_deg", motor_state.MOTOR_ANGLE);
+    stat.add("finish_all", module_state.FINISH_ALL_FLAG);
+    stat.add("arrive_z", module_state.ARRIVEZ_FLAG);
+    stat.add("error_x", module_state.ERROR_FLAG_X);
+    stat.add("error_y", module_state.ERROR_FLAG_Y);
+    stat.add("error_z", module_state.ERROR_FLAG_Z);
+    stat.add("error_lashing", module_state.ERROR_FLAG_LASHING);
+    stat.add("error_motor", motor_state.ERROR_FLAG_MOTOR);
+    stat.add("battery_voltage", linear_module_data_upload.robot_battery_voltage);
+    stat.add("temperature", linear_module_data_upload.robot_temperature);
+}
+
+void moduan_diagnostic_timer_callback(const ros::TimerEvent&)
+{
+    if (g_moduan_diagnostic_updater) {
+        g_moduan_diagnostic_updater->force_update();
+    }
+}
+
+}  // namespace
 
 void pub_moduan_state(
     ros::Publisher& pub_linear_module_data_upload,
@@ -47,6 +189,7 @@ void pub_moduan_state(
     linear_module_data_upload_msg.robot_temperature = robot_temperature;
     linear_module_data_upload_msg.x_gesture = state->y_gesture;
     linear_module_data_upload_msg.y_gesture = state->x_gesture;
+    linear_module_data_upload = linear_module_data_upload_msg;
     pub_linear_module_data_upload.publish(linear_module_data_upload_msg);
 }
 
@@ -527,7 +670,15 @@ void robotSaveBindingDataCallback(const std_msgs::Float32::ConstPtr& msg) {
 void initPLC()
 {
     g_linear_module_driver = std::make_unique<tie_robot_hw::driver::LinearModuleDriver>();
+    if (!g_moduan_driver_enabled.load()) {
+        return;
+    }
     plc = PLC_Connection();
+    if (plc == nullptr) {
+        std::lock_guard<std::mutex> lock(error_msg_mutex);
+        last_error_msg = "末端驱动初始化失败，PLC连接未建立";
+        return;
+    }
     PLC_Order_Write(WARNING_RESET, 1, plc);
     PLC_Order_Write(WARNING_RESET, 0, plc);
     PLC_Order_Write(EN_DISABLE, 1, plc);
@@ -554,6 +705,31 @@ void auto_zero_on_startup(ros::NodeHandle& private_nh)
     request_moduan_zero("节点启动自动回零");
 }
 
+bool moduan_driver_start_service(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    std::string detail;
+    res.success = start_moduan_driver_connection(&detail);
+    res.message = res.success ? "末端驱动已启动并建立连接。" : detail;
+    return true;
+}
+
+bool moduan_driver_stop_service(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    stop_moduan_driver_connection();
+    res.success = true;
+    res.message = "末端驱动已关闭。";
+    return true;
+}
+
+bool moduan_driver_restart_service(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    stop_moduan_driver_connection();
+    std::string detail;
+    res.success = start_moduan_driver_connection(&detail);
+    res.message = res.success ? "末端驱动已重启并恢复连接。" : detail;
+    return true;
+}
+
 int RunModuanNode(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -577,6 +753,15 @@ int RunModuanNode(int argc, char** argv) {
     ros::ServiceServer lashing_service = nh_.advertiseService("/moduan/sg", moduan_bind_service);
     ros::ServiceServer pseudo_slam_lashing_service = nh_.advertiseService("/moduan/sg_precomputed", moduan_bind_points_service);
     ros::ServiceServer pseudo_slam_lashing_fast_service = nh_.advertiseService("/moduan/sg_precomputed_fast", moduan_bind_points_fast_service);
+    ros::ServiceServer moduan_driver_start_srv = nh_.advertiseService("/moduan/driver/start", moduan_driver_start_service);
+    ros::ServiceServer moduan_driver_stop_srv = nh_.advertiseService("/moduan/driver/stop", moduan_driver_stop_service);
+    ros::ServiceServer moduan_driver_restart_srv = nh_.advertiseService("/moduan/driver/restart", moduan_driver_restart_service);
+
+    g_moduan_diagnostic_updater = std::make_unique<diagnostic_updater::Updater>(nh_);
+    g_moduan_diagnostic_updater->setHardwareID(kModuanDiagnosticHardwareId);
+    g_moduan_diagnostic_updater->add("末端驱动", produce_moduan_diagnostics);
+    ros::Timer moduan_diagnostic_timer =
+        nh_.createTimer(ros::Duration(1.0), moduan_diagnostic_timer_callback);
 
     std::thread get_module_state_thread(read_module_motor_state, &module_state, &motor_state);
     get_module_state_thread.detach();
@@ -596,6 +781,10 @@ int RunModuanNode(int argc, char** argv) {
     (void)lashing_service;
     (void)pseudo_slam_lashing_service;
     (void)pseudo_slam_lashing_fast_service;
+    (void)moduan_driver_start_srv;
+    (void)moduan_driver_stop_srv;
+    (void)moduan_driver_restart_srv;
+    (void)moduan_diagnostic_timer;
     (void)moduan_zero_sub;
     (void)enb_las_sub_local;
     (void)forced_stop;

@@ -4,6 +4,7 @@ project(tie_robot_control)
 add_definitions(-std=c++14)
 
 find_package(catkin REQUIRED COMPONENTS
+  diagnostic_updater
   geometry_msgs
   roscpp
   rospy
@@ -23,6 +24,7 @@ endif()
 
 catkin_package(
   CATKIN_DEPENDS
+    diagnostic_updater
     geometry_msgs
     roscpp
     rospy

@@ -199,6 +199,7 @@ def publish_manual_workspace_s2_result(self, result_image, points_array_msg):
 
     compress_msg.data = jpeg_data.tobytes()
     self.image_pub.publish(compress_msg)
+    self.coordinate_publisher.publish(points_array_msg)
     self.manual_workspace_s2_points_pub.publish(points_array_msg)
 
 

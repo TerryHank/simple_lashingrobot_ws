@@ -25,6 +25,7 @@ add_service_files(
   StartGlobalWork.srv
   StartPseudoSlamScan.srv
   SetExecutionMode.srv
+  SetGripperTfCalibration.srv
 )
 
 add_action_files(

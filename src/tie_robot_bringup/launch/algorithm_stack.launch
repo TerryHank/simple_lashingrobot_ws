@@ -1,0 +1,21 @@
+<launch>
+    <node name="pointAINode"
+          pkg="tie_robot_perception"
+          type="pointAI.py"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+        <env name="ROSCONSOLE_FORMAT" value="[${severity}] ${message}" />
+    </node>
+
+    <node name="stable_point_tf_broadcaster"
+          pkg="tie_robot_perception"
+          type="stable_point_tf_broadcaster.py"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+        <param name="stable_frame_count" value="2" />
+        <param name="stable_z_tolerance_mm" value="4.0" />
+        <param name="publish_rate_hz" value="20.0" />
+    </node>
+</launch>

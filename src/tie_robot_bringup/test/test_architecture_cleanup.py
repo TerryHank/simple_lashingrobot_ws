@@ -60,13 +60,22 @@ class TieRobotArchitectureCleanupTest(unittest.TestCase):
         api_launch = (TIE_ROBOT_BRINGUP_DIR / "launch" / "api.launch").read_text(
             encoding="utf-8"
         )
+        driver_stack_launch = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "driver_stack.launch"
+        ).read_text(encoding="utf-8")
+        algorithm_stack_launch = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "algorithm_stack.launch"
+        ).read_text(encoding="utf-8")
 
         self.assertIn('$(find tie_robot_bringup)/launch/api.launch', run_launch)
-        self.assertIn('pkg="tie_robot_process"', run_launch)
-        self.assertIn('pkg="tie_robot_control"', run_launch)
-        self.assertIn('pkg="tie_robot_perception"', run_launch)
+        self.assertIn('$(find tie_robot_bringup)/launch/driver_stack.launch', run_launch)
+        self.assertIn('$(find tie_robot_bringup)/launch/algorithm_stack.launch', run_launch)
         self.assertIn('pkg="tie_robot_web"', run_launch)
-        self.assertIn('$(find tie_robot_perception)/config/gripper_tf.yaml', run_launch)
+        self.assertIn('pkg="tie_robot_process"', driver_stack_launch)
+        self.assertIn('pkg="tie_robot_control"', driver_stack_launch)
+        self.assertIn('pkg="tie_robot_perception"', driver_stack_launch)
+        self.assertIn('$(find tie_robot_perception)/config/gripper_tf.yaml', driver_stack_launch)
+        self.assertIn('pkg="tie_robot_perception"', algorithm_stack_launch)
 
         self.assertIn('$(find tie_robot_perception)/launch/scepter_camera.launch', api_launch)
         self.assertIn('pkg="tie_robot_web"', api_launch)
@@ -148,8 +157,13 @@ class TieRobotArchitectureCleanupTest(unittest.TestCase):
         self.assertIn("float Read_Module_Float(int axis, modbus_t* ctx)", numeric_codec_impl)
         self.assertIn("float Read_Module_Float_Ranged(int axis, modbus_t* ctx, float preferred_min, float preferred_max)", numeric_codec_impl)
         self.assertIn("float Read_Module_Float_RangedScaled(int axis, modbus_t* ctx, float preferred_min, float preferred_max, float scale)", numeric_codec_impl)
+        self.assertIn("float choose_preferred_scaled_float(", numeric_codec_impl)
         self.assertIn("const float scaled_low_word_first = low_word_first * scale;", numeric_codec_impl)
         self.assertIn("const float scaled_high_word_first = high_word_first * scale;", numeric_codec_impl)
+        self.assertIn("const float preferred_candidates[] = {", numeric_codec_impl)
+        self.assertIn("scaled_low_word_first,", numeric_codec_impl)
+        self.assertIn("scaled_high_word_first,", numeric_codec_impl)
+        self.assertIn("return choose_preferred_scaled_float(", numeric_codec_impl)
         self.assertIn(
             "robot_battery_voltage = Read_Module_Float_RangedScaled(BATTERY_VOLTAGE, plc, 0.0f, 100.0f, 0.01f);",
             moduan_callbacks,
@@ -158,8 +172,104 @@ class TieRobotArchitectureCleanupTest(unittest.TestCase):
             "robot_temperature = Read_Module_Float_RangedScaled(INNER_TEM, plc, -40.0f, 120.0f, 0.01f);",
             moduan_callbacks,
         )
+        self.assertIn("modbus_t* ensure_active_ctx(modbus_t* ctx)", numeric_codec_impl)
+        self.assertIn("void invalidate_ctx(modbus_t* ctx)", numeric_codec_impl)
+        self.assertIn("if (ctx == plc) {\n        plc = nullptr;\n    }", numeric_codec_impl)
+        self.assertIn("plc = PLC_Connection();", numeric_codec_impl)
+        self.assertIn("printf(\"Moduan_log:PLC连接已自动重建。\\n\");", numeric_codec_impl)
         self.assertNotIn("Read_Module_Speed(BATTERY_VOLTAGE", moduan_callbacks)
         self.assertNotIn("Read_Module_Speed(INNER_TEM", moduan_callbacks)
+
+    def test_driver_nodes_publish_standard_diagnostics_and_support_independent_start_stop(self):
+        moduan_cmake = (TIE_ROBOT_CONTROL_DIR / "CMakeLists.txt").read_text(encoding="utf-8")
+        moduan_package = (TIE_ROBOT_CONTROL_DIR / "package.xml").read_text(encoding="utf-8")
+        moduan_callbacks = (
+            TIE_ROBOT_CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+        moduan_executor = (
+            TIE_ROBOT_CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+        suoqu_cmake = (TIE_ROBOT_PROCESS_DIR / "CMakeLists.txt").read_text(encoding="utf-8")
+        suoqu_package = (TIE_ROBOT_PROCESS_DIR / "package.xml").read_text(encoding="utf-8")
+        suoqu_node = (TIE_ROBOT_PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        suoqu_services = (
+            TIE_ROBOT_PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+        suoqu_transport = (
+            TIE_ROBOT_PROCESS_DIR / "src" / "suoqu" / "cabin_transport.cpp"
+        ).read_text(encoding="utf-8")
+        perception_cmake = (TIE_ROBOT_PERCEPTION_DIR / "CMakeLists.txt").read_text(encoding="utf-8")
+        perception_package = (TIE_ROBOT_PERCEPTION_DIR / "package.xml").read_text(encoding="utf-8")
+        pointai_node = (
+            TIE_ROBOT_PERCEPTION_DIR / "scripts" / "pointAI.py"
+        ).read_text(encoding="utf-8")
+        web_status_catalog = (
+            TIE_ROBOT_WEB_DIR / "frontend" / "src" / "config" / "statusMonitorCatalog.js"
+        ).read_text(encoding="utf-8")
+        web_status_controller = (
+            TIE_ROBOT_WEB_DIR / "frontend" / "src" / "controllers" / "StatusMonitorController.js"
+        ).read_text(encoding="utf-8")
+        web_system_control = (
+            TIE_ROBOT_WEB_DIR / "frontend" / "src" / "config" / "systemControlCatalog.js"
+        ).read_text(encoding="utf-8")
+        web_ros_connection = (
+            TIE_ROBOT_WEB_DIR / "frontend" / "src" / "controllers" / "RosConnectionController.js"
+        ).read_text(encoding="utf-8")
+        web_ui = (
+            TIE_ROBOT_WEB_DIR / "frontend" / "src" / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        process_control = (
+            TIE_ROBOT_WEB_DIR / "src" / "web_bridge" / "process_control.cpp"
+        ).read_text(encoding="utf-8")
+        node_app = (
+            TIE_ROBOT_WEB_DIR / "src" / "web_bridge" / "node_app.cpp"
+        ).read_text(encoding="utf-8")
+        web_server = (
+            TIE_ROBOT_WEB_DIR / "scripts" / "workspace_picker_web_server.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("diagnostic_updater", moduan_cmake)
+        self.assertIn("<build_depend>diagnostic_updater</build_depend>", moduan_package)
+        self.assertIn('"/moduan/driver/start"', moduan_callbacks)
+        self.assertIn('"/moduan/driver/stop"', moduan_callbacks)
+        self.assertIn('"/moduan/driver/restart"', moduan_callbacks)
+        self.assertIn('setHardwareID(kModuanDiagnosticHardwareId);', moduan_callbacks)
+        self.assertIn('stat.hardware_id = kModuanDiagnosticHardwareId;', moduan_callbacks)
+        self.assertIn('g_moduan_diagnostic_updater->add("末端驱动", produce_moduan_diagnostics);', moduan_callbacks)
+        self.assertIn('if (!g_moduan_driver_enabled.load()) {', moduan_executor)
+        self.assertIn('error->message = "末端驱动已关闭";', moduan_executor)
+
+        self.assertIn("diagnostic_updater", suoqu_cmake)
+        self.assertIn("<build_depend>diagnostic_updater</build_depend>", suoqu_package)
+        self.assertIn('"/cabin/driver/start"', suoqu_node)
+        self.assertIn('"/cabin/driver/stop"', suoqu_node)
+        self.assertIn('"/cabin/driver/restart"', suoqu_node)
+        self.assertIn('setHardwareID(kCabinDiagnosticHardwareId);', suoqu_node)
+        self.assertIn('stat.hardware_id = kCabinDiagnosticHardwareId;', suoqu_node)
+        self.assertIn('g_cabin_diagnostic_updater->add("索驱驱动", produce_cabin_driver_diagnostics);', suoqu_node)
+        self.assertIn("索驱驱动已关闭。", suoqu_services)
+        self.assertIn("索驱驱动已关闭，拒绝下发运动指令", suoqu_transport)
+
+        self.assertIn("diagnostic_updater", perception_cmake)
+        self.assertIn("<build_depend>diagnostic_updater</build_depend>", perception_package)
+        self.assertIn('VISUAL_DIAGNOSTIC_HARDWARE_ID = "tie_robot/visual_algorithm"', pointai_node)
+        self.assertIn('self.visual_diagnostic_updater.add("视觉算法", self.produce_visual_algorithm_diagnostics)', pointai_node)
+        self.assertIn('stat.hardware_id = VISUAL_DIAGNOSTIC_HARDWARE_ID', pointai_node)
+        self.assertIn('stat.summary(DiagnosticStatus.OK, "视觉算法运行中")', pointai_node)
+
+        self.assertIn('diagnosticHardwareId: "tie_robot/chassis_driver"', web_status_catalog)
+        self.assertIn('diagnosticHardwareId: "tie_robot/moduan_driver"', web_status_catalog)
+        self.assertIn('diagnosticHardwareId: "tie_robot/visual_algorithm"', web_status_catalog)
+        self.assertIn('name: "/diagnostics"', web_status_controller)
+        self.assertIn('this.callbacks.onStatusChip?.("visual", "warn", "视觉状态未上报");', web_status_controller)
+        self.assertIn('chassis: level === "success" ? "restartCabinDriver" : "startCabinDriver"', web_ui)
+        self.assertIn('moduan: level === "success" ? "restartModuanDriver" : "startModuanDriver"', web_ui)
+        self.assertIn('visual: level === "success" ? "restartAlgorithmStack" : "startAlgorithmStack"', web_ui)
+        self.assertIn('id: "restartAlgorithmStack"', web_system_control)
+        self.assertIn("restartAlgorithmStackService", web_ros_connection)
+        self.assertIn('kRestartAlgorithmStackScript', process_control)
+        self.assertIn('"/web/system/restart_algorithm_stack"', node_app)
+        self.assertIn('"/api/system/restart_algorithm_stack"', web_server)
 
     def test_legacy_packages_and_frontend_dirs_are_removed(self):
         self.assertFalse((WORKSPACE_SRC / "chassis_ctrl").exists())

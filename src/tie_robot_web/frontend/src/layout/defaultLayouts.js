@@ -4,8 +4,9 @@ export const DEFAULT_LAYOUTS = {
     title: "执行调试",
     panels: {
       controlPanel: { visible: true },
-      workspacePanel: { visible: true },
-      topicLayersPanel: { visible: true },
+      imagePanel: { visible: true },
+      settingsPanel: { visible: true },
+      terminalPanel: { visible: false },
       logPanel: { visible: false },
     },
   },
@@ -14,8 +15,9 @@ export const DEFAULT_LAYOUTS = {
     title: "视觉识别",
     panels: {
       controlPanel: { visible: true },
-      workspacePanel: { visible: true },
-      topicLayersPanel: { visible: true },
+      imagePanel: { visible: true },
+      settingsPanel: { visible: true },
+      terminalPanel: { visible: true },
       logPanel: { visible: true },
     },
   },

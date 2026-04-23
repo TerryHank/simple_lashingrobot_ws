@@ -1,13 +1,53 @@
-import { LEGACY_COMMANDS } from "./legacyCommandCatalog.js";
-
 export const CONTROL_PANEL_TASKS = [
-  { id: "submitQuad", label: "提交四边形\n触发 S2", tone: "green" },
-  { id: "runSavedS2", label: "直接识别\n绑扎点", tone: "green" },
+  { id: "submitQuad", label: "提交\n四边形", tone: "green" },
+  { id: "runSavedS2", label: "触发\nS2", tone: "green" },
   { id: "scanPlan", label: "固定扫描\n规划", tone: "green" },
   { id: "startExecution", label: "开始\n执行层", tone: "green" },
   { id: "startExecutionKeepMemory", label: "保留记忆\n开始", tone: "amber" },
   { id: "runBindPathTest", label: "账本\n测试", tone: "amber" },
+  { id: "moveToPosition", label: "移动到\n索驱位置", tone: "blue" },
 ];
+
+export function getControlPanelTaskIds() {
+  return CONTROL_PANEL_TASKS.map((task) => task.id);
+}
+
+export function normalizeControlPanelVisibleTaskIds(taskIds) {
+  const allowedIds = new Set(getControlPanelTaskIds());
+  if (!Array.isArray(taskIds)) {
+    return getControlPanelTaskIds();
+  }
+  return taskIds.filter((taskId, index) => allowedIds.has(taskId) && taskIds.indexOf(taskId) === index);
+}
+
+export function normalizeCustomControlPanelButtons(buttons) {
+  if (!Array.isArray(buttons)) {
+    return [];
+  }
+
+  const seenIds = new Set();
+  return buttons
+    .map((button) => {
+      const rawId = String(button?.id || "").trim();
+      const rawLabel = String(button?.label || button?.name || "").trim();
+      const rawServicePath = String(button?.servicePath || button?.service || "").trim();
+      const normalizedServicePath = rawServicePath
+        ? (rawServicePath.startsWith("/") ? rawServicePath : `/${rawServicePath}`)
+        : "";
+      if (!rawId || !rawLabel || !normalizedServicePath || seenIds.has(rawId)) {
+        return null;
+      }
+      seenIds.add(rawId);
+      return {
+        id: rawId,
+        label: rawLabel,
+        servicePath: normalizedServicePath,
+        serviceType: "std_srvs/Trigger",
+        tone: "blue",
+      };
+    })
+    .filter(Boolean);
+}
 
 export const CONTROL_TOGGLE_DEFINITIONS = {
   pauseResume: {
@@ -61,36 +101,8 @@ export const CONTROL_TOGGLE_DEFINITIONS = {
 };
 
 const CONTROL_PANEL_GROUPS = [
-  { title: "流程控制", items: [1, 2, 3, 4, 5, 17, 20, 23] },
-  { title: "调试控制", items: [7, 6, 8, 9] },
-  { title: "末端控制", items: ["pauseResume", "lashingEnabled", "jumpBindEnabled", "lightEnabled", 15, 18, 21, 24] },
-  { title: "视觉调试", items: [19, 22] },
+  { title: "控制开关", items: ["pauseResume", "lashingEnabled", "jumpBindEnabled", "lightEnabled"] },
 ];
-
-const COMMAND_TONES = {
-  1: "green",
-  2: "green",
-  3: "red",
-  4: "green",
-  5: "amber",
-  6: "amber",
-  7: "amber",
-  8: "amber",
-  9: "amber",
-  15: "green",
-  17: "red",
-  18: "red",
-  19: "blue",
-  20: "blue",
-  21: "blue",
-  22: "blue",
-  23: "blue",
-  24: "blue",
-};
-
-export function getControlPanelCommandTone(commandId) {
-  return COMMAND_TONES[commandId] || "amber";
-}
 
 export function getControlToggleDefinition(toggleId) {
   return CONTROL_TOGGLE_DEFINITIONS[toggleId] || null;
@@ -135,17 +147,7 @@ export function getControlPanelGroups() {
             active: Boolean(initialState?.value),
           };
         }
-        const command = LEGACY_COMMANDS.find((entry) => entry.id === item);
-        if (!command) {
-          return null;
-        }
-        return {
-          kind: "command",
-          id: String(command.id),
-          commandId: command.id,
-          label: command.name,
-          tone: getControlPanelCommandTone(command.id),
-        };
+        return null;
       })
       .filter(Boolean),
   }));

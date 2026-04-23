@@ -67,13 +67,13 @@ export const MODE_PRESETS = {
 };
 
 export const DEFAULT_TOPIC_LAYER_STATE = {
-  mode: "pointCloudAndTiePoints",
+  mode: "all",
   pointCloudSource: "filteredWorldCoord",
   showRobot: true,
   showAxes: true,
-  showPointCloud: true,
+  showPointCloud: false,
   showTiePoints: true,
-  showPlanningMarkers: false,
+  showPlanningMarkers: true,
   pointSize: 0.035,
   pointOpacity: 0.78,
   viewMode: "camera",

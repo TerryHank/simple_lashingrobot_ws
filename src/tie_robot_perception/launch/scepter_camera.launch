@@ -3,7 +3,12 @@
     <arg name="device_index" default="0"/>
     <arg name="camera_name" default="Scepter"/>
 
-    <node pkg="tie_robot_perception" type="scepter_camera" name="scepter_manager" output="screen" required="true">
+    <node pkg="tie_robot_perception"
+          type="scepter_camera"
+          name="scepter_manager"
+          output="screen"
+          respawn="true"
+          respawn_delay="2.0">
         <env name="LD_LIBRARY_PATH"
              value="$(optenv LD_LIBRARY_PATH):$(find tie_robot_perception)/dependencies/Lib:$(find tie_robot_perception)/dependencies/Lib/Drivers" />
         <param name="device_index" value="$(arg device_index)" type="int"/>
@@ -14,7 +19,8 @@
           type="scepter_world_coord_processor"
           name="scepter_world_coord_processor"
           output="screen"
-          required="true">
+          respawn="true"
+          respawn_delay="2.0">
         <param name="camera_name" value="$(arg camera_name)" />
     </node>
 </launch>

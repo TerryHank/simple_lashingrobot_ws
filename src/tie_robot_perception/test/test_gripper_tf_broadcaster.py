@@ -51,16 +51,23 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         launch_text = (TIE_ROBOT_BRINGUP_DIR / "launch" / "run.launch").read_text(
             encoding="utf-8"
         )
-        self.assertIn('name="pointAINode"', launch_text)
-        self.assertIn('type="pointAI.py"', launch_text)
-        self.assertIn('name="gripper_tf_broadcaster"', launch_text)
-        self.assertIn('type="gripper_tf_broadcaster.py"', launch_text)
-        self.assertIn('name="stable_point_tf_broadcaster"', launch_text)
-        self.assertIn('type="stable_point_tf_broadcaster.py"', launch_text)
+        self.assertIn(
+            '<include file="$(find tie_robot_bringup)/launch/driver_stack.launch" />',
+            launch_text,
+        )
+        self.assertIn(
+            '<include file="$(find tie_robot_bringup)/launch/algorithm_stack.launch" />',
+            launch_text,
+        )
 
     def test_load_gripper_tf_config_reads_pose_fields(self):
         config_path = TIE_ROBOT_PERCEPTION_DIR / "config" / "gripper_tf.yaml"
         raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        self.assertGreater(
+            float(raw_config["translation_mm"]["z"]),
+            0.0,
+            "用户标定值应使用“TCP 在相机 z+ 方向”为正的录入口径",
+        )
         config = gripper_tf_broadcaster.load_gripper_tf_config(
             str(config_path),
             allow_identity_config=True,
@@ -78,15 +85,15 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         )
         self.assertAlmostEqual(
             config["translation"]["z"],
-            -float(raw_config["translation_mm"]["z"]) / 1000.0,
+            float(raw_config["translation_mm"]["z"]) / 1000.0,
         )
 
     def test_with_updated_translation_mm_refreshes_runtime_and_publish_values(self):
         config = {
             "parent_frame": "Scepter_depth_frame",
             "child_frame": "gripper_frame",
-            "translation_mm": {"x": 100.0, "y": 200.0, "z": -300.0},
-            "translation": {"x": -0.1, "y": -0.2, "z": 0.3},
+            "translation_mm": {"x": 100.0, "y": 200.0, "z": 300.0},
+            "translation": {"x": -0.1, "y": -0.2, "z": -0.3},
             "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
         }
 
@@ -94,12 +101,12 @@ class GripperTFBroadcasterTest(unittest.TestCase):
             config,
             275.0,
             84.0,
-            -735.0,
+            735.0,
         )
 
         self.assertEqual(
             updated["translation_mm"],
-            {"x": 275.0, "y": 84.0, "z": -735.0},
+            {"x": 275.0, "y": 84.0, "z": 735.0},
         )
         self.assertEqual(
             updated["translation"],
@@ -110,8 +117,8 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         config = {
             "parent_frame": "Scepter_depth_frame",
             "child_frame": "gripper_frame",
-            "translation_mm": {"x": 275.0, "y": 84.0, "z": -735.0},
-            "translation": {"x": -0.275, "y": -0.084, "z": 0.735},
+            "translation_mm": {"x": 275.0, "y": 84.0, "z": 735.0},
+            "translation": {"x": -0.275, "y": -0.084, "z": -0.735},
             "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
         }
 
@@ -124,7 +131,7 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertEqual(reloaded["child_frame"], "gripper_frame")
         self.assertEqual(
             reloaded["translation_mm"],
-            {"x": 275.0, "y": 84.0, "z": -735.0},
+            {"x": 275.0, "y": 84.0, "z": 735.0},
         )
         self.assertNotIn("translation", reloaded)
 
@@ -134,8 +141,23 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset"', script_text)
+        self.assertIn('SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/pointAI/set_gripper_tf_calibration"', script_text)
         self.assertIn("rospy.Subscriber(POINTAI_OFFSET_TOPIC, Pose", script_text)
+        self.assertIn("rospy.Service(", script_text)
+        self.assertIn("SetGripperTfCalibration", script_text)
         self.assertIn("无需重启节点", script_text)
+
+    def test_pointai_cabin_z_formula_uses_direct_gripper_tf_z_sign(self):
+        tf_transform_text = (
+            TIE_ROBOT_PERCEPTION_DIR
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "tf_transform.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("cabin_z = int(round(float(T[2, 3]) - float(z) + float(T_gripper[2, 3])))", tf_transform_text)
+        self.assertNotIn("cabin_z = int(round(float(T[2, 3]) - float(z) - float(T_gripper[2, 3])))", tf_transform_text)
 
     def test_build_transform_uses_parent_child_and_translation(self):
         config = {

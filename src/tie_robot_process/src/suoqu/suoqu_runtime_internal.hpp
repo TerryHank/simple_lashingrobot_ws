@@ -130,7 +130,7 @@ constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;
 constexpr float kPseudoSlamGlobalScanHeightOffsetMm = 1500.0f;
 constexpr float kPseudoSlamFixedManualWorkspaceScanXmm = -260.0f;
 constexpr float kPseudoSlamFixedManualWorkspaceScanYmm = 1700.0f;
-constexpr float kPseudoSlamFixedManualWorkspaceScanZmm = 2997.0f;
+constexpr float kPseudoSlamFixedManualWorkspaceScanZmm = 3197.0f;
 constexpr float kPseudoSlamFixedManualWorkspaceScanSpeedMmPerSec = 100.0f;
 constexpr float kPseudoSlamPlanningZOutlierMm = 8.0f;
 constexpr float kPseudoSlamOutlierColumnAxisToleranceMm = 10.0f;
@@ -194,8 +194,12 @@ extern std::atomic<float> pseudo_slam_marker_last_outlier_threshold_mm;
 extern std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_threshold_mm;
 extern std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_neighbor_tolerance_mm;
 extern std::atomic<int> global_execution_mode;
+extern std::atomic<bool> cabin_driver_enabled;
+extern std::atomic<double> cabin_driver_last_state_stamp_sec;
 
 void printCurrentTime();
+bool connectToServer();
+float get_global_cabin_move_speed_mm_per_sec();
 bool lookup_gripper_from_scepter_transform(tf2::Transform& gripper_from_scepter);
 float load_pseudo_slam_planning_z_outlier_threshold_mm();
 float load_pseudo_slam_outlier_secondary_plane_threshold_mm();
@@ -472,6 +476,10 @@ bool run_live_visual_global_work(std::string& message);
 bool run_bind_from_scan(std::string& message);
 
 bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
+bool cabinDriverStartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
+bool cabinDriverStopService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
+bool cabinDriverRestartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
+bool cabinMotionStopService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
 bool startPseudoSlamScanWithOptions(
     tie_robot_msgs::StartPseudoSlamScan::Request& req,
     tie_robot_msgs::StartPseudoSlamScan::Response& res

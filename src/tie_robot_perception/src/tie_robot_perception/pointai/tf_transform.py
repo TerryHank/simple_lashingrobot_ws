@@ -110,8 +110,9 @@ def transform_to_cabin_frame(self, x, y, z, idx):
         # raw_world_coord 在当前链路里 z 仍表示相机朝下方向的距离。
         # cabin_frame 定义为索驱全局坐标系，z 轴大地朝上；
         # 另外当前索驱高度记录的是工具/索驱位姿，而不是相机光心，所以还需要补回
-        # Scepter_depth_frame -> gripper_frame 的竖向外参（当前为 -730mm）。
-        cabin_z = int(round(float(T[2, 3]) - float(z) - float(T_gripper[2, 3])))
+        # Scepter_depth_frame -> gripper_frame 的竖向外参。项目当前约定 z 不再取反：
+        # 标定文件里写多少，TF z 就发布多少。
+        cabin_z = int(round(float(T[2, 3]) - float(z) + float(T_gripper[2, 3])))
         return (cabin_x, cabin_y, cabin_z)
     except Exception as e:
         rospy.logerr_throttle(5, f"cabin_frame坐标转换未知错误: {str(e)}")

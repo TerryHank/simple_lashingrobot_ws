@@ -106,6 +106,7 @@ extern bool handle_pause_interrupt;
 extern std::pair<std::vector<int>, std::vector<float>> bind_data;
 extern std::vector<std::pair<std::vector<int>, std::vector<float>>> bind_all_data;
 extern std::unique_ptr<tie_robot_hw::driver::LinearModuleDriver> g_linear_module_driver;
+extern std::atomic<bool> g_moduan_driver_enabled;
 extern float last_x;
 extern float last_y;
 

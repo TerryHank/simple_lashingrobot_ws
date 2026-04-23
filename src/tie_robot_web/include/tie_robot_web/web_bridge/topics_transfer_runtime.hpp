@@ -68,8 +68,29 @@ void executeRunBindPathDirectTestAction(
     const tie_robot_msgs::RunBindPathDirectTestTaskGoalConstPtr& goal);
 
 void startRobotService();
+void startDriverStackService();
+void restartDriverStackService();
+void startAlgorithmStackService();
+void restartAlgorithmStackService();
+void restartRosStackService();
 void restartRobotService();
 void stopRobotService();
+
+bool startDriverStackServiceCallback(
+    std_srvs::Trigger::Request& req,
+    std_srvs::Trigger::Response& res);
+bool restartDriverStackServiceCallback(
+    std_srvs::Trigger::Request& req,
+    std_srvs::Trigger::Response& res);
+bool startAlgorithmStackServiceCallback(
+    std_srvs::Trigger::Request& req,
+    std_srvs::Trigger::Response& res);
+bool restartAlgorithmStackServiceCallback(
+    std_srvs::Trigger::Request& req,
+    std_srvs::Trigger::Response& res);
+bool restartRosStackServiceCallback(
+    std_srvs::Trigger::Request& req,
+    std_srvs::Trigger::Response& res);
 
 void robotStartCallback(const std_msgs::Float32::ConstPtr& msg);
 void robotPlanPathCallback(const geometry_msgs::Pose::ConstPtr& msg);

@@ -1,0 +1,18 @@
+[Unit]
+Description=Tie Robot runtime stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hyq-
+Group=hyq-
+WorkingDirectory=/home/hyq-/simple_lashingrobot_ws
+ExecStart=/bin/bash /home/hyq-/simple_lashingrobot_ws/start.sh
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

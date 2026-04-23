@@ -8,6 +8,7 @@ catkin_python_setup()
 find_package(catkin REQUIRED COMPONENTS
   camera_info_manager
   cv_bridge
+  diagnostic_updater
   dynamic_reconfigure
   geometry_msgs
   image_transport
@@ -56,6 +57,7 @@ catkin_package(
   CATKIN_DEPENDS
     camera_info_manager
     cv_bridge
+    diagnostic_updater
     dynamic_reconfigure
     geometry_msgs
     image_transport

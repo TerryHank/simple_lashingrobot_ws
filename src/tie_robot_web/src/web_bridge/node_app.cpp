@@ -27,6 +27,16 @@ int RunTopicsTransferNode(int argc, char** argv)
         nh.subscribe("/web/cabin/restart", 5, robotRestartCallback);
     ros::Subscriber shutdown_sub =
         nh.subscribe("/web/cabin/shutdown", 5, robotStopCallback);
+    ros::ServiceServer start_driver_stack_srv =
+        nh.advertiseService("/web/system/start_driver_stack", startDriverStackServiceCallback);
+    ros::ServiceServer restart_driver_stack_srv =
+        nh.advertiseService("/web/system/restart_driver_stack", restartDriverStackServiceCallback);
+    ros::ServiceServer start_algorithm_stack_srv =
+        nh.advertiseService("/web/system/start_algorithm_stack", startAlgorithmStackServiceCallback);
+    ros::ServiceServer restart_algorithm_stack_srv =
+        nh.advertiseService("/web/system/restart_algorithm_stack", restartAlgorithmStackServiceCallback);
+    ros::ServiceServer restart_ros_stack_srv =
+        nh.advertiseService("/web/system/restart_ros_stack", restartRosStackServiceCallback);
 
     g_service_clients.image_solve_client =
         nh.serviceClient<tie_robot_msgs::ProcessImage>("/pointAI/process_image");
@@ -71,6 +81,11 @@ int RunTopicsTransferNode(int argc, char** argv)
     (void)clear_path_sub;
     (void)restart_sub;
     (void)shutdown_sub;
+    (void)start_driver_stack_srv;
+    (void)restart_driver_stack_srv;
+    (void)start_algorithm_stack_srv;
+    (void)restart_algorithm_stack_srv;
+    (void)restart_ros_stack_srv;
 
     ros::MultiThreadedSpinner spinner(4);
     spinner.spin();

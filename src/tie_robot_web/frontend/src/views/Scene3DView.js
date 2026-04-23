@@ -59,14 +59,17 @@ function composeWorldTransform(frameId, transformMap, cache = new Map(), stack =
 
   const record = transformMap.get(frameId);
   if (!record) {
+    cache.set(frameId, null);
     return null;
   }
 
   stack.add(frameId);
-  const parentWorld = composeWorldTransform(record.parentFrame, transformMap, cache, stack) || {
-    position: new THREE.Vector3(0, 0, 0),
-    quaternion: new THREE.Quaternion(),
-  };
+  const parentWorld = composeWorldTransform(record.parentFrame, transformMap, cache, stack);
+  if (!parentWorld) {
+    cache.set(frameId, null);
+    stack.delete(frameId);
+    return null;
+  }
   const localPosition = record.position.clone().applyQuaternion(parentWorld.quaternion);
   const world = {
     position: parentWorld.position.clone().add(localPosition),
@@ -103,7 +106,6 @@ export class Scene3DView {
     };
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x071018);
     this.scene.up.set(0, 0, 1);
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
@@ -173,6 +175,8 @@ export class Scene3DView {
     );
     this.tcpToolGroup.add(tcpToolMesh);
     this.scene.add(this.tcpToolGroup);
+    this.robotMaterial = robotMaterial;
+    this.tcpToolMaterial = tcpToolMaterial;
 
     this.filteredPointCloud = buildPointsObject(0x62d6ff);
     this.rawPointCloud = buildPointsObject(0x4f6b7d);
@@ -188,9 +192,11 @@ export class Scene3DView {
     this.viewMode = "camera";
     this.followCamera = false;
     this.needsViewReset = true;
+    this.theme = "dark";
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.container);
+    this.setTheme(this.theme);
     this.resize();
     this.startRenderLoop();
   }
@@ -227,7 +233,8 @@ export class Scene3DView {
     this.cabinAxes.visible = axesVisible;
     this.scepterFrame.visible = axesVisible;
     this.gripperFrame.visible = axesVisible;
-    this.grid.visible = axesVisible;
+    // 地面网格是固定参考面，不跟“坐标轴”开关绑定，避免主场景地面消失。
+    this.grid.visible = true;
 
     this.filteredPointCloud.visible =
       Boolean(state.showPointCloud) && state.pointCloudSource === "filteredWorldCoord";
@@ -256,10 +263,8 @@ export class Scene3DView {
   resetView(viewMode = this.viewMode) {
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
     if (viewMode === "camera" && scepterTransform) {
-      const offset = CAMERA_VIEW_OFFSET.clone().applyQuaternion(scepterTransform.quaternion);
-      const targetOffset = CAMERA_VIEW_TARGET_OFFSET.clone().applyQuaternion(scepterTransform.quaternion);
-      const nextPosition = scepterTransform.position.clone().add(offset);
-      const nextTarget = scepterTransform.position.clone().add(targetOffset);
+      const nextPosition = scepterTransform.position.clone().add(CAMERA_VIEW_OFFSET);
+      const nextTarget = scepterTransform.position.clone().add(CAMERA_VIEW_TARGET_OFFSET);
       this.camera.position.lerp(nextPosition, 0.28);
       this.controls.target.lerp(nextTarget, 0.28);
       return;
@@ -298,18 +303,20 @@ export class Scene3DView {
   }
 
   applyFrameTransforms() {
-    this.applyGroupTransform(this.scepterFrame, this.getWorldTransform(SCEPTER_FRAME));
+    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
+    this.applyGroupTransform(this.scepterFrame, scepterTransform);
     const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
     this.applyGroupTransform(this.gripperFrame, gripperTransform);
-    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
     if (scepterTransform) {
-      this.robotGroup.position.copy(scepterTransform.position);
-      this.robotGroup.quaternion.copy(scepterTransform.quaternion);
+      this.robotGroup.visible = this.layerState.showRobot !== false;
+      this.applyCustomDisplayPose(this.robotGroup, scepterTransform.position);
+    } else {
+      this.robotGroup.visible = false;
     }
+
     if (gripperTransform) {
       this.tcpToolGroup.visible = this.layerState.showRobot !== false;
-      this.tcpToolGroup.position.copy(gripperTransform.position);
-      this.tcpToolGroup.quaternion.copy(gripperTransform.quaternion);
+      this.applyCustomDisplayPose(this.tcpToolGroup, gripperTransform.position);
     } else {
       this.tcpToolGroup.visible = false;
     }
@@ -323,16 +330,75 @@ export class Scene3DView {
     if (this.layerState.showAxes !== false) {
       group.visible = true;
     }
-    group.position.copy(transform.position);
-    group.quaternion.copy(transform.quaternion);
+    this.applyCustomDisplayPose(group, transform.position);
+  }
+
+  applyCustomDisplayPose(group, position) {
+    group.position.copy(position);
+    group.quaternion.identity();
+    group.scale.set(1, 1, -1);
   }
 
   getWorldTransform(frameId) {
     return composeWorldTransform(frameId, this.transformMap, this.cachedWorldTransforms);
   }
 
+  setTheme(theme) {
+    this.theme = theme === "light" ? "light" : "dark";
+    if (this.theme === "light") {
+      this.scene.background = new THREE.Color(0xf3f6fb);
+      this.ambientLight.intensity = 1.2;
+      this.keyLight.intensity = 0.82;
+      this.robotMaterial.color.setHex(0x3d63d8);
+      this.tcpToolMaterial.color.setHex(0xd67a2f);
+      const materials = Array.isArray(this.grid.material) ? this.grid.material : [this.grid.material];
+      if (materials[0]?.color) {
+        materials[0].color.setHex(0x7d8da4);
+      }
+      if (materials[1]?.color) {
+        materials[1].color.setHex(0xa6b2c2);
+      }
+      return;
+    }
+
+    this.scene.background = new THREE.Color(0x071018);
+    this.ambientLight.intensity = 1.1;
+    this.keyLight.intensity = 0.9;
+    this.robotMaterial.color.setHex(0x4c87ff);
+    this.tcpToolMaterial.color.setHex(0xff8c4d);
+    const materials = Array.isArray(this.grid.material) ? this.grid.material : [this.grid.material];
+    if (materials[0]?.color) {
+      materials[0].color.setHex(0xffffff);
+    }
+    if (materials[1]?.color) {
+      materials[1].color.setHex(0xe8eef7);
+    }
+  }
+
   getKnownTransformCount() {
     return this.transformMap.size;
+  }
+
+  getKnownTransforms() {
+    return Array.from(this.transformMap.entries())
+      .map(([childFrame, record]) => ({
+        childFrame,
+        parentFrame: record.parentFrame,
+      }))
+      .sort((left, right) => left.childFrame.localeCompare(right.childFrame));
+  }
+
+  getCurrentCabinPositionMm() {
+    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
+    if (!scepterTransform) {
+      return null;
+    }
+
+    return {
+      x: scepterTransform.position.x * 1000.0,
+      y: scepterTransform.position.y * 1000.0,
+      z: scepterTransform.position.z * 1000.0,
+    };
   }
 
   refreshPointCloudWorldPositions() {
@@ -355,41 +421,88 @@ export class Scene3DView {
     return gripperTransform.position.z - scepterTransform.position.z;
   }
 
+  getCameraToTcpCalibration() {
+    const directRecord = this.transformMap.get(GRIPPER_FRAME);
+    if (directRecord?.parentFrame === SCEPTER_FRAME) {
+      return {
+        parentFrame: SCEPTER_FRAME,
+        childFrame: GRIPPER_FRAME,
+        translationMm: {
+          x: -directRecord.position.x * 1000.0,
+          y: -directRecord.position.y * 1000.0,
+          z: directRecord.position.z * 1000.0,
+        },
+        publishedTranslationMeters: {
+          x: directRecord.position.x,
+          y: directRecord.position.y,
+          z: directRecord.position.z,
+        },
+      };
+    }
+
+    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
+    const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
+    if (!scepterTransform || !gripperTransform) {
+      return null;
+    }
+
+    const relative = gripperTransform.position.clone().sub(scepterTransform.position);
+    return {
+      parentFrame: SCEPTER_FRAME,
+      childFrame: GRIPPER_FRAME,
+      translationMm: {
+        x: -relative.x * 1000.0,
+        y: -relative.y * 1000.0,
+        z: relative.z * 1000.0,
+      },
+      publishedTranslationMeters: {
+        x: relative.x,
+        y: relative.y,
+        z: relative.z,
+      },
+    };
+  }
+
   convertScepterPointCloudPointToCabinPoint(localPoint) {
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
     if (!scepterTransform) {
-      return localPoint.clone();
+      return null;
     }
 
     // `world_coord` 在当前工程里不是 cabin_frame 下的全局点，
     // 而是 pointAI 使用的相机局部点云图像。pointAI 在接入时会先做 X/Y 对调、
-    // Y 反号，再用“索驱高度 - 深度 - TCP 外参 z”把相机深度映射到 cabin z。
+    // Y 反号，再按与后端 tf_transform.py 一致的“索驱高度 - 深度 + gripper_tf.z”
+    // 把相机深度映射到 cabin z。
     const pointAiStyleLocalPoint = getPointAiStyleLocalPoint(localPoint);
     const gripperOffsetZ = this.getGripperOffsetRelativeToScepter();
 
     return new THREE.Vector3(
       scepterTransform.position.x + pointAiStyleLocalPoint.x,
       scepterTransform.position.y + pointAiStyleLocalPoint.y,
-      scepterTransform.position.z - pointAiStyleLocalPoint.z - gripperOffsetZ,
+      scepterTransform.position.z - pointAiStyleLocalPoint.z + gripperOffsetZ,
     );
   }
 
   applyPointCloudWorldPositions(source) {
     const localPositions = this.sourcePointCloudPositions[source];
     if (!localPositions?.length) {
+      const target = source === "rawWorldCoord" ? this.rawPointCloud : this.filteredPointCloud;
+      target.geometry.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
+      target.geometry.computeBoundingSphere();
       return;
     }
-    const worldPositions = Float32Array.from(localPositions);
-    for (let index = 0; index < worldPositions.length; index += 3) {
+    const worldPositions = [];
+    for (let index = 0; index < localPositions.length; index += 3) {
       const point = new THREE.Vector3(
-        worldPositions[index],
-        worldPositions[index + 1],
-        worldPositions[index + 2],
+        localPositions[index],
+        localPositions[index + 1],
+        localPositions[index + 2],
       );
       const cabinPoint = this.convertScepterPointCloudPointToCabinPoint(point);
-      worldPositions[index] = cabinPoint.x;
-      worldPositions[index + 1] = cabinPoint.y;
-      worldPositions[index + 2] = cabinPoint.z;
+      if (!cabinPoint) {
+        continue;
+      }
+      worldPositions.push(cabinPoint.x, cabinPoint.y, cabinPoint.z);
     }
     const target = source === "rawWorldCoord" ? this.rawPointCloud : this.filteredPointCloud;
     target.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
@@ -445,5 +558,17 @@ export class Scene3DView {
     this.applyPointCloudWorldPositions(source);
     this.pointCounts[source] = count;
     return count;
+  }
+
+  clearPointCloudSource(source) {
+    this.sourcePointCloudPositions[source] = new Float32Array();
+    this.pointCounts[source] = 0;
+    this.applyPointCloudWorldPositions(source);
+    return 0;
+  }
+
+  clearAllPointCloudSources() {
+    this.clearPointCloudSource("filteredWorldCoord");
+    this.clearPointCloudSource("rawWorldCoord");
   }
 }

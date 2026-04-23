@@ -20,6 +20,8 @@ export class WorkspaceCanvasView {
     this.savedWorkspacePoints = [];
     this.selectedPoints = [];
     this.displaySettings = { mode: "auto", gamma: 0.85, overlayOpacity: 0.88 };
+    this.overlayEnabled = true;
+    this.savedWorkspaceGuideVisible = false;
     this.dragState = { activeIndex: -1, moved: false };
     this.suppressNextCanvasClick = false;
   }
@@ -35,6 +37,16 @@ export class WorkspaceCanvasView {
   setDisplaySettings(settings) {
     this.displaySettings = { ...this.displaySettings, ...settings };
     this.overlayCanvas.style.opacity = String(this.displaySettings.overlayOpacity);
+    this.draw();
+  }
+
+  setOverlayEnabled(enabled) {
+    this.overlayEnabled = Boolean(enabled);
+    this.drawOverlay();
+  }
+
+  setSavedWorkspaceGuideVisible(enabled) {
+    this.savedWorkspaceGuideVisible = Boolean(enabled);
     this.draw();
   }
 
@@ -64,6 +76,12 @@ export class WorkspaceCanvasView {
 
   setSavedWorkspacePayload(payload) {
     this.savedWorkspacePoints = parseWorkspaceQuadPayload(payload);
+    this.draw();
+  }
+
+  setSelectedWorkspacePayload(payload) {
+    this.selectedPoints = parseWorkspaceQuadPayload(payload);
+    this.notifySelectionChanged();
     this.draw();
   }
 
@@ -114,7 +132,7 @@ export class WorkspaceCanvasView {
 
   drawOverlay() {
     this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-    if (!this.lastExecutionResultMessage) {
+    if (!this.overlayEnabled || !this.lastExecutionResultMessage) {
       return;
     }
     const imageData = sensorImageToImageData(this.lastExecutionResultMessage, { mode: "raw", gamma: 1.0, overlayOpacity: 1.0 });
@@ -129,7 +147,7 @@ export class WorkspaceCanvasView {
     this.ctx.lineWidth = 2;
     this.ctx.font = "18px monospace";
 
-    if (this.savedWorkspacePoints.length >= 2) {
+    if (this.savedWorkspaceGuideVisible && this.savedWorkspacePoints.length >= 2) {
       this.ctx.strokeStyle = "#6aa6ff";
       this.ctx.fillStyle = "#6aa6ff";
       this.ctx.setLineDash([10, 6]);

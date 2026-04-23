@@ -5,6 +5,7 @@ add_definitions(-std=c++14)
 
 find_package(catkin REQUIRED COMPONENTS
   actionlib_msgs
+  diagnostic_updater
   geometry_msgs
   rosgraph_msgs
   roscpp
@@ -30,6 +31,7 @@ catkin_package(
   LIBRARIES tie_robot_process_planning
   CATKIN_DEPENDS
     actionlib_msgs
+    diagnostic_updater
     geometry_msgs
     rosgraph_msgs
     roscpp

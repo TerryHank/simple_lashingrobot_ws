@@ -360,7 +360,10 @@ def wait_for_stable_point_coords(self, request_mode):
 
     while not rospy.is_shutdown():
         if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
-            message = "pointAI process_image timed out while waiting for stable points"
+            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                message = "pointAI process_image timed out while waiting for PR-FPRG manual workspace S2"
+            else:
+                message = "pointAI process_image timed out while waiting for stable points"
             rospy.logwarn(message)
             return {
                 "success": False,
@@ -382,6 +385,28 @@ def wait_for_stable_point_coords(self, request_mode):
             continue
         last_processed_frame_seq = current_frame_seq
 
+        # 扫描模式的 S2 现在直接走 PR-FPRG，不再依赖 pre_img() 先出点作为门控。
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            manual_workspace_s2_result = self.try_scan_only_manual_workspace_s2()
+            if manual_workspace_s2_result is None:
+                return {
+                    "success": False,
+                    "message": "扫描模式当前只走 PR-FPRG 手动工作区 S2，请先提交已保存工作区四边形。",
+                    "point_coords": None,
+                    "out_of_height_count": 0,
+                    "out_of_height_point_indices": [],
+                    "out_of_height_z_values": [],
+                }
+            if manual_workspace_s2_result.get("success", False):
+                return manual_workspace_s2_result
+            rospy.logwarn_throttle(
+                2.0,
+                "pointAI扫描模式等待PR-FPRG手动工作区S2: %s",
+                manual_workspace_s2_result.get("message", "unknown error"),
+            )
+            rate.sleep()
+            continue
+
         point_coords = self.pre_img(request_mode=request_mode)
         if not self.has_detected_points(point_coords):
             stable_snapshots = []
@@ -391,11 +416,6 @@ def wait_for_stable_point_coords(self, request_mode):
             continue
 
         latest_point_coords = point_coords
-        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-            manual_workspace_s2_result = self.try_scan_only_manual_workspace_s2()
-            if manual_workspace_s2_result is not None:
-                return manual_workspace_s2_result
-            return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
         if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
             return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
 
@@ -458,6 +478,7 @@ def wait_for_stable_point_coords(self, request_mode):
 def handle_process_image(self, req):
     request_mode = self.get_request_mode(req)
     start_time = time.perf_counter()
+    self.mark_visual_process_request()
     try:
         result = self.wait_for_stable_point_coords(request_mode)
         out_of_height_points = list(
@@ -473,10 +494,12 @@ def handle_process_image(self, req):
             out_of_height_points=out_of_height_points,
         )
         self.log_process_image_timing(request_mode, response, time.perf_counter() - start_time)
+        self.mark_visual_process_result(response.success, response.message)
         return response
 
     except Exception as e:
         rospy.logerr(f"Error in handle_process_image: {str(e)}")
+        self.mark_visual_error(f"Error in handle_process_image: {str(e)}")
         response = self.build_process_image_response(
             success=False,
             message=f"Error in handle_process_image: {str(e)}",

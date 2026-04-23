@@ -62,5 +62,6 @@ bool handle_pause_interrupt = false;
 std::pair<std::vector<int>, std::vector<float>> bind_data;
 std::vector<std::pair<std::vector<int>, std::vector<float>>> bind_all_data;
 std::unique_ptr<tie_robot_hw::driver::LinearModuleDriver> g_linear_module_driver;
+std::atomic<bool> g_moduan_driver_enabled(true);
 float last_x = 0.0f;
 float last_y = 0.0f;

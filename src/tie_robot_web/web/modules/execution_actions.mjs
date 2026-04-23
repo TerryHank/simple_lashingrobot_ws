@@ -52,7 +52,7 @@ export function triggerWorkspaceCenterScanPoseMove() {
   setStatus("已触发固定扫描建图，后端将自动移动、识别并动态规划", "success");
   if (resultStatusEl) {
     resultStatusEl.textContent =
-      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=2997, speed=100，然后触发 S2 并动态规划。";
+      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=3197，索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发 S2 并动态规划。";
   }
   const goal = new ROSLIB.Goal({
     actionClient: state.pseudoSlamScanActionClient,
