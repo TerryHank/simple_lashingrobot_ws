@@ -61,6 +61,12 @@ PR_FPRG_SCHEME_ABLATION_REPORT_PATH = (
     / "tools"
     / "pr_fprg_scheme_ablation_report.py"
 )
+PR_FPRG_SCHEME_COMPARISON_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "tools"
+    / "pr_fprg_scheme_comparison.py"
+)
 ALGORITHM_STACK_LAUNCH_PATH = WORKSPACE_ROOT / "tie_robot_bringup" / "launch" / "algorithm_stack.launch"
 LASHING_CONFIG_PATH = WORKSPACE_ROOT / "tie_robot_perception" / "data" / "lashing_config.json"
 LEGACY_RANSAC_HOUGH_ARCHIVE_DIR = (
@@ -1484,6 +1490,16 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertNotIn("render_failure_image", report_text)
         self.assertIn("failure-panel", report_text)
+
+    def test_pr_fprg_scheme_comparison_reports_beam_filter_and_curve_metrics(self):
+        comparison_text = PR_FPRG_SCHEME_COMPARISON_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("build_workspace_s2_structural_edge_suppression_mask", comparison_text)
+        self.assertIn("filter_workspace_s2_rectified_points_outside_mask", comparison_text)
+        self.assertIn("beam_filtered_point_count", comparison_text)
+        self.assertIn("curve_metrics", comparison_text)
+        self.assertIn("abs_offset_p95", comparison_text)
+        self.assertIn("wiggle_mean", comparison_text)
 
     def test_pr_fprg_stage_tools_default_full_pipeline_uses_continuous_ridge_mainline(self):
         stage_ablation_text = (

@@ -16,6 +16,7 @@
   - 生成 `metadata.json`，记录每个话题是否捕获成功
 - 新增 `src/tie_robot_bringup/launch/slam_v30_offline_visual_replay.launch`，用于 `rosbag play --clock --loop` 离线回放。
 - 新增 `docs/releases/slam_v30/` 发布目录，包含交接文档、校验文件和 `.debug_frames` 实验清单。
+- 新增 `/reports/pr_fprg_curve_3456` 静态报告，用于离线比较 PR-FPRG 方案 3/4/5/6 的梁筋点级过滤和地板缝曲线牵引指标。该报告不改变现场默认方案 1 主链。
 - 修复 `pointAINode` 运行态方法绑定缺口：`PR-FPRG` 主链实际运行需要绑定线族评分、结构边缘抑制和结构边缘过滤函数，否则 `/perception/lashing/recognize_once` 会在现场报 `ImageProcessor object has no attribute ...`。
 - `suoquNode` 到线性模组绑扎执行的调用链改为 `/moduan/execute_bind_points` action 客户端，旧 `/moduan/sg_precomputed*` service 只作为历史路径看待；如果复现执行链，必须同时启动 action server 所在的 `moduan_motion_controller_node`。
 
@@ -148,7 +149,7 @@ python3 src/tie_robot_perception/tools/export_visual_modalities_snapshot.py --ti
 
 ## 实验与压缩包说明
 
-`.debug_frames/` 当前约 728 MB，包含 PR-FPRG 各阶段、消融、现场快照和可视化过程。为了避免 Git 历史被大体量实验图像污染，Git tag 中保留发布清单与可复现的小型视觉样例；完整 `.debug_frames/` 会随整工程 zip 一起打包。
+`.debug_frames/` 当前约 739 MB，包含 PR-FPRG 各阶段、消融、现场快照和可视化过程。为了避免 Git 历史被大体量实验图像污染，Git tag 中保留发布清单与可复现的小型视觉样例；完整 `.debug_frames/` 会随整工程 zip 一起打包。
 
 实验目录索引见：
 

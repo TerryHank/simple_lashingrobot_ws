@@ -13,6 +13,7 @@
 - `slam/v30` 样例 bag 已捕获 `/Scepter/*` 核心图像、`/Scepter/worldCoord/*`、`/pointAI/result_image_raw`、`/perception/lashing/result_image`、`/perception/lashing/points_camera`、`/perception/lashing/workspace/quad_pixels`、`/tf`、`/tf_static` 和吊篮/末端状态。
 - 修复 `pointAINode` 运行态 `PR-FPRG` 方法绑定缺口，确保 `/perception/lashing/recognize_once` 可以真实跑通 `manual workspace S2`，而不是在服务调用时才暴露缺失属性。
 - `suoquNode` 调用末端绑扎执行改为 `/moduan/execute_bind_points` action 客户端，取代旧 `/moduan/sg_precomputed*` service 调用路径，并补齐 `tie_robot_process` 的 `actionlib` 依赖。
+- 新增 `/reports/pr_fprg_curve_3456` 静态实验报告，独立比较 PR-FPRG 方案 3/4/5/6 对梁筋点级过滤和地板缝曲线牵引的表现；运行主链仍保持方案 1，不把曲线方案直接切入现场默认链路。
 
 ### 视觉主方案切换为方向自适应 PR-FPRG
 

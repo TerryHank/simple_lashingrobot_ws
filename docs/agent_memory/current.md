@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-04-29 13:55:42，当前 HEAD：`38b89d1`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-04-29 14:01:54，当前 HEAD：`368c31e`。
 
 ## Bootstrap Files
 
@@ -46,12 +46,12 @@
 
 ## Recent Session Memory
 
+- `2026-04-29 14:01 - PR-FPRG 3-6曲线避梁筋/地板缝探究报告`：按用户要求独立探究方案3/4/5/6避开梁筋和地板缝，不改运行时方案1主链。新增/增强 pr_fprg_scheme_comparison.py 的独立报告诊断：梁筋只做最终点级过滤，报告 beam_filtered_point_count；曲线抗地板缝以 curve_metrics 量化，包括 coverage_mean、score_mean、abs_offset_mean、abs_offset_p95、wiggle_mean。当前尺度报告 .debug_frames/pr_fprg_curve_3456_beam_floor_probe_20260429_135902，已发布到 /reports/pr_fprg_curve_3456。当前结果：3/4/5/6 均为 6x6 线族、31-32 点、beam_filtered=0；03 greedy 覆盖高但 wiggle_mean=1.148，容易追地板纹理；04 DP wiggle_mean=0.061 但偏移均值较大；05 DP+ridge wiggle_mean=0.067 且 abs_offset_mean=3.699，作为下一步主候选；06 IR-assisted wiggle_mean=0.067、score_mean较高但可能被红外地板缝牵引，作为辅助验证候选。
+- `2026-04-29 13:59 - Xpra 主窗口无边框全屏从代理层 patch`：2026-04-29 验证：rviz/rqt 等图形卡片应通过 workspace_picker_web_server.py 的 _patch_xpra_html5_resource 修补 Xpra HTML5 /js/Window.js 与 /css/client.css，使主窗口标记 tie-robot-embedded-main-window、隐藏内部 windowhead、初始 maximized 铺满 iframe；不要在 UIController 中直接改 frame.contentWindow.client/id_to_window/canvas，否则容易导致蓝屏或刷新。
 - `2026-04-29 13:55 - 图形应用嵌入窗口去边框补丁`：workspace_picker_web_server.py 会在代理 xpra HTML/JS 资源时 patch /js/Window.js 和 /css/client.css：普通 NORMAL 主窗口在前端图形应用卡片内强制最大化、隐藏 windowhead、去边框，DIALOG/UTILITY/TOOLTIP 等窗口不套用。
 - `2026-04-29 13:55 - 线性模组执行抽象为状态Topic+Action`：用户已确认当前工程采用 ROS 风格分层但不强行引入 ros_control/MoveIt：moduan_driver_node 负责读 PLC 并发布 /moduan/state；moduan_motion_controller_node 提供 /moduan/execute_bind_points Action，内部写点位、发执行信号并等待 FINISHALL；/moduan/sg、/moduan/sg_precomputed、/moduan/single_move 继续作为兼容 wrapper；tie_robot_process 预计算绑扎点执行链现在通过 /moduan/execute_bind_points Action 调度，不再直接调用 /moduan/sg_precomputed* 或感知 PLC 完成位。FINISHALL 仍是 PLC 完成的权威信号，但只属于控制层实现细节。
 - `2026-04-29 13:55 - suoquNode 改走 execute_bind_points action`：slam/v30 最终提交中，suoquNode 到线性模组绑扎执行的调度路径改为 actionlib SimpleActionClient 调用 /moduan/execute_bind_points，旧 /moduan/sg_precomputed 与 /moduan/sg_precomputed_fast service 调用不再作为流程编排主路径。
 - `2026-04-29 13:47 - PR-FPRG 方案1恢复连续/ridge主链`：用户指出当前尺度效果奇差，根因定位为此前为追求方案1 only 和点数，把运行主链改成 enable_continuous_validation=False，退化为只靠一维 peak/spacing，导致地板缝和边缘细峰在当前尺度下爆出密集假线。已恢复方案1主链口径：depth_background_minus_filled 优先，use_orientation_prior_angle_pool=True，enable_local_peak_refine=True，enable_continuous_validation=True，enable_spacing_prune=True；梁筋仍只做最终点级排除，不删除整条 rho/线族。新增规则 lattice 收束用于 dense floor-seam 候选，避免 peak 候选过密。最新当前尺度报告 .debug_frames/pr_fprg_scheme1_restored_mainline_current_scale_20260429_134514，已发布到 /reports/pr_fprg_scheme1_current_scale、/reports/pr_fprg_scheme1、/reports/pr_fprg_live_full。注意：效果从 54 点密集假线收敛到 36 点，但耗时约 1.28s，仍需后续继续优化质量与速度，不能宣称最终完成。
-- `2026-04-29 13:44 - Xpra 图形卡片不要触碰内部 client`：rqt/rviz 前端蓝屏和 Xpra 断连页的根因不是 Xpra 技术栈本身：同一 session 在最小 iframe 中可正常显示；完整前端失败来自 UIController 在 iframe 加载/resize 时进入 Xpra HTML5 内部触发 resize、redraw、request_refresh 并清内部 DOM 样式，容易打断握手或遮断绘制。后续图形卡片只管理外层卡片和 iframe 宽高，不再调用 frame.contentWindow.client、redraw_windows、request_refresh，也不再修改 Xpra 内部 window/canvas 样式。
-- `2026-04-29 13:40 - slam/v30 离线复现发布包`：2026-04-29 当前 slam 分支发布为 slam/v30：新增 docs/releases/slam_v30 交接目录、slam_v30_visual_modalities.bag 小型视觉样例、PNG/NPY/modal metadata、debug_frames_manifest.tsv，以及 slam_v30_offline_visual_replay.launch。完整 .debug_frames 实验输出不进入 Git 历史，随整工程 zip 打包。
 
 ## Handoff Documents
 

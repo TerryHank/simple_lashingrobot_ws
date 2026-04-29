@@ -22,6 +22,8 @@ path	size_bytes	file_count
 .debug_frames/manual_workspace_s2_runtime_2026-04-24_offline_replay	376817	4
 .debug_frames/manual_workspace_s2_runtime_live_after_callback_fix	117503	1
 .debug_frames/manual_workspace_s2_runtime_projective_fix	115659	2
+.debug_frames/pr_fprg_curve_3456_beam_floor_probe_20260429_135902	5756800	19
+.debug_frames/pr_fprg_curve_3456_probe_current_scale_20260429_135406	5433501	18
 .debug_frames/pr_fprg_direct_label_click_only_2026-04-24	120726	2
 .debug_frames/pr_fprg_edge_anchor_stability_2026-04-25	446097	5
 .debug_frames/pr_fprg_edge_anchor_strong_stability_2026-04-25	447026	5

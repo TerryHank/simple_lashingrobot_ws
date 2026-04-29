@@ -2,6 +2,63 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-04-29 14:01 - PR-FPRG 3-6曲线避梁筋/地板缝探究报告
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 按用户要求独立探究方案3/4/5/6避开梁筋和地板缝，不改运行时方案1主链。新增/增强 pr_fprg_scheme_comparison.py 的独立报告诊断：梁筋只做最终点级过滤，报告 beam_filtered_point_count；曲线抗地板缝以 curve_metrics 量化，包括 coverage_mean、score_mean、abs_offset_mean、abs_offset_p95、wiggle_mean。当前尺度报告 .debug_frames/pr_fprg_curve_3456_beam_floor_probe_20260429_135902，已发布到 /reports/pr_fprg_curve_3456。当前结果：3/4/5/6 均为 6x6 线族、31-32 点、beam_filtered=0；03 greedy 覆盖高但 wiggle_mean=1.148，容易追地板纹理；04 DP wiggle_mean=0.061 但偏移均值较大；05 DP+ridge wiggle_mean=0.067 且 abs_offset_mean=3.699，作为下一步主候选；06 IR-assisted wiggle_mean=0.067、score_mean较高但可能被红外地板缝牵引，作为辅助验证候选。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/pr_fprg_scheme_comparison.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `.debug_frames/pr_fprg_curve_3456_beam_floor_probe_20260429_135902/index.html`
+- `src/tie_robot_web/web/reports/pr_fprg_curve_3456/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py => Ran 71 tests OK; python3 -m py_compile pr_fprg_scheme_comparison.py OK; git diff --check touched files OK; curl /reports/pr_fprg_curve_3456/index.html and 05 image => HTTP 200`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-04-29 13:59 - Xpra 主窗口无边框全屏从代理层 patch
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-04-29 验证：rviz/rqt 等图形卡片应通过 workspace_picker_web_server.py 的 _patch_xpra_html5_resource 修补 Xpra HTML5 /js/Window.js 与 /css/client.css，使主窗口标记 tie-robot-embedded-main-window、隐藏内部 windowhead、初始 maximized 铺满 iframe；不要在 UIController 中直接改 frame.contentWindow.client/id_to_window/canvas，否则容易导致蓝屏或刷新。
+
+### 影响范围
+
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py;src/tie_robot_web/frontend/src/ui/UIController.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `frontend`
+- `xpra`
+- `gui`
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_terminal_graphical_commands_open_frontend_cards；服务重启后通过真实 Firefox 截图验证 rqt 无内部 Default-rqt 标题栏且内容铺满卡片。`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-04-29 13:55 - 图形应用嵌入窗口去边框补丁
 
 <!-- AGENT-MEMORY: entry -->

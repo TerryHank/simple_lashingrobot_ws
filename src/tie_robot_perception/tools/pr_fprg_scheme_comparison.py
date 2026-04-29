@@ -39,6 +39,8 @@ from pr_fprg_peak_supported_probe import (  # noqa: E402
 from tie_robot_perception.perception.workspace_s2 import (  # noqa: E402
     build_workspace_s2_curved_line_families,
     build_workspace_s2_oriented_axis_profile,
+    build_workspace_s2_structural_edge_suppression_mask,
+    filter_workspace_s2_rectified_points_outside_mask,
     intersect_workspace_s2_curved_line_families,
     intersect_workspace_s2_oriented_line_families,
     map_workspace_s2_rectified_points_to_image,
@@ -159,6 +161,45 @@ def points_from_rectified_intersections(frame, result, rectified_points):
     return points
 
 
+def filter_beam_points(result, rectified_points):
+    beam_mask = result.get("beam_mask")
+    rectified_points = list(rectified_points or [])
+    if beam_mask is None:
+        return rectified_points, 0
+    filtered_points = filter_workspace_s2_rectified_points_outside_mask(
+        rectified_points,
+        beam_mask,
+        margin_px=2,
+    )
+    return filtered_points, len(rectified_points) - len(filtered_points)
+
+
+def summarize_curve_metrics(line_families):
+    coverage_values = []
+    score_means = []
+    absolute_offsets = []
+    wiggles = []
+    for family in line_families or []:
+        for curved_line in family.get("curved_lines") or []:
+            coverage_values.append(float(curved_line.get("coverage", 0.0)))
+            offsets = np.asarray(curved_line.get("offsets") or [], dtype=np.float32)
+            scores = np.asarray(curved_line.get("scores") or [], dtype=np.float32)
+            if offsets.size:
+                absolute_offsets.extend(np.abs(offsets).tolist())
+                if offsets.size > 2:
+                    wiggles.append(float(np.mean(np.abs(np.diff(offsets, n=2)))))
+            if scores.size:
+                score_means.append(float(np.mean(scores)))
+
+    return {
+        "coverage_mean": round(float(np.mean(coverage_values)), 3) if coverage_values else None,
+        "score_mean": round(float(np.mean(score_means)), 3) if score_means else None,
+        "abs_offset_mean": round(float(np.mean(absolute_offsets)), 3) if absolute_offsets else None,
+        "abs_offset_p95": round(float(np.percentile(absolute_offsets, 95.0)), 3) if absolute_offsets else None,
+        "wiggle_mean": round(float(np.mean(wiggles)), 3) if wiggles else None,
+    }
+
+
 def draw_workspace_and_points(frame, result, points, line_color=(0, 255, 0)):
     image = cv2.cvtColor(to_u8(frame["ir"]), cv2.COLOR_GRAY2BGR)
     polygon = np.asarray(result["manual_workspace"]["corner_pixels"], dtype=np.int32).reshape((-1, 1, 2))
@@ -262,12 +303,13 @@ def summarize_line_families(line_families):
 
 
 def build_straight_variant(frame, result, variant_id, title, note, line_families, color):
-    rectified_points = intersect_workspace_s2_oriented_line_families(
+    raw_rectified_points = intersect_workspace_s2_oriented_line_families(
         line_families[0],
         line_families[1],
         result["rectified_geometry"]["rectified_width"],
         result["rectified_geometry"]["rectified_height"],
     )
+    rectified_points, beam_filtered_point_count = filter_beam_points(result, raw_rectified_points)
     points = points_from_rectified_intersections(frame, result, rectified_points)
     original_image = draw_workspace_and_points(frame, result, points, line_color=color)
     original_image = draw_straight_line_families_on_original(original_image, result, line_families, color)
@@ -280,6 +322,8 @@ def build_straight_variant(frame, result, variant_id, title, note, line_families
         "line_families": line_families,
         "points": points,
         "rectified_points": rectified_points,
+        "beam_filtered_point_count": beam_filtered_point_count,
+        "curve_metrics": {},
         "original_image": original_image,
         "rectified_image": rectified_image,
         "summary": summarize_line_families(line_families),
@@ -310,20 +354,21 @@ def build_curved_variant(
         smoothing_window_samples=5,
         smoothness_weight=smoothness_weight,
     )
-    rectified_points = intersect_workspace_s2_curved_line_families(
+    raw_rectified_points = intersect_workspace_s2_curved_line_families(
         curved_families[0],
         curved_families[1],
         result["rectified_geometry"]["rectified_width"],
         result["rectified_geometry"]["rectified_height"],
     )
-    if not rectified_points:
-        rectified_points = intersect_workspace_s2_oriented_line_families(
+    if not raw_rectified_points:
+        raw_rectified_points = intersect_workspace_s2_oriented_line_families(
             result["line_families"][0],
             result["line_families"][1],
             result["rectified_geometry"]["rectified_width"],
             result["rectified_geometry"]["rectified_height"],
         )
         note = f"{note}；当前曲线无交点时已用直线交点兜底。"
+    rectified_points, beam_filtered_point_count = filter_beam_points(result, raw_rectified_points)
     points = points_from_rectified_intersections(frame, result, rectified_points)
     original_image = draw_workspace_and_points(frame, result, points, line_color=color)
     original_image = draw_curved_line_families_on_original(original_image, result, curved_families, color)
@@ -336,6 +381,8 @@ def build_curved_variant(
         "line_families": curved_families,
         "points": points,
         "rectified_points": rectified_points,
+        "beam_filtered_point_count": beam_filtered_point_count,
+        "curve_metrics": summarize_curve_metrics(curved_families),
         "original_image": original_image,
         "rectified_image": rectified_image,
         "summary": summarize_line_families(curved_families),
@@ -347,6 +394,11 @@ def build_variants(frame, result):
     baseline_families = clone_line_families(result["line_families"])
     infrared_response = build_infrared_dark_response(result)
     combined_response = build_combined_depth_ir_response(result)
+    beam_mask = build_workspace_s2_structural_edge_suppression_mask(
+        infrared_response,
+        valid_mask,
+    )
+    result["beam_mask"] = beam_mask
     infrared_refined_families = refine_line_families_by_auxiliary_profile(
         baseline_families,
         infrared_response,
@@ -425,6 +477,7 @@ def build_variants(frame, result):
     return variants, {
         "infrared_response": infrared_response,
         "combined_response": combined_response,
+        "beam_mask": beam_mask,
     }
 
 
@@ -438,6 +491,13 @@ def write_report(output_dir, frame, result, variants, extra_images):
     cv2.imwrite(str(image_dir / "00_depth_response.png"), render_response_heatmap(result["response"]))
     cv2.imwrite(str(image_dir / "00_infrared_response.png"), render_response_heatmap(extra_images["infrared_response"]))
     cv2.imwrite(str(image_dir / "00_combined_response.png"), render_response_heatmap(extra_images["combined_response"]))
+    beam_overlay = render_response_heatmap(extra_images["infrared_response"])
+    beam_mask = extra_images.get("beam_mask")
+    if beam_mask is not None and np.any(beam_mask):
+        red_layer = np.zeros_like(beam_overlay)
+        red_layer[:, :] = (30, 30, 255)
+        beam_overlay[beam_mask] = cv2.addWeighted(beam_overlay[beam_mask], 0.35, red_layer[beam_mask], 0.65, 0.0)
+    cv2.imwrite(str(image_dir / "00_beam_mask_overlay.png"), beam_overlay)
 
     for variant in variants:
         original_name = f"{variant['id']}_original.png"
@@ -461,6 +521,8 @@ def write_report(output_dir, frame, result, variants, extra_images):
                 "note": variant["note"],
                 "type": variant["type"],
                 "point_count": len(variant["points"]),
+                "beam_filtered_point_count": variant["beam_filtered_point_count"],
+                "curve_metrics": variant["curve_metrics"],
                 "summary": variant["summary"],
                 "first_20_points": variant["points"][:20],
             }
@@ -476,6 +538,17 @@ def write_report(output_dir, frame, result, variants, extra_images):
     for variant in variants:
         family_text = html.escape(
             json.dumps(json_safe(variant["summary"]), ensure_ascii=False)
+        )
+        metric_text = html.escape(
+            json.dumps(
+                json_safe(
+                    {
+                        "beam_filtered_point_count": variant["beam_filtered_point_count"],
+                        "curve_metrics": variant["curve_metrics"],
+                    }
+                ),
+                ensure_ascii=False,
+            )
         )
         cards_html.append(
             f"""
@@ -495,6 +568,7 @@ def write_report(output_dir, frame, result, variants, extra_images):
                   <figcaption>透视展开后叠加</figcaption>
                 </figure>
               </div>
+              <pre>{metric_text}</pre>
               <pre>{family_text}</pre>
             </section>
             """
@@ -637,12 +711,13 @@ def write_report(output_dir, frame, result, variants, extra_images):
   <main>
     <section class="source-strip">
       <h2>输入与响应图</h2>
-      <p>左到右分别是红外原图、深度响应、红外暗线响应和深度 + 红外组合响应。</p>
+      <p>红色叠加区域是梁筋/宽强结构掩膜，只用于最终绑扎点排除，不删除整条钢筋线。</p>
       <div class="images">
         <figure><img src="images/00_source_workspace.png" alt="source"><figcaption>红外输入</figcaption></figure>
         <figure><img src="images/00_depth_response.png" alt="depth response"><figcaption>深度响应</figcaption></figure>
         <figure><img src="images/00_infrared_response.png" alt="infrared response"><figcaption>红外暗线响应</figcaption></figure>
         <figure><img src="images/00_combined_response.png" alt="combined response"><figcaption>组合响应</figcaption></figure>
+        <figure><img src="images/00_beam_mask_overlay.png" alt="beam mask"><figcaption>梁筋点级排除 mask</figcaption></figure>
       </div>
     </section>
     {''.join(cards_html)}
