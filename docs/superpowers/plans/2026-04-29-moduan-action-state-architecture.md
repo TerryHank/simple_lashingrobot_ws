@@ -29,7 +29,7 @@
 
 ## 任务 1：消息和 Action 接口
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `src/tie_robot_process/test/test_motion_chain_signal_guard.py` 增加测试，断言：
 
@@ -47,13 +47,13 @@ def test_moduan_state_topic_and_action_interfaces_are_declared(self):
     self.assertIn("bool success", action)
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
 
 预期：FAIL，缺少 `ModuanState.msg` 或 `ExecuteBindPointsTask.action`。
 
-- [ ] **步骤 3：实现接口**
+- [x] **步骤 3：实现接口**
 
 创建 `ModuanState.msg`：
 
@@ -89,7 +89,7 @@ float64 current_z
 float64 elapsed_sec
 ```
 
-- [ ] **步骤 4：运行测试验证通过**
+- [x] **步骤 4：运行测试验证通过**
 
 运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
 
@@ -97,7 +97,7 @@ float64 elapsed_sec
 
 ## 任务 2：规范 PLC 完成等待命名
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 在 `test_motion_chain_signal_guard.py` 中断言：
 
@@ -108,13 +108,13 @@ self.assertNotIn("finish_all(150)", executor)
 self.assertIn("kFinishAllPollInterval", executor)
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
 
 预期：FAIL，当前仍是 `finish_all(150)`。
 
-- [ ] **步骤 3：最小实现**
+- [x] **步骤 3：最小实现**
 
 把 `finish_all(int inter_time)` 改名为：
 
@@ -133,7 +133,7 @@ if (!wait_for_plc_finish_all(kFinishAllPollInterval, kFinishAllTimeout)) {
 }
 ```
 
-- [ ] **步骤 4：运行测试和 catkin 构建**
+- [x] **步骤 4：运行测试和 catkin 构建**
 
 运行：
 
@@ -146,7 +146,7 @@ catkin_make -DCATKIN_WHITELIST_PACKAGES="" -j2
 
 ## 任务 3：发布 `/moduan/state`
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 断言 `moduan_ros_callbacks.cpp`：
 
@@ -157,13 +157,13 @@ self.assertIn("FINISH_ALL_FLAG", callbacks)
 self.assertIn("linear_module_data_upload_msg", callbacks)
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
 
 预期：FAIL，尚未发布标准状态 topic。
 
-- [ ] **步骤 3：最小实现**
+- [x] **步骤 3：最小实现**
 
 在 `read_module_motor_state()` 每轮读完 PLC 后，构造 `tie_robot_msgs::ModuanState` 并发布：
 
@@ -176,7 +176,7 @@ state_msg.error = state->ERROR_FLAG_X || state->ERROR_FLAG_Y || state->ERROR_FLA
                   state->ERROR_FLAG_LASHING || mot_state->ERROR_FLAG_MOTOR;
 ```
 
-- [ ] **步骤 4：运行测试和构建**
+- [x] **步骤 4：运行测试和构建**
 
 运行：
 
@@ -189,7 +189,7 @@ catkin_make -DCATKIN_WHITELIST_PACKAGES="" -j2
 
 ## 任务 4：增加 `/moduan/execute_bind_points` Action
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 断言：
 
@@ -200,17 +200,17 @@ self.assertIn("ExecuteBindPointsTaskAction", callbacks)
 self.assertIn("execute_bind_points_action_callback", callbacks)
 ```
 
-- [ ] **步骤 2：运行测试验证失败**
+- [x] **步骤 2：运行测试验证失败**
 
 运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
 
 预期：FAIL，Action server 尚未存在。
 
-- [ ] **步骤 3：最小实现**
+- [x] **步骤 3：最小实现**
 
 在 `RunModuanNodeWithDefaultRole()` 创建 Action server；Action callback 拿到 goal 后加 `lashing_mutex`，调用 `execute_bind_points(goal->points, message, goal->apply_jump_bind_filter)`，并 `setSucceeded` 或 `setAborted`。
 
-- [ ] **步骤 4：运行测试和构建**
+- [x] **步骤 4：运行测试和构建**
 
 运行：
 
@@ -223,7 +223,7 @@ catkin_make -DCATKIN_WHITELIST_PACKAGES="" -j2
 
 ## 任务 5：旧服务兼容 wrapper
 
-- [ ] **步骤 1：编写失败测试**
+- [x] **步骤 1：编写失败测试**
 
 断言旧服务仍存在，且服务内部只做上游流程，最终落到统一执行函数或 Action：
 
@@ -234,13 +234,13 @@ self.assertIn("execute_bind_points(", callbacks)
 self.assertLess(single_bind_body.index("AI_client.call(srv)"), single_bind_body.index("execute_bind_points("))
 ```
 
-- [ ] **步骤 2：运行测试验证失败或通过**
+- [x] **步骤 2：运行测试验证失败或通过**
 
 运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
 
 预期：当前兼容服务已基本满足；若失败，按统一执行入口修正。
 
-- [ ] **步骤 3：最终验证**
+- [x] **步骤 3：最终验证**
 
 运行：
 
@@ -248,6 +248,45 @@ self.assertLess(single_bind_body.index("AI_client.call(srv)"), single_bind_body.
 python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard src.tie_robot_process.test.test_scan_artifact_write_guard src.tie_robot_bringup.test.test_ros_interface_names
 python3 scripts/check_ros_interface_names.py
 git diff --check -- src/tie_robot_msgs src/tie_robot_control src/tie_robot_process/test/test_motion_chain_signal_guard.py
+catkin_make -DCATKIN_WHITELIST_PACKAGES="" -j2
+```
+
+预期：全部通过。
+
+## 任务 6：流程层只调用 Action
+
+- [x] **步骤 1：编写失败测试**
+
+在 `test_motion_chain_signal_guard.py` 中约束 `suoquNode.cpp` 预计算绑扎点执行链：
+
+```python
+self.assertIn("actionlib/client/simple_action_client.h", process_node)
+self.assertIn("ExecuteBindPointsTaskAction", process_node)
+self.assertIn("execute_moduan_bind_points_via_action", process_node)
+self.assertIn('"/moduan/execute_bind_points"', process_node)
+self.assertNotIn("sg_precomputed_client.call(", process_node)
+self.assertNotIn("sg_precomputed_fast_client.call(", process_node)
+```
+
+- [x] **步骤 2：运行测试验证失败**
+
+运行：`python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard`
+
+预期：FAIL，流程层仍调用 `/moduan/sg_precomputed*`。
+
+- [x] **步骤 3：最小实现**
+
+`tie_robot_process` 增加 `actionlib` 依赖；`suoquNode.cpp` 初始化 `/moduan/execute_bind_points` Action client，并用 `execute_moduan_bind_points_via_action(...)` 替换四处预计算绑扎点服务调用。
+
+- [x] **步骤 4：最终验证**
+
+运行：
+
+```bash
+python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard
+python3 -m unittest src.tie_robot_bringup.test.test_ros_interface_names src.tie_robot_process.test.test_motion_chain_signal_guard src.tie_robot_process.test.test_scan_artifact_write_guard src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_single_point_bind_button_calls_atomic_backend_service
+python3 scripts/check_ros_interface_names.py
+git diff --check -- docs/superpowers/plans/2026-04-29-moduan-action-state-architecture.md docs/architecture/ros_interface_migration_map.yaml src/tie_robot_msgs src/tie_robot_control src/tie_robot_process
 catkin_make -DCATKIN_WHITELIST_PACKAGES="" -j2
 ```
 

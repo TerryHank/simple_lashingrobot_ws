@@ -17,6 +17,7 @@
 - 新增 `src/tie_robot_bringup/launch/slam_v30_offline_visual_replay.launch`，用于 `rosbag play --clock --loop` 离线回放。
 - 新增 `docs/releases/slam_v30/` 发布目录，包含交接文档、校验文件和 `.debug_frames` 实验清单。
 - 修复 `pointAINode` 运行态方法绑定缺口：`PR-FPRG` 主链实际运行需要绑定线族评分、结构边缘抑制和结构边缘过滤函数，否则 `/perception/lashing/recognize_once` 会在现场报 `ImageProcessor object has no attribute ...`。
+- `suoquNode` 到线性模组绑扎执行的调用链改为 `/moduan/execute_bind_points` action 客户端，旧 `/moduan/sg_precomputed*` service 只作为历史路径看待；如果复现执行链，必须同时启动 action server 所在的 `moduan_motion_controller_node`。
 
 ## 离线视觉模态
 
@@ -165,4 +166,5 @@ docs/releases/slam_v30/checksums.sha256
 
 - `slam_v30_visual_modalities.bag` 是单帧级场景快照，用于前端/视觉离线复现实验，不模拟真实电机运动闭环。
 - 运动控制节点可以启动，但不要在无硬件环境下执行真实 `/cabin/driver/*` 或 `/moduan/driver/*` 控制服务。
+- `/moduan/execute_bind_points` action 属于算法层到线性模组控制层的执行调度接口；驱动层仍只保留 Modbus/PLC 原子动作。
 - 本发布包的仿真复现重点是相机模态、TF、pointAI PR-FPRG 输出和前端展示链路。

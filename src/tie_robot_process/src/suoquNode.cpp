@@ -26,6 +26,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <pthread.h>
+#include <actionlib/client/simple_action_client.h>
 #include <ros/ros.h>
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <diagnostic_updater/DiagnosticStatusWrapper.h>
@@ -55,7 +56,7 @@
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/TransformStamped.h>
 #include "tie_robot_msgs/area_choose.h"
-#include "tie_robot_msgs/ExecuteBindPoints.h"
+#include "tie_robot_msgs/ExecuteBindPointsTaskAction.h"
 #include "std_srvs/Trigger.h" 
 #include <tie_robot_msgs/Pathguihua.h>
 #include <tie_robot_msgs/SingleMove.h>
@@ -487,9 +488,13 @@ tie_robot_msgs::cabin_upload cabin_data_upload;
 tie_robot_msgs::MotionControl motion_srv;
 ros::ServiceClient AI_client;
 ros::ServiceClient sg_live_visual_client;
-ros::ServiceClient sg_precomputed_client;
-ros::ServiceClient sg_precomputed_fast_client;
 ros::ServiceClient motion_client;
+using ExecuteBindPointsTaskClient =
+    actionlib::SimpleActionClient<tie_robot_msgs::ExecuteBindPointsTaskAction>;
+std::unique_ptr<ExecuteBindPointsTaskClient> moduan_execute_bind_points_client;
+std::mutex moduan_execute_bind_points_action_mutex;
+constexpr double kModuanExecuteActionServerWaitSec = 2.0;
+constexpr double kModuanExecuteActionResultWaitSec = 600.0;
 std::shared_ptr<tf2_ros::Buffer> tf_buffer_ptr;
 std::unique_ptr<tf2_ros::TransformListener> tf_listener_ptr;
 std::vector<tie_robot_msgs::PointCoords> pseudo_slam_tf_points;
@@ -3195,6 +3200,61 @@ nlohmann::json collect_dispatched_precomputed_point_jsons(
     return dispatched_point_jsons;
 }
 
+bool execute_moduan_bind_points_via_action(
+    const std::vector<tie_robot_msgs::PointCoords>& points,
+    bool apply_jump_bind_filter,
+    std::string& message
+)
+{
+    message.clear();
+    std::lock_guard<std::mutex> action_lock(moduan_execute_bind_points_action_mutex);
+    if (!moduan_execute_bind_points_client) {
+        message = "线性模组执行Action客户端未初始化：/moduan/execute_bind_points";
+        return false;
+    }
+
+    if (!moduan_execute_bind_points_client->waitForServer(
+            ros::Duration(kModuanExecuteActionServerWaitSec))) {
+        message = "线性模组执行Action服务未就绪：/moduan/execute_bind_points";
+        return false;
+    }
+
+    tie_robot_msgs::ExecuteBindPointsTaskGoal goal;
+    goal.points = points;
+    goal.apply_jump_bind_filter = apply_jump_bind_filter;
+
+    moduan_execute_bind_points_client->sendGoal(goal);
+    if (!moduan_execute_bind_points_client->waitForResult(
+            ros::Duration(kModuanExecuteActionResultWaitSec))) {
+        moduan_execute_bind_points_client->cancelGoal();
+        message = "等待线性模组执行Action结果超时：/moduan/execute_bind_points";
+        return false;
+    }
+
+    const auto state = moduan_execute_bind_points_client->getState();
+    const auto result = moduan_execute_bind_points_client->getResult();
+    if (!result) {
+        message = "线性模组执行Action无返回结果：/moduan/execute_bind_points";
+        return false;
+    }
+    if (!result->message.empty()) {
+        message = result->message;
+    }
+    if (state != actionlib::SimpleClientGoalState::SUCCEEDED) {
+        if (message.empty()) {
+            message = state.toString();
+        }
+        return false;
+    }
+    if (!result->success) {
+        if (message.empty()) {
+            message = "线性模组执行Action返回失败";
+        }
+        return false;
+    }
+    return true;
+}
+
 bool find_nearest_bind_area_for_current_cabin_pose(
     const nlohmann::json& areas_json,
     float current_cabin_x,
@@ -3379,8 +3439,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             continue;
         }
 
-        tie_robot_msgs::ExecuteBindPoints bind_srv;
-        bind_srv.request.points = local_points;
+        std::string bind_action_message;
         const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
             execution_group_json,
             local_points
@@ -3392,14 +3451,14 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             area_global_indices,
             active_dispatch_global_indices
         );
-        if (!sg_precomputed_fast_client.call(bind_srv) || !bind_srv.response.success) {
+        if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
             skipped_group_count++;
             set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             printCurrentTime();
             ros_log_printf(
                 "Cabin_Warn: 当前区域预计算直执行第%d组失败，跳过当前组，消息：%s\n",
                 group_index,
-                bind_srv.response.message.c_str()
+                bind_action_message.c_str()
             );
             continue;
         }
@@ -3630,8 +3689,7 @@ bool run_bind_path_direct_test(std::string& message)
                 continue;
             }
 
-            tie_robot_msgs::ExecuteBindPoints bind_srv;
-            bind_srv.request.points = local_points;
+            std::string bind_action_message;
             const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
                 group_json,
                 local_points
@@ -3643,7 +3701,7 @@ bool run_bind_path_direct_test(std::string& message)
                 area_global_indices,
                 active_dispatch_global_indices
             );
-            if (!sg_precomputed_client.call(bind_srv) || !bind_srv.response.success) {
+            if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
                 skipped_group_count++;
                 set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 printCurrentTime();
@@ -3651,7 +3709,7 @@ bool run_bind_path_direct_test(std::string& message)
                     "Cabin_Warn: bind_path_direct_test区域%d第%d组执行失败，跳过当前组。消息：%s\n",
                     area_index,
                     group_index,
-                    bind_srv.response.message.c_str()
+                    bind_action_message.c_str()
                 );
                 continue;
             }
@@ -3969,8 +4027,7 @@ bool run_live_visual_global_work(std::string& message)
             continue;
         }
 
-        tie_robot_msgs::ExecuteBindPoints bind_srv;
-        bind_srv.request.points = local_points;
+        std::string bind_action_message;
         const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
             execution_group_json,
             local_points
@@ -3982,14 +4039,14 @@ bool run_live_visual_global_work(std::string& message)
             area_global_indices,
             active_dispatch_global_indices
         );
-        if (!sg_precomputed_fast_client.call(bind_srv) || !bind_srv.response.success) {
+        if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
             skipped_area_count++;
             set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             printCurrentTime();
             ros_log_printf(
                 "Cabin_Warn: live_visual区域%d执行失败，跳过当前区域。消息：%s\n",
                 area_index,
-                bind_srv.response.message.c_str()
+                bind_action_message.c_str()
             );
             publish_area_progress(
                 area_order_index + 1 < total_area_count ? area_order_index + 2 : area_order_index + 1,
@@ -4236,8 +4293,7 @@ bool run_bind_from_scan(std::string& message)
                 );
                 continue;
             }
-            tie_robot_msgs::ExecuteBindPoints bind_srv;
-            bind_srv.request.points = local_points;
+            std::string bind_action_message;
             const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
                 execution_group_json,
                 local_points
@@ -4249,14 +4305,14 @@ bool run_bind_from_scan(std::string& message)
                 area_global_indices,
                 active_dispatch_global_indices
             );
-            if (!sg_precomputed_client.call(bind_srv) || !bind_srv.response.success) {
+            if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
                 set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 printCurrentTime();
                 ros_log_printf(
                     "Cabin_Warn: bind_from_scan区域%d第%d组执行失败，跳过该点所在组，跳过该组继续下一组，消息：%s\n",
                     area_index,
                     group_index,
-                    bind_srv.response.message.c_str()
+                    bind_action_message.c_str()
                 );
                 continue;
             }
@@ -4625,8 +4681,8 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
             nh.subscribe(kPseudoSlamCaptureGateImageTopic, 1, &pseudo_slam_ir_image_callback);
         AI_client = nh.serviceClient<tie_robot_msgs::ProcessImage>("/pointAI/process_image");
         sg_live_visual_client = nh.serviceClient<std_srvs::Trigger>("/moduan/sg");
-        sg_precomputed_client = nh.serviceClient<tie_robot_msgs::ExecuteBindPoints>("/moduan/sg_precomputed");
-        sg_precomputed_fast_client = nh.serviceClient<tie_robot_msgs::ExecuteBindPoints>("/moduan/sg_precomputed_fast");
+        moduan_execute_bind_points_client =
+            std::make_unique<ExecuteBindPointsTaskClient>("/moduan/execute_bind_points", true);
         change_cabin_speed_sub = nh.subscribe("/web/cabin/set_cabin_speed", 5, &change_cabin_speed_callback);
         interrupt0_sub = nh.subscribe("/web/moduan/interrupt_stop", 5, &pause_interrupt_Callback);
         hand_solve_stop = nh.subscribe("/web/moduan/hand_sovle_warn", 5, &solve_stop_Callback);

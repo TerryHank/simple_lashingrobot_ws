@@ -2,6 +2,98 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-04-29 13:55 - 图形应用嵌入窗口去边框补丁
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- workspace_picker_web_server.py 会在代理 xpra HTML/JS 资源时 patch /js/Window.js 和 /css/client.css：普通 NORMAL 主窗口在前端图形应用卡片内强制最大化、隐藏 windowhead、去边框，DIALOG/UTILITY/TOOLTIP 等窗口不套用。
+
+### 影响范围
+
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py;src/tie_robot_web/test/test_workspace_picker_web.py`
+
+### 关键决策
+
+- 图形应用嵌入样式由 Web server 动态 patch 第三方 xpra 前端资源，不直接改 vendor 文件。
+
+### 标签
+
+- `frontend`
+- `graphical-app`
+- `xpra`
+- `slam-v30`
+
+### 验证证据
+
+- `python3 src/tie_robot_web/test/test_workspace_picker_web.py OK；git diff --check 对相关文件无输出。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-04-29 13:55 - 线性模组执行抽象为状态Topic+Action
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 用户已确认当前工程采用 ROS 风格分层但不强行引入 ros_control/MoveIt：moduan_driver_node 负责读 PLC 并发布 /moduan/state；moduan_motion_controller_node 提供 /moduan/execute_bind_points Action，内部写点位、发执行信号并等待 FINISHALL；/moduan/sg、/moduan/sg_precomputed、/moduan/single_move 继续作为兼容 wrapper；tie_robot_process 预计算绑扎点执行链现在通过 /moduan/execute_bind_points Action 调度，不再直接调用 /moduan/sg_precomputed* 或感知 PLC 完成位。FINISHALL 仍是 PLC 完成的权威信号，但只属于控制层实现细节。
+
+### 影响范围
+
+- `docs/superpowers/plans/2026-04-29-moduan-action-state-architecture.md`
+- `src/tie_robot_msgs/msg/ModuanState.msg`
+- `src/tie_robot_msgs/action/ExecuteBindPointsTask.action`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; python3 -m unittest src.tie_robot_bringup.test.test_ros_interface_names src.tie_robot_process.test.test_motion_chain_signal_guard src.tie_robot_process.test.test_scan_artifact_write_guard src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_single_point_bind_button_calls_atomic_backend_service; python3 scripts/check_ros_interface_names.py; git diff --check -- docs/superpowers/plans/2026-04-29-moduan-action-state-architecture.md docs/architecture/ros_interface_migration_map.yaml src/tie_robot_msgs src/tie_robot_control src/tie_robot_process; catkin_make -DCATKIN_WHITELIST_PACKAGES="" -j2`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-04-29 13:55 - suoquNode 改走 execute_bind_points action
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- slam/v30 最终提交中，suoquNode 到线性模组绑扎执行的调度路径改为 actionlib SimpleActionClient 调用 /moduan/execute_bind_points，旧 /moduan/sg_precomputed 与 /moduan/sg_precomputed_fast service 调用不再作为流程编排主路径。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp;src/tie_robot_process/CMakeLists.txt;src/tie_robot_process/package.xml;CHANGELOG.md;docs/releases/slam_v30/SLAM_V30_HANDOFF.md`
+
+### 关键决策
+
+- 算法/流程层通过 action 调度完整绑扎执行，驱动层继续保留原子 Modbus/PLC 操作。
+
+### 标签
+
+- `motion-chain`
+- `moduan`
+- `actionlib`
+- `slam-v30`
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py OK；python3 src/tie_robot_bringup/test/test_ros_interface_names.py OK；catkin_make exit 0。`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-04-29 13:47 - PR-FPRG 方案1恢复连续/ridge主链
 
 <!-- AGENT-MEMORY: entry -->

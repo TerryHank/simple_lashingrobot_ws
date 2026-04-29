@@ -1666,6 +1666,66 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
                 b"    }",
             )
             return patched_body, patched_body != body
+        if path_only.endswith("/js/Window.js"):
+            patched_body = body.replace(
+                b"    this.configure_border_class();\n"
+                b"    this.add_headerbar();\n"
+                b"    this.make_draggable()\n",
+                b"    if (this.is_tie_robot_embedded_main_window()) {\n"
+                b"      this.resizable = false;\n"
+                b"      this.maximized = true;\n"
+                b"      jQuery(this.div).addClass(\"tie-robot-embedded-main-window\");\n"
+                b"    }\n"
+                b"    this.configure_border_class();\n"
+                b"    this.add_headerbar();\n"
+                b"    this.make_draggable()\n",
+            ).replace(
+                b"      }\n"
+                b"      this._set_decorated(decorated);\n",
+                b"      }\n"
+                b"      if (this.is_tie_robot_embedded_main_window()) {\n"
+                b"        decorated = false;\n"
+                b"      }\n"
+                b"      this._set_decorated(decorated);\n",
+                1,
+            ).replace(
+                b"      this.decorations = Boolean(metadata[\"decorations\"]);\n"
+                b"      this._set_decorated(this.decorations);\n",
+                b"      this.decorations = this.is_tie_robot_embedded_main_window() ? false : Boolean(metadata[\"decorations\"]);\n"
+                b"      this._set_decorated(this.decorations);\n",
+            ).replace(
+                b"  is_desktop() {\n",
+                b"  is_tie_robot_embedded_main_window() {\n"
+                b"    if (this.tray || this.override_redirect || this.client.server_is_desktop || this.client.server_is_shadow) {\n"
+                b"      return false;\n"
+                b"    }\n"
+                b"    if (this.has_windowtype([\"DIALOG\", \"UTILITY\", \"DROPDOWN\", \"TOOLTIP\", \"POPUP_MENU\", \"MENU\", \"COMBO\"])) {\n"
+                b"      return false;\n"
+                b"    }\n"
+                b"    return this.windowtype.length === 0 || this.has_windowtype([\"NORMAL\"]);\n"
+                b"  }\n\n"
+                b"  is_desktop() {\n",
+            )
+            return patched_body, patched_body != body
+        if path_only.endswith("/css/client.css"):
+            style_patch = (
+                b"\n"
+                b"/* Tie Robot embedded graphical cards: native app content should fill the card. */\n"
+                b".tie-robot-embedded-main-window {\n"
+                b"  border: 0 !important;\n"
+                b"  box-shadow: none !important;\n"
+                b"  border-radius: 0 !important;\n"
+                b"}\n"
+                b".tie-robot-embedded-main-window > .windowhead {\n"
+                b"  display: none !important;\n"
+                b"}\n"
+                b".tie-robot-embedded-main-window > canvas {\n"
+                b"  border-radius: 0 !important;\n"
+                b"}\n"
+            )
+            if style_patch.strip() in body:
+                return body, False
+            return body + style_patch, True
         return body, False
 
     def proxy_graphical_app_websocket(self, session, target_path):

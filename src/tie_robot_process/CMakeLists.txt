@@ -4,6 +4,7 @@ project(tie_robot_process)
 add_definitions(-std=c++14)
 
 find_package(catkin REQUIRED COMPONENTS
+  actionlib
   actionlib_msgs
   diagnostic_updater
   geometry_msgs
@@ -31,6 +32,7 @@ catkin_package(
   INCLUDE_DIRS include
   LIBRARIES tie_robot_process_planning
   CATKIN_DEPENDS
+    actionlib
     actionlib_msgs
     diagnostic_updater
     geometry_msgs
