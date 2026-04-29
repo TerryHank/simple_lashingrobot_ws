@@ -2,29 +2,28 @@
 from . import runtime_config
 from . import world_coord
 from . import rendering
-from . import tf_transform
 from . import workspace_masks
 from . import manual_workspace_s2
 from . import image_buffers
 from . import matrix_selection
 from . import process_image_service
+from . import bind_point_tf
 
 def bind_image_processor_methods(cls):
     cls.load_runtime_config = runtime_config.load_runtime_config
     cls.save_runtime_config = runtime_config.save_runtime_config
-    cls.update_gripper_tf_translation_mm = runtime_config.update_gripper_tf_translation_mm
     cls.fixed_z_value_callback = runtime_config.fixed_z_value_callback
-    cls.calibration_offset_callback = runtime_config.calibration_offset_callback
+    cls.set_stable_frame_count_callback = runtime_config.set_stable_frame_count_callback
     cls.load_scan_planning_workspace = runtime_config.load_scan_planning_workspace
     cls.load_workspace_center_scan_pose_target = runtime_config.load_workspace_center_scan_pose_target
     cls.run_workspace_center_scan_pose_move = runtime_config.run_workspace_center_scan_pose_move
     cls.workspace_center_scan_pose_callback = runtime_config.workspace_center_scan_pose_callback
-    cls.get_cabin_frame_xy_channels = world_coord.get_cabin_frame_xy_channels
+    cls.get_camera_frame_xy_channels = world_coord.get_camera_frame_xy_channels
     cls.image_raw_world_callback = world_coord.image_raw_world_callback
     cls.ensure_raw_world_channels = world_coord.ensure_raw_world_channels
     cls.get_valid_world_coord_near_pixel = world_coord.get_valid_world_coord_near_pixel
     cls.get_text_bbox = rendering.get_text_bbox
-    cls.bboxes_overlap = rendering.bboxes_overlap
+    cls.bboxes_overlap = staticmethod(rendering.bboxes_overlap)
     cls.find_non_overlapping_label_position = rendering.find_non_overlapping_label_position
     cls.draw_text_with_background = rendering.draw_text_with_background
     cls.render_manual_workspace_s2_result_image = rendering.render_manual_workspace_s2_result_image
@@ -33,14 +32,6 @@ def bind_image_processor_methods(cls):
     cls.draw_mask_contours = rendering.draw_mask_contours
     cls.draw_scan_workspace_overlay = rendering.draw_scan_workspace_overlay
     cls.draw_travel_range_overlay = rendering.draw_travel_range_overlay
-    cls.lookup_transform_matrix_mm = tf_transform.lookup_transform_matrix_mm
-    cls.transform_point_to_frame = tf_transform.transform_point_to_frame
-    cls.transform_to_gripper_frame = tf_transform.transform_to_gripper_frame
-    cls.transform_to_cabin_frame = tf_transform.transform_to_cabin_frame
-    cls.transform_cabin_point_to_gripper_frame = tf_transform.transform_cabin_point_to_gripper_frame
-    cls.is_point_in_tcp_display_range = tf_transform.is_point_in_tcp_display_range
-    cls.apply_spatial_calibration = tf_transform.apply_spatial_calibration
-    cls.transform_to_end_effector = tf_transform.transform_to_end_effector
     cls.save_manual_workspace_quad = workspace_masks.save_manual_workspace_quad
     cls.build_manual_workspace_quad_pixels_message = workspace_masks.build_manual_workspace_quad_pixels_message
     cls.publish_current_manual_workspace_quad_pixels = workspace_masks.publish_current_manual_workspace_quad_pixels
@@ -48,6 +39,7 @@ def bind_image_processor_methods(cls):
     cls.manual_workspace_quad_callback = workspace_masks.manual_workspace_quad_callback
     cls.get_manual_workspace_pixel_mask = workspace_masks.get_manual_workspace_pixel_mask
     cls.build_convex_polygon_inside_mask = staticmethod(workspace_masks.build_convex_polygon_inside_mask)
+    cls.get_manual_workspace_camera_polygon_pixel_mask = workspace_masks.get_manual_workspace_camera_polygon_pixel_mask
     cls.get_manual_workspace_cabin_polygon_pixel_mask = workspace_masks.get_manual_workspace_cabin_polygon_pixel_mask
     cls.is_point_in_manual_workspace_polygon = workspace_masks.is_point_in_manual_workspace_polygon
     cls.is_point_in_scan_workspace = workspace_masks.is_point_in_scan_workspace
@@ -63,20 +55,33 @@ def bind_image_processor_methods(cls):
     cls.is_point_in_matrix_selection_range = workspace_masks.is_point_in_matrix_selection_range
     cls.is_point_in_display_bind_range = workspace_masks.is_point_in_display_bind_range
     cls.prepare_manual_workspace_s2_inputs = manual_workspace_s2.prepare_manual_workspace_s2_inputs
+    cls.collect_stable_manual_workspace_s2_inputs = manual_workspace_s2.collect_stable_manual_workspace_s2_inputs
     cls.build_manual_workspace_s2_points_array = manual_workspace_s2.build_manual_workspace_s2_points_array
+    cls.apply_manual_workspace_s2_phase_lock = manual_workspace_s2.apply_manual_workspace_s2_phase_lock
     cls.run_manual_workspace_s2_pipeline = manual_workspace_s2.run_manual_workspace_s2_pipeline
     cls.run_manual_workspace_s2 = manual_workspace_s2.run_manual_workspace_s2
     cls.try_scan_only_manual_workspace_s2 = manual_workspace_s2.try_scan_only_manual_workspace_s2
     cls.manual_workspace_s2_callback = manual_workspace_s2.manual_workspace_s2_callback
+    cls.handle_lashing_recognize_once = manual_workspace_s2.handle_lashing_recognize_once
     cls.smooth_workspace_s2_profile = staticmethod(manual_workspace_s2.smooth_workspace_s2_profile)
     cls.estimate_workspace_s2_period_and_phase = staticmethod(manual_workspace_s2.estimate_workspace_s2_period_and_phase)
     cls.build_workspace_s2_line_positions = staticmethod(manual_workspace_s2.build_workspace_s2_line_positions)
+    cls.refine_workspace_s2_line_positions_to_local_peaks = staticmethod(manual_workspace_s2.refine_workspace_s2_line_positions_to_local_peaks)
+    cls.select_workspace_s2_peak_supported_line_positions = staticmethod(manual_workspace_s2.select_workspace_s2_peak_supported_line_positions)
+    cls.select_workspace_s2_continuous_line_positions = staticmethod(manual_workspace_s2.select_workspace_s2_continuous_line_positions)
+    cls.prune_workspace_s2_line_positions_by_spacing = staticmethod(manual_workspace_s2.prune_workspace_s2_line_positions_by_spacing)
     cls.build_workspace_s2_bbox = staticmethod(manual_workspace_s2.build_workspace_s2_bbox)
     cls.build_workspace_s2_axis_profile = staticmethod(manual_workspace_s2.build_workspace_s2_axis_profile)
     cls.normalize_workspace_s2_response = staticmethod(manual_workspace_s2.normalize_workspace_s2_response)
     cls.build_workspace_s2_rectified_geometry = staticmethod(manual_workspace_s2.build_workspace_s2_rectified_geometry)
     cls.map_workspace_s2_rectified_points_to_image = staticmethod(manual_workspace_s2.map_workspace_s2_rectified_points_to_image)
+    cls.build_workspace_s2_structural_edge_suppression_mask = staticmethod(manual_workspace_s2.build_workspace_s2_structural_edge_suppression_mask)
     cls.build_workspace_s2_projective_line_segments = staticmethod(manual_workspace_s2.build_workspace_s2_projective_line_segments)
+    cls.build_workspace_s2_oriented_line_families = staticmethod(manual_workspace_s2.build_workspace_s2_oriented_line_families)
+    cls.score_workspace_s2_oriented_line_family_result = staticmethod(manual_workspace_s2.score_workspace_s2_oriented_line_family_result)
+    cls.intersect_workspace_s2_oriented_line_families = staticmethod(manual_workspace_s2.intersect_workspace_s2_oriented_line_families)
+    cls.filter_workspace_s2_rectified_points_outside_mask = staticmethod(manual_workspace_s2.filter_workspace_s2_rectified_points_outside_mask)
+    cls.build_workspace_s2_oriented_projective_line_segments = staticmethod(manual_workspace_s2.build_workspace_s2_oriented_projective_line_segments)
     cls.sort_polygon_points_clockwise = staticmethod(manual_workspace_s2.sort_polygon_points_clockwise)
     cls.sort_polygon_indices_clockwise = staticmethod(manual_workspace_s2.sort_polygon_indices_clockwise)
     cls.printsomething = image_buffers.printsomething
@@ -113,7 +118,8 @@ def bind_image_processor_methods(cls):
     cls.filter_close_points_by_origin = matrix_selection.filter_close_points_by_origin
     cls.filter_candidate_centers_for_request_mode = matrix_selection.filter_candidate_centers_for_request_mode
     cls.select_nearest_origin_matrix_points = matrix_selection.select_nearest_origin_matrix_points
-    cls.pre_img = matrix_selection.pre_img
+    cls.publish_raw_camera_bind_point_transforms = bind_point_tf.publish_raw_camera_bind_point_transforms
+    cls.republish_latest_raw_camera_bind_point_transforms = bind_point_tf.republish_latest_raw_camera_bind_point_transforms
     cls.has_detected_points = process_image_service.has_detected_points
     cls.build_z_snapshot = process_image_service.build_z_snapshot
     cls.build_coordinate_snapshot = process_image_service.build_coordinate_snapshot

@@ -28,6 +28,8 @@
 -> 浏览器内三维场景
 ```
 
+`/coordinate_point` 保持 pointAI 从相机图层读到的 `Scepter_depth_frame` 原始坐标；规划层需要全局坐标时再通过 TF 转成 `map`。
+
 ## 扫描建图
 
 ```text

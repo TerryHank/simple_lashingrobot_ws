@@ -52,7 +52,7 @@
 - `raw_world_coord`
 - 手动工作区四边形：
   - `corner_pixels`
-  - `corner_world_cabin_frame`
+  - `corner_world_map`
 
 ### 4.2 处理链
 
@@ -83,7 +83,8 @@
 
 运行时主入口位于：
 
-- [pointAI.py](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/scripts/pointAI.py)
+- [pointai_node.py](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/scripts/pointai_node.py)
+- [pointai/node.py](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/src/tie_robot_perception/pointai/node.py)
 
 ---
 
@@ -102,7 +103,7 @@
 
 如果已知：
 
-- `corner_world_cabin_frame`
+- `corner_world_map`
 
 那么 rectified 工作区的宽高必须优先按世界尺度计算，而不是按像素边长计算。
 
@@ -127,6 +128,7 @@
 
 - `PR-FPRG`
 - 即 `PR-FPRG 透视展开频相回归网格方案`
+- 2026-04-29 起，运行主链为方向自适应版本：透视展开后在 `theta/rho` 空间估计两组钢筋线族，不再默认钢筋与画面水平/垂直。
 
 ### 6.2 明确不再认可的旧方案
 
@@ -136,7 +138,13 @@
 2. 用像素边长直接当 rectified 尺度
 3. 在原图里直接铺横竖线
 4. 只调参数、不修几何主链
-5. 在 `PROCESS_IMAGE_MODE_SCAN_ONLY` 里先等 `pre_img()` 旧检测出点，再把 `S2` 当成附加步骤
+5. 把 `pre_img()`、旧 RANSAC+Hough 线段检测或 `matrix_preprocess.py` 重新接回 pointAI 运行主链
+
+旧 `RANSAC + Hough + pre_img` 绑扎点识别代码已经归档到：
+
+- `docs/archive/legacy_ransac_hough_pointai/`
+
+该归档目录只用于追溯，不参与 ROS 节点运行。
 
 ---
 
@@ -181,15 +189,17 @@
 ## 9. 下一位工程师最容易踩的坑
 
 1. 只改参数，不改几何主链
-2. 把 `corner_world_cabin_frame` 和 `corner_pixels` 排序解绑
+2. 把 `corner_world_map` 和 `corner_pixels` 排序解绑
 3. 把运行时输入退回到未经 rectified 的原图 profile
 4. 修改显示结果时忘记 inverse mapping
-5. 在扫描模式里重新把 `pre_img()` 当成 `PR-FPRG` 的前置门控
+5. 在 `process_image` 入口重新接回 `pre_img()` 或旧 RANSAC+Hough 回退路径
+6. 把线族估计退回固定 X/Y 方向，导致地面上本身斜摆的钢筋网识别漂移
 
 如果后续结果再次出现“线像图像格子、不像真实钢筋网格”，优先检查：
 
 1. 是否仍然先做了 rectified
 2. rectified 尺度是否仍优先来自世界角点
-3. 周期估计是否仍基于频域/自相关与相位回归
-4. 线和点是否经过 inverse mapping 投回原图
-5. 扫描模式是否仍然直接走 `PR-FPRG`，而没有被 `pre_img()` 老链路先卡住
+3. 周期估计是否仍基于 `theta/rho` 线族扫描、频域/自相关与相位回归
+4. 候选线是否仍经过二维连续钢筋条 ridge 验证，而不是只靠一维峰值
+5. 线和点是否经过 inverse mapping 投回原图
+6. `process_image` 是否仍然直接走方向自适应 `PR-FPRG`，而没有被旧 `pre_img()` 链路重新卡住

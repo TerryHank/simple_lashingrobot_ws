@@ -124,10 +124,10 @@ bool write_pseudo_slam_bind_path_json(
     std::string* error_message
 )
 {
-    tf2::Transform gripper_from_scepter;
-    if (!lookup_gripper_from_scepter_transform(gripper_from_scepter)) {
+    tf2::Transform gripper_from_base_link;
+    if (!lookup_gripper_from_base_link_transform(gripper_from_base_link)) {
         if (error_message != nullptr) {
-            *error_message = "无法获取Scepter_depth_frame->gripper_frame静态变换，无法为pseudo_slam_bind_path.json写入TCP局部坐标";
+            *error_message = "无法获取base_link->gripper_frame变换，无法为pseudo_slam_bind_path.json写入TCP局部坐标";
         }
         return false;
     }
@@ -184,7 +184,7 @@ bool write_pseudo_slam_bind_path_json(
                         point_json,
                         area_entry.cabin_point,
                         area_entry.cabin_z,
-                        gripper_from_scepter
+                        gripper_from_base_link
                     )) {
                     if (error_message != nullptr) {
                         *error_message =

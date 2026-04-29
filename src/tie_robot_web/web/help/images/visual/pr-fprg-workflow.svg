@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760">
+  <style>
+    text { font-family: 'Noto Sans CJK SC', 'Droid Sans Fallback', 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .title { font-size: 24px; font-weight: 700; fill: #111827; }
+    .sub { font-size: 14px; fill: #4b5563; }
+    .box-title { font-size: 15px; font-weight: 700; fill: #111827; }
+    .box-sub { font-size: 12px; fill: #4b5563; }
+    .code { font-size: 12px; fill: #1f2937; font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace; }
+    .step { fill: #2563eb; font-size: 12px; font-weight: 700; }
+    .small { font-size: 11px; fill: #6b7280; }
+  </style>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="760" fill="#ffffff"/>
+
+  <text x="48" y="48" class="title">PR-FPRG 方向自适应 theta/rho 斜线族流程</text>
+  <text x="48" y="74" class="sub">当前目标版本：透视展开后在深度响应图中估计两组真实钢筋方向；线以 (theta, rho) 表示，沿 theta 连续验证，沿法线判断 ridge。</text>
+
+  <g transform="translate(48,112)">
+    <rect x="0" y="0" width="214" height="92" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+    <text x="16" y="28" class="step">1</text>
+    <text x="40" y="28" class="box-title">透视展开工作区</text>
+    <text x="16" y="56" class="box-sub">四边形 -> rectified 平面</text>
+    <text x="16" y="74" class="box-sub">保留 inverse_h 用于投回原图</text>
+  </g>
+
+  <g transform="translate(324,112)">
+    <rect x="0" y="0" width="214" height="92" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+    <text x="16" y="28" class="step">2</text>
+    <text x="40" y="28" class="box-title">深度响应图</text>
+    <text x="16" y="56" class="box-sub">raw_world_coord 取 z</text>
+    <text x="16" y="74" class="box-sub">背景深度 - 当前深度</text>
+  </g>
+
+  <g transform="translate(600,112)">
+    <rect x="0" y="0" width="214" height="92" rx="8" fill="#f0fdfa" stroke="#99f6e4" stroke-width="1.5"/>
+    <text x="16" y="28" class="step">3</text>
+    <text x="40" y="28" class="box-title">估真实方向</text>
+    <text x="16" y="56" class="box-sub">自动估计 theta1 / theta2</text>
+    <text x="16" y="74" class="box-sub">不假设画面水平 / 垂直</text>
+  </g>
+
+  <g transform="translate(876,112)">
+    <rect x="0" y="0" width="240" height="92" rx="8" fill="#fff7ed" stroke="#fed7aa" stroke-width="1.5"/>
+    <text x="16" y="28" class="step">4</text>
+    <text x="40" y="28" class="box-title">法线方向 profile</text>
+    <text x="16" y="56" class="code">normal = [-sin(theta), cos(theta)]</text>
+    <text x="16" y="74" class="code">rho = normal . [x, y]</text>
+  </g>
+
+  <path d="M262 158 L314 158" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M538 158 L590 158" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M814 158 L866 158" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+
+  <g transform="translate(48,288)">
+    <rect x="0" y="0" width="214" height="96" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+    <text x="16" y="30" class="step">5</text>
+    <text x="40" y="30" class="box-title">rho 轴周期峰值</text>
+    <text x="16" y="60" class="box-sub">profile_theta 上找周期 / 相位</text>
+    <text x="16" y="78" class="box-sub">局部峰值支撑筛选候选线</text>
+  </g>
+
+  <g transform="translate(324,288)">
+    <rect x="0" y="0" width="214" height="96" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+    <text x="16" y="30" class="step">6</text>
+    <text x="40" y="30" class="box-title">线表示为 (theta, rho)</text>
+    <text x="16" y="60" class="box-sub">每条钢筋线保存方向和法向距离</text>
+    <text x="16" y="78" class="code">normal(theta) . point = rho</text>
+  </g>
+
+  <g transform="translate(600,288)">
+    <rect x="0" y="0" width="214" height="96" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+    <text x="16" y="30" class="step">7</text>
+    <text x="40" y="30" class="box-title">沿 theta 连续采样</text>
+    <text x="16" y="60" class="box-sub">沿钢筋线方向分段检查覆盖</text>
+    <text x="16" y="78" class="box-sub">必须像一条连续钢筋条</text>
+  </g>
+
+  <g transform="translate(876,288)">
+    <rect x="0" y="0" width="240" height="96" rx="8" fill="#fefce8" stroke="#fde68a" stroke-width="1.5"/>
+    <text x="16" y="30" class="step">8</text>
+    <text x="40" y="30" class="box-title">法线 ridge 判断</text>
+    <text x="16" y="60" class="box-sub">横截面检查中间强、两侧弱</text>
+    <text x="16" y="78" class="box-sub">ridge 偏移不能离候选线太远</text>
+  </g>
+
+  <path d="M996 204 L996 244 L155 244 L155 278" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M262 336 L314 336" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M538 336 L590 336" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M814 336 L866 336" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+
+  <g transform="translate(165,486)">
+    <rect x="0" y="0" width="260" height="106" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+    <text x="20" y="34" class="step">9</text>
+    <text x="48" y="34" class="box-title">两组斜线求交点</text>
+    <text x="20" y="64" class="code">solve([normal1; normal2], [rho1, rho2])</text>
+    <text x="20" y="84" class="box-sub">只保留 rectified 工作区内交点</text>
+  </g>
+
+  <g transform="translate(470,486)">
+    <rect x="0" y="0" width="260" height="106" rx="8" fill="#ffffff" stroke="#d1d5db" stroke-width="1.5"/>
+    <text x="20" y="34" class="step">10</text>
+    <text x="54" y="34" class="box-title">逆透视投回原图</text>
+    <text x="20" y="64" class="code">image_points = perspective(inverse_h)</text>
+    <text x="20" y="84" class="box-sub">得到最终黄色编号点和绿色线</text>
+  </g>
+
+  <g transform="translate(775,486)">
+    <rect x="0" y="0" width="260" height="106" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+    <text x="20" y="34" class="step">11</text>
+    <text x="54" y="34" class="box-title">取世界坐标并发布</text>
+    <text x="20" y="64" class="box-sub">raw_world_coord 邻域取有效点</text>
+    <text x="20" y="84" class="box-sub">发布 /coordinate_point 与 result 图</text>
+  </g>
+
+  <path d="M996 384 L996 438 L295 438 L295 476" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M425 539 L460 539" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M730 539 L765 539" stroke="#2563eb" stroke-width="2.4" fill="none" marker-end="url(#arrow-blue)"/>
+
+  <g transform="translate(92,650)">
+    <rect x="0" y="0" width="468" height="64" rx="8" fill="#f9fafb" stroke="#d1d5db" stroke-width="1.5"/>
+    <text x="20" y="26" class="box-title">关键口径</text>
+    <text x="20" y="48" class="box-sub">钢筋实物斜摆时，theta 跟随真实线族；透视展开只消除相机投影，不强行横竖化钢筋。</text>
+  </g>
+
+  <g transform="translate(640,650)">
+    <rect x="0" y="0" width="468" height="64" rx="8" fill="#ecfdf5" stroke="#bbf7d0" stroke-width="1.5"/>
+    <text x="20" y="26" class="box-title">过滤顺序</text>
+    <text x="20" y="48" class="box-sub">伪线优先由连续钢筋条 + 法线 ridge 删除；间距裁剪只作为最后兜底。</text>
+  </g>
+
+  <g transform="translate(48,728)">
+    <line x1="0" y1="8" x2="36" y2="8" stroke="#2563eb" stroke-width="2.4" marker-end="url(#arrow-blue)"/>
+    <text x="48" y="12" class="small">主处理流</text>
+    <line x1="150" y1="8" x2="186" y2="8" stroke="#16a34a" stroke-width="2.4" marker-end="url(#arrow-green)"/>
+    <text x="198" y="12" class="small">发布输出</text>
+  </g>
+</svg>

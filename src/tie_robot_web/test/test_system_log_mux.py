@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 
 
+sys.dont_write_bytecode = True
+
 WORKSPACE_SRC = Path(__file__).resolve().parents[2]
 TIE_ROBOT_BRINGUP_DIR = WORKSPACE_SRC / "tie_robot_bringup"
 TIE_ROBOT_WEB_DIR = WORKSPACE_SRC / "tie_robot_web"

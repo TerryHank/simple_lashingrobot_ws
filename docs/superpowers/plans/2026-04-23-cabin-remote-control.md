@@ -4,7 +4,7 @@
 
 **目标：** 在 `设置` 卡片中新增一个索驱遥控页，支持按钮遥控、全局键盘遥控、当前位置实时显示、按钮长按连续步进，以及中间停止按钮调用真实的“停止当前索驱运动”服务。
 
-**架构：** UI 层新增 `索驱遥控` 页签、当前位置展示和按钮激活态；应用层绑定全局键盘输入，并负责按钮长按 `250 ms` 连发节拍、停止条件、全局速度同步与状态反馈；`CabinRemoteController` 负责方向映射、当前位置读取和 `/cabin/single_move` 调用。当前位置优先来自 `Scene3DView` 里的 `cabin_frame -> Scepter_depth_frame` TF 结果；中心停止按钮单独调用 `/cabin/motion/stop`。`索驱遥控` 页里的速度输入框通过 `/web/cabin/set_cabin_speed` 同步后端 `global_cabin_speed`，并成为遥控、固定点移动、固定扫描和执行层索驱移动的统一速度源。
+**架构：** UI 层新增 `索驱遥控` 页签、当前位置展示和按钮激活态；应用层绑定全局键盘输入，并负责按钮长按 `250 ms` 连发节拍、停止条件、全局速度同步与状态反馈；`CabinRemoteController` 负责方向映射、当前位置读取和 `/cabin/single_move` 调用。当前位置优先来自 `Scene3DView` 里的 `map -> Scepter_depth_frame` TF 结果；中心停止按钮单独调用 `/cabin/motion/stop`。`索驱遥控` 页里的速度输入框通过 `/web/cabin/set_cabin_speed` 同步后端 `global_cabin_speed`，并成为遥控、固定点移动、固定扫描和执行层索驱移动的统一速度源。
 
 **技术栈：** 原生 JavaScript、Three.js、ROSLIB、Python `unittest` 结构测试、Vite 构建。
 

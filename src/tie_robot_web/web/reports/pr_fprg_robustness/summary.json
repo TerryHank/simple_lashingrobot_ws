@@ -1,0 +1,208 @@
+{
+  "generated_at": "2026-04-29 09:35:56",
+  "main_claim": "主流程距离规则已从全局间距硬删除改为 near-duplicate 合并，避免现场近间距真实钢筋被误杀。",
+  "experiments": [
+    {
+      "name": "Peak support 近间距峰值保留",
+      "input": [
+        20,
+        30,
+        70
+      ],
+      "old_behavior": [
+        20,
+        70
+      ],
+      "current_behavior": [
+        20,
+        30,
+        70
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "name": "连续钢筋条验证近间距 ridge 保留",
+      "input": [
+        42.0,
+        52.0,
+        92.0
+      ],
+      "old_behavior": [
+        42.0,
+        92.0
+      ],
+      "current_behavior": [
+        42.0,
+        52.0,
+        92.0
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "name": "最终距离清理只合并近重复峰",
+      "input": [
+        9,
+        115,
+        202,
+        224,
+        292
+      ],
+      "old_behavior": [
+        9,
+        115,
+        202,
+        292
+      ],
+      "current_behavior": [
+        9,
+        115,
+        202,
+        224,
+        292
+      ],
+      "duplicate_demo_current": [
+        9,
+        115,
+        202,
+        292
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "verification": [
+    {
+      "command": "python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/perception/workspace_s2.py",
+      "returncode": 0,
+      "elapsed_ms": 37.4,
+      "stdout_tail": "",
+      "stderr_tail": ""
+    },
+    {
+      "command": "python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py",
+      "returncode": 0,
+      "elapsed_ms": 1856.9,
+      "stdout_tail": "",
+      "stderr_tail": ".....................................................\n----------------------------------------------------------------------\nRan 53 tests in 1.350s\n\nOK\n"
+    }
+  ],
+  "test_summary": "Ran 53 tests in 1.350s\n\nOK",
+  "images": [
+    {
+      "file": "assets/current_1029_scheme1_30points.png",
+      "label": "当前 30 点：方案1 theta/rho 主链（10:29，74.6ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_live_check_20260429_102931/images/01_current_theta_rho__full_original.png"
+    },
+    {
+      "file": "assets/current_1029_scheme4_30points.png",
+      "label": "当前 30 点：方案4 DP 深度曲线（10:29，91.3ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_live_check_20260429_102931/images/04_dp_depth_curve__full_original.png"
+    },
+    {
+      "file": "assets/current_1029_scheme5_30points.png",
+      "label": "当前 30 点：方案5 ridge 曲线（10:29，120.6ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_live_check_20260429_102931/images/05_dp_ridge_curve__full_original.png"
+    },
+    {
+      "file": "assets/current_1029_scheme6_30points.png",
+      "label": "当前 30 点：方案6 红外辅助曲线（10:29，110.3ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_live_check_20260429_102931/images/06_ir_assisted_curve__full_original.png"
+    },
+    {
+      "file": "assets/current_1029_response.png",
+      "label": "当前 30 点版本响应图（10:29）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_live_check_20260429_102931/images/00_response.png"
+    },
+    {
+      "file": "assets/current_1017_scheme1_42points.png",
+      "label": "当前 42 点：方案1 theta/rho 主链（10:17，92.3ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_verify_current_20260429_101710/images/01_current_theta_rho__full_original.png"
+    },
+    {
+      "file": "assets/current_1017_scheme4_42points.png",
+      "label": "当前 42 点：方案4 DP 深度曲线（10:17，110.7ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_verify_current_20260429_101710/images/04_dp_depth_curve__full_original.png"
+    },
+    {
+      "file": "assets/current_1017_scheme5_42points.png",
+      "label": "当前 42 点：方案5 ridge 曲线（10:17，115.7ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_verify_current_20260429_101710/images/05_dp_ridge_curve__full_original.png"
+    },
+    {
+      "file": "assets/current_1017_scheme6_42points.png",
+      "label": "当前 42 点：方案6 红外辅助曲线（10:17，129.7ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_verify_current_20260429_101710/images/06_ir_assisted_curve__full_original.png"
+    },
+    {
+      "file": "assets/accepted_scheme1_scored060_full_original.png",
+      "label": "当前检查通过：方案1 theta/rho 主链（10:08，30点，90.7ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_scored060_20260429_100849/images/01_current_theta_rho__full_original.png"
+    },
+    {
+      "file": "assets/accepted_scheme4_scored060_full_original.png",
+      "label": "当前检查通过：方案4 DP 深度曲线（10:08，30点，105.3ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_scored060_20260429_100849/images/04_dp_depth_curve__full_original.png"
+    },
+    {
+      "file": "assets/accepted_scheme5_scored060_full_original.png",
+      "label": "当前检查通过：方案5 ridge 曲线（10:08，30点，120.0ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_scored060_20260429_100849/images/05_dp_ridge_curve__full_original.png"
+    },
+    {
+      "file": "assets/accepted_scheme6_scored060_full_original.png",
+      "label": "当前检查通过：方案6 红外辅助曲线（10:08，30点，125.8ms）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_scored060_20260429_100849/images/06_ir_assisted_curve__full_original.png"
+    },
+    {
+      "file": "assets/accepted_response_scored060.png",
+      "label": "当前检查通过版本响应图（10:08）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_scored060_20260429_100849/images/00_response.png"
+    },
+    {
+      "file": "assets/scheme4_after_spacing_fix_full_original.png",
+      "label": "修复后新方案4全流程原图效果（09:50 新抓帧）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_after_spacing_fix_20260429_095025/images/04_dp_depth_curve__full_original.png"
+    },
+    {
+      "file": "assets/scheme4_after_spacing_fix_full_rectified.png",
+      "label": "修复后新方案4透视展开效果（09:50 新抓帧）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_after_spacing_fix_20260429_095025/images/04_dp_depth_curve__full_rectified.png"
+    },
+    {
+      "file": "assets/response_after_spacing_fix.png",
+      "label": "修复后新抓帧响应图（09:50）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_after_spacing_fix_20260429_095025/images/00_response.png"
+    },
+    {
+      "file": "assets/live_peak_supported_result.png",
+      "label": "旧现场触发效果图（修复前存档）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_trigger_pr_fprg_peak_supported_20260429_022534/live_peak_supported_result.png"
+    },
+    {
+      "file": "assets/scheme4_full_original.png",
+      "label": "旧方案4全流程原图效果（08:58 报告，修复前）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_20260429_085832/images/04_dp_depth_curve__full_original.png"
+    },
+    {
+      "file": "assets/scheme4_full_rectified.png",
+      "label": "旧方案4透视展开效果（08:58 报告，修复前）",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_20260429_085832/images/04_dp_depth_curve__full_rectified.png"
+    },
+    {
+      "file": "assets/response_heatmap.png",
+      "label": "深度响应热力图",
+      "source": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_20260429_085832/images/00_response.png"
+    }
+  ],
+  "latest_visual_report": {
+    "generated_at": "2026-04-29 10:29:36",
+    "frame_source": "raw_world",
+    "point_count": 30,
+    "path": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_live_check_20260429_102931/index.html",
+    "note": "本次重抓当前帧稳定识别 5x6 主网格；不如 10:17 的 42 点满。"
+  },
+  "rejected_visual_report": {
+    "generated_at": "2026-04-29 09:50:31",
+    "path": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_scheme_ablation_report_after_spacing_fix_20260429_095025/index.html",
+    "reason": "全保留近邻导致右侧/边缘假线爆炸，已废弃。"
+  }
+}

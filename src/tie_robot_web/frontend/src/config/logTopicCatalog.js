@@ -1,38 +1,40 @@
+import { TOPICS } from "./topicRegistry.js";
+
 export const LOG_TOPIC_OPTIONS = [
   {
     id: "all",
     label: "全部终端",
-    topic: "/system_log/all",
+    topic: TOPICS.logs.all,
   },
   {
     id: "algorithm",
     label: "算法层",
-    topic: "/system_log/all",
-    nodeNames: ["pointAINode", "stable_point_tf_broadcaster", "scepter_world_coord_processor"],
+    topic: TOPICS.logs.all,
+    nodeNames: ["pointAINode", "scepter_world_coord_processor"],
   },
   {
     id: "cabin",
     label: "索驱",
-    topic: "/system_log/suoquNode",
+    topic: TOPICS.logs.cabin,
     nodeNames: ["suoquNode"],
   },
   {
     id: "moduan",
     label: "线性模组",
-    topic: "/system_log/moduanNode",
+    topic: TOPICS.logs.moduan,
     nodeNames: ["moduanNode"],
   },
   {
     id: "camera",
     label: "相机驱动",
-    topic: "/system_log/scepter_manager",
+    topic: TOPICS.logs.camera,
     nodeNames: ["scepter_manager"],
   },
   {
     id: "bridge",
     label: "Web桥接",
-    topic: "/system_log/all",
-    nodeNames: ["topicTransNode", "rosbridge_websocket", "rosapi", "system_log_mux"],
+    topic: TOPICS.logs.all,
+    nodeNames: ["webActionBridgeNode", "web_action_bridge_node", "rosbridge_websocket", "rosapi", "system_log_mux"],
   },
 ];
 

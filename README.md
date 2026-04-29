@@ -62,7 +62,7 @@
 前端 /web/cabin/start_pseudo_slam_scan
 -> tie_robot_web action bridge
 -> tie_robot_process::run_pseudo_slam_scan
--> tie_robot_perception::pointAI
+-> tie_robot_perception::pointai_node
 -> pseudo_slam_points.json
 -> pseudo_slam_bind_path.json
 -> bind_execution_memory.json(重置)
@@ -112,14 +112,14 @@
 
 - `/tf`
 - `/tf_static`
-- `/coordinate_point`
+- `/coordinate_point`，pointAI 相机坐标系原始绑扎点
 - `/cabin/pseudo_slam_markers`
 - `/Scepter/worldCoord/world_coord`
 - `/Scepter/worldCoord/raw_world_coord`
 
 ## 启动方式
 
-### 主启动
+### ROS 后端启动
 
 ```bash
 source /opt/ros/noetic/setup.bash
@@ -127,18 +127,82 @@ source devel/setup.bash
 roslaunch tie_robot_bringup run.launch
 ```
 
-主 launch 在：[run.launch](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_bringup/launch/run.launch:1)
+后端 launch 在：[run.launch](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_bringup/launch/run.launch:1)
 
-默认前端地址是：
+`run.launch` 只负责 ROS 后端算法：视觉算法、全局绑扎点构图、路径规划和执行编排。前端静态服务、rosbridge WebSocket、TF 层、Web Action/Service 桥接和硬件驱动守护不再跟随后端 launch 生命周期。
+
+生产运行时 ROS 后端也可以交给 systemd 管理，前端的“启动 ROS / 重启 ROS / 停止 ROS”按钮会调用这个 unit：
+
+```bash
+sudo src/tie_robot_bringup/scripts/install_backend_service.sh
+systemctl status tie-robot-backend.service
+```
+
+该安装脚本只安装 `tie-robot-backend.service` 和受限 sudoers 白名单，不会默认设置 ROS 后端开机自启；后端由前端或人工通过 systemd 拉起。
+
+### 前端与 rosbridge 守护
 
 ```text
 http://127.0.0.1:8080/index.html
 ```
 
-如果端口 `8080` 被占用，静态服务会自动顺延到更高端口；此时可通过下面命令查看实际地址：
+前端静态服务、本机 rosbridge、TF 层和三个硬件驱动都由独立 systemd 守护负责，安装后会随系统启动，并由 systemd 自动拉起：
 
 ```bash
-rosparam get /workspace_picker_web/url
+sudo src/tie_robot_bringup/scripts/install_frontend_autostart.sh
+systemctl status tie-robot-frontend.service
+systemctl status tie-robot-rosbridge.service
+systemctl status tie-robot-driver-suoqu.service
+systemctl status tie-robot-driver-moduan.service
+systemctl status tie-robot-driver-camera.service
+```
+
+前端守护安装脚本会同时确保 `tie-robot-rosbridge.service`、三个驱动 service、ROS 后端 systemd unit 与前端受限控制权限存在。前端 service、rosbridge service、驱动 service、ROS 后端 service 彼此独立，重启后端不会杀掉浏览器页面、WebSocket 守护、TF 层或驱动守护。
+
+`tie-robot-rosbridge.service` 通过 `rosbridge_stack.launch` 同时拉起 `tf_stack.launch` 和 `api.launch`，TF 层与 Web Action/Service 桥接常驻守护：
+
+- `tf2_web_republisher`：向前端转发 `/tf`。
+- `robot_tf_broadcaster`：订阅 `/cabin/cabin_data_upload`，连续发布 `map -> base_link -> Scepter_depth_frame`；索驱状态断流时保留最后位姿并继续等待重连。
+- `gripper_tf_broadcaster`：按 `gripper_tf.yaml` 和 `/web/tf/*` 设置连续发布 `Scepter_depth_frame -> gripper_frame`。
+- `web_action_bridge_node`：把前端 Action 转成后端 `/cabin/*` 服务调用；后端未启动时会明确失败，不再出现 Action 无订阅者。
+- `system_log_mux`：汇总 ROS 标准日志到前端日志话题。
+
+驱动和 ROS 后端 systemd unit 启动前会等待 `tie-robot-rosbridge.service` 拥有的本机 ROS master 可用，避免单个驱动抢先启动自己的 roscore。
+
+三个驱动 service 分别对应：
+
+- `tie-robot-driver-suoqu.service`：只拉起索驱驱动 launch。
+- `tie-robot-driver-moduan.service`：只拉起线性模组驱动 launch。
+- `tie-robot-driver-camera.service`：只拉起相机驱动 launch。
+
+这样定点绑扎测试可以只启线性模组，视觉识别可以只启相机，某个驱动断链或重启不会把整套后端一起带掉。前端 header 的索驱、末端、视觉状态胶囊提供对应子系统的启动和关闭入口。
+
+如果需要手动在 ROS 环境下启动前端服务，可使用：
+
+```bash
+roslaunch tie_robot_bringup frontend.launch
+```
+
+systemd 守护默认直接运行静态服务脚本，不会启动 `run.launch`，因此重启后端不会杀掉前端页面。
+
+如果只想单独安装或重启 rosbridge 守护，可使用：
+
+```bash
+sudo src/tie_robot_bringup/scripts/install_rosbridge_service.sh
+systemctl status tie-robot-rosbridge.service
+```
+
+如果只想单独安装驱动守护，可使用：
+
+```bash
+sudo src/tie_robot_bringup/scripts/install_driver_services.sh
+systemctl status tie-robot-driver-suoqu.service tie-robot-driver-moduan.service tie-robot-driver-camera.service
+```
+
+如果端口 `8080` 被占用，静态服务会自动顺延到更高端口。
+
+```bash
+src/tie_robot_web/scripts/workspace_picker_web_server.py --no-ros --host 0.0.0.0 --port 8080
 ```
 
 ### 单独构建前端
@@ -182,10 +246,10 @@ simple_lashingrobot_ws/
 
 1. 启动装配：[src/tie_robot_bringup/launch/run.launch](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_bringup/launch/run.launch:1)
 2. 前端入口：[src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js:1)
-3. Web bridge：[src/tie_robot_web/src/topics_transfer.cpp](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_web/src/topics_transfer.cpp:1)
+3. Web Action/Service bridge：[src/tie_robot_web/src/web_action_bridge.cpp](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_web/src/web_action_bridge.cpp:1)
 4. 流程主入口：[src/tie_robot_process/src/suoquNode.cpp](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/src/suoquNode.cpp:1)
 5. 线模主入口：[src/tie_robot_control/src/moduanNode.cpp](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_control/src/moduanNode.cpp:1)
-6. 视觉主入口：[src/tie_robot_perception/scripts/pointAI.py](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/scripts/pointAI.py:1)
+6. 视觉主入口：[src/tie_robot_perception/scripts/pointai_node.py](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/scripts/pointai_node.py:1)，节点实现：[src/tie_robot_perception/src/tie_robot_perception/pointai/node.py](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/src/tie_robot_perception/pointai/node.py:1)
 
 ## 关键运行数据
 
@@ -194,6 +258,22 @@ simple_lashingrobot_ws/
 - [pseudo_slam_points.json](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/data/pseudo_slam_points.json)
 - [pseudo_slam_bind_path.json](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/data/pseudo_slam_bind_path.json)
 - [bind_execution_memory.json](/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/data/bind_execution_memory.json)
+
+## Agent 共享记忆
+
+进入本仓库的新旧 Codex 会话或其他 AI agent，先按根目录 [AGENTS.md](/home/hyq-/simple_lashingrobot_ws/AGENTS.md:1) 的顺序读取项目入口和共享记忆。
+
+- 记忆协议：[docs/agent_memory/README.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/README.md:1)
+- 当前快照：[docs/agent_memory/current.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/current.md:1)
+- 有机体协议：[docs/agent_memory/organism.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/organism.md:1)
+- Codex 本地启动说明：[docs/agent_memory/codex_local_setup.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/codex_local_setup.md:1)
+- 断电恢复层：[docs/agent_memory/power_loss_recovery.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/power_loss_recovery.md:1)
+- 最近恢复点：[docs/agent_memory/checkpoint.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/checkpoint.md:1)
+- 追加账本：[docs/agent_memory/session_log.md](/home/hyq-/simple_lashingrobot_ws/docs/agent_memory/session_log.md:1)
+- 维护脚本：[scripts/agent_memory.py](/home/hyq-/simple_lashingrobot_ws/scripts/agent_memory.py:1)
+
+关键工程知识、架构决策、避坑经验和跨会话必须继承的修改，需要写入这套共享记忆，避免只停留在单个会话上下文里。
+长任务或高风险修改前后，使用 `python3 scripts/agent_memory.py checkpoint ...` 写入断电恢复点；断电或会话中断后，使用 `python3 scripts/agent_memory.py recover` 恢复现场。
 
 ## 更详细的文档
 

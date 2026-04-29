@@ -1,0 +1,32 @@
+<launch>
+    <node name="tf2_web_republisher"
+          pkg="tf2_web_republisher"
+          type="tf2_web_republisher"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0" />
+
+    <node name="robot_tf_broadcaster"
+          pkg="tie_robot_perception"
+          type="robot_tf_broadcaster.py"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+        <param name="map_frame" value="map" />
+        <param name="base_link_frame" value="base_link" />
+        <param name="scepter_frame" value="Scepter_depth_frame" />
+        <param name="cabin_state_topic" value="/cabin/cabin_data_upload" />
+        <param name="publish_rate_hz" value="30.0" />
+        <param name="stale_warn_sec" value="3.0" />
+    </node>
+
+    <node name="gripper_tf_broadcaster"
+          pkg="tie_robot_perception"
+          type="gripper_tf_broadcaster.py"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+        <param name="config_path" value="$(find tie_robot_perception)/config/gripper_tf.yaml" />
+        <param name="publish_rate_hz" value="30.0" />
+    </node>
+</launch>

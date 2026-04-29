@@ -17,6 +17,7 @@ extern std::string last_cabin_execution_wait_error_detail;
 extern const std::string kCabinLastFatalErrorDetailFile;
 extern std::atomic<uint16_t> pending_tcp_status_word;
 extern std::atomic<bool> pending_tcp_status_word_valid;
+extern std::atomic<bool> use_remote_cabin_driver;
 extern float TCP_Move[7];
 
 namespace tie_robot_process {

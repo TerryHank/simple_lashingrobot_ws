@@ -1,0 +1,8 @@
+<launch>
+    <node name="suoqu_driver_node"
+          pkg="tie_robot_process"
+          type="suoqu_driver_node"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0" />
+</launch>

@@ -1,12 +1,14 @@
 #include "tie_robot_process/suoqu/cabin_transport.hpp"
 
-#include "common.hpp"
+#include <tie_robot_process/common.hpp>
 #include "suoqu_runtime_internal.hpp"
 
 #include <fstream>
 #include <iomanip>
 #include <ros/ros.h>
 #include <sstream>
+#include <std_srvs/Trigger.h>
+#include <tie_robot_msgs/SingleMove.h>
 
 namespace tie_robot_process {
 namespace suoqu {
@@ -384,6 +386,20 @@ void sync_global_socket_fd_from_cabin_driver()
 
 bool stop_cabin_motion_via_driver(std::string* error_message)
 {
+    if (::use_remote_cabin_driver.load(std::memory_order_relaxed)) {
+        std_srvs::Trigger stop_srv;
+        if (!ros::service::call("/cabin/motion/stop", stop_srv)) {
+            if (error_message != nullptr) {
+                *error_message = "无法调用索驱驱动层停止服务 /cabin/motion/stop";
+            }
+            return false;
+        }
+        if (error_message != nullptr) {
+            *error_message = stop_srv.response.message;
+        }
+        return stop_srv.response.success;
+    }
+
     if (!::cabin_driver_enabled.load()) {
         const std::string detail = "索驱驱动已关闭，停止指令未下发";
         update_last_cabin_transport_error_detail(detail);
@@ -411,7 +427,7 @@ bool stop_cabin_motion_via_driver(std::string* error_message)
             const std::string detail = compose_cabin_driver_error_message("索驱停止指令下发失败", driver_error);
             update_last_cabin_transport_error_detail(detail);
             printCurrentTime();
-            std::printf("Cabin_Error: %s\n", detail.c_str());
+            ros_log_printf("Cabin_Error: %s\n", detail.c_str());
             log_cabin_error_ros(detail);
             if (error_message != nullptr) {
                 *error_message = detail;
@@ -434,6 +450,35 @@ bool move_cabin_pose_via_driver(
     float z_mm,
     std::string* error_message)
 {
+    if (::moduan_work_flag.load(std::memory_order_acquire)) {
+        const std::string detail = "末端绑扎/线性模组正在运动，拒绝下发索驱位姿运动指令";
+        update_last_cabin_transport_error_detail(detail);
+        printCurrentTime();
+        ros_log_printf("Cabin_Warn: %s。\n", detail.c_str());
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        return false;
+    }
+
+    if (::use_remote_cabin_driver.load(std::memory_order_relaxed)) {
+        tie_robot_msgs::SingleMove raw_move_srv;
+        raw_move_srv.request.speed = speed_mm_per_sec;
+        raw_move_srv.request.x = x_mm;
+        raw_move_srv.request.y = y_mm;
+        raw_move_srv.request.z = z_mm;
+        if (!ros::service::call("/cabin/driver/raw_move", raw_move_srv)) {
+            if (error_message != nullptr) {
+                *error_message = "无法调用索驱驱动层 raw move 服务 /cabin/driver/raw_move";
+            }
+            return false;
+        }
+        if (error_message != nullptr) {
+            *error_message = raw_move_srv.response.message;
+        }
+        return raw_move_srv.response.success;
+    }
+
     if (!::cabin_driver_enabled.load()) {
         const std::string detail = "索驱驱动已关闭，拒绝下发运动指令";
         update_last_cabin_transport_error_detail(detail);
@@ -471,7 +516,7 @@ bool move_cabin_pose_via_driver(
             const std::string detail = compose_cabin_driver_error_message("索驱位姿运动驱动下发失败", driver_error);
             update_last_cabin_transport_error_detail(detail);
             printCurrentTime();
-            std::printf("Cabin_Error: %s\n", detail.c_str());
+            ros_log_printf("Cabin_Error: %s\n", detail.c_str());
             log_cabin_error_ros(detail);
             if (error_message != nullptr) {
                 *error_message = detail;

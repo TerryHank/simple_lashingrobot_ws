@@ -5,20 +5,20 @@
 把当前“走到一个区域后立即自适应高度 + 识别 + 绑扎”的流程，改成两阶段：
 
 1. 先按已规划好的索驱区域路径完整走一遍，每个区域只做识别，不做自适应高度，不做绑扎。
-2. 识别出的点统一落到索驱世界坐标系 `cabin_frame` 下，过滤出索驱规划工作区范围内的点，做去重和归档，形成扫描得到的全量世界点集合。
+2. 识别出的点统一落到索驱世界坐标系 `map` 下，过滤出索驱规划工作区范围内的点，做去重和归档，形成扫描得到的全量世界点集合。
 3. 扫描完成后，基于这份全量世界点集合，按每个规划区域反复执行 `2x2` 分组，生成后续绑扎路径。
 4. 点击全局作业时，直接按之前伪“slam”得到的绑扎路径执行，不再二次识别，也不再做自适应高度。
 5. 如果执行阶段某个预生成绑扎点不适合绑扎，则跳过该点继续下一个，不中断整条全局作业流程。
 
 同时，把索驱反馈坐标正式发布成 TF：
 
-- `cabin_frame -> Scepter_depth_frame`
+- `map -> Scepter_depth_frame`
 - `Scepter_depth_frame -> gripper_frame`（现有静态外参保留）
 
 并新增独立节点把最终绑扎点发布成世界系 TF：
 
-- `cabin_frame -> bind_point_<i>`
-- `cabin_frame -> area_<N>_point_<i>`
+- `map -> bind_point_<i>`
+- `map -> area_<N>_point_<i>`
 
 ## Current Problems
 
@@ -38,7 +38,7 @@
 - 索驱按已经规划好的区域路径完整走一遍。
 - 每个区域只做一次识别，不做自适应高度，不做绑扎。
 - 识别时使用整个矩形画幅内的点，不只取当前 2x2 执行点。
-- 点统一转换到 `cabin_frame` 世界坐标系。
+- 点统一转换到 `map` 世界坐标系。
 - 只保留落在索驱规划工作区范围内的点。
 - 扫描完成后，立即基于扫描得到的全量世界点生成后续绑扎路径文件。
 
@@ -56,13 +56,13 @@
 
 `suoquNode.cpp` 需要持续把索驱反馈位置发布成动态 TF：
 
-- 父坐标系：`cabin_frame`
+- 父坐标系：`map`
 - 子坐标系：`Scepter_depth_frame`
 
 定义：
 
-- `cabin_frame` 的原点和轴方向，直接等同于 `suoquNode` 当前索驱工作坐标系的零点和 `X/Y/Z` 正方向。
-- `Scepter_depth_frame` 在 `cabin_frame` 下的位置，由索驱实时反馈的 `cabin_state.X/Y/Z` 决定。
+- `map` 的原点和轴方向，直接等同于 `suoquNode` 当前索驱工作坐标系的零点和 `X/Y/Z` 正方向。
+- `Scepter_depth_frame` 在 `map` 下的位置，由索驱实时反馈的 `cabin_state.X/Y/Z` 决定。
 
 现有静态外参继续保留：
 
@@ -92,7 +92,7 @@
 - 节点订阅 `/cabin/area_progress`。
 - 当区域更新时，把上一块区域已经稳定的当前点固化成：
   - `area_<old_index>_point_<i>`
-- 这些历史点保留在 `cabin_frame` 下，不删除。
+- 这些历史点保留在 `map` 下，不删除。
 
 ## Architecture
 
@@ -121,7 +121,7 @@
 
 2. 新增扫描视觉输出
    - 使用整个矩形画幅内的点。
-   - 转到 `cabin_frame` 世界坐标系。
+   - 转到 `map` 世界坐标系。
    - 过滤掉不在索驱规划工作区范围内的点。
    - 输出给扫描阶段存储与后续路径生成使用。
 
@@ -177,7 +177,7 @@
 ### Modified Files
 
 - `src/chassis_ctrl/src/suoquNode.cpp`
-  - 发布 `cabin_frame -> Scepter_depth_frame`
+  - 发布 `map -> Scepter_depth_frame`
   - 新增扫描模式和按扫描路径执行模式
   - 读取/写入伪 slam 路径文件
 
@@ -190,7 +190,7 @@
 - `src/chassis_ctrl/scripts/pointAI.py`
   - 新增扫描模式
   - 以整个矩形画幅内的点为输入
-  - 输出 `cabin_frame` 下的工作区内点
+  - 输出 `map` 下的工作区内点
 
 - `src/chassis_ctrl/launch/*.launch`
   - 把 `stable_point_tf_broadcaster.py` 接入真实运行入口
@@ -199,8 +199,8 @@
 
 为避免实现阶段继续漂移，这里锁定以下决策：
 
-- 世界坐标系固定命名为 `cabin_frame`。
-- `cabin_frame` 原点/轴方向直接等同于 `suoquNode` 当前索驱工作坐标系。
+- 世界坐标系固定命名为 `map`。
+- `map` 原点/轴方向直接等同于 `suoquNode` 当前索驱工作坐标系。
 - 只广播最终绑扎点 TF，不广播自适应高度阶段临时点。
 - 稳定判定固定为：`2` 帧内同一点 `z` 在 `+-4mm`。
 - 区域切换后，上一块区域的点保留为 `area_<N>_point_<i>`。
@@ -214,7 +214,7 @@
 
 缓解：
 
-- 在 `cabin_frame` 世界坐标里做去重。
+- 在 `map` 世界坐标里做去重。
 - 复用现有欧氏距离去重思路，但阈值切到世界坐标去判断。
 - 在生成 `pseudo_slam_bind_path.json` 时，以“剩余世界点”集合为准，某个点一旦被某个区域的 `2x2` 小组选中，就从后续区域候选中移除，避免同一点被重复规划。
 
@@ -229,7 +229,7 @@
 
 缓解：
 
-- 先由 `suoquNode.cpp` 补齐 `cabin_frame -> Scepter_depth_frame`
+- 先由 `suoquNode.cpp` 补齐 `map -> Scepter_depth_frame`
 - 再接入扫描与稳定点广播逻辑。
 
 ## Success Criteria
@@ -237,10 +237,10 @@
 实现完成后，应满足：
 
 1. 可以先按规划路径完整扫描一次，不绑扎、不自适应。
-2. 扫描得到的点以 `cabin_frame` 世界坐标保存。
+2. 扫描得到的点以 `map` 世界坐标保存。
 3. 只保留索驱规划工作区内的点。
 4. 扫描完成后自动生成绑扎路径，并且每个区域内已经按多个 `2x2` 小组排好执行顺序。
 5. 点击全局作业时，不再识别，不再自适应，直接按扫描路径执行。
-6. `cabin_frame -> Scepter_depth_frame -> gripper_frame` TF 链完整可查。
+6. `map -> Scepter_depth_frame -> gripper_frame` TF 链完整可查。
 7. 最终绑扎点可通过 `bind_point_<i>` 与 `area_<N>_point_<i>` 在 TF 中查询。
 8. 某个预生成点执行失败时，系统会跳过该点并继续后续点，而不是整条流程报错退出。

@@ -1,0 +1,58 @@
+<launch>
+    <arg name="rosbridge_port" default="9090" />
+    <arg name="rosbridge_address" default="0.0.0.0" />
+    <arg name="rosbridge_retry_startup_delay" default="5" />
+    <arg name="rosbridge_fragment_timeout" default="600" />
+    <arg name="rosbridge_delay_between_messages" default="0" />
+    <arg name="rosbridge_max_message_size" default="None" />
+    <arg name="rosbridge_unregister_timeout" default="10" />
+    <arg name="rosbridge_use_compression" default="false" />
+    <arg name="rosbridge_authenticate" default="false" />
+    <arg name="rosbridge_websocket_ping_interval" default="0" />
+    <arg name="rosbridge_websocket_ping_timeout" default="30" />
+    <arg name="rosbridge_websocket_external_port" default="None" />
+    <arg name="rosbridge_websocket_null_origin" default="true" />
+    <arg name="rosbridge_topics_glob" default="[*]" />
+    <arg name="rosbridge_services_glob" default="[*]" />
+    <arg name="rosbridge_params_glob" default="[*]" />
+    <arg name="rosbridge_bson_only_mode" default="false" />
+
+    <node name="rosbridge_websocket"
+          pkg="rosbridge_server"
+          type="rosbridge_websocket"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+        <param name="authenticate" value="$(arg rosbridge_authenticate)" />
+        <param name="port" value="$(arg rosbridge_port)" />
+        <param name="address" value="$(arg rosbridge_address)" />
+        <param name="retry_startup_delay" value="$(arg rosbridge_retry_startup_delay)" />
+        <param name="fragment_timeout" value="$(arg rosbridge_fragment_timeout)" />
+        <param name="delay_between_messages" value="$(arg rosbridge_delay_between_messages)" />
+        <param name="max_message_size" value="$(arg rosbridge_max_message_size)" />
+        <param name="unregister_timeout" value="$(arg rosbridge_unregister_timeout)" />
+        <param name="use_compression" value="$(arg rosbridge_use_compression)" />
+        <param name="websocket_ping_interval" value="$(arg rosbridge_websocket_ping_interval)" />
+        <param name="websocket_ping_timeout" value="$(arg rosbridge_websocket_ping_timeout)" />
+        <param name="websocket_external_port" value="$(arg rosbridge_websocket_external_port)" />
+        <param name="websocket_null_origin" value="$(arg rosbridge_websocket_null_origin)" />
+        <param name="topics_glob" value="$(arg rosbridge_topics_glob)" />
+        <param name="services_glob" value="$(arg rosbridge_services_glob)" />
+        <param name="params_glob" value="$(arg rosbridge_params_glob)" />
+        <param name="bson_only_mode" value="$(arg rosbridge_bson_only_mode)" />
+    </node>
+
+    <node name="rosapi"
+          pkg="rosapi"
+          type="rosapi_node"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+        <param name="topics_glob" value="$(arg rosbridge_topics_glob)" />
+        <param name="services_glob" value="$(arg rosbridge_services_glob)" />
+        <param name="params_glob" value="$(arg rosbridge_params_glob)" />
+    </node>
+
+    <include file="$(find tie_robot_bringup)/launch/tf_stack.launch" />
+    <include file="$(find tie_robot_bringup)/launch/api.launch" />
+</launch>

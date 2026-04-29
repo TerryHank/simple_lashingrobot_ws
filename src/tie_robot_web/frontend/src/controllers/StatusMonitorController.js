@@ -1,8 +1,7 @@
 import { STATUS_MONITORS } from "../config/statusMonitorCatalog.js";
+import { MESSAGE_TYPES, TOPICS } from "../config/topicRegistry.js";
 import { ROSLIB } from "../vendor/roslib.js";
 
-const MODUAN_TELEMETRY_TOPIC = "/moduan/moduan_gesture_data";
-const MODUAN_TELEMETRY_TYPE = "tie_robot_msgs/linear_module_upload";
 const DIAGNOSTIC_STALE_MS = 3000;
 
 function diagnosticLevelToUiLevel(level) {
@@ -58,8 +57,8 @@ export class StatusMonitorController {
 
     const diagnosticsTopic = new ROSLIB.Topic({
       ros,
-      name: "/diagnostics",
-      messageType: "diagnostic_msgs/DiagnosticArray",
+      name: TOPICS.process.diagnostics,
+      messageType: MESSAGE_TYPES.diagnosticArray,
     });
     diagnosticsTopic.subscribe((message) => {
       const statuses = Array.isArray(message?.status) ? message.status : [];
@@ -93,8 +92,8 @@ export class StatusMonitorController {
 
     const telemetryTopic = new ROSLIB.Topic({
       ros,
-      name: MODUAN_TELEMETRY_TOPIC,
-      messageType: MODUAN_TELEMETRY_TYPE,
+      name: TOPICS.control.linearModuleState,
+      messageType: MESSAGE_TYPES.linearModuleState,
     });
     telemetryTopic.subscribe((message) => {
       const voltage = Number(message?.robot_battery_voltage);

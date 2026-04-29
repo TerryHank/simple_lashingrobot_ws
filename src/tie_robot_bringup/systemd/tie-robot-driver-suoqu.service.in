@@ -1,0 +1,24 @@
+[Unit]
+Description=Tie Robot tie-robot-driver-suoqu.service
+Wants=network-online.target tie-robot-rosbridge.service
+After=network-online.target tie-robot-rosbridge.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKSPACE@
+Environment=ROS_HOME=@WORKSPACE@/.ros
+Environment=ROS_LOG_DIR=@WORKSPACE@/.ros/log
+Environment=ROS_MASTER_URI=http://127.0.0.1:11311
+ExecStartPre=/bin/mkdir -p @WORKSPACE@/.ros/log
+ExecStartPre=/bin/bash -lc '@WORKSPACE@/src/tie_robot_bringup/tools/wait_for_ros_master.py --timeout-sec 30'
+ExecStart=/bin/bash -lc 'source /opt/ros/noetic/setup.bash && source @WORKSPACE@/devel/setup.bash && exec roslaunch tie_robot_bringup driver_suoqu.launch'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

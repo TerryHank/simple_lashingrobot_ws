@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a scan-first pseudo-SLAM workflow that builds bind paths in `cabin_frame`, then executes global work from the saved scan path without re-running vision or adaptive height.
+**Goal:** Add a scan-first pseudo-SLAM workflow that builds bind paths in `map`, then executes global work from the saved scan path without re-running vision or adaptive height.
 
-**Architecture:** Extend `suoquNode.cpp` into two explicit modes: scan-only and bind-from-scan. Keep `pointAI.py` as the point producer, add a scan mode that exports whole-ROI world points in `cabin_frame`, publish `cabin_frame -> Scepter_depth_frame` from `suoquNode`, and add a dedicated `stable_point_tf_broadcaster.py` node for final bind-point TF lifecycle and area archiving.
+**Architecture:** Extend `suoquNode.cpp` into two explicit modes: scan-only and bind-from-scan. Keep `pointAI.py` as the point producer, add a scan mode that exports whole-ROI world points in `map`, publish `map -> Scepter_depth_frame` from `suoquNode`, and add a dedicated `stable_point_tf_broadcaster.py` node for final bind-point TF lifecycle and area archiving.
 
 **Tech Stack:** ROS Noetic, roscpp, rospy, tf2_ros, geometry_msgs, Python unittest, catkin
 
@@ -25,7 +25,7 @@
 
 Add tests that assert:
 - `pointAI.py` exposes a scan mode constant / branch distinct from adaptive and bind-check.
-- `suoquNode.cpp` contains `cabin_frame` and publishes `cabin_frame -> Scepter_depth_frame`.
+- `suoquNode.cpp` contains `map` and publishes `map -> Scepter_depth_frame`.
 - `topics_transfer.cpp` and `debug_button_node.py` expose a new scan-build entry.
 - `stable_point_tf_broadcaster.py` exists and references `/coordinate_point`, `/cabin/area_progress`, `bind_point_`, and `area_` frames.
 - global work execution path in `suoquNode.cpp` references pseudo-SLAM bind path and no adaptive-height retry in scan-based execution.
@@ -67,7 +67,7 @@ Expected: FAIL because scan mode does not exist yet.
 In `pointAI.py`:
 - add a scan-only request mode constant
 - reuse full-ROI candidate extraction
-- transform points into `cabin_frame` world coordinates using the completed TF chain
+- transform points into `map` world coordinates using the completed TF chain
 - filter only by scan planning workspace, not by bind 2x2 rules
 - write scan points to a distinct output structure consumable by `suoquNode`
 
@@ -78,7 +78,7 @@ Run:
 - `python3 -m unittest src/chassis_ctrl/test/test_pointai_order.py`
 Expected: PASS
 
-### Task 3: Publish `cabin_frame -> Scepter_depth_frame` from suoqu and split scan/bind execution
+### Task 3: Publish `map -> Scepter_depth_frame` from suoqu and split scan/bind execution
 
 **Files:**
 - Modify: `src/chassis_ctrl/src/suoquNode.cpp`
@@ -89,7 +89,7 @@ Expected: PASS
 - [ ] **Step 1: Write failing tests for TF publication and pseudo-SLAM services**
 
 Add assertions that `suoquNode.cpp` contains:
-- `cabin_frame`
+- `map`
 - `Scepter_depth_frame`
 - TF broadcaster include/use
 - pseudo-SLAM scan service / entry
@@ -98,13 +98,13 @@ Add assertions that `suoquNode.cpp` contains:
 
 - [ ] **Step 2: Run the focused test to verify it fails**
 
-Run: `python3 -m unittest src.chassis_ctrl.test.test_pointai_order.PointAIOrderTest.test_suoqu_supports_cabin_frame_and_pseudo_slam_execution`
+Run: `python3 -m unittest src.chassis_ctrl.test.test_pointai_order.PointAIOrderTest.test_suoqu_supports_map_and_pseudo_slam_execution`
 Expected: FAIL
 
 - [ ] **Step 3: Implement the minimal C++ changes**
 
 In `suoquNode.cpp`:
-- add a TF broadcaster for `cabin_frame -> Scepter_depth_frame`
+- add a TF broadcaster for `map -> Scepter_depth_frame`
 - publish from the existing cabin-state read loop or a timer-safe path
 - add a scan-only service/flow that walks planned path and requests scan mode from `pointAI`
 - write merged scan results to `pseudo_slam_points.json`
@@ -114,7 +114,7 @@ In `suoquNode.cpp`:
 - [ ] **Step 4: Run the focused test and compile-target verification**
 
 Run:
-- `python3 -m unittest src.chassis_ctrl.test.test_pointai_order.PointAIOrderTest.test_suoqu_supports_cabin_frame_and_pseudo_slam_execution`
+- `python3 -m unittest src.chassis_ctrl.test.test_pointai_order.PointAIOrderTest.test_suoqu_supports_map_and_pseudo_slam_execution`
 - `catkin_make -DCATKIN_WHITELIST_PACKAGES="fast_image_solve;chassis_ctrl" -j1`
 Expected: PASS
 
@@ -144,8 +144,8 @@ Implement a dedicated node that:
 - subscribes to `/coordinate_point`
 - subscribes to `/cabin/area_progress`
 - evaluates final bind-point stability with 2 frames / ±4mm in z
-- publishes `cabin_frame -> bind_point_<i>`
-- archives previous area points as `cabin_frame -> area_<N>_point_<i>`
+- publishes `map -> bind_point_<i>`
+- archives previous area points as `map -> area_<N>_point_<i>`
 - keeps archived frames after area switches
 
 - [ ] **Step 4: Run tests and syntax checks**

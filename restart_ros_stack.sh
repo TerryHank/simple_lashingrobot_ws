@@ -25,10 +25,10 @@ pkill -f "roslaunch tie_robot_bringup algorithm_stack.launch" >/dev/null 2>&1 ||
 pkill -f "roslaunch tie_robot_bringup api.launch" >/dev/null 2>&1 || true
 
 rosnode kill /suoquNode /moduanNode /gripper_tf_broadcaster /pointAINode /stable_point_tf_broadcaster \
-  /topicTransNode /tf2_web_republisher /system_log_mux /scepter_manager /scepter_world_coord_processor \
+  /webActionBridgeNode /web_action_bridge_node /tf2_web_republisher /system_log_mux /scepter_manager /scepter_world_coord_processor \
   >/dev/null 2>&1 || true
 
-nohup roslaunch tie_robot_bringup run.launch start_workspace_picker_web:=true auto_open_workspace_picker:=false \
+nohup roslaunch tie_robot_bringup run.launch \
   >>"${LOG_DIR}/run.launch.log" 2>&1 &
 
 echo "restarted ros runtime stack"

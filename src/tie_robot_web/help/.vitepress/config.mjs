@@ -8,8 +8,19 @@ export default {
     nav: [
       { text: "总览", link: "/" },
       { text: "工程说明", link: "/guide/overview" },
+      { text: "系统设计", link: "/guide/system-design" },
+      { text: "ROS Graph", link: "/guide/ros-graph" },
       { text: "视觉原理", link: "/guide/visual-principles" },
+      { text: "PR-FPRG 流程", link: "/guide/pr-fprg-workflow" },
+      {
+        text: "对外接入",
+        items: [
+          { text: "动态 API 网关", link: "/guide/dynamic-api-gateway" },
+          { text: "GB28181 视频接入", link: "/guide/gb28181-video-gateway" }
+        ]
+      },
       { text: "相机 SDK", link: "/camera-sdk/index" },
+      { text: "GitNexus 图谱", link: "/reference/gitnexus-graph" },
       { text: "文件树", link: "/reference/file-tree" }
     ],
     sidebar: [
@@ -17,9 +28,19 @@ export default {
         text: "工程说明",
         items: [
           { text: "工程总览", link: "/guide/overview" },
+          { text: "工程设计与架构图", link: "/guide/system-design" },
+          { text: "ROS Graph", link: "/guide/ros-graph" },
           { text: "运行主链", link: "/guide/runtime-flows" },
           { text: "视觉原理", link: "/guide/visual-principles" },
+          { text: "PR-FPRG 流程详解", link: "/guide/pr-fprg-workflow" },
           { text: "开发入口", link: "/guide/dev-entrypoints" }
+        ]
+      },
+      {
+        text: "对外接入",
+        items: [
+          { text: "ROS 动态 API 网关", link: "/guide/dynamic-api-gateway" },
+          { text: "GB28181 视频接入", link: "/guide/gb28181-video-gateway" }
         ]
       },
       {
@@ -35,6 +56,12 @@ export default {
           { text: "中文 GUI FAQ", link: "/camera-sdk/vendor-vzense/zh-cn/ScepterGUITool/FAQ" },
           { text: "English Entry", link: "/camera-sdk/vendor-vzense/en/README" },
           { text: "English BaseSDK", link: "/camera-sdk/vendor-vzense/en/ScepterSDK/BaseSDK" }
+        ]
+      },
+      {
+        text: "GitNexus 图谱",
+        items: [
+          { text: "本地 WebUI", link: "/reference/gitnexus-graph" }
         ]
       },
       {

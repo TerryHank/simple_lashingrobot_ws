@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +17,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -129,44 +127,63 @@ def draw_text_with_background(self,image, text, position, font=cv2.FONT_HERSHEY_
 
 def render_manual_workspace_s2_result_image(self, workspace_mask, line_segments, display_points):
     if getattr(self, "image_infrared_copy", None) is None:
-        result_image = np.zeros(workspace_mask.shape[:2], dtype=np.uint8)
+        result_image = np.zeros((*workspace_mask.shape[:2], 3), dtype=np.uint8)
     else:
-        result_image = np.array(self.image_infrared_copy, copy=True)
+        infrared_image = np.asarray(self.image_infrared_copy)
+        if infrared_image.ndim == 2:
+            result_image = cv2.cvtColor(infrared_image.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        elif infrared_image.ndim == 3 and infrared_image.shape[2] >= 3:
+            result_image = np.array(infrared_image[:, :, :3], copy=True).astype(np.uint8)
+        else:
+            result_image = np.zeros((*workspace_mask.shape[:2], 3), dtype=np.uint8)
 
     manual_workspace = self.load_manual_workspace_quad()
     if manual_workspace is not None:
         polygon_points = np.array(manual_workspace["corner_pixels"], dtype=np.int32).reshape((-1, 1, 2))
-        cv2.polylines(result_image, [polygon_points], True, 180, 2)
+        cv2.polylines(result_image, [polygon_points], True, (220, 220, 220), 2)
 
-    for segment_start, segment_end in line_segments.get("vertical", []):
-        cv2.line(
-            result_image,
-            (int(segment_start[0]), int(segment_start[1])),
-            (int(segment_end[0]), int(segment_end[1])),
-            110,
-            1,
-        )
-    for segment_start, segment_end in line_segments.get("horizontal", []):
-        cv2.line(
-            result_image,
-            (int(segment_start[0]), int(segment_start[1])),
-            (int(segment_end[0]), int(segment_end[1])),
-            110,
-            1,
-        )
+    for family_segments in line_segments.values():
+        for segment_start, segment_end in family_segments:
+            cv2.line(
+                result_image,
+                (int(segment_start[0]), int(segment_start[1])),
+                (int(segment_end[0]), int(segment_end[1])),
+                (0, 255, 0),
+                1,
+            )
 
-    occupied_label_bboxes = []
+    label_font = cv2.FONT_HERSHEY_SIMPLEX
+    label_font_scale = 0.23
+    label_thickness = 1
+    image_height, image_width = result_image.shape[:2]
     for display_idx, pix_coord, world_coord, _, status_detail in display_points:
-        cv2.circle(result_image, (int(pix_coord[0]), int(pix_coord[1])), 3, 255, -1)
+        cv2.circle(result_image, (int(pix_coord[0]), int(pix_coord[1])), 4, (0, 255, 255), -1)
         label_text = f"{display_idx}"
-        label_position, label_bbox = self.find_non_overlapping_label_position(
-            result_image.shape,
-            pix_coord,
+        (_, _), (_, _), text_width, text_height, baseline = self.get_text_bbox(
             label_text,
-            occupied_label_bboxes,
+            (0, 0),
+            font=label_font,
+            font_scale=label_font_scale,
+            thickness=label_thickness,
         )
-        occupied_label_bboxes.append(label_bbox)
-        self.draw_text_with_background(result_image, label_text, label_position)
+        label_x = int(np.clip(
+            int(round(float(pix_coord[0]) - (text_width / 2.0))),
+            0,
+            max(0, image_width - text_width - 1),
+        ))
+        label_y = int(np.clip(
+            int(round(float(pix_coord[1]) - 6.0)),
+            text_height + baseline + 1,
+            max(text_height + baseline + 1, image_height - baseline - 1),
+        ))
+        self.draw_text_with_background(
+            result_image,
+            label_text,
+            (label_x, label_y),
+            font=label_font,
+            font_scale=label_font_scale,
+            thickness=label_thickness,
+        )
 
     return result_image
 
@@ -182,11 +199,12 @@ def format_result_display_label(self, display_idx, world_coord, status_text):
 
 
 def publish_manual_workspace_s2_result(self, result_image, points_array_msg):
-    result_image_msg = self.bridge.cv2_to_imgmsg(result_image, encoding='mono8')
+    result_image_msg = self.bridge.cv2_to_imgmsg(result_image, encoding='bgr8')
     result_image_msg.header.stamp = rospy.Time.now()
     result_image_msg.header.frame_id = "infrared_camera"
     self.manual_workspace_s2_result_raw_pub.publish(result_image_msg)
     self.result_image_raw_pub.publish(result_image_msg)
+    self.lashing_result_image_pub.publish(result_image_msg)
 
     compress_msg = CompressedImage()
     compress_msg.header.stamp = result_image_msg.header.stamp
@@ -199,8 +217,12 @@ def publish_manual_workspace_s2_result(self, result_image, points_array_msg):
 
     compress_msg.data = jpeg_data.tobytes()
     self.image_pub.publish(compress_msg)
+    self.lashing_result_image_compressed_pub.publish(compress_msg)
     self.coordinate_publisher.publish(points_array_msg)
     self.manual_workspace_s2_points_pub.publish(points_array_msg)
+    self.lashing_points_camera_pub.publish(points_array_msg)
+    if hasattr(self, "publish_raw_camera_bind_point_transforms"):
+        self.publish_raw_camera_bind_point_transforms(points_array_msg)
 
 
 def draw_mask_contours(self, result_image, workspace_mask, color, thickness):

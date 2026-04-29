@@ -10,6 +10,27 @@ PACKAGE_DIR = WORKSPACE_SRC / "tie_robot_perception"
 
 
 class ScepterSdkSplitTest(unittest.TestCase):
+    def test_scepter_static_tf_aliases_are_children_of_depth_frame(self):
+        content = (PACKAGE_DIR / "src" / "camera" / "intrinsics.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        for child_frame in (
+            "camera_frame",
+            "color_frame",
+            "points_frame",
+            "depth2colorpoints_frame",
+            "alignedcolor_frame",
+            "aligneddepth_frame",
+        ):
+            with self.subTest(child_frame=child_frame):
+                self.assertIn(
+                    f"publish_static_identity_tf(tf_broadcaster, now, depth_frame, {child_frame});",
+                    content,
+                )
+
+        self.assertNotIn("msg.child_frame_id = depth_frame;", content)
+
     def test_camera_manager_no_longer_contains_world_coord_or_convert_service(self):
         content = (PACKAGE_DIR / "src" / "camera" / "scepter_manager.cpp").read_text(
             encoding="utf-8"
@@ -42,8 +63,21 @@ class ScepterSdkSplitTest(unittest.TestCase):
         content = (PACKAGE_DIR / "launch" / "scepter_camera.launch").read_text(
             encoding="utf-8"
         )
+        self.assertIn('<arg name="camera_respawn" default="false"', content)
         self.assertIn('type="scepter_world_coord_processor"', content)
         self.assertIn('name="scepter_world_coord_processor"', content)
+        self.assertIn('respawn="$(arg camera_respawn)"', content)
+
+    def test_camera_driver_exits_after_consecutive_frame_failures_for_guard_restart(self):
+        content = (PACKAGE_DIR / "src" / "camera" / "device_session.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("kMaxConsecutiveFrameReadyFailures", content)
+        self.assertIn("++missed_frames", content)
+        self.assertIn("missed_frames = 0;", content)
+        self.assertIn("相机连续取帧失败", content)
+        self.assertIn("ros::shutdown();", content)
 
     def test_cmake_splits_driver_and_algorithm_targets(self):
         content = (PACKAGE_DIR / "CMakeLists.txt").read_text(encoding="utf-8")

@@ -21,24 +21,17 @@ bool transform_cabin_world_point_to_gripper_point(
     tie_robot_msgs::PointCoords& gripper_point
 )
 {
-    tf2::Transform gripper_from_scepter;
-    if (!lookup_gripper_from_scepter_transform(gripper_from_scepter)) {
+    tf2::Transform gripper_from_cabin;
+    if (!lookup_current_gripper_from_cabin_transform(gripper_from_cabin)) {
         return false;
     }
 
-    Cabin_State current_cabin_state{};
-    {
-        std::lock_guard<std::mutex> lock(cabin_state_mutex);
-        current_cabin_state = cabin_state;
-    }
-
-    const tf2::Vector3 point_in_scepter_frame(
-        static_cast<double>(world_point.World_coord[0] - current_cabin_state.X) / 1000.0,
-        static_cast<double>(world_point.World_coord[1] - current_cabin_state.Y) / 1000.0,
-        static_cast<double>(current_cabin_state.Z - world_point.World_coord[2]) / 1000.0 -
-            gripper_from_scepter.getOrigin().z()
+    const tf2::Vector3 point_in_map(
+        static_cast<double>(world_point.World_coord[0]) / 1000.0,
+        static_cast<double>(world_point.World_coord[1]) / 1000.0,
+        static_cast<double>(world_point.World_coord[2]) / 1000.0
     );
-    const tf2::Vector3 point_in_gripper_frame = gripper_from_scepter * point_in_scepter_frame;
+    const tf2::Vector3 point_in_gripper_frame = gripper_from_cabin * point_in_map;
 
     gripper_point = world_point;
     gripper_point.World_coord[0] = static_cast<float>(point_in_gripper_frame.x() * 1000.0);
@@ -559,7 +552,7 @@ bool compute_pseudo_slam_global_scan_pose(
         }
     } catch (const std::exception& ex) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_Warn: 读取path_points.json工作区几何失败，将退回到路径边界中心扫描：%s\n",
             ex.what()
         );
@@ -584,7 +577,7 @@ bool compute_pseudo_slam_global_scan_pose(
     scan_center.y = (min_y + max_y) / 2.0f;
 
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_Warn: path_points.json缺少完整工作区几何，已退回到路径边界中心(%f,%f)执行单次全局扫描。\n",
         scan_center.x,
         scan_center.y
@@ -704,7 +697,7 @@ std::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_planning_outliers(
 
     if (removed_count > 0) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: pseudo_slam平面离群过滤：方式=%s，平面 z=%.6fx + %.6fy + %.3f，保留%d个点，过滤%d个点，阈值=±%.2fmm%s。\n",
             plane_model.used_ransac ? "RANSAC" : "最小二乘",
             plane_model.a,
@@ -765,7 +758,7 @@ std::unordered_set<int> collect_pseudo_slam_outlier_secondary_plane_global_indic
     }
 
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_log: pseudo_slam离群点二次平面拟合：方式=%s，平面 z=%.6fx + %.6fy + %.3f，二次平面成员点%d/%d，阈值=±%.2fmm%s。\n",
         secondary_plane_model.used_ransac ? "RANSAC" : "最小二乘",
         secondary_plane_model.a,
@@ -813,7 +806,7 @@ std::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_points_near_outlier_
 
     if (removed_point_count > 0) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: pseudo_slam离群二次平面成员附近xy±%.1fmm内正常点视为不可执行，本次排除%d个点。\n",
             neighbor_tolerance_mm,
             removed_point_count
@@ -919,7 +912,7 @@ std::unordered_set<int> collect_pseudo_slam_outlier_line_global_indices(
 
     if (!outlier_line_global_indices.empty()) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: pseudo_slam离群线拟合：在离群点中识别出线成员点%d个，使用专色显示。\n",
             static_cast<int>(outlier_line_global_indices.size())
         );
@@ -999,7 +992,7 @@ std::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_points_near_outlier_
 
     if (removed_point_count > 0) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: pseudo_slam离群列点位过滤：拟合成列的z离群点附近±10mm内正常点视为不可执行，移除%d个点，剩余%d个规划点。\n",
             removed_point_count,
             static_cast<int>(filtered_points.size())
@@ -1193,7 +1186,7 @@ bool validate_scan_session_alignment(
     oss << "，按fail-closed策略拒绝继续执行";
     error_message = oss.str();
     printCurrentTime();
-    printf("Cabin_Warn: %s\n", error_message.c_str());
+    ros_log_printf("Cabin_Warn: %s\n", error_message.c_str());
     return false;
 }
 
@@ -1238,7 +1231,7 @@ bool validate_path_signature_alignment(
     oss << "，说明扫描时使用的路径或关键运动参数已经变化，请先重新扫描后再执行";
     error_message = oss.str();
     printCurrentTime();
-    printf("Cabin_Warn: %s\n", error_message.c_str());
+    ros_log_printf("Cabin_Warn: %s\n", error_message.c_str());
     return false;
 }
 
@@ -1506,7 +1499,7 @@ std::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_non_checkerboard_poi
 
     if (removed_count > 0) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: pseudo_slam棋盘格成员过滤：无法融入棋盘格行列邻接的点视为离群点，移除%d个点，剩余%d个规划点。\n",
             removed_count,
             static_cast<int>(filtered_points.size())

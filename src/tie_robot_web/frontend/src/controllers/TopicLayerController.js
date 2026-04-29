@@ -10,7 +10,10 @@ export class TopicLayerController {
     this.ui = ui;
     this.sceneView = sceneView;
     this.callbacks = callbacks;
-    this.state = { ...DEFAULT_TOPIC_LAYER_STATE };
+    this.state = {
+      ...DEFAULT_TOPIC_LAYER_STATE,
+      tfAxisFrameVisibility: { ...DEFAULT_TOPIC_LAYER_STATE.tfAxisFrameVisibility },
+    };
     this.stats = {
       filteredWorldCoordCount: 0,
       rawWorldCoordCount: 0,
@@ -57,6 +60,9 @@ export class TopicLayerController {
   }
 
   getState() {
-    return { ...this.state };
+    return {
+      ...this.state,
+      tfAxisFrameVisibility: { ...this.state.tfAxisFrameVisibility },
+    };
   }
 }

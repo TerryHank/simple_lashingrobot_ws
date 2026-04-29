@@ -48,7 +48,7 @@ bool LinearModuleDriver::clearFinishAll(DriverError* error)
     return start(error) && transport_->writeSingleRegister(kRegisterFinishAll, 0, error);
 }
 
-bool LinearModuleDriver::executeQueuedPoints(
+bool LinearModuleDriver::writeQueuedPoints(
     const std::vector<LinearModulePoint>& points,
     DriverError* error)
 {
@@ -65,6 +65,17 @@ bool LinearModuleDriver::executeQueuedPoints(
         }
     }
 
+    return true;
+}
+
+bool LinearModuleDriver::pulseExecutionEnable(DriverError* error)
+{
+    if (!start(error)) {
+        return false;
+    }
+    if (!transport_->writeSingleRegister(kRegisterEnableDisable, 0, error)) {
+        return false;
+    }
     if (!transport_->writeSingleRegister(kRegisterEnableDisable, 1, error)) {
         return false;
     }
@@ -74,15 +85,12 @@ bool LinearModuleDriver::executeQueuedPoints(
     return true;
 }
 
-bool LinearModuleDriver::requestZero(DriverError* error)
+bool LinearModuleDriver::setZeroRequest(bool requested, DriverError* error)
 {
     if (!start(error)) {
         return false;
     }
-    if (!transport_->writeSingleRegister(kRegisterEnableDisable, 1, error)) {
-        return false;
-    }
-    return transport_->writeSingleRegister(kRegisterIsZero, 1, error);
+    return transport_->writeSingleRegister(kRegisterIsZero, requested ? 1 : 0, error);
 }
 
 LinearModuleStateSnapshot LinearModuleDriver::readState() const

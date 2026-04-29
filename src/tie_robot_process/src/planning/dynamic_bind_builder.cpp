@@ -49,7 +49,6 @@ PseudoSlamBindGroup build_dynamic_four_point_template_group(
 {
     PseudoSlamBindGroup bind_group;
     bind_group.group_index = group_index;
-    bind_group.group_type = "matrix_2x2";
     consumed_unfinished_global_indices.clear();
 
     std::vector<PseudoSlamCandidatePoint> unfinished_candidates;
@@ -59,67 +58,19 @@ PseudoSlamBindGroup build_dynamic_four_point_template_group(
         }
     }
 
-    std::unordered_set<int> selected_global_indices;
     std::vector<int> selected_unfinished_candidate_indices =
         select_nearest_origin_matrix_candidate_indices(unfinished_candidates, config);
     if (selected_unfinished_candidate_indices.size() != 4) {
-        selected_unfinished_candidate_indices.clear();
-        std::vector<int> sorted_unfinished_candidate_indices(unfinished_candidates.size());
-        std::iota(sorted_unfinished_candidate_indices.begin(), sorted_unfinished_candidate_indices.end(), 0);
-        std::sort(sorted_unfinished_candidate_indices.begin(), sorted_unfinished_candidate_indices.end(), [&](int lhs_index, int rhs_index) {
-            const auto& lhs_point = unfinished_candidates[lhs_index].local_point;
-            const auto& rhs_point = unfinished_candidates[rhs_index].local_point;
-            if (local_origin_distance_sq(lhs_point) != local_origin_distance_sq(rhs_point)) {
-                return local_origin_distance_sq(lhs_point) < local_origin_distance_sq(rhs_point);
-            }
-            return unfinished_candidates[lhs_index].world_point.idx <
-                   unfinished_candidates[rhs_index].world_point.idx;
-        });
-        const size_t unfinished_take_count =
-            std::min<size_t>(4, sorted_unfinished_candidate_indices.size());
-        for (size_t unfinished_index = 0; unfinished_index < unfinished_take_count; ++unfinished_index) {
-            selected_unfinished_candidate_indices.push_back(
-                sorted_unfinished_candidate_indices[unfinished_index]);
-        }
+        return bind_group;
     }
 
+    bind_group.group_type = "matrix_2x2";
     for (const int candidate_index : selected_unfinished_candidate_indices) {
         const auto& world_point =
             unfinished_candidates[static_cast<size_t>(candidate_index)].world_point;
         bind_group.bind_points_world.push_back(world_point);
-        selected_global_indices.insert(world_point.idx);
         consumed_unfinished_global_indices.insert(world_point.idx);
     }
-
-    std::vector<PseudoSlamCandidatePoint> sorted_coverable_candidates = coverable_candidates;
-    std::sort(sorted_coverable_candidates.begin(), sorted_coverable_candidates.end(), [&](const auto& lhs, const auto& rhs) {
-        if (local_origin_distance_sq(lhs.local_point) != local_origin_distance_sq(rhs.local_point)) {
-            return local_origin_distance_sq(lhs.local_point) < local_origin_distance_sq(rhs.local_point);
-        }
-        return lhs.world_point.idx < rhs.world_point.idx;
-    });
-
-    for (const auto& candidate : sorted_coverable_candidates) {
-        if (bind_group.bind_points_world.size() == 4) {
-            break;
-        }
-        if (selected_global_indices.count(candidate.world_point.idx) > 0) {
-            continue;
-        }
-        bind_group.bind_points_world.push_back(candidate.world_point);
-        selected_global_indices.insert(candidate.world_point.idx);
-    }
-
-    if (!sorted_coverable_candidates.empty()) {
-        while (bind_group.bind_points_world.size() < 4) {
-            bind_group.bind_points_world.push_back(sorted_coverable_candidates.front().world_point);
-        }
-    }
-
-    if (bind_group.bind_points_world.size() == 4) {
-        bind_group.group_type = "matrix_2x2";
-    }
-
     return bind_group;
 }
 

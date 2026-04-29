@@ -17,7 +17,7 @@ bool load_bind_execution_memory_json(
     if (!file_obj.is_open()) {
         if (access(kBindExecutionMemoryJsonPath.c_str(), F_OK) == 0) {
             printCurrentTime();
-            printf("Cabin_log: bind_execution_memory.json读取或解析失败，无法打开现有记忆文件。\n");
+            ros_log_printf("Cabin_log: bind_execution_memory.json读取或解析失败，无法打开现有记忆文件。\n");
             error_message = kBindExecutionMemoryUnreadableError;
             return false;
         }
@@ -71,7 +71,7 @@ bool load_bind_execution_memory_json(
         }
     } catch (const std::exception&) {
         printCurrentTime();
-        printf("Cabin_log: bind_execution_memory.json读取、解析或语义校验失败，阻止执行以避免重复绑扎。\n");
+        ros_log_printf("Cabin_log: bind_execution_memory.json读取、解析或语义校验失败，阻止执行以避免重复绑扎。\n");
         error_message = kBindExecutionMemoryUnreadableError;
         memory = BindExecutionMemory{};
         return false;
@@ -229,7 +229,7 @@ bool reset_bind_execution_memory_from_current_scan_artifacts(
     }
 
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_log: 已按请求清空bind_execution_memory.json，scan_session_id=%s，path_signature=%s。\n",
         bind_path_scan_session_id.c_str(),
         current_path_signature.c_str()

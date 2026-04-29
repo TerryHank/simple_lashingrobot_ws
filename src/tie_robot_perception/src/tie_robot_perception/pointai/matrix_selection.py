@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +17,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -188,7 +186,7 @@ def angle_between(self, line1, line2):
     if bisector_norm != 0:
         bisector_unit = (bisector[0] / bisector_norm, bisector[1] / bisector_norm)
     else:
-        bisector_unit = (0, 0)  
+        bisector_unit = (0, 0)
 
     # 计算角平分线与水平线的夹角
     angle_with_horizontal = np.arctan2(bisector_unit[1], bisector_unit[0])
@@ -441,7 +439,6 @@ def select_display_matrix_centers(self, downstream_matrix_centers, in_range_cent
 def build_matrix_display_points(self, matrix_centers, mark_travel_out_of_range=False):
     display_point_numbers = self.get_selected_point_numbers(matrix_centers)
     display_points = []
-    use_tcp_display = self.current_result_request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
     for source_idx, center, calibrated_world_coord in matrix_centers:
         display_idx = display_point_numbers.get(source_idx, "-")
@@ -450,22 +447,7 @@ def build_matrix_display_points(self, matrix_centers, mark_travel_out_of_range=F
         status = self.get_selected_point_status(display_idx)
         status_detail = ""
 
-        if use_tcp_display:
-            tcp_coord = self.transform_cabin_point_to_gripper_frame(
-                calibrated_world_coord[0],
-                calibrated_world_coord[1],
-                calibrated_world_coord[2],
-            )
-            if tcp_coord is None:
-                continue
-            if not self.is_point_in_tcp_display_range(
-                tcp_coord[0],
-                tcp_coord[1],
-                tcp_coord[2],
-            ):
-                continue
-            display_coord = tcp_coord
-        elif mark_travel_out_of_range and not self.is_point_in_travel_range(
+        if mark_travel_out_of_range and not self.is_point_in_travel_range(
             calibrated_world_coord[0],
             calibrated_world_coord[1]
         ):
@@ -579,6 +561,3 @@ def select_nearest_origin_matrix_points(self, centers, max_points=4, row_thresho
                         best_points = sorted_points
 
     return best_points
-
-
-from .matrix_preprocess import pre_img

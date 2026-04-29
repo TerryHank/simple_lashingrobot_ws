@@ -1,0 +1,13 @@
+PointCoords[] points
+bool apply_jump_bind_filter
+---
+bool success
+string message
+string error_code
+---
+string phase
+uint32 selected_count
+float64 current_x
+float64 current_y
+float64 current_z
+float64 elapsed_sec

@@ -1,0 +1,8 @@
+<launch>
+    <node name="moduan_driver_node"
+          pkg="tie_robot_control"
+          type="moduan_driver_node"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0" />
+</launch>

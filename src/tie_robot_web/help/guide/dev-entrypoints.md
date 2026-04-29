@@ -2,8 +2,9 @@
 
 ## 常用启动
 
-- 主启动：`roslaunch tie_robot_bringup run.launch`
-- 新前端静态服务：`tie_robot_web/scripts/workspace_picker_web_server.py`
+- ROS 后端启动：`roslaunch tie_robot_bringup run.launch`
+- 前端独立守护：`tie_robot_web/scripts/workspace_picker_web_server.py --no-ros`
+- 前端 ROS 手动启动：`roslaunch tie_robot_bringup frontend.launch`
 - 新前端源码目录：`src/tie_robot_web/frontend`
 - 新前端构建命令：`cd src/tie_robot_web/frontend && npm run build`
 - 帮助站目录：`src/tie_robot_web/web/help`
@@ -18,8 +19,12 @@
 - 顶部工具条与整页布局：`src/tie_robot_web/frontend/src/ui/UIController.js`
 - 浮动面板拖拽：`src/tie_robot_web/frontend/src/ui/PanelManager.js`
 - 前端构建产物入口：`src/tie_robot_web/web/index.html`
-- 桥接入口：`src/tie_robot_web/src/topics_transfer.cpp`
-- 视觉入口：`src/tie_robot_perception/scripts/pointAI.py`
+- 桥接入口：`src/tie_robot_web/src/web_action_bridge.cpp`
+- 前端话题注册表：`src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- 动态 API 网关入口：`src/tie_robot_web/scripts/ros_api_gateway.py`
+- GB28181 视频接入包：`src/tie_robot_gb28181`
+- 视觉 ROS 节点入口：`src/tie_robot_perception/scripts/pointai_node.py`
+- 视觉算法包入口：`src/tie_robot_perception/src/tie_robot_perception/pointai/`
 - 线模入口：`src/tie_robot_control/src/moduanNode.cpp`
 - 流程入口：`src/tie_robot_process/src/suoquNode.cpp`
 
@@ -47,7 +52,7 @@
 ## 三维窗口数据源
 
 - 机器与相机运动：`/tf`、`/tf_static`
-- 当前识别绑扎点：`/coordinate_point`
+- 当前识别绑扎点：`/coordinate_point`，点值为 `Scepter_depth_frame` 相机原始坐标
 - 规划点与执行高亮：`/cabin/pseudo_slam_markers`
 - 过滤后世界点云：`/Scepter/worldCoord/world_coord`
 - 原始世界点云：`/Scepter/worldCoord/raw_world_coord`

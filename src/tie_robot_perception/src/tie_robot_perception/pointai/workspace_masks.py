@@ -1,6 +1,5 @@
 """pointAI 拆分后的职责模块。"""
 import json
-import math
 import os
 import time
 import yaml
@@ -9,7 +8,6 @@ import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +16,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -47,12 +44,12 @@ from tie_robot_perception.perception.workspace_s2 import (
 )
 from .constants import *
 
-def save_manual_workspace_quad(self, corner_pixels, corner_world_cabin_frame, corner_sample_pixels=None):
+def save_manual_workspace_quad(self, corner_pixels, corner_world_camera_frame, corner_sample_pixels=None):
     manual_workspace_json = {
         "corner_pixels": [[int(point[0]), int(point[1])] for point in corner_pixels],
-        "corner_world_cabin_frame": [
+        "corner_world_camera_frame": [
             [float(point[0]), float(point[1]), float(point[2])]
-            for point in corner_world_cabin_frame
+            for point in corner_world_camera_frame
         ],
     }
     if corner_sample_pixels is not None:
@@ -91,6 +88,7 @@ def publish_current_manual_workspace_quad_pixels(self):
     if message is None:
         return
     publisher.publish(message)
+    self.lashing_workspace_quad_pixels_pub.publish(message)
 
 
 def load_manual_workspace_quad(self):
@@ -105,37 +103,35 @@ def load_manual_workspace_quad(self):
         return None
 
     corner_pixels = manual_workspace_json.get("corner_pixels")
-    corner_world_cabin_frame = manual_workspace_json.get("corner_world_cabin_frame")
-    if (
-        not isinstance(corner_pixels, list)
-        or not isinstance(corner_world_cabin_frame, list)
-        or len(corner_pixels) != 4
-        or len(corner_world_cabin_frame) != 4
-    ):
+    corner_world_camera_frame = manual_workspace_json.get("corner_world_camera_frame")
+    if not isinstance(corner_pixels, list) or len(corner_pixels) != 4:
         return None
 
     normalized_corner_pixels = []
     normalized_corner_world = []
-    for pixel_point, world_point in zip(corner_pixels, corner_world_cabin_frame):
-        if (
-            not isinstance(pixel_point, (list, tuple))
-            or not isinstance(world_point, (list, tuple))
-            or len(pixel_point) != 2
-            or len(world_point) != 3
-        ):
+    for pixel_point in corner_pixels:
+        if not isinstance(pixel_point, (list, tuple)) or len(pixel_point) != 2:
             return None
 
         normalized_corner_pixels.append([int(round(pixel_point[0])), int(round(pixel_point[1]))])
-        normalized_corner_world.append([
-            float(world_point[0]),
-            float(world_point[1]),
-            float(world_point[2]),
-        ])
 
-    return {
+    normalized_workspace = {
         "corner_pixels": normalized_corner_pixels,
-        "corner_world_cabin_frame": normalized_corner_world,
     }
+    if isinstance(corner_world_camera_frame, list) and len(corner_world_camera_frame) == 4:
+        for world_point in corner_world_camera_frame:
+            if not isinstance(world_point, (list, tuple)) or len(world_point) != 3:
+                normalized_corner_world = []
+                break
+            normalized_corner_world.append([
+                float(world_point[0]),
+                float(world_point[1]),
+                float(world_point[2]),
+            ])
+        if len(normalized_corner_world) == 4:
+            normalized_workspace["corner_world_camera_frame"] = normalized_corner_world
+
+    return normalized_workspace
 
 
 def manual_workspace_quad_callback(self, msg):
@@ -145,7 +141,7 @@ def manual_workspace_quad_callback(self, msg):
 
     clicked_corner_pixels = []
     corner_sample_pixels = []
-    corner_world_cabin_frame = []
+    corner_world_camera_frame = []
     for corner_index in range(0, len(raw_data), 2):
         pixel_x = int(round(raw_data[corner_index]))
         pixel_y = int(round(raw_data[corner_index + 1]))
@@ -153,25 +149,15 @@ def manual_workspace_quad_callback(self, msg):
         if raw_world_coord[0] == 0 or raw_world_coord[1] == 0 or raw_world_coord[2] == 0:
             return
 
-        calibrated_world_coord = self.apply_spatial_calibration(
-            raw_world_coord[0],
-            raw_world_coord[1],
-            raw_world_coord[2],
-            corner_index // 2,
-            target_frame="cabin_frame",
-        )
-        if calibrated_world_coord is None:
-            return
-
         clicked_corner_pixels.append([pixel_x, pixel_y])
         corner_sample_pixels.append([int(sample_pixel[0]), int(sample_pixel[1])])
-        corner_world_cabin_frame.append([
-            float(calibrated_world_coord[0]),
-            float(calibrated_world_coord[1]),
-            float(calibrated_world_coord[2]),
+        corner_world_camera_frame.append([
+            float(raw_world_coord[0]),
+            float(raw_world_coord[1]),
+            float(raw_world_coord[2]),
         ])
 
-    point_records = list(zip(clicked_corner_pixels, corner_sample_pixels, corner_world_cabin_frame))
+    point_records = list(zip(clicked_corner_pixels, corner_sample_pixels, corner_world_camera_frame))
     ordered_corner_pixels = self.sort_polygon_points_clockwise(clicked_corner_pixels)
     ordered_records = []
     remaining_records = point_records[:]
@@ -259,28 +245,12 @@ def build_convex_polygon_inside_mask(target_x, target_y, polygon_xy, valid_mask)
     return inside_mask.astype(np.uint8)
 
 
+def get_manual_workspace_camera_polygon_pixel_mask(self):
+    return self.get_manual_workspace_pixel_mask()
+
+
 def get_manual_workspace_cabin_polygon_pixel_mask(self):
-    manual_workspace = self.load_manual_workspace_quad()
-    if manual_workspace is None:
-        return None
-
-    cabin_channels = self.get_cabin_frame_xy_channels()
-    if cabin_channels is None:
-        return None
-
-    polygon_xy = np.array(
-        [[float(point[0]), float(point[1])] for point in manual_workspace["corner_world_cabin_frame"]],
-        dtype=np.float32,
-    )
-    if polygon_xy.shape != (4, 2):
-        return None
-
-    return self.build_convex_polygon_inside_mask(
-        cabin_channels["x"],
-        cabin_channels["y"],
-        polygon_xy,
-        cabin_channels["valid_mask"],
-    )
+    return self.get_manual_workspace_camera_polygon_pixel_mask()
 
 
 def is_point_in_manual_workspace_polygon(self, world_x, world_y):
@@ -288,8 +258,12 @@ def is_point_in_manual_workspace_polygon(self, world_x, world_y):
     if manual_workspace is None:
         return None
 
+    corner_world_camera_frame = manual_workspace.get("corner_world_camera_frame")
+    if not isinstance(corner_world_camera_frame, list) or len(corner_world_camera_frame) != 4:
+        return None
+
     polygon_xy = np.array(
-        [[point[0], point[1]] for point in manual_workspace["corner_world_cabin_frame"]],
+        [[point[0], point[1]] for point in corner_world_camera_frame],
         dtype=np.float32,
     )
     if polygon_xy.shape != (4, 2):
@@ -317,43 +291,8 @@ def is_point_in_scan_workspace(self, world_x, world_y):
 
 
 def get_frame_space_pixel_mask(self, target_frame, min_x, max_x, min_y, max_y):
-    if (not hasattr(self, 'x_channel')) or (not hasattr(self, 'y_channel')) or (not hasattr(self, 'depth_v')):
-        return None
-    if self.x_channel is None or self.y_channel is None or self.depth_v is None:
-        return None
-
-    transform_matrix = self.lookup_transform_matrix_mm(target_frame)
-    if transform_matrix is None:
-        return None
-
-    source_x = self.x_channel.astype(np.float32)
-    source_y = self.y_channel.astype(np.float32)
-    source_z = self.depth_v.astype(np.float32)
-    valid_mask = source_z != 0.0
-
-    target_x = (
-        transform_matrix[0, 0] * source_x
-        + transform_matrix[0, 1] * source_y
-        + transform_matrix[0, 2] * source_z
-        + transform_matrix[0, 3]
-    )
-    target_y = (
-        transform_matrix[1, 0] * source_x
-        + transform_matrix[1, 1] * source_y
-        + transform_matrix[1, 2] * source_z
-        + transform_matrix[1, 3]
-    )
-
-    mask = (
-        valid_mask
-        & (target_x >= min_x)
-        & (target_x <= max_x)
-        & (target_y >= min_y)
-        & (target_y <= max_y)
-    )
-    if not np.any(mask):
-        return None
-    return mask.astype(np.uint8)
+    del target_frame, min_x, max_x, min_y, max_y
+    return None
 
 
 def get_roi_pixel_mask(self):
@@ -389,7 +328,7 @@ def get_scan_workspace_pixel_mask(self):
     if workspace["min_x"] == workspace["max_x"] and workspace["min_y"] == workspace["max_y"]:
         return None
     return self.get_frame_space_pixel_mask(
-        "cabin_frame",
+        "map",
         workspace["min_x"],
         workspace["max_x"],
         workspace["min_y"],

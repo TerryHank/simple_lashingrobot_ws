@@ -11,7 +11,7 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
     const CabinPoint& path_origin,
     float cabin_height,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config)
 {
     using namespace internal;
@@ -78,13 +78,13 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
             const DynamicBindPlanningCandidatePose candidate_pose =
                 build_dynamic_bind_candidate_pose_from_world_point(
                     current_seed_world_points,
-                    gripper_from_scepter,
+                    gripper_from_base_link,
                     config);
             const std::vector<PseudoSlamCandidatePoint> coverable_candidates =
                 collect_world_points_coverable_by_dynamic_pose(
                     planning_world_points,
                     candidate_pose,
-                    gripper_from_scepter,
+                    gripper_from_base_link,
                     config);
             size_t unfinished_coverable_count = 0;
             for (const auto& candidate : coverable_candidates) {

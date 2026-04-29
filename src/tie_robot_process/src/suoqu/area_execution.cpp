@@ -13,7 +13,7 @@ bool assign_planned_gripper_coords_to_bind_point_json(
     nlohmann::json& point_json,
     const Cabin_Point& cabin_point,
     float cabin_z,
-    const tf2::Transform& gripper_from_scepter
+    const tf2::Transform& gripper_from_base_link
 )
 {
     tie_robot_msgs::PointCoords world_point;
@@ -34,7 +34,7 @@ bool assign_planned_gripper_coords_to_bind_point_json(
             world_point,
             cabin_point,
             clamp_bind_execution_cabin_z(cabin_z),
-            gripper_from_scepter,
+            gripper_from_base_link,
             gripper_point
         )) {
         return false;
@@ -50,7 +50,7 @@ bool assign_planned_gripper_coords_to_bind_point_json(
     nlohmann::json& point_json,
     const tie_robot_process::planning::CabinPoint& cabin_point,
     float cabin_z,
-    const tf2::Transform& gripper_from_scepter
+    const tf2::Transform& gripper_from_base_link
 )
 {
     const Cabin_Point legacy_cabin_point{cabin_point.x, cabin_point.y};
@@ -58,7 +58,7 @@ bool assign_planned_gripper_coords_to_bind_point_json(
         point_json,
         legacy_cabin_point,
         cabin_z,
-        gripper_from_scepter
+        gripper_from_base_link
     );
 }
 
@@ -85,7 +85,7 @@ void align_execution_path_origin_xy_to_first_area_if_needed(
     }
 
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_Warn: %s检测到path_origin.xy=(%f,%f)与首个执行区域xy=(%f,%f)不一致，按首个真实执行区域修正起点XY。\n",
         execution_mode_name,
         path_origin_x,

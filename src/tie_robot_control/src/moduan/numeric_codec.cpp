@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "common.hpp"
+#include <tie_robot_control/common.hpp>
 #include "tie_robot_control/moduan/register_map.hpp"
 #include "tie_robot_control/moduan/runtime_state.hpp"
 
@@ -26,7 +26,7 @@ modbus_t* ensure_active_ctx(modbus_t* ctx)
         plc = PLC_Connection();
         if (plc != nullptr) {
             printCurrentTime();
-            printf("Moduan_log:PLC连接已自动重建。\n");
+            ros_log_printf("Moduan_log:PLC连接已自动重建。\n");
         }
     }
     return plc;
@@ -95,8 +95,7 @@ float choose_preferred_float(
         return low_word_first;
     }
     printCurrentTime();
-    fprintf(
-        stderr,
+    ros_log_printf(
         "Moduan_Warn:浮点寄存器%d超出期望范围，原始字=[%u,%u] low_first=%.6f high_first=%.6f scaled_low=%.6f scaled_high=%.6f range=[%.2f,%.2f]\n",
         axis,
         static_cast<unsigned>(first_word),
@@ -136,8 +135,7 @@ float choose_preferred_scaled_float(
         }
     }
     printCurrentTime();
-    fprintf(
-        stderr,
+    ros_log_printf(
         "Moduan_Warn:缩放浮点寄存器%d超出期望范围，原始字=[%u,%u] low_first=%.6f high_first=%.6f scaled_low=%.6f scaled_high=%.6f range=[%.2f,%.2f]\n",
         axis,
         static_cast<unsigned>(first_word),
@@ -162,7 +160,7 @@ modbus_t* PLC_Connection()
     modbus_t *ctx = modbus_new_tcp("192.168.6.167", 502);
     if (ctx == NULL) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:未能创建modbus tcp上下文。\n");
+        ros_log_printf( "Moduan_Error:未能创建modbus tcp上下文。\n");
         return NULL;
     }
 
@@ -173,7 +171,7 @@ modbus_t* PLC_Connection()
     int rc = modbus_connect(ctx);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:PLC连接失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:PLC连接失败: %s\n", modbus_strerror(errno));
         modbus_free(ctx);
         return NULL;
     }
@@ -210,13 +208,13 @@ float Read_Module_Float(int axis, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取浮点寄存器失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:读取浮点寄存器失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, axis, 2, UtoF_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取浮点寄存器失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:读取浮点寄存器失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -228,13 +226,13 @@ float Read_Module_Float_Ranged(int axis, modbus_t* ctx, float preferred_min, flo
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取浮点寄存器失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:读取浮点寄存器失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, axis, 2, UtoF_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取浮点寄存器失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:读取浮点寄存器失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -253,13 +251,13 @@ float Read_Module_Float_RangedScaled(int axis, modbus_t* ctx, float preferred_mi
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取浮点寄存器失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:读取浮点寄存器失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, axis, 2, UtoF_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取浮点寄存器失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:读取浮点寄存器失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -278,14 +276,14 @@ int Set_Module_Speed(int axis, double* speed, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:设置模组运动速度失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:设置模组运动速度失败: PLC未连接\n");
         return -1;
     }
     Double_to_Int32(speed);
     int rc = modbus_write_registers(active_ctx, axis, 2, DtoU_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:设置模组运动速度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:设置模组运动速度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -297,14 +295,14 @@ int Set_Module_Coordinate(int axis, double* coordinate, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:设置模组运动坐标失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:设置模组运动坐标失败: PLC未连接\n");
         return -1;
     }
     Double_to_Int32(coordinate);
     int rc = modbus_write_registers(active_ctx, axis, 2, DtoU_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:设置模组运动坐标失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:设置模组运动坐标失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -316,17 +314,17 @@ int PLC_Order_Write(int order, uint16_t control_word, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:写入命令失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:写入命令失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_write_register(active_ctx, order, control_word);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:写入命令失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:写入命令失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
     } else {
         printCurrentTime();
-        printf("Moduan_log:已成功向寄存器写入命令。\n");
+        ros_log_printf("Moduan_log:已成功向寄存器写入命令。\n");
     }
     return 0;
 }
@@ -337,13 +335,13 @@ float Read_Module_Speed(int axis, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取模组运动速度失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:读取模组运动速度失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, axis, 2, UtoD_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取模组运动速度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:读取模组运动速度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -357,13 +355,13 @@ float Read_Module_Coordinate(int axis, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取模组当前坐标失败: PLC未连接\n");
+        ros_log_printf( "Moduan_Error:读取模组当前坐标失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, axis, 2, UtoD_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取模组当前坐标失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:读取模组当前坐标失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -377,13 +375,13 @@ uint16_t Read_Module_Status(int status, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取模组命令失败： PLC未连接\n");
+        ros_log_printf( "Moduan_Error:读取模组命令失败： PLC未连接\n");
         return static_cast<uint16_t>(-1);
     }
     int rc = modbus_read_registers(active_ctx, status, 1, &status_word);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Moduan_Error:读取模组命令失败： %s\n", modbus_strerror(errno));
+        ros_log_printf( "Moduan_Error:读取模组命令失败： %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return static_cast<uint16_t>(-1);
     }
@@ -395,14 +393,14 @@ int Set_Motor_Speed(double* num, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:设置旋转电机速度失败: PLC未连接\n");
+        ros_log_printf( "Motor_Error:设置旋转电机速度失败: PLC未连接\n");
         return -1;
     }
     Double_to_Double(num);
     int rc = modbus_write_registers(active_ctx, WRITING_RMOTOR_SPEED, 2, DtoU_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:设置旋转电机速度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Motor_Error:设置旋转电机速度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -414,14 +412,14 @@ int Set_Motor_Angle(double* num, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:设置旋转电机角度失败: PLC未连接\n");
+        ros_log_printf( "Motor_Error:设置旋转电机角度失败: PLC未连接\n");
         return -1;
     }
     ggbom(num);
     int rc = modbus_write_registers(active_ctx, WRITING_ANGLE, 2, DtoU_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:设置旋转电机角度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Motor_Error:设置旋转电机角度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -433,14 +431,14 @@ int Set_Motor_Angle(int motor_num, double* num, modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:设置旋转电机角度失败: PLC未连接\n");
+        ros_log_printf( "Motor_Error:设置旋转电机角度失败: PLC未连接\n");
         return -1;
     }
     ggbom(num);
     int rc = modbus_write_registers(active_ctx, motor_num, 2, DtoU_Register);
     if (rc == -1) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:设置旋转电机角度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Motor_Error:设置旋转电机角度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -453,12 +451,12 @@ double Read_Motor_Speed(modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:读取旋转电机速度失败: PLC未连接\n");
+        ros_log_printf( "Motor_Error:读取旋转电机速度失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, READING_RMOTOR_SPEED, 2, UtoD_Register);
     if (rc == -1) {
-        fprintf(stderr, "Motor_Error:读取旋转电机速度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Motor_Error:读取旋转电机速度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }
@@ -472,12 +470,12 @@ double Read_Motor_Angle(modbus_t* ctx)
     modbus_t* active_ctx = ensure_active_ctx(ctx);
     if (active_ctx == nullptr) {
         printCurrentTime();
-        fprintf(stderr, "Motor_Error:读取旋转电机角度失败: PLC未连接\n");
+        ros_log_printf( "Motor_Error:读取旋转电机角度失败: PLC未连接\n");
         return -1;
     }
     int rc = modbus_read_registers(active_ctx, READING_ANGLE, 2, UtoD_Register);
     if (rc == -1) {
-        fprintf(stderr, "Motor_Error:读取旋转电机角度失败: %s\n", modbus_strerror(errno));
+        ros_log_printf( "Motor_Error:读取旋转电机角度失败: %s\n", modbus_strerror(errno));
         invalidate_ctx(active_ctx);
         return -1;
     }

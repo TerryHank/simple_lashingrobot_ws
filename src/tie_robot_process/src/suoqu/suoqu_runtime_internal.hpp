@@ -8,7 +8,7 @@
 #include <vector>
 
 #include <geometry_msgs/Point.h>
-#include <json.hpp>
+#include <tie_robot_process/json.hpp>
 #include <ros/ros.h>
 #include <sensor_msgs/Image.h>
 #include <std_msgs/Bool.h>
@@ -28,7 +28,7 @@
 #include "tie_robot_msgs/StartGlobalWork.h"
 #include "tie_robot_msgs/StartPseudoSlamScan.h"
 #include "tie_robot_process/planning/dynamic_bind_planning.hpp"
-#include "common.hpp"
+#include <tie_robot_process/common.hpp>
 
 struct Cabin_Point
 {
@@ -196,11 +196,13 @@ extern std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_neighb
 extern std::atomic<int> global_execution_mode;
 extern std::atomic<bool> cabin_driver_enabled;
 extern std::atomic<double> cabin_driver_last_state_stamp_sec;
+extern std::atomic<bool> moduan_work_flag;
 
 void printCurrentTime();
 bool connectToServer();
 float get_global_cabin_move_speed_mm_per_sec();
-bool lookup_gripper_from_scepter_transform(tf2::Transform& gripper_from_scepter);
+bool lookup_gripper_from_base_link_transform(tf2::Transform& gripper_from_base_link);
+bool lookup_current_gripper_from_cabin_transform(tf2::Transform& gripper_from_cabin);
 float load_pseudo_slam_planning_z_outlier_threshold_mm();
 float load_pseudo_slam_outlier_secondary_plane_threshold_mm();
 float load_pseudo_slam_outlier_secondary_plane_neighbor_tolerance_mm();
@@ -358,26 +360,26 @@ bool assign_planned_gripper_coords_to_bind_point_json(
     nlohmann::json& point_json,
     const Cabin_Point& cabin_point,
     float cabin_z,
-    const tf2::Transform& gripper_from_scepter
+    const tf2::Transform& gripper_from_base_link
 );
 bool assign_planned_gripper_coords_to_bind_point_json(
     nlohmann::json& point_json,
     const tie_robot_process::planning::CabinPoint& cabin_point,
     float cabin_z,
-    const tf2::Transform& gripper_from_scepter
+    const tf2::Transform& gripper_from_base_link
 );
 bool transform_cabin_world_point_to_planned_gripper_point(
     const tie_robot_msgs::PointCoords& world_point,
     const Cabin_Point& cabin_point,
     float cabin_height,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     tie_robot_msgs::PointCoords& gripper_point
 );
 bool transform_cabin_world_point_to_planned_gripper_point(
     const tie_robot_msgs::PointCoords& world_point,
     const tie_robot_process::planning::CabinPoint& cabin_point,
     float cabin_height,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     tie_robot_msgs::PointCoords& gripper_point
 );
 void align_execution_path_origin_xy_to_first_area_if_needed(

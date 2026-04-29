@@ -3,13 +3,11 @@ import json
 import math
 import os
 import time
-import yaml
 
 import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +16,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -48,64 +45,14 @@ from tie_robot_perception.perception.workspace_s2 import (
 from .constants import *
 
 def load_runtime_config(self):
-    if not os.path.exists(self.cali_offset_file):
-        return
-
     try:
-        with open(self.cali_offset_file, 'r') as f:
-            data = json.load(f)
+        self.height_threshold = float(rospy.get_param("~height_threshold", self.height_threshold))
     except Exception as exc:
-        rospy.logwarn("读取%s失败，仅使用默认高度阈值: %s", self.cali_offset_file, exc)
-        return
-
-    self.height_threshold = data.get('height_threshold', self.height_threshold)
-    if any(key in data for key in ('cal_x', 'cal_y', 'cal_z')):
-        rospy.logwarn(
-            "pointAI: lashing_config.json中的cal_x/cal_y/cal_z已弃用，"
-            "请改%s里的translation_mm。",
-            self.gripper_tf_config_file,
-        )
+        rospy.logwarn("pointAI: 读取~height_threshold参数失败，仅使用默认高度阈值: %s", exc)
 
 
 def save_runtime_config(self):
-    data = {}
-    if os.path.exists(self.cali_offset_file):
-        try:
-            with open(self.cali_offset_file, 'r') as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
-
-    data.pop('cal_x', None)
-    data.pop('cal_y', None)
-    data.pop('cal_z', None)
-    data['height_threshold'] = self.height_threshold
-
-    with open(self.cali_offset_file, 'w') as f:
-        json.dump(data, f, indent=4)
-
-
-def update_gripper_tf_translation_mm(self, x_mm, y_mm, z_mm):
-    if not os.path.exists(self.gripper_tf_config_file):
-        raise FileNotFoundError(self.gripper_tf_config_file)
-
-    with open(self.gripper_tf_config_file, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f) or {}
-
-    config.setdefault('parent_frame', 'Scepter_depth_frame')
-    config.setdefault('child_frame', 'gripper_frame')
-    config.setdefault(
-        'rotation_rpy',
-        {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
-    )
-    config['translation_mm'] = {
-        'x': float(x_mm),
-        'y': float(y_mm),
-        'z': float(z_mm),
-    }
-
-    with open(self.gripper_tf_config_file, 'w', encoding='utf-8') as f:
-        yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
+    rospy.set_param("~height_threshold", float(self.height_threshold))
 
 
 def fixed_z_value_callback(self, msg):
@@ -115,24 +62,16 @@ def fixed_z_value_callback(self, msg):
     if msg.data < 20:
         self.height_threshold = msg.data
         self.save_runtime_config()
-        rospy.loginfo(f"设置高度阈值为: {self.height_threshold}")
+        rospy.loginfo("pointAI: 设置高度阈值为: %s", self.height_threshold)
     else:
         self.fixed_z_value = msg.data
-        rospy.loginfo(f"接收到固定下探Z值: {self.fixed_z_value}") 
+        rospy.loginfo("pointAI: 接收到固定下探Z值: %s", self.fixed_z_value)
 
 
-def calibration_offset_callback(self, msg):
-    """
-    兼容旧前端的回调函数。
-    旧的视觉偏差入口现在由 gripper_tf_broadcaster 实时处理。
-    """
-    rospy.loginfo(
-        "pointAI: /web/pointAI/set_offset 现由gripper_tf_broadcaster实时处理，"
-        "translation_mm=(%.3f, %.3f, %.3f)，无需重启节点。",
-        msg.position.x,
-        msg.position.y,
-        msg.position.z,
-    )
+def set_stable_frame_count_callback(self, msg):
+    self.stable_frame_count = max(1, int(getattr(msg, "data", 1)))
+    rospy.set_param("~stable_frame_count", int(self.stable_frame_count))
+    rospy.loginfo("pointAI: 视觉服务最终放行帧数已设置为: %d", self.stable_frame_count)
 
 
 def load_scan_planning_workspace(self):

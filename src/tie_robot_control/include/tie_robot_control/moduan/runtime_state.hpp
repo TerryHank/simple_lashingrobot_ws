@@ -90,6 +90,7 @@ extern ros::Publisher pub_forced_stop;
 extern ros::Publisher pub_moduan_warning;
 extern ros::Publisher pub_lashing_warning;
 extern ros::Publisher pub_moduan_work;
+extern ros::Publisher pub_moduan_state_topic;
 extern ros::Publisher pub_pause;
 extern ros::Publisher pub_linear_module_data_upload;
 extern int pause_interrupt;
@@ -107,6 +108,8 @@ extern std::pair<std::vector<int>, std::vector<float>> bind_data;
 extern std::vector<std::pair<std::vector<int>, std::vector<float>>> bind_all_data;
 extern std::unique_ptr<tie_robot_hw::driver::LinearModuleDriver> g_linear_module_driver;
 extern std::atomic<bool> g_moduan_driver_enabled;
+extern std::atomic<bool> g_use_remote_moduan_driver;
+extern std::atomic<bool> moduan_plc_execution_state;
 extern float last_x;
 extern float last_y;
 

@@ -26,7 +26,7 @@ void clear_pseudo_slam_markers()
 
     visualization_msgs::Marker clear_marker;
     clear_marker.header.stamp = ros::Time::now();
-    clear_marker.header.frame_id = "cabin_frame";
+    clear_marker.header.frame_id = "map";
     clear_marker.action = visualization_msgs::Marker::DELETEALL;
 
     visualization_msgs::MarkerArray marker_array;
@@ -61,7 +61,7 @@ void publish_pseudo_slam_markers(const std::vector<tie_robot_msgs::PointCoords>&
 
     visualization_msgs::Marker points_marker;
     points_marker.header.stamp = ros::Time::now();
-    points_marker.header.frame_id = "cabin_frame";
+    points_marker.header.frame_id = "map";
     points_marker.ns = "pseudo_slam_points";
     points_marker.id = 0;
     points_marker.type = visualization_msgs::Marker::SPHERE_LIST;
@@ -121,7 +121,7 @@ void publish_pseudo_slam_markers(const std::vector<tie_robot_msgs::PointCoords>&
 
         visualization_msgs::Marker label_marker;
         label_marker.header.stamp = points_marker.header.stamp;
-        label_marker.header.frame_id = "cabin_frame";
+        label_marker.header.frame_id = "map";
         label_marker.ns = "pseudo_slam_labels";
         label_marker.id = static_cast<int>(point_pos) + 1;
         label_marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
@@ -325,7 +325,7 @@ bool refresh_pseudo_slam_marker_outlier_state_from_current_points(bool log_refre
 
     if (log_refresh) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: pseudo_slam离群阈值热更新后已重算Marker离群状态，当前离群点%d个，离群二次平面成员点%d个，离群线成员点%d个，列邻域屏蔽点%d个。\n",
             static_cast<int>(refreshed_outlier_global_indices.size()),
             static_cast<int>(refreshed_outlier_secondary_plane_global_indices.size()),
@@ -362,7 +362,7 @@ void maybe_refresh_pseudo_slam_marker_outlier_threshold()
     }
 
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_log: pseudo_slam离群阈值热更新：主平面%.2fmm -> %.2fmm，离群二次平面%.2fmm -> %.2fmm，二次平面邻域xy±%.2fmm -> ±%.2fmm，开始刷新RViz离群点显示。\n",
         previous_threshold_mm,
         current_threshold_mm,
@@ -513,7 +513,7 @@ void restore_pseudo_slam_markers_from_json_on_startup()
             restore_error
         )) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_Warn: 启动时恢复/cabin/pseudo_slam_markers失败：%s\n",
             restore_error.c_str()
         );
@@ -522,12 +522,12 @@ void restore_pseudo_slam_markers_from_json_on_startup()
 
     if (restored_marker_points.empty()) {
         printCurrentTime();
-        printf("Cabin_log: pseudo_slam_points.json存在，但没有可恢复的历史扫描点。\n");
+        ros_log_printf("Cabin_log: pseudo_slam_points.json存在，但没有可恢复的历史扫描点。\n");
         return;
     }
     if (!load_pseudo_slam_marker_path_origin_from_bind_path_json(restored_path_origin, restore_error)) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_Warn: 启动时恢复/cabin/pseudo_slam_markers缺少path_origin：%s\n",
             restore_error.c_str()
         );
@@ -547,7 +547,7 @@ void restore_pseudo_slam_markers_from_json_on_startup()
     publish_pseudo_slam_markers(restored_marker_points);
     refresh_pseudo_slam_marker_outlier_state_from_current_points(false);
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_log: 已从pseudo_slam_points.json恢复%d个历史扫描点到/cabin/pseudo_slam_markers。\n",
         static_cast<int>(restored_marker_points.size())
     );

@@ -1,0 +1,533 @@
+# Canonical ROS interface migration map.
+# This file is the source table for the 2026-04-29 naming cleanup.
+# Status values:
+#   planned: canonical name is approved but not implemented yet
+#   alias: canonical and legacy names both exist during migration
+#   migrated: callers use canonical name
+#   retired: legacy name has been removed
+
+version: 2026-04-29
+status: planned
+
+rules:
+  topic: "continuous stream, state, progress, image, marker"
+  service: "single request with immediate success/failure"
+  action: "long-running task with feedback/result"
+  forbidden_new_legacy_prefixes:
+    - /pointAI
+    - /web/pointAI
+    - /web/moduan
+  forbidden_new_legacy_names:
+    - /coordinate_point
+    - /moduan_work
+
+standard_keep:
+  topics:
+    - /tf
+    - /tf_static
+    - /diagnostics
+    - /rosout
+    - /rosout_agg
+
+interfaces:
+  camera_driver_topics:
+    - legacy: /Scepter/color/image_raw
+      canonical: /hw/camera/scepter/rgb/image_raw
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/color/camera_info
+      canonical: /hw/camera/scepter/rgb/camera_info
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/ir/image_raw
+      canonical: /hw/camera/scepter/ir/image_raw
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/ir/camera_info
+      canonical: /hw/camera/scepter/ir/camera_info
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/depth/image_raw
+      canonical: /hw/camera/scepter/depth/image_raw
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/depth/camera_info
+      canonical: /hw/camera/scepter/depth/camera_info
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/depth/points
+      canonical: /hw/camera/scepter/depth/points
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/transformedDepth/image_raw
+      canonical: /hw/camera/scepter/aligned_depth/image_raw
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/transformedColor/image_raw
+      canonical: /hw/camera/scepter/aligned_rgb/image_raw
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+    - legacy: /Scepter/transformedDepth/points
+      canonical: /hw/camera/scepter/aligned_depth/points
+      type: topic
+      owner: tie_robot_hw
+      status: planned
+
+  camera_perception_topics:
+    - legacy: /Scepter/worldCoord/raw_world_coord
+      canonical: /perception/camera/scepter/world_coord/raw_image
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /Scepter/worldCoord/world_coord
+      canonical: /perception/camera/scepter/world_coord/filtered_image
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /Scepter/worldCoord/camera_info
+      canonical: /perception/camera/scepter/world_coord/camera_info
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+
+  lashing_perception_topics:
+    - legacy: /coordinate_point
+      canonical: /perception/lashing/points_camera
+      type: topic
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /pointAI/manual_workspace_s2_points
+      canonical: /perception/lashing/points_camera
+      type: topic
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /pointAI/manual_workspace_quad_pixels
+      canonical: /perception/lashing/workspace/quad_pixels
+      type: topic
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /pointAI/manual_workspace_s2_result_raw
+      canonical: /perception/lashing/result_image
+      type: topic
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /pointAI/result_image_raw
+      canonical: /perception/lashing/result_image
+      type: topic
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /pointAI/result_image
+      canonical: /perception/lashing/result_image_compressed
+      type: topic
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /pointAI/line_image
+      canonical: /perception/lashing/debug/line_image
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /pointAI/cropped_ir_image
+      canonical: /perception/lashing/debug/cropped_ir_image
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /pointAI/cropped_color_image
+      canonical: /perception/lashing/debug/cropped_rgb_image
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /pointAI/cropped_depth_image
+      canonical: /perception/lashing/debug/cropped_depth_image
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+
+  lashing_perception_services:
+    - legacy: /pointAI/process_image
+      canonical: /perception/lashing/recognize_once
+      type: service
+      owner: tie_robot_perception
+      status: alias
+      note: "Split old mode enum paths into explicit services/actions when code migration begins."
+    - legacy: /web/pointAI/run_workspace_s2
+      canonical: /perception/lashing/recognize_once
+      type: service
+      owner: tie_robot_perception
+      status: alias
+    - legacy: /web/pointAI/set_workspace_quad
+      canonical: /perception/lashing/set_workspace
+      type: service
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /web/pointAI/set_stable_frame_count
+      canonical: /perception/lashing/config/set_stable_frame_count
+      type: service
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /web/pointAI/set_height_threshold
+      canonical: /perception/lashing/config/set_height_threshold
+      type: service
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /web/pointAI/move_to_workspace_center_scan_pose
+      canonical: /process/scan/move_to_workspace_center
+      type: service
+      owner: tie_robot_process
+      status: planned
+
+  cabin_driver_services:
+    - legacy: /cabin/driver/start
+      canonical: /hw/cabin/driver/start
+      type: service
+      owner: tie_robot_process
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /cabin/driver/stop
+      canonical: /hw/cabin/driver/stop
+      type: service
+      owner: tie_robot_process
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /cabin/driver/restart
+      canonical: /hw/cabin/driver/restart
+      type: service
+      owner: tie_robot_process
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /cabin/driver/raw_move
+      canonical: /hw/cabin/move_raw
+      type: service
+      owner: tie_robot_process
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /cabin/motion/stop
+      canonical: /hw/cabin/stop
+      type: service
+      owner: tie_robot_process
+      future_owner: tie_robot_hw
+      status: planned
+
+  cabin_topics:
+    - legacy: /cabin/cabin_data_upload
+      canonical: /hw/cabin/state
+      type: topic
+      owner: tie_robot_process
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /cabin/area_progress
+      canonical: /process/lashing/area_progress
+      type: topic
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/pseudo_slam_markers
+      canonical: /process/scan/markers
+      type: topic
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/global_bind_path
+      canonical: /process/lashing/global_bind_path
+      type: topic
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/forced_stop
+      canonical: /safety/forced_stop/state
+      type: topic
+      owner: tie_robot_control
+      status: planned
+    - legacy: /cabin/pause_interrupt
+      canonical: /safety/pause/state
+      type: topic
+      owner: tie_robot_control
+      status: planned
+
+  cabin_control_services:
+    - legacy: /cabin/single_move
+      canonical: /control/cabin/move_once
+      type: service
+      owner: tie_robot_process
+      status: planned
+    - legacy: /web/cabin/set_cabin_speed
+      canonical: /control/cabin/set_speed
+      type: service
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/plan_path
+      canonical: /process/path_plan/plan_cabin_path
+      type: service
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/set_execution_mode
+      canonical: /process/execution/set_mode
+      type: service
+      owner: tie_robot_process
+      status: planned
+
+  process_actions:
+    - legacy: /web/cabin/start_pseudo_slam_scan
+      canonical: /process/scan/start
+      type: action
+      owner: tie_robot_process
+      bridge_owner: tie_robot_web
+      status: planned
+    - legacy: /cabin/start_pseudo_slam_scan
+      canonical: /process/scan/start
+      type: action
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/start_pseudo_slam_scan_with_options
+      canonical: /process/scan/start
+      type: action
+      owner: tie_robot_process
+      status: planned
+    - legacy: /web/cabin/start_global_work
+      canonical: /process/lashing/start_global_work
+      type: action
+      owner: tie_robot_process
+      bridge_owner: tie_robot_web
+      status: planned
+    - legacy: /cabin/start_work
+      canonical: /process/lashing/start_global_work
+      type: action
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/start_work_with_options
+      canonical: /process/lashing/start_global_work
+      type: action
+      owner: tie_robot_process
+      status: planned
+    - legacy: /web/cabin/run_bind_path_direct_test
+      canonical: /process/lashing/run_bind_path_direct_test
+      type: action
+      owner: tie_robot_process
+      bridge_owner: tie_robot_web
+      status: planned
+    - legacy: /cabin/run_bind_path_direct_test
+      canonical: /process/lashing/run_bind_path_direct_test
+      type: action
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/bind_current_area_from_scan
+      canonical: /process/lashing/bind_current_area
+      type: action
+      owner: tie_robot_process
+      status: planned
+    - legacy: /cabin/lashing_request
+      canonical: /process/lashing/request
+      type: topic
+      owner: tie_robot_process
+      status: retired
+      note: "Currently appears as a legacy comment; keep mapped so static checks can explain it."
+
+  linear_module_driver_services:
+    - legacy: /moduan/driver/start
+      canonical: /hw/linear_module/driver/start
+      type: service
+      owner: tie_robot_control
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /moduan/driver/stop
+      canonical: /hw/linear_module/driver/stop
+      type: service
+      owner: tie_robot_control
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /moduan/driver/restart
+      canonical: /hw/linear_module/driver/restart
+      type: service
+      owner: tie_robot_control
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /moduan/driver/raw_execute_points
+      canonical: /hw/linear_module/execute_points_raw
+      type: service
+      owner: tie_robot_control
+      future_owner: tie_robot_hw
+      status: planned
+
+  linear_module_topics:
+    - legacy: /moduan/state
+      canonical: /hw/linear_module/state
+      type: topic
+      owner: tie_robot_control
+      future_owner: tie_robot_hw
+      status: planned
+    - legacy: /moduan/moduan_gesture_data
+      canonical: /hw/linear_module/state
+      type: topic
+      owner: tie_robot_control
+      status: planned
+    - legacy: /robot/moduan_status
+      canonical: /hw/linear_module/status
+      type: topic
+      owner: tie_robot_control
+      status: planned
+    - legacy: /robot/binding_gun_status
+      canonical: /hw/binding_tool/status
+      type: topic
+      owner: tie_robot_control
+      status: planned
+    - legacy: /moduan_work
+      canonical: /control/lashing/working_state
+      type: topic
+      owner: tie_robot_control
+      status: planned
+
+  linear_module_control_services:
+    - legacy: /moduan/execute_bind_points
+      canonical: /control/linear_module/execute_bind_points
+      type: action
+      owner: tie_robot_control
+      status: active
+    - legacy: /moduan/single_move
+      canonical: /control/linear_module/move_once
+      type: service
+      owner: tie_robot_control
+      status: planned
+    - legacy: /web/moduan/moduan_move_zero
+      canonical: /control/linear_module/home
+      type: service
+      owner: tie_robot_control
+      status: planned
+    - legacy: /web/moduan/set_moduan_speed
+      canonical: /control/linear_module/set_speed
+      type: service
+      owner: tie_robot_control
+      status: planned
+    - legacy: /moduan/sg_precomputed
+      canonical: /control/lashing/execute_points
+      type: service
+      owner: tie_robot_control
+      status: planned
+    - legacy: /moduan/sg_precomputed_fast
+      canonical: /control/lashing/execute_points_fast
+      type: service
+      owner: tie_robot_control
+      status: planned
+    - legacy: /web/moduan/enb_las
+      canonical: /control/binding_tool/set_enabled
+      type: service
+      owner: tie_robot_control
+      status: planned
+    - legacy: /web/moduan/light
+      canonical: /hw/binding_tool/light/set
+      type: service
+      owner: tie_robot_control
+      future_owner: tie_robot_hw
+      status: planned
+
+  lashing_process_actions:
+    - legacy: /moduan/sg
+      canonical: /process/lashing/bind_single_point
+      type: action
+      owner: tie_robot_process
+      status: planned
+      note: "Flow layer must trigger visual recognition first, then call control lashing execution."
+    - legacy: /web/moduan/save_binding_data
+      canonical: /process/lashing/save_bind_data
+      type: service
+      owner: tie_robot_process
+      status: planned
+    - legacy: /web/moduan/send_odd_points
+      canonical: /process/lashing/checkerboard_mode/set
+      type: service
+      owner: tie_robot_process
+      status: planned
+
+  safety_services:
+    - legacy: /web/moduan/forced_stop
+      canonical: /safety/forced_stop/set
+      type: service
+      owner: tie_robot_process
+      status: planned
+    - legacy: /web/moduan/interrupt_stop
+      canonical: /safety/pause/set
+      type: service
+      owner: tie_robot_process
+      status: planned
+    - legacy: /web/moduan/hand_sovle_warn
+      canonical: /safety/manual_intervention/set
+      type: service
+      owner: tie_robot_process
+      status: planned
+
+  tf_and_calibration:
+    - legacy: /web/pointAI/set_offset
+      canonical: /calibration/gripper_tf/set_offset
+      type: topic
+      owner: tie_robot_perception
+      status: retired
+      note: "Older name already migrated to /web/tf/set_offset before this naming plan."
+    - legacy: /web/pointAI/set_gripper_tf_calibration
+      canonical: /calibration/gripper_tf/set
+      type: service
+      owner: tie_robot_perception
+      status: retired
+      note: "Older name already migrated to /web/tf/set_gripper_tf_calibration before this naming plan."
+    - legacy: /web/tf/set_offset
+      canonical: /calibration/gripper_tf/set_offset
+      type: topic
+      owner: tie_robot_perception
+      status: planned
+    - legacy: /web/tf/set_gripper_tf_calibration
+      canonical: /calibration/gripper_tf/set
+      type: service
+      owner: tie_robot_perception
+      status: planned
+
+  system_services:
+    - legacy: /web/system/start_driver_stack
+      canonical: /system/stack/driver/start
+      type: service
+      owner: tie_robot_web
+      status: planned
+    - legacy: /web/system/restart_driver_stack
+      canonical: /system/stack/driver/restart
+      type: service
+      owner: tie_robot_web
+      status: planned
+    - legacy: /web/system/start_algorithm_stack
+      canonical: /system/stack/algorithm/start
+      type: service
+      owner: tie_robot_web
+      status: planned
+    - legacy: /web/system/restart_algorithm_stack
+      canonical: /system/stack/algorithm/restart
+      type: service
+      owner: tie_robot_web
+      status: planned
+    - legacy: /web/system/restart_ros_stack
+      canonical: /system/stack/ros/restart
+      type: service
+      owner: tie_robot_web
+      status: planned
+
+  system_log_topics:
+    - legacy: /system_log/all
+      canonical: /system/log/all
+      type: topic
+      owner: tie_robot_web
+      status: planned
+    - legacy: /system_log/suoquNode
+      canonical: /system/log/cabin
+      type: topic
+      owner: tie_robot_web
+      status: planned
+    - legacy: /system_log/scepter_manager
+      canonical: /system/log/camera
+      type: topic
+      owner: tie_robot_web
+      status: planned
+    - legacy: /system_log/moduanNode
+      canonical: /system/log/linear_module
+      type: topic
+      owner: tie_robot_web
+      status: planned

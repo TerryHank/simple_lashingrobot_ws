@@ -2,87 +2,94 @@ import { ROSLIB } from "../vendor/roslib.js";
 import { resolveRosbridgeUrl } from "../utils/rosbridge.js";
 import { DEFAULT_IMAGE_TOPIC } from "../config/imageTopicCatalog.js";
 import { DEFAULT_LOG_TOPIC, getLogTopicOption } from "../config/logTopicCatalog.js";
+import {
+  ACTION_TYPES,
+  ACTIONS,
+  MESSAGE_TYPES,
+  SERVICE_TYPES,
+  SERVICES,
+  TOPICS,
+  getPointCloudTopicName,
+  getTopicRegistryEntry,
+  getTopicRegistryEntryByKey,
+} from "../config/topicRegistry.js";
 
-const IR_TOPIC = "/Scepter/ir/image_raw";
-const COLOR_TOPIC = "/Scepter/color/image_raw";
-const DEPTH_TOPIC = "/Scepter/depth/image_raw";
-const WORKSPACE_QUAD_TOPIC = "/web/pointAI/set_workspace_quad";
-const POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset";
-const SET_CABIN_SPEED_TOPIC = "/web/cabin/set_cabin_speed";
-const SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/pointAI/set_gripper_tf_calibration";
-const RUN_WORKSPACE_S2_TOPIC = "/web/pointAI/run_workspace_s2";
-const CURRENT_WORKSPACE_QUAD_TOPIC = "/pointAI/manual_workspace_quad_pixels";
-const EXECUTION_RESULT_TOPIC = "/pointAI/result_image_raw";
-const FILTERED_WORLD_COORD_TOPIC = "/Scepter/worldCoord/world_coord";
-const RAW_WORLD_COORD_TOPIC = "/Scepter/worldCoord/raw_world_coord";
-const COORDINATE_POINT_TOPIC = "/coordinate_point";
-const PSEUDO_SLAM_MARKERS_TOPIC = "/cabin/pseudo_slam_markers";
-const DIAGNOSTICS_TOPIC = "/diagnostics";
-const TF_TOPIC = "/tf";
-const TF_STATIC_TOPIC = "/tf_static";
-
-const START_PSEUDO_SLAM_SCAN_ACTION = "/web/cabin/start_pseudo_slam_scan";
-const START_GLOBAL_WORK_ACTION = "/web/cabin/start_global_work";
-const RUN_DIRECT_BIND_PATH_TEST_ACTION = "/web/cabin/run_bind_path_direct_test";
-const SET_EXECUTION_MODE_SERVICE = "/cabin/set_execution_mode";
-const START_DRIVER_STACK_SERVICE = "/web/system/start_driver_stack";
-const RESTART_DRIVER_STACK_SERVICE = "/web/system/restart_driver_stack";
-const START_ALGORITHM_STACK_SERVICE = "/web/system/start_algorithm_stack";
-const RESTART_ALGORITHM_STACK_SERVICE = "/web/system/restart_algorithm_stack";
-const RESTART_ROS_STACK_SERVICE = "/web/system/restart_ros_stack";
-const START_CABIN_DRIVER_SERVICE = "/cabin/driver/start";
-const STOP_CABIN_DRIVER_SERVICE = "/cabin/driver/stop";
-const RESTART_CABIN_DRIVER_SERVICE = "/cabin/driver/restart";
-const STOP_CABIN_MOTION_SERVICE = "/cabin/motion/stop";
-const START_MODUAN_DRIVER_SERVICE = "/moduan/driver/start";
-const STOP_MODUAN_DRIVER_SERVICE = "/moduan/driver/stop";
-const RESTART_MODUAN_DRIVER_SERVICE = "/moduan/driver/restart";
-const CABIN_SINGLE_MOVE_SERVICE = "/cabin/single_move";
-
-const START_PSEUDO_SLAM_SCAN_ACTION_TYPE = "tie_robot_msgs/StartPseudoSlamScanTaskAction";
-const START_GLOBAL_WORK_ACTION_TYPE = "tie_robot_msgs/StartGlobalWorkTaskAction";
-const RUN_DIRECT_BIND_PATH_TEST_ACTION_TYPE = "tie_robot_msgs/RunBindPathDirectTestTaskAction";
-const SET_EXECUTION_MODE_SERVICE_TYPE = "tie_robot_msgs/SetExecutionMode";
-const SET_GRIPPER_TF_CALIBRATION_SERVICE_TYPE = "tie_robot_msgs/SetGripperTfCalibration";
-const CABIN_SINGLE_MOVE_SERVICE_TYPE = "tie_robot_msgs/SingleMove";
-const TRIGGER_SERVICE_TYPE = "std_srvs/Trigger";
+const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
+const AUTO_RECONNECT_DELAY_MS = 1500;
 
 export class RosConnectionController {
   constructor(callbacks = {}) {
     this.callbacks = callbacks;
     this.ros = null;
     this.resources = null;
+    this.connectionGeneration = 0;
+    this.connectionLossGeneration = null;
+    this.autoReconnectAttempts = 0;
+    this.reconnectTimer = null;
+    this.manualReconnectRequired = false;
     this.fixedTopicSubscribers = [];
     this.pointCloudTopicSubscriber = null;
     this.displayedImageTopicSubscriber = null;
     this.logTopicSubscriber = null;
+    this.settingsLogTopicSubscriber = null;
     this.topicInventoryTimer = null;
     this.desiredPointCloudSubscription = {
       enabled: false,
       source: "filteredWorldCoord",
     };
-    this.dynamicServiceCache = new Map();
     this.desiredDisplayedImageTopic = DEFAULT_IMAGE_TOPIC;
     this.desiredLogTopicId = DEFAULT_LOG_TOPIC;
   }
 
-  connect() {
+  connect({ manual = false, autoReconnect = false } = {}) {
     const rosbridgeUrl = resolveRosbridgeUrl({
       pathname: window.location.pathname,
       currentHost: window.location.hostname,
     });
-    this.callbacks.onConnectionInfo?.(rosbridgeUrl, "连接中", "info");
-    this.callbacks.onLog?.(`开始连接 ROSBridge: ${rosbridgeUrl}`, "info");
+    this.cancelReconnectTimer();
+    if (!autoReconnect) {
+      this.autoReconnectAttempts = 0;
+    }
+    this.manualReconnectRequired = false;
+
+    const connectionMessage = manual
+      ? `手动重新连接 ROSBridge: ${rosbridgeUrl}`
+      : autoReconnect
+        ? `正在自动重连 ROSBridge(${this.autoReconnectAttempts}/${AUTO_RECONNECT_MAX_ATTEMPTS}): ${rosbridgeUrl}`
+        : `开始连接 ROSBridge: ${rosbridgeUrl}`;
+    this.callbacks.onConnectionInfo?.(rosbridgeUrl, connectionMessage, autoReconnect ? "reconnecting" : "info");
+    this.callbacks.onLog?.(connectionMessage, "info");
+
+    const previousRos = this.ros;
+    const generation = this.connectionGeneration + 1;
+    this.connectionGeneration = generation;
+    this.connectionLossGeneration = null;
+    this.stopTopicInventoryPolling();
+    this.unbindSubscriptions();
+    if (previousRos?.close) {
+      try {
+        previousRos.close();
+      } catch {
+        // ignore stale socket cleanup races
+      }
+    }
 
     this.ros = new ROSLIB.Ros({ url: rosbridgeUrl });
     this.resources = this.buildResources(this.ros);
 
     this.ros.on("connection", () => {
+      if (!this.isActiveGeneration(generation)) {
+        return;
+      }
+      this.cancelReconnectTimer();
+      this.autoReconnectAttempts = 0;
+      this.manualReconnectRequired = false;
       this.resources.workspaceQuadPublisher.advertise();
-      this.resources.gripperTfOffsetPublisher.advertise();
       this.resources.cabinSpeedPublisher.advertise();
-      this.resources.runWorkspaceS2Publisher.advertise();
+      this.resources.stableFrameCountPublisher.advertise();
+      this.resources.linearModuleInterruptStopPublisher.advertise();
       this.bindSubscriptions();
+      this.applySettingsLogSubscription();
       this.applyDisplayedImageSubscription({ suppressLog: true });
       this.applyPointCloudSubscription({ suppressLog: true });
       this.applyLogSubscription({ suppressLog: true });
@@ -93,19 +100,67 @@ export class RosConnectionController {
     });
 
     this.ros.on("error", (error) => {
+      if (!this.isActiveGeneration(generation)) {
+        return;
+      }
       const detail = error?.message || String(error);
-      this.callbacks.onConnectionInfo?.(rosbridgeUrl, "连接失败", "error");
-      this.callbacks.onRosUnavailable?.();
       this.callbacks.onLog?.(`ROS 连接失败: ${detail}`, "error");
+      this.handleConnectionLoss(generation, rosbridgeUrl);
     });
 
     this.ros.on("close", () => {
-      this.stopTopicInventoryPolling();
-      this.unbindSubscriptions();
-      this.callbacks.onConnectionInfo?.(rosbridgeUrl, "连接失败", "warn");
-      this.callbacks.onRosUnavailable?.();
+      if (!this.isActiveGeneration(generation)) {
+        return;
+      }
       this.callbacks.onLog?.("ROS 连接已断开", "warn");
+      this.handleConnectionLoss(generation, rosbridgeUrl);
     });
+  }
+
+  isActiveGeneration(generation) {
+    return generation === this.connectionGeneration;
+  }
+
+  handleConnectionLoss(generation, rosbridgeUrl) {
+    if (!this.isActiveGeneration(generation) || this.connectionLossGeneration === generation) {
+      return;
+    }
+    this.connectionLossGeneration = generation;
+    this.stopTopicInventoryPolling();
+    this.unbindSubscriptions();
+    this.callbacks.onRosUnavailable?.();
+    if (this.autoReconnectAttempts >= AUTO_RECONNECT_MAX_ATTEMPTS) {
+      this.showManualReconnectRequired(rosbridgeUrl);
+      return;
+    }
+    this.scheduleReconnect(rosbridgeUrl);
+  }
+
+  scheduleReconnect(rosbridgeUrl) {
+    this.cancelReconnectTimer();
+    this.autoReconnectAttempts += 1;
+    const message = `ROS 连接中断，${AUTO_RECONNECT_DELAY_MS / 1000}秒后自动重连(${this.autoReconnectAttempts}/${AUTO_RECONNECT_MAX_ATTEMPTS})。`;
+    this.callbacks.onConnectionInfo?.(rosbridgeUrl, message, "reconnecting");
+    this.callbacks.onLog?.(message, "warn");
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect({ autoReconnect: true });
+    }, AUTO_RECONNECT_DELAY_MS);
+  }
+
+  showManualReconnectRequired(rosbridgeUrl) {
+    this.manualReconnectRequired = true;
+    const message = `ROS 自动重连${AUTO_RECONNECT_MAX_ATTEMPTS}次失败，请点击手动重连。`;
+    this.callbacks.onConnectionInfo?.(rosbridgeUrl, message, "manual");
+    this.callbacks.onLog?.(message, "error");
+  }
+
+  cancelReconnectTimer() {
+    if (!this.reconnectTimer) {
+      return;
+    }
+    window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
   }
 
   buildResources(ros) {
@@ -113,113 +168,133 @@ export class RosConnectionController {
       ros,
       workspaceQuadPublisher: new ROSLIB.Topic({
         ros,
-        name: WORKSPACE_QUAD_TOPIC,
-        messageType: "std_msgs/Float32MultiArray",
-      }),
-      gripperTfOffsetPublisher: new ROSLIB.Topic({
-        ros,
-        name: POINTAI_OFFSET_TOPIC,
-        messageType: "geometry_msgs/Pose",
+        name: TOPICS.algorithm.setWorkspaceQuad,
+        messageType: MESSAGE_TYPES.float32MultiArray,
       }),
       cabinSpeedPublisher: new ROSLIB.Topic({
         ros,
-        name: SET_CABIN_SPEED_TOPIC,
-        messageType: "std_msgs/Float32",
+        name: TOPICS.process.setCabinSpeed,
+        messageType: MESSAGE_TYPES.float32,
       }),
       setGripperTfCalibrationService: new ROSLIB.Service({
         ros,
-        name: SET_GRIPPER_TF_CALIBRATION_SERVICE,
-        serviceType: SET_GRIPPER_TF_CALIBRATION_SERVICE_TYPE,
+        name: SERVICES.tf.setGripperTfCalibration,
+        serviceType: SERVICE_TYPES.tf.setGripperTfCalibration,
       }),
-      runWorkspaceS2Publisher: new ROSLIB.Topic({
+      stableFrameCountPublisher: new ROSLIB.Topic({
         ros,
-        name: RUN_WORKSPACE_S2_TOPIC,
-        messageType: "std_msgs/Bool",
+        name: TOPICS.algorithm.setStableFrameCount,
+        messageType: MESSAGE_TYPES.int32,
+      }),
+      lashingRecognizeOnceService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.algorithm.recognizeOnce,
+        serviceType: SERVICE_TYPES.trigger,
+      }),
+      processImageService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.algorithm.processImage,
+        serviceType: SERVICE_TYPES.algorithm.processImage,
       }),
       startPseudoSlamScanActionClient: new ROSLIB.ActionClient({
         ros,
-        serverName: START_PSEUDO_SLAM_SCAN_ACTION,
-        actionName: START_PSEUDO_SLAM_SCAN_ACTION_TYPE,
+        serverName: ACTIONS.cabin.startPseudoSlamScan,
+        actionName: ACTION_TYPES.cabin.startPseudoSlamScan,
       }),
       executionModeService: new ROSLIB.Service({
         ros,
-        name: SET_EXECUTION_MODE_SERVICE,
-        serviceType: SET_EXECUTION_MODE_SERVICE_TYPE,
+        name: SERVICES.cabin.setExecutionMode,
+        serviceType: SERVICE_TYPES.cabin.setExecutionMode,
       }),
       startDriverStackService: new ROSLIB.Service({
         ros,
-        name: START_DRIVER_STACK_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.system.startDriverStack,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       restartDriverStackService: new ROSLIB.Service({
         ros,
-        name: RESTART_DRIVER_STACK_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.system.restartDriverStack,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       startAlgorithmStackService: new ROSLIB.Service({
         ros,
-        name: START_ALGORITHM_STACK_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.system.startAlgorithmStack,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       restartAlgorithmStackService: new ROSLIB.Service({
         ros,
-        name: RESTART_ALGORITHM_STACK_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.system.restartAlgorithmStack,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       restartRosStackService: new ROSLIB.Service({
         ros,
-        name: RESTART_ROS_STACK_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.system.restartRosStack,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       startCabinDriverService: new ROSLIB.Service({
         ros,
-        name: START_CABIN_DRIVER_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.cabin.driverStart,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       stopCabinDriverService: new ROSLIB.Service({
         ros,
-        name: STOP_CABIN_DRIVER_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.cabin.driverStop,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       restartCabinDriverService: new ROSLIB.Service({
         ros,
-        name: RESTART_CABIN_DRIVER_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.cabin.driverRestart,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       stopCabinMotionService: new ROSLIB.Service({
         ros,
-        name: STOP_CABIN_MOTION_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.cabin.motionStop,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       startModuanDriverService: new ROSLIB.Service({
         ros,
-        name: START_MODUAN_DRIVER_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.moduan.driverStart,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       stopModuanDriverService: new ROSLIB.Service({
         ros,
-        name: STOP_MODUAN_DRIVER_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.moduan.driverStop,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       restartModuanDriverService: new ROSLIB.Service({
         ros,
-        name: RESTART_MODUAN_DRIVER_SERVICE,
-        serviceType: TRIGGER_SERVICE_TYPE,
+        name: SERVICES.moduan.driverRestart,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       cabinSingleMoveService: new ROSLIB.Service({
         ros,
-        name: CABIN_SINGLE_MOVE_SERVICE,
-        serviceType: CABIN_SINGLE_MOVE_SERVICE_TYPE,
+        name: SERVICES.cabin.singleMove,
+        serviceType: SERVICE_TYPES.cabin.singleMove,
+      }),
+      linearModuleSingleMoveService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.moduan.singleMove,
+        serviceType: SERVICE_TYPES.moduan.linearModuleMove,
+      }),
+      linearModuleInterruptStopPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.control.interruptStop,
+        messageType: MESSAGE_TYPES.float32,
+      }),
+      singlePointBindService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.moduan.singleBind,
+        serviceType: SERVICE_TYPES.trigger,
       }),
       startGlobalWorkActionClient: new ROSLIB.ActionClient({
         ros,
-        serverName: START_GLOBAL_WORK_ACTION,
-        actionName: START_GLOBAL_WORK_ACTION_TYPE,
+        serverName: ACTIONS.cabin.startGlobalWork,
+        actionName: ACTION_TYPES.cabin.startGlobalWork,
       }),
       runDirectBindPathTestActionClient: new ROSLIB.ActionClient({
         ros,
-        serverName: RUN_DIRECT_BIND_PATH_TEST_ACTION,
-        actionName: RUN_DIRECT_BIND_PATH_TEST_ACTION_TYPE,
+        serverName: ACTIONS.cabin.runBindPathDirectTest,
+        actionName: ACTION_TYPES.cabin.runBindPathDirectTest,
       }),
     };
   }
@@ -249,6 +324,7 @@ export class RosConnectionController {
       const inventory = topics.map((name, index) => ({
         name,
         type: types[index] || "unknown",
+        registry: getTopicRegistryEntry(name),
       })).sort((left, right) => left.name.localeCompare(right.name));
       this.callbacks.onTopicInventory?.(inventory);
     }, (error) => {
@@ -256,27 +332,6 @@ export class RosConnectionController {
         this.callbacks.onLog?.(`读取当前话题列表失败: ${error}`, "warn");
       }
     });
-  }
-
-  publishGripperTfOffsetMm({ x, y, z }) {
-    if (!this.ros?.isConnected || !this.resources?.gripperTfOffsetPublisher) {
-      return { success: false, message: "ROS 未连接，无法发布外参热更新。" };
-    }
-    const message = new ROSLIB.Message({
-      position: {
-        x: Number.isFinite(x) ? x : 0,
-        y: Number.isFinite(y) ? y : 0,
-        z: Number.isFinite(z) ? z : 0,
-      },
-      orientation: {
-        x: 0,
-        y: 0,
-        z: 0,
-        w: 1,
-      },
-    });
-    this.resources.gripperTfOffsetPublisher.publish(message);
-    return { success: true, message: "已发布相机-TCP外参热更新请求。" };
   }
 
   publishCabinSpeed(speed) {
@@ -380,24 +435,50 @@ export class RosConnectionController {
     });
   }
 
-  callTriggerService(serviceName, serviceType = TRIGGER_SERVICE_TYPE) {
-    const normalizedServiceName = String(serviceName || "").trim();
-    if (!this.ros?.isConnected || !normalizedServiceName) {
-      return Promise.resolve({ success: false, message: "ROS 未连接或服务地址为空，无法调用自定义服务。" });
+  callLinearModuleSingleMoveService({ x, y, z, angle }) {
+    if (!this.ros?.isConnected || !this.resources?.linearModuleSingleMoveService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法执行 TCP 线性模组移动。" });
     }
 
-    const cacheKey = `${normalizedServiceName}|${serviceType}`;
-    if (!this.dynamicServiceCache.has(cacheKey)) {
-      this.dynamicServiceCache.set(cacheKey, new ROSLIB.Service({
-        ros: this.ros,
-        name: normalizedServiceName,
-        serviceType,
-      }));
-    }
-
-    const service = this.dynamicServiceCache.get(cacheKey);
     return new Promise((resolve) => {
-      service.callService(
+      this.resources.linearModuleSingleMoveService.callService(
+        new ROSLIB.ServiceRequest({
+          pos_x: Number.isFinite(x) ? x : 0,
+          pos_y: Number.isFinite(y) ? y : 0,
+          pos_z: Number.isFinite(z) ? z : 0,
+          angle: Number.isFinite(angle) ? angle : 0,
+        }),
+        (response) => {
+          resolve({
+            success: Boolean(response?.success),
+            message: response?.message || "",
+          });
+        },
+        (error) => {
+          resolve({
+            success: false,
+            message: error?.message || String(error) || "TCP 线性模组单点移动服务调用失败。",
+          });
+        },
+      );
+    });
+  }
+
+  publishLinearModuleInterruptStop() {
+    if (!this.ros?.isConnected || !this.resources?.linearModuleInterruptStopPublisher) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法暂停 TCP 线性模组运动。" });
+    }
+    this.resources.linearModuleInterruptStopPublisher.publish(new ROSLIB.Message({ data: 1 }));
+    return Promise.resolve({ success: true, message: "TCP 线性模组运动暂停信号已发送。" });
+  }
+
+  callSinglePointBindService() {
+    if (!this.ros?.isConnected || !this.resources?.singlePointBindService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法触发单点绑扎服务。" });
+    }
+
+    return new Promise((resolve) => {
+      this.resources.singlePointBindService.callService(
         new ROSLIB.ServiceRequest({}),
         (response) => {
           resolve({
@@ -408,7 +489,7 @@ export class RosConnectionController {
         (error) => {
           resolve({
             success: false,
-            message: error?.message || String(error) || "自定义空请求服务调用失败。",
+            message: error?.message || String(error) || "单点绑扎服务调用失败。",
           });
         },
       );
@@ -416,11 +497,82 @@ export class RosConnectionController {
   }
 
   triggerWorkspaceS2Refresh() {
-    if (!this.ros?.isConnected || !this.resources?.runWorkspaceS2Publisher) {
-      return { success: false, message: "ROS 未连接，无法触发工作区识别刷新。" };
+    return this.callLashingRecognizeOnceService();
+  }
+
+  callLashingRecognizeOnceService() {
+    if (!this.ros?.isConnected || !this.resources?.lashingRecognizeOnceService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法触发视觉识别刷新。" });
     }
-    this.resources.runWorkspaceS2Publisher.publish(new ROSLIB.Message({ data: true }));
-    return { success: true, message: "已触发基于当前工作区的识别刷新。" };
+
+    return new Promise((resolve) => {
+      this.resources.lashingRecognizeOnceService.callService(
+        new ROSLIB.ServiceRequest({}),
+        (response) => {
+          resolve({
+            success: Boolean(response?.success),
+            message: response?.message || (response?.success ? "视觉识别完成。" : "视觉识别失败。"),
+          });
+        },
+        (error) => {
+          resolve({
+            success: false,
+            message: error?.message || String(error) || "视觉识别服务调用失败。",
+          });
+        },
+      );
+    });
+  }
+
+  publishStableFrameCount(frameCount) {
+    if (!this.ros?.isConnected || !this.resources?.stableFrameCountPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置视觉服务放行帧数。" };
+    }
+    const sanitizedFrameCount = Math.max(1, Math.round(Number(frameCount) || 1));
+    this.resources.stableFrameCountPublisher.publish(new ROSLIB.Message({ data: sanitizedFrameCount }));
+    return {
+      success: true,
+      frameCount: sanitizedFrameCount,
+      message: `视觉服务最终放行帧数已设置为 ${sanitizedFrameCount} 帧。`,
+    };
+  }
+
+  callProcessImageService({ requestMode = 1 } = {}) {
+    if (!this.ros?.isConnected || !this.resources?.processImageService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法调用视觉服务。", serviceElapsedMs: null });
+    }
+
+    const startedAt = performance.now();
+    const sanitizedRequestMode = Math.max(0, Math.round(Number(requestMode) || 0));
+    return new Promise((resolve) => {
+      this.resources.processImageService.callService(
+        new ROSLIB.ServiceRequest({ request_mode: sanitizedRequestMode }),
+        (response) => {
+          const serviceElapsedMs = Number((performance.now() - startedAt).toFixed(1));
+          const responseMessage = response?.message || "";
+          const singleFrameMatch = responseMessage.match(/单帧视觉耗时=([0-9.]+)ms/);
+          resolve({
+            success: Boolean(response?.success),
+            message: responseMessage,
+            count: Number(response?.count || 0),
+            requestMode: sanitizedRequestMode,
+            serviceElapsedMs,
+            singleFrameElapsedMs: singleFrameMatch ? Number(singleFrameMatch[1]) : null,
+          });
+        },
+        (error) => {
+          const serviceElapsedMs = Number((performance.now() - startedAt).toFixed(1));
+          resolve({
+            success: false,
+            message: error?.message || String(error) || "视觉服务调用失败。",
+            count: 0,
+            requestMode: sanitizedRequestMode,
+            serviceElapsedMs,
+            singleFrameElapsedMs: null,
+          });
+        },
+      );
+    });
   }
 
   buildTopic(name, messageType, options = {}) {
@@ -432,40 +584,44 @@ export class RosConnectionController {
     });
   }
 
+  buildTopicFromRegistry(registryKey, options = {}) {
+    const entry = getTopicRegistryEntryByKey(registryKey);
+    if (!entry) {
+      throw new Error(`未知前端话题注册项：${registryKey}`);
+    }
+    return this.buildTopic(entry.name, entry.messageType, options);
+  }
+
   bindSubscriptions() {
     this.unbindSubscriptions();
     const subscriptions = [
-      this.buildTopic(CURRENT_WORKSPACE_QUAD_TOPIC, "std_msgs/Float32MultiArray"),
-      this.buildTopic(EXECUTION_RESULT_TOPIC, "sensor_msgs/Image"),
-      this.buildTopic(COORDINATE_POINT_TOPIC, "tie_robot_msgs/PointsArray"),
-      this.buildTopic(PSEUDO_SLAM_MARKERS_TOPIC, "visualization_msgs/MarkerArray"),
-      this.buildTopic(DIAGNOSTICS_TOPIC, "diagnostic_msgs/DiagnosticArray"),
-      this.buildTopic(TF_TOPIC, "tf2_msgs/TFMessage"),
-      this.buildTopic(TF_STATIC_TOPIC, "tf2_msgs/TFMessage"),
+      this.buildTopicFromRegistry("algorithm.currentWorkspaceQuadPixels"),
+      this.buildTopicFromRegistry("algorithm.resultImageRaw"),
+      this.buildTopicFromRegistry("algorithm.manualWorkspaceS2ResultRaw"),
+      this.buildTopicFromRegistry("algorithm.manualWorkspaceS2Points"),
+      this.buildTopicFromRegistry("algorithm.coordinatePoint"),
+      this.buildTopicFromRegistry("process.pseudoSlamMarkers"),
+      this.buildTopicFromRegistry("process.diagnostics"),
+      this.buildTopicFromRegistry("tf.live"),
+      this.buildTopicFromRegistry("tf.static"),
+      this.buildTopicFromRegistry("control.linearModuleState"),
     ];
 
     subscriptions[0].subscribe((message) => this.callbacks.onSavedWorkspacePayload?.(Array.from(message.data || [])));
     subscriptions[1].subscribe((message) => this.callbacks.onExecutionOverlay?.(message));
-    subscriptions[2].subscribe((message) => this.callbacks.onTiePoints?.(message));
-    subscriptions[3].subscribe((message) => this.callbacks.onPlanningMarkers?.(message));
-    subscriptions[4].subscribe((message) => this.callbacks.onDiagnostics?.(message));
-    subscriptions[5].subscribe((message) => this.callbacks.onTfMessage?.(message));
-    subscriptions[6].subscribe((message) => this.callbacks.onTfMessage?.(message));
+    subscriptions[2].subscribe((message) => this.callbacks.onWorkspaceS2Overlay?.(message));
+    subscriptions[3].subscribe((message) => this.callbacks.onVisualRecognitionPoints?.(message));
+    subscriptions[4].subscribe((message) => this.callbacks.onTiePoints?.(message));
+    subscriptions[5].subscribe((message) => this.callbacks.onPlanningMarkers?.(message));
+    subscriptions[6].subscribe((message) => this.callbacks.onDiagnostics?.(message));
+    subscriptions[7].subscribe((message) => this.callbacks.onTfMessage?.(message));
+    subscriptions[8].subscribe((message) => this.callbacks.onTfMessage?.(message));
+    subscriptions[9].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
     this.fixedTopicSubscribers = subscriptions;
   }
 
   getDisplayedImageMessageType(topicName) {
-    if (
-      topicName === IR_TOPIC ||
-      topicName === COLOR_TOPIC ||
-      topicName === DEPTH_TOPIC ||
-      topicName === EXECUTION_RESULT_TOPIC ||
-      topicName === FILTERED_WORLD_COORD_TOPIC ||
-      topicName === RAW_WORLD_COORD_TOPIC
-    ) {
-      return "sensor_msgs/Image";
-    }
-    return "sensor_msgs/Image";
+    return getTopicRegistryEntry(topicName)?.messageType || MESSAGE_TYPES.image;
   }
 
   applyDisplayedImageSubscription({ suppressLog = false } = {}) {
@@ -518,7 +674,7 @@ export class RosConnectionController {
       this.logTopicSubscriber = null;
     }
 
-    const topic = this.buildTopic(nextTopicName, "rosgraph_msgs/Log", {
+    const topic = this.buildTopic(nextTopicName, MESSAGE_TYPES.log, {
       queue_length: 30,
     });
     topic.subscribe((message) => this.callbacks.onSystemLog?.(message, option));
@@ -530,13 +686,21 @@ export class RosConnectionController {
     return { changed: true, topicId: option.id, topic: nextTopicName };
   }
 
+  applySettingsLogSubscription() {
+    if (!this.ros?.isConnected || this.settingsLogTopicSubscriber) {
+      return;
+    }
+
+    const topic = this.buildTopic(TOPICS.logs.all, MESSAGE_TYPES.log, {
+      queue_length: 80,
+    });
+    topic.subscribe((message) => this.callbacks.onLayerSystemLog?.(message));
+    this.settingsLogTopicSubscriber = topic;
+  }
+
   updateLogSubscription(topicId) {
     this.desiredLogTopicId = topicId || DEFAULT_LOG_TOPIC;
     return this.applyLogSubscription();
-  }
-
-  getPointCloudTopicName(source) {
-    return source === "rawWorldCoord" ? RAW_WORLD_COORD_TOPIC : FILTERED_WORLD_COORD_TOPIC;
   }
 
   applyPointCloudSubscription({ suppressLog = false } = {}) {
@@ -546,7 +710,7 @@ export class RosConnectionController {
 
     const nextState = this.desiredPointCloudSubscription;
     const currentSource = this.pointCloudTopicSubscriber?.name
-      ? (this.pointCloudTopicSubscriber.name === RAW_WORLD_COORD_TOPIC ? "rawWorldCoord" : "filteredWorldCoord")
+      ? (this.pointCloudTopicSubscriber.name === getPointCloudTopicName("rawWorldCoord") ? "rawWorldCoord" : "filteredWorldCoord")
       : null;
 
     if (!nextState.enabled) {
@@ -570,8 +734,8 @@ export class RosConnectionController {
       this.pointCloudTopicSubscriber = null;
     }
 
-    const nextTopicName = this.getPointCloudTopicName(nextState.source);
-    const topic = this.buildTopic(nextTopicName, "sensor_msgs/Image", {
+    const nextTopicName = getPointCloudTopicName(nextState.source);
+    const topic = this.buildTopic(nextTopicName, MESSAGE_TYPES.image, {
       throttle_rate: 350,
       queue_length: 1,
     });
@@ -625,6 +789,14 @@ export class RosConnectionController {
         // ignore shutdown race
       }
       this.logTopicSubscriber = null;
+    }
+    if (this.settingsLogTopicSubscriber) {
+      try {
+        this.settingsLogTopicSubscriber.unsubscribe();
+      } catch {
+        // ignore shutdown race
+      }
+      this.settingsLogTopicSubscriber = null;
     }
     this.stopTopicInventoryPolling();
   }

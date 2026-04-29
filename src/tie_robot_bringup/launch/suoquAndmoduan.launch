@@ -1,9 +1,12 @@
 <launch>
     <arg name="auto_zero_on_start" default="true"/>
 
-    <node name="suoquNode" pkg="tie_robot_process" type="suoquNode" output="screen"></node>
-    <node name="moduanNode" pkg="tie_robot_control" type="moduanNode" output="screen">
+    <node name="suoqu_driver_node" pkg="tie_robot_process" type="suoqu_driver_node" output="screen"></node>
+    <node name="cabin_motion_controller" pkg="tie_robot_process" type="cabin_motion_controller_node" output="screen"></node>
+    <node name="bind_task_executor" pkg="tie_robot_process" type="bind_task_executor_node" output="screen"></node>
+    <node name="moduan_driver_node" pkg="tie_robot_control" type="moduan_driver_node" output="screen">
         <param name="auto_zero_on_start" value="$(arg auto_zero_on_start)"/>
     </node>
-    <!-- <node name="pointAINode" pkg="tie_robot_perception" type="pointAI.py"  output="log"></node>  -->
+    <node name="moduan_motion_controller" pkg="tie_robot_control" type="moduan_motion_controller_node" output="screen"></node>
+    <!-- <node name="pointAINode" pkg="tie_robot_perception" type="pointai_node.py"  output="log"></node>  -->
 </launch>

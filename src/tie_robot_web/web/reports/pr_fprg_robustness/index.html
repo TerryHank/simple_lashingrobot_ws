@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 方案1梁筋外绑扎点</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d0f0e;
+      --panel: #171b18;
+      --line: #364138;
+      --ink: #f6f1e6;
+      --muted: #aeb7ad;
+      --green: #66e39b;
+      --amber: #ecc96d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+    header, main { width: min(1420px, calc(100vw - 36px)); margin: 0 auto; }
+    header { padding: 42px 0 24px; border-bottom: 1px solid var(--line); }
+    .eyebrow { color: var(--green); font-size: 13px; font-weight: 800; }
+    h1 { margin: 12px 0 0; font-size: clamp(30px, 5vw, 64px); line-height: 1; }
+    .lead { max-width: 980px; color: #dce2d9; font-size: 18px; line-height: 1.65; }
+    main { display: grid; gap: 28px; padding: 28px 0 64px; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
+    .stat, figure, .note {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .stat { padding: 14px 16px; }
+    .stat strong { display: block; color: var(--green); font-size: 24px; }
+    .stat span { color: var(--muted); font-size: 13px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(320px, 1fr)); gap: 16px; }
+    figure { margin: 0; overflow: hidden; }
+    img { width: 100%; display: block; background: #111; }
+    figcaption { padding: 12px 14px 14px; font-weight: 800; }
+    small { display: block; margin-top: 6px; color: var(--muted); font-weight: 500; overflow-wrap: anywhere; }
+    .note { padding: 16px 18px; color: #dce2d9; line-height: 1.65; }
+    a { color: var(--amber); }
+    @media (max-width: 900px) {
+      .stats, .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">PR-FPRG · 2026-04-29 13:15</div>
+    <h1>方案1直线族：梁筋外绑扎点</h1>
+    <p class="lead">当前只做方案1，不启用方案2，也不启用曲线方案。主链使用深度响应 <code>depth_background_minus_filled</code> 估计 theta/rho 直线族；钢筋线允许穿过梁筋，梁筋只在最终绑扎点级排除。</p>
+  </header>
+  <main>
+    <section class="stats">
+      <div class="stat"><strong>scheme 1</strong><span>只保留 theta/rho 直线族</span></div>
+      <div class="stat"><strong>70 points</strong><span>当前抓帧 full 点数</span></div>
+      <div class="stat"><strong>139.3 ms</strong><span>当前报告单次 full 耗时</span></div>
+      <div class="stat"><strong>69 tests</strong><span>PR-FPRG 单测通过</span></div>
+    </section>
+
+    <section class="note">
+      完整消融报告：<a href="/reports/pr_fprg_scheme1/index.html">/reports/pr_fprg_scheme1/index.html</a>；当前主报告也同步到 <a href="/reports/pr_fprg_live_full/index.html">/reports/pr_fprg_live_full/index.html</a>。
+    </section>
+
+    <section class="grid">
+      <figure>
+        <img src="scheme1_full_original.png" alt="方案1 full 原图识别效果">
+        <figcaption>方案1 full 原图效果：70 个梁筋外绑扎点<small>.debug_frames/pr_fprg_scheme1_beam_excluded_20260429_1315/images/01_current_theta_rho__full_original.png</small></figcaption>
+      </figure>
+      <figure>
+        <img src="scheme1_beam_mask_overlay.png" alt="梁筋 mask">
+        <figcaption>梁筋 mask：只用于最终点级排除，不删除穿过梁筋的钢筋线<small>红色为检测出的纵向梁筋/强结构排除区</small></figcaption>
+      </figure>
+      <figure>
+        <img src="scheme1_response.png" alt="锁定深度响应图">
+        <figcaption>锁定主响应：depth_background_minus_filled<small>方案2红外 rho 微调暂不参与</small></figcaption>
+      </figure>
+      <figure>
+        <img src="latest_curve_scheme5_candidate.png" alt="曲线废案对照">
+        <figcaption>曲线对照图：暂不作为主链<small>保留给后续“直线效果稳定后再曲线收束”使用</small></figcaption>
+      </figure>
+    </section>
+  </main>
+</body>
+</html>

@@ -100,7 +100,7 @@ http://127.0.0.1:8765/index.html
 
 - 在当前 IR 图像上按顺时针或逆时针点 4 个角点
 - 点击“提交四边形”
-- 后端会把这 4 个像素点转换成 `cabin_frame` 下的世界坐标四边形
+- 后端会把这 4 个像素点转换成 `map` 下的世界坐标四边形
 - 保存到 [manual_workspace_quad.json](/home/hyq-/simple_lashingrobot_ws/src/chassis_ctrl/data/manual_workspace_quad.json)
 
 如果你仍然想按老方式拆成两个终端，也可以继续这样开：
@@ -485,7 +485,7 @@ rostopic echo /cabin/area_progress
 RViz 中固定坐标系建议先用：
 
 ```text
-cabin_frame
+map
 ```
 
 显示项建议加：
@@ -543,7 +543,7 @@ rosrun tf tf_echo Scepter_depth_frame gripper_frame
 检查扫描点 TF 是否在发：
 
 ```bash
-rosrun tf tf_echo cabin_frame pseudo_slam_point_1
+rosrun tf tf_echo map pseudo_slam_point_1
 ```
 
 如果第一号点不存在，可以把 `1` 改成实际存在的编号。
@@ -682,7 +682,7 @@ rostopic echo -n 1 /cabin/pseudo_slam_markers
 
 如果有消息但 RViz 没显示，一般是：
 
-- Fixed Frame 不是 `cabin_frame`
+- Fixed Frame 不是 `map`
 - 没加 `MarkerArray`
 - 没加 `TF`
 

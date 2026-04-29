@@ -20,8 +20,8 @@
   负责顶部工具条、背景层容器和浮动业务面板布局
 - `tie_robot_web/frontend/src/ui/PanelManager.js`
   负责新布局下的浮动面板拖拽
-- `tie_robot_web/src/topics_transfer.cpp`
-  已拆到 `src/web_bridge/`
+- `tie_robot_web/src/web_action_bridge.cpp`
+  已拆到 `src/web_bridge/`，旧话题转换订阅已移除
 - `tie_robot_process/src/planning/dynamic_bind_planning.cpp`
   已拆到 `dynamic_bind_geometry.cpp`、`dynamic_bind_grouping.cpp`、`dynamic_bind_builder.cpp`
 - `tie_robot_process/src/suoquNode.cpp`

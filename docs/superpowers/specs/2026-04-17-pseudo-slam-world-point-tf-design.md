@@ -6,10 +6,10 @@
 ## Scope
 - 不改变扫描识别逻辑、分组逻辑和执行逻辑。
 - 继续保留 `/cabin/pseudo_slam_markers` 的 `MarkerArray` 可视化。
-- 新增 `cabin_frame -> pseudo_slam_point_<global_idx>` 的动态 TF。
+- 新增 `map -> pseudo_slam_point_<global_idx>` 的动态 TF。
 
 ## Coordinate System
-- 父坐标系固定为 `cabin_frame`。
+- 父坐标系固定为 `map`。
 - 子坐标系命名固定为 `pseudo_slam_point_<global_idx>`。
 - 位置直接使用 `pseudo_slam_points` 的世界坐标，单位从毫米转换为米。
 - 旋转统一使用单位四元数。
@@ -28,8 +28,8 @@
 ## Implementation Approach
 - 在 `suoquNode.cpp` 内直接实现，不新增独立节点。
 - 复用现有 `cabin_tf_broadcaster` 发布：
-  - `cabin_frame -> Scepter_depth_frame`
-  - `cabin_frame -> pseudo_slam_point_<global_idx>`
+  - `map -> Scepter_depth_frame`
+  - `map -> pseudo_slam_point_<global_idx>`
 - 增加一个线程安全的当前扫描点缓存，供持续广播使用。
 - 在索驱状态线程中持续广播当前扫描点 TF，保证扫描完成后 TF 不会自然超时消失。
 
@@ -42,10 +42,10 @@
   - `pseudo_slam_point_`
   - `sendTransform`
   - `/cabin/pseudo_slam_markers`
-  - `cabin_frame`
+  - `map`
 - 构建验证：`catkin_make -DCATKIN_WHITELIST_PACKAGES="fast_image_solve;chassis_ctrl" -j1`
 - 运行验证：
   - `roslaunch chassis_ctrl run.launch`
-  - RViz Fixed Frame = `cabin_frame`
+  - RViz Fixed Frame = `map`
   - 同时打开 `TF` 与 `MarkerArray`
   - 触发扫描后观察点与 TF 同步累积并保持

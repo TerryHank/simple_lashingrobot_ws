@@ -1,0 +1,13 @@
+<launch>
+  <arg name="bag_path" default="$(find tie_robot_bringup)/../../docs/releases/slam_v30/visual_modalities/slam_v30_visual_modalities.bag" />
+  <arg name="play_args" default="--clock --loop" />
+
+  <param name="/use_sim_time" value="true" />
+
+  <node
+    name="slam_v30_visual_bag_replay"
+    pkg="rosbag"
+    type="play"
+    output="screen"
+    args="$(arg play_args) $(arg bag_path)" />
+</launch>

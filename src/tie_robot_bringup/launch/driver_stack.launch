@@ -1,25 +1,5 @@
 <launch>
-    <node name="suoquNode"
-          pkg="tie_robot_process"
-          type="suoquNode"
-          output="log"
-          respawn="true"
-          respawn_delay="2.0" />
-
-    <node name="moduanNode"
-          pkg="tie_robot_control"
-          type="moduanNode"
-          output="log"
-          respawn="true"
-          respawn_delay="2.0" />
-
-    <node name="gripper_tf_broadcaster"
-          pkg="tie_robot_perception"
-          type="gripper_tf_broadcaster.py"
-          output="log"
-          respawn="true"
-          respawn_delay="2.0">
-        <param name="config_path" value="$(find tie_robot_perception)/config/gripper_tf.yaml" />
-        <param name="publish_rate_hz" value="30.0" />
-    </node>
+    <include file="$(find tie_robot_bringup)/launch/driver_suoqu.launch" />
+    <include file="$(find tie_robot_bringup)/launch/driver_moduan.launch" />
+    <include file="$(find tie_robot_bringup)/launch/driver_camera.launch" />
 </launch>

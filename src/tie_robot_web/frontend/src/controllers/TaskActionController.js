@@ -29,6 +29,8 @@ export class TaskActionController {
         return this.publishWorkspaceQuad();
       case "runSavedS2":
         return this.triggerSavedWorkspaceS2();
+      case "triggerSingleBind":
+        return this.triggerSinglePointBind();
       case "scanPlan":
         return this.triggerPseudoSlamScan();
       case "startExecution":
@@ -58,21 +60,63 @@ export class TaskActionController {
   }
 
   triggerSavedWorkspaceS2() {
+    return this.triggerPrFprgRecognition({
+      resultMessage: "正在使用当前已保存工作区运行视觉识别，当前图像图层会等待视觉识别点位覆盖层...",
+      logMessage: "已触发基于已保存工作区的视觉识别",
+    });
+  }
+
+  async triggerPrFprgRecognition({
+    resultMessage = "正在使用当前已保存工作区运行视觉识别，当前图像图层会等待视觉识别点位覆盖层...",
+    logMessage = "已触发基于已保存工作区的视觉识别",
+  } = {}) {
     const resources = this.rosConnection.getResources();
     const savedPoints = this.workspaceView.getSavedWorkspacePoints();
-    if (!resources?.runWorkspaceS2Publisher || savedPoints.length !== 4) {
+    if (!resources?.lashingRecognizeOnceService || savedPoints.length !== 4) {
       if (this.pendingWorkspaceQuadSubmission) {
-        this.report("工作区正在保存，请等保存完成后再触发 S2。", "warn");
+        this.report("工作区正在保存，请等保存完成后再触发视觉识别。", "warn");
+        return false;
+      }
+      this.report("当前没有可复用的已保存工作区，请先点 4 个角点并提交四边形。", "warn");
+      return false;
+    }
+    this.clearPendingWorkspaceQuadSubmission();
+    this.workspaceView.setExecutionOverlayMessage(null);
+    this.callbacks.onWorkspaceS2Triggered?.();
+    this.callbacks.onResultMessage?.(resultMessage);
+    this.callbacks.onLog?.(logMessage, "success");
+    const result = await this.rosConnection.callLashingRecognizeOnceService();
+    if (!result?.success) {
+      this.report(`视觉识别失败: ${result?.message || "未知错误"}`, "error");
+      return false;
+    }
+    this.callbacks.onLog?.(`视觉识别服务完成: ${result.message || "已完成"}`, "success");
+    return true;
+  }
+
+  async triggerSinglePointBind() {
+    const resources = this.rosConnection.getResources();
+    const savedPoints = this.workspaceView.getSavedWorkspacePoints();
+    if (!resources?.singlePointBindService || savedPoints.length !== 4) {
+      if (this.pendingWorkspaceQuadSubmission) {
+        this.report("工作区正在保存，请等保存完成后再触发单点绑扎。", "warn");
         return;
       }
       this.report("当前没有可复用的已保存工作区，请先点 4 个角点并提交四边形。", "warn");
       return;
     }
+
     this.clearPendingWorkspaceQuadSubmission();
     this.workspaceView.setExecutionOverlayMessage(null);
-    this.publishWorkspaceS2Request(resources.runWorkspaceS2Publisher);
-    this.callbacks.onResultMessage?.("正在使用当前已保存工作区识别绑扎点，覆盖层统一等待 result_img...");
-    this.callbacks.onLog?.("已触发基于已保存工作区的 S2 识别", "success");
+    this.callbacks.onWorkspaceS2Triggered?.();
+    this.callbacks.onResultMessage?.("正在触发单点绑扎：后端会在同一个原子链路内完成视觉识别、线性模组执行和完成信号等待。");
+    this.callbacks.onLog?.("已触发单点绑扎原子服务", "success");
+    const result = await this.rosConnection.callSinglePointBindService();
+    if (!result?.success) {
+      this.report(`单点绑扎失败: ${result?.message || "未知错误"}`, "error");
+      return;
+    }
+    this.report(`单点绑扎完成: ${result.message || "末端已完成当前视觉点位绑扎"}`, "success");
   }
 
   handleSavedWorkspacePayload(payload) {
@@ -118,21 +162,16 @@ export class TaskActionController {
     }
 
     const resources = this.rosConnection.getResources();
-    if (!resources?.runWorkspaceS2Publisher) {
+    if (!resources?.lashingRecognizeOnceService) {
       this.clearPendingWorkspaceQuadSubmission();
-      this.report("工作区已保存，但 ROS 未就绪，当前不能触发 S2。", "warn");
+      this.report("工作区已保存，但 ROS 未就绪，当前不能触发视觉识别。", "warn");
       return false;
     }
 
     this.clearPendingWorkspaceQuadSubmission();
-    this.callbacks.onResultMessage?.("工作区已保存，可以手动点击“触发S2”开始识别。");
-    this.callbacks.onLog?.("已收到工作区保存确认，等待手动触发 S2", "success");
+    this.callbacks.onResultMessage?.("工作区已保存，可以手动点击“触发视觉识别”开始识别。");
+    this.callbacks.onLog?.("已收到工作区保存确认，等待手动触发视觉识别", "success");
     return true;
-  }
-
-  publishWorkspaceS2Request(runWorkspaceS2Publisher) {
-    runWorkspaceS2Publisher.publish(new ROSLIB.Message({ data: true }));
-    this.callbacks.onWorkspaceS2Triggered?.();
   }
 
   triggerPseudoSlamScan() {
@@ -143,7 +182,7 @@ export class TaskActionController {
     }
     this.workspaceView.setExecutionOverlayMessage(null);
     this.callbacks.onResultMessage?.(
-      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=3197，索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发 S2 并动态规划，覆盖层统一显示 result_img。",
+      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=3197，索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发视觉识别并动态规划，点位覆盖层会显示在当前图像图层。",
     );
     this.callbacks.onLog?.("已触发固定扫描建图任务", "success");
     this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
@@ -162,7 +201,7 @@ export class TaskActionController {
     }
     this.workspaceView.setExecutionOverlayMessage(null);
     this.callbacks.onResultMessage?.(
-      "工作区覆盖层统一使用 result_img，后续显示 /pointAI/result_image_raw。",
+      "执行结果覆盖层会叠加到可兼容图像底图。",
     );
     this.callbacks.onLog?.(
       clearExecutionMemory ? "准备清记忆并开始执行层" : "准备保留记忆直接开始执行层",

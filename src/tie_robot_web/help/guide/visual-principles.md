@@ -1,315 +1,130 @@
 # 视觉原理
 
-## 当前工作区 S2 方案
+## 当前认可方案
 
-当前帮助站、前端选点页、运行时扫描识别里提到的手动工作区 `S2`，统一指：
+当前前端按钮、扫描层和帮助站里提到的「当前认可 S2」，统一指：
 
-- `PR-FPRG 透视展开频相回归网格方案`
-- `PR-FPRG = Projective-Rectified Frequency-Phase Regression Grid`
+- 中文名：`PR-FPRG 透视展开频相回归网格方案`
+- 英文全称：`Projective-Rectified Frequency-Phase Regression Grid`
 
-这是当前认可的工作区识别主方案。
+它不是在原始 IR 图像里直接铺满横竖线，也不再假设钢筋一定与画面水平/垂直。当前版本会先把手动工作区透视展开成规则平面，再在 `theta/rho` 空间估计两组钢筋真实摆放方向的周期线族。候选线必须经过一维峰值、二维连续钢筋条和主间距一致性检查，最后才把线交点投回原图。
 
-## 当前方案效果图
+完整逐步图像流程见：[PR-FPRG 流程详解](./pr-fprg-workflow)。
 
-下图是当前 `PR-FPRG` 在现场运行时的一次识别结果。图中的网格线和交点，不是在原图里直接硬画出来的，而是：
+## 前端如何触发
 
-- 先对工作区做透视展开
-- 在 rectified 工作区里做频域周期检测与相位回归
-- 再通过 inverse projective mapping 投回原图
+新前端的控制面板按钮显示为「触发 PR-FPRG」，内部仍复用历史动作 ID `runSavedS2`，这样可以少动已有 ROS 接口。
 
-![PR-FPRG 现场结果图](/images/visual/pr-fprg-result.png)
+触发链如下：
 
-这张图对应的现场结果目录是：
+```text
+前端按钮 runSavedS2
+-> TaskActionController.triggerSavedWorkspaceS2()
+-> /web/pointAI/run_workspace_s2 std_msgs/Bool(data=true)
+-> pointAI.manual_workspace_s2_callback()
+-> run_manual_workspace_s2_pipeline(publish=true)
+-> /pointAI/manual_workspace_s2_result_raw
+-> /pointAI/manual_workspace_s2_points
+-> /coordinate_point
+-> /pointAI/result_image_raw
+-> /tf pr_fprg_bind_point_*
+```
 
-- `/.debug_frames/manual_workspace_s2_runtime_projective_fix/result.png`
+这些点话题表达相机坐标系下的视觉结果；前端 3D 显示层再通过 TF 把它们放到全局场景里。
 
-对应结果摘要里，这次现场识别结果为：
+`process_image` 服务里的扫描、执行微调、绑扎检查等模式现在都以方向自适应 PR-FPRG 作为主视觉入口，不再要求旧 `pre_img()` 出点成功后才放行。
 
-- `point_count = 272`
+## 当前方案效果图状态
 
-## 当前方案效果图
+![当前 PR-FPRG 结果](/images/visual/pr-fprg-result.png)
 
-下图是当前 `PR-FPRG` 在现场运行时的一次识别结果。图中的网格线和交点，不是在原图里直接硬画出来的，而是：
+当前帮助站效果图已经用新版探针从现场相机帧重新生成，来源是同步的 `raw_world_coord + world_coord + IR`，不是旧轴向截图。当前帧里钢筋本身接近 rectified 横/竖方向，所以画出来接近水平/垂直；如果钢筋在地面上斜摆，线族角度会随钢筋真实方向变化。
 
-- 先对工作区做透视展开
-- 在 rectified 工作区里做频域周期检测与相位回归
-- 再通过 inverse projective mapping 投回原图
+本次截图摘要：
 
-![PR-FPRG 现场结果图](/images/visual/pr-fprg-result.png)
+- 响应来源：`depth_background_minus_filled`
+- 线族角度：`88° / 178°`
+- 线族数量：`3 x 4`
+- 绑扎点数量：`12`
 
-这张图对应的现场结果目录是：
+方向选择现在会先用响应图梯度做 `theta` 候选先验，再做 PR-FPRG 频相回归、峰值支撑、二维连续钢筋条验证和主间距一致性裁剪。底部原来容易出现的 13、14、15 号伪点应优先在二维连续钢筋条验证阶段删除；主间距一致性裁剪继续作为最后兜底。
 
-- `/.debug_frames/manual_workspace_s2_runtime_projective_fix/result.png`
+## 输入数据
 
-对应结果摘要里，这次现场识别结果为：
+PR-FPRG 依赖 3 类输入：
 
-- `point_count = 272`
+- IR 图像：用于显示、叠加和人工检查。
+- `/Scepter/worldCoord/raw_world_coord`：用于从像素交点反查原始相机系世界坐标。
+- 手动工作区四边形：后端保存为 `corner_pixels`，用于确定透视展开范围。
 
-## 为什么不是原图直接画网格
+## 算法主链
 
-钢筋工作区在原始 IR 图像里往往是梯形或任意四边形，如果直接在原图里：
+1. 保存手动工作区四边形，并发布 `/pointAI/manual_workspace_quad_pixels` 给前端确认。
+2. 根据四边形构建正向透视矩阵 `forward_h` 和逆向透视矩阵 `inverse_h`。
+3. 从 `raw_world_coord[:, :, 2]` 取深度，透视展开并填补无效值。
+4. 用背景深度差生成钢筋凸起响应图。
+5. 从响应图梯度提取主方向先验，补齐正交方向候选。
+6. 扫描候选角度 `theta`，把二维响应图投影到法向 `rho`，得到每个方向的一维 profile。
+7. 对每个 profile 做频域周期检测与相位回归，选出两组近似正交且连续性更好的钢筋线族。
+8. 把候选 `rho` 线吸附到局部峰值，并删除峰值支撑不足的线。
+9. 在二维响应图上沿每条斜线采样，验证它是否是一整条连续钢筋条，并要求横截面呈现贴近候选线中心的 ridge。
+10. 按主网格间距兜底删除靠边或由垫高件造成的残留额外伪线。
+11. 两组线族用线方程求交点，通过 `inverse_h` 投回原图。
+12. 从 `raw_world_coord` 反查每个绑扎点的相机系三维坐标并发布。
 
-- 取工作区 bbox
-- 做周期估计
-- 直接画横线和竖线
+## 代码落点
 
-那么透视畸变会把真实钢筋间距拉坏，结果通常会表现为：
+前端触发代码：
 
-- 主周期漂移
-- 线与真实钢筋位置偏差大
-- 网格更像“图像格子”，不像“工作平面里的真实钢筋网格”
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`：控制面板按钮文案。
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`：提交四边形、触发 PR-FPRG、固定扫描规划入口。
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`：发布 `/web/pointAI/run_workspace_s2`。
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`：触发后切换覆盖层显示、等待 result 图。
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`：IR 图像选点、拖拽四边形、显示结果覆盖层。
 
-所以当前方案先做几何校正，再做网格估计。
+后端实现代码：
 
-## 当前方案主链
+- `src/tie_robot_perception/scripts/pointai_node.py`：pointAI ROS 节点可执行入口。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/node.py`：pointAI 节点实现，订阅 `/web/pointAI/run_workspace_s2`。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/workspace_masks.py`：保存与发布手动工作区四边形。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`：PR-FPRG 运行时主链。
+- `src/tie_robot_perception/src/tie_robot_perception/perception/workspace_s2.py`：方向线族估计、周期估计、峰值筛选、连续线验证、间距裁剪和线族求交。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/rendering.py`：结果图渲染与发布。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`：`process_image` 主视觉入口，统一调用 PR-FPRG。
+- `src/tie_robot_perception/tools/pr_fprg_peak_supported_probe.py`：独立探针，可导出逐步处理图片。
 
-### 1. 手动选四边形工作区
+## 旧 RANSAC + Hough 已归档
 
-前端用户先在 IR 图像上点出 4 个角点，形成手动工作区四边形。
-
-后端保存：
-
-- `corner_pixels`
-- `corner_world_cabin_frame`
-
-其中：
-
-- `corner_pixels` 用来描述图像上的四边形
-- `corner_world_cabin_frame` 用来描述该四边形在全局工作坐标里的真实几何尺度
-
-### 2. 透视展开
-
-识别时，先把这个四边形工作区展开成规则平面：
-
-- 优先使用 `corner_world_cabin_frame` 来确定 rectified 工作区的真实宽高
-- 只有在世界角点不存在时，才退回到图像像素边长
-
-这样 rectified 图里的钢筋间距才更接近真实工作面上的周期。
-
-### 3. 频域周期检测 + 相位回归
-
-在 rectified 工作区里：
-
-- 分别计算纵向和横向的 profile
-- 用 `FFT / 自相关` 估主周期
-- 再做相位回归，反推出整张规则网格
-
-这一步是当前方案的核心，所以名称里会强调：
-
-- `Frequency`
-- `Phase Regression`
-
-### 4. 结合谷底/线响应稳住网格
-
-钢筋在高度图或响应图里，通常表现为更稳定的线状谷底或线响应。  
-当前方案在规则平面里估完周期后，会结合这些响应来稳定最终网格，而不是只靠纯几何周期硬铺满全图。
-
-### 5. 投回原图
-
-最终显示在前端和调试图上的线与交点，不是直接拿 rectified 图结果完事，而是会：
-
-- 通过 inverse projective mapping
-- 再投回到原始 IR 图像
-
-所以你在原图上看到的线，会跟着工作区四边形几何走，而不是死板的图像横竖线。
-
-## 从相机 SDK 平面拟合到 `pre_img()` 门控的原理链
-
-当前系统不是“相机一出图就直接走同一条识别链”，而是先经过一层上游几何清理，再分流到不同视觉入口。
-
-### 1. 相机 SDK 上游先做平面拟合
-
-当前上游世界点处理在：
+相机上游世界点处理在：
 
 - `src/tie_robot_perception/src/perception/scepter_world_coord_processor.cpp`
 
-这里会先把原始深度图转成三维点，再做一次基于 `RANSAC` 的平面拟合：
+这里会把原始深度图转成三维点，再用 `SACMODEL_PLANE` 和 `SAC_RANSAC` 拟合主平面。系统同时保留两套世界点：
 
-- `SACMODEL_PLANE`
-- `SAC_RANSAC`
+- `raw_world_coord`：未经过主平面剔除的原始世界点。
+- `world_coord`：去掉主平面后的残差世界点。
 
-拟合出的主平面内点会被剔掉，剩下的非平面点再重投影回二维图，发布成：
+PR-FPRG 更依赖 `raw_world_coord`，因为它需要从规则网格交点反查真实相机系坐标。
 
-- `world_coord`
+旧 `pre_img()` 绑扎点识别链路曾经负责深度二值化、细化、霍夫线提取、交点聚类和可执行范围过滤。现在这套 `RANSAC + Hough + pre_img` pointAI 链路已经从 active package 中移除，归档在：
 
-同时，未经平面剔除的原始世界点会保留并发布成：
+- `docs/archive/legacy_ransac_hough_pointai/`
 
-- `raw_world_coord`
+当前分工是：
 
-可以把它理解成：
+1. 相机上游继续提供 `raw_world_coord` 和 `world_coord`。
+2. 方向自适应 PR-FPRG 负责 pointAI 绑扎点主视觉识别。
+3. 旧 `pre_img()` 归档保留用于追溯，不参与 ROS 节点运行。
 
-- `raw_world_coord`：原始世界点
-- `world_coord`：去掉主平面后的“残差世界点”
+注意：上游 `scepter_world_coord_processor.cpp` 中的 PCL `SAC_RANSAC` 平面处理属于世界坐标生成链路，不等同于已经归档的旧 pointAI RANSAC+Hough 绑扎点识别。
 
-### 2. `pointAI` 同时持有两套世界点
-
-当前 `pointAI` 会同时使用：
-
-- 原始图像
-- `raw_world_coord`
-- `world_coord`
-
-其中：
-
-- `raw_world_coord` 更适合做手动工作区 `PR-FPRG`
-- `world_coord` / 深度残差链更接近旧的局部检测门控
-
-### 3. `pre_img()` 是旧局部视觉链的门控入口
-
-当前旧的局部视觉识别主入口是：
-
-- `pre_img()`
-
-它做的事情包括：
-
-- 取图像和世界点通道
-- 应用检测遮挡
-- 对深度残差做二值化、细化、霍夫线提取
-- 交点聚类
-- 回查世界坐标
-- 最终筛成可下游使用的点集
-
-这条链本质上还是“局部矩阵 / 局部绑扎点门控”思路。
-
-### 4. 为什么扫描层不再先走 `pre_img()`
-
-当前扫描层的 `scan_only` 已经被改成：
-
-- 先直接尝试 `PR-FPRG`
-- 不再要求先由 `pre_img()` 出点成功后，才允许继续
-
-原因是：
-
-- `PR-FPRG` 的目标是做整块手动工作区的规则网格恢复
-- 它依赖的是“工作区透视展开 + 频域周期检测 + 相位回归”
-- 不是旧的局部矩阵门控逻辑
-
-所以当前系统里：
-
-- 扫描层：优先走 `PR-FPRG`
-- 执行层局部微调：仍然可以继续走原来的局部门控视觉链
-
-### 5. 这条链路的核心分工
-
-可以把当前视觉原理简单理解成：
-
-1. 相机 SDK 上游先做主平面剔除，提供两套世界点
-2. 旧链 `pre_img()` 负责局部矩阵 / 局部门控
-3. 新链 `PR-FPRG` 负责手动工作区整块规则网格恢复
-4. 扫描层和执行层不要再混用同一条识别语义
-
-这也是为什么当前帮助站要把 `PR-FPRG` 单独命名，而不是继续把它混在旧 `pre_img()` 逻辑里讲。
-
-## 从相机 SDK 平面拟合到 `pre_img()` 门控的原理链
-
-当前系统不是“相机一出图就直接走同一条识别链”，而是先经过一层上游几何清理，再分流到不同视觉入口。
-
-### 1. 相机 SDK 上游先做平面拟合
-
-当前上游世界点处理在：
-
-- `src/tie_robot_perception/src/perception/scepter_world_coord_processor.cpp`
-
-这里会先把原始深度图转成三维点，再做一次基于 `RANSAC` 的平面拟合：
-
-- `SACMODEL_PLANE`
-- `SAC_RANSAC`
-
-拟合出的主平面内点会被剔掉，剩下的非平面点再重投影回二维图，发布成：
-
-- `world_coord`
-
-同时，未经平面剔除的原始世界点会保留并发布成：
-
-- `raw_world_coord`
-
-可以把它理解成：
-
-- `raw_world_coord`：原始世界点
-- `world_coord`：去掉主平面后的“残差世界点”
-
-### 2. `pointAI` 同时持有两套世界点
-
-当前 `pointAI` 会同时使用：
-
-- 原始图像
-- `raw_world_coord`
-- `world_coord`
-
-其中：
-
-- `raw_world_coord` 更适合做手动工作区 `PR-FPRG`
-- `world_coord` / 深度残差链更接近旧的局部检测门控
-
-### 3. `pre_img()` 是旧局部视觉链的门控入口
-
-当前旧的局部视觉识别主入口是：
-
-- `pre_img()`
-
-它做的事情包括：
-
-- 取图像和世界点通道
-- 应用检测遮挡
-- 对深度残差做二值化、细化、霍夫线提取
-- 交点聚类
-- 回查世界坐标
-- 最终筛成可下游使用的点集
-
-这条链本质上还是“局部矩阵 / 局部绑扎点门控”思路。
-
-### 4. 为什么扫描层不再先走 `pre_img()`
-
-当前扫描层的 `scan_only` 已经被改成：
-
-- 先直接尝试 `PR-FPRG`
-- 不再要求先由 `pre_img()` 出点成功后，才允许继续
-
-原因是：
-
-- `PR-FPRG` 的目标是做整块手动工作区的规则网格恢复
-- 它依赖的是“工作区透视展开 + 频域周期检测 + 相位回归”
-- 不是旧的局部矩阵门控逻辑
-
-所以当前系统里：
-
-- 扫描层：优先走 `PR-FPRG`
-- 执行层局部微调：仍然可以继续走原来的局部门控视觉链
-
-### 5. 这条链路的核心分工
-
-可以把当前视觉原理简单理解成：
-
-1. 相机 SDK 上游先做主平面剔除，提供两套世界点
-2. 旧链 `pre_img()` 负责局部矩阵 / 局部门控
-3. 新链 `PR-FPRG` 负责手动工作区整块规则网格恢复
-4. 扫描层和执行层不要再混用同一条识别语义
-
-这也是为什么当前帮助站要把 `PR-FPRG` 单独命名，而不是继续把它混在旧 `pre_img()` 逻辑里讲。
-
-## 当前方案的关键优势
-
-- 先消除工作区透视畸变，再做网格估计
-- 周期估计更稳，不容易被原图形变带偏
-- 结果更接近真实钢筋面，而不是图像格子
-- 能利用世界角点，把工作区展开尺度拉回真实物理尺寸
-
-## 当前方案明确不允许退回的旧做法
+## 不要退回的旧做法
 
 以下做法都视为退化，不应再恢复：
 
-1. 直接在工作区像素 bbox 里估周期
-2. 用图像像素边长直接决定 rectified 尺度
-3. 在原图里直接铺横竖线
-4. 只调参数，不修几何主链
-
-## 方案落点
-
-当前关键实现位于：
-
-- `src/tie_robot_perception/scripts/pointAI.py`
-- `src/tie_robot_perception/src/tie_robot_perception/perception/workspace_s2.py`
-
-更详细的交接知识条目见：
-
-- `docs/handoff/2026-04-23_pr_fprg_knowledge.md`
+1. 直接在工作区像素 bbox 里估周期。
+2. 在原图里直接铺满横竖线。
+3. 只凭一维 profile 峰值生成整张网格。
+4. 把方向自适应线族退回固定 X/Y 方向。
+5. 把 PR-FPRG 重新挂到旧 `pre_img()` 或 Hough 结果之后。
+6. 修改显示层时忘记把 rectified 线和点逆投影回原图。

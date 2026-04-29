@@ -1,3 +1,5 @@
+import { MESSAGE_TYPES, TOPICS } from "./topicRegistry.js";
+
 export const LEGACY_PARAMETER_DEFAULTS = {
   globalX: 0,
   globalY: 0,
@@ -33,28 +35,17 @@ export const LEGACY_PARAMETER_LABELS = {
 };
 
 export const LEGACY_COMMANDS = [
-  { id: 1, name: "启动机器人", topic: "/web/cabin/start", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 2, name: "规划作业路径", topic: "/web/cabin/plan_path", type: "geometry_msgs/Pose", group: "流程控制" },
-  { id: 3, name: "清除作业路径", topic: "/web/cabin/clear_path", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 4, name: "开始全局作业", topic: "/web/cabin/start_global_work", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 5, name: "重启机器人", topic: "/web/cabin/restart", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 6, name: "末端运动调试", topic: "/web/moduan/moduan_move_debug", type: "geometry_msgs/Pose", group: "调试控制" },
-  { id: 7, name: "索驱运动调试", topic: "/web/cabin/cabin_move_debug", type: "geometry_msgs/Pose", group: "调试控制" },
-  { id: 8, name: "视觉识别调试", topic: "/web/pointAI/process_image", type: "std_msgs/Float32", group: "视觉调试" },
-  { id: 9, name: "定点绑扎调试", topic: "/web/moduan/single_bind", type: "std_msgs/Float32", group: "调试控制" },
-  { id: 10, name: "暂停作业", topic: "/web/moduan/interrupt_stop", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 11, name: "开启绑扎", topic: "/web/moduan/enb_las", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 12, name: "开启(关闭)跳绑", topic: "/web/moduan/send_odd_points", type: "std_msgs/Bool", group: "末端控制" },
-  { id: 13, name: "恢复作业", topic: "/web/moduan/hand_sovle_warn", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 14, name: "开启(关闭)灯光", topic: "/web/moduan/light", type: "std_msgs/Bool", group: "末端控制" },
-  { id: 15, name: "末端回零", topic: "/web/moduan/moduan_move_zero", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 16, name: "关闭绑扎", topic: "/web/moduan/enb_las", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 17, name: "关闭机器人", topic: "/web/cabin/shutdown", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 18, name: "急停作业", topic: "/web/moduan/forced_stop", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 19, name: "设置Z固定高度", topic: "/web/pointAI/set_height_threshold", type: "std_msgs/Float32", group: "视觉调试" },
-  { id: 20, name: "保存作业路径", topic: "/web/cabin/save_path", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 21, name: "保存绑扎数据", topic: "/web/moduan/save_binding_data", type: "std_msgs/Float32", group: "末端控制" },
-  { id: 22, name: "修正视觉偏差", topic: "/web/pointAI/set_offset", type: "geometry_msgs/Pose", group: "视觉调试" },
-  { id: 23, name: "设置索驱速度", topic: "/web/cabin/set_cabin_speed", type: "std_msgs/Float32", group: "流程控制" },
-  { id: 24, name: "设置末端速度", topic: "/web/moduan/set_moduan_speed", type: "std_msgs/Float32", group: "末端控制" },
+  { id: 10, name: "暂停作业", topic: TOPICS.control.interruptStop, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 11, name: "开启绑扎", topic: TOPICS.control.enableLashing, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 12, name: "开启(关闭)跳绑", topic: TOPICS.control.sendOddPoints, type: MESSAGE_TYPES.bool, group: "末端控制" },
+  { id: 13, name: "恢复作业", topic: TOPICS.control.handSolveWarn, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 14, name: "开启(关闭)灯光", topic: TOPICS.control.light, type: MESSAGE_TYPES.bool, group: "末端控制" },
+  { id: 15, name: "末端回零", topic: TOPICS.control.moduanMoveZero, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 16, name: "关闭绑扎", topic: TOPICS.control.enableLashing, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 18, name: "急停作业", topic: TOPICS.control.forcedStop, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 19, name: "设置Z固定高度", topic: TOPICS.algorithm.setHeightThreshold, type: MESSAGE_TYPES.float32, group: "视觉调试" },
+  { id: 21, name: "保存绑扎数据", topic: TOPICS.control.saveBindingData, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 22, name: "修正TF外参", topic: TOPICS.tf.setOffset, type: MESSAGE_TYPES.pose, group: "TF标定" },
+  { id: 23, name: "设置索驱速度", topic: TOPICS.process.setCabinSpeed, type: MESSAGE_TYPES.float32, group: "流程控制" },
+  { id: 24, name: "设置末端速度", topic: TOPICS.control.setModuanSpeed, type: MESSAGE_TYPES.float32, group: "末端控制" },
 ];

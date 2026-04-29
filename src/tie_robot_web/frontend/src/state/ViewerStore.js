@@ -8,7 +8,7 @@ export class ViewerStore {
         url: "",
       },
       scene: {
-        fixedFrame: "cabin_frame",
+        fixedFrame: "map",
         filteredWorldCoordCount: 0,
         rawWorldCoordCount: 0,
         tiePointCount: 0,

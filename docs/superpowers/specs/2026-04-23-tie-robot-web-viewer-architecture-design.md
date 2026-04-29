@@ -45,7 +45,7 @@
 
 ### 3. `Fixed-frame-first`
 
-所有 `3D` 数据必须先统一到固定显示坐标系（当前工程就是 `cabin_frame`），再进入渲染层。
+所有 `3D` 数据必须先统一到固定显示坐标系（当前工程就是 `map`），再进入渲染层。
 
 ### 4. `Data-adapter-first`
 
@@ -110,7 +110,7 @@ frontend/src/
 
 #### `SceneAdapter`
 
-负责把以下原始输入统一成 `cabin_frame` 语义：
+负责把以下原始输入统一成 `map` 语义：
 
 - `/tf` 与 `/tf_static`
 - `/Scepter/worldCoord/world_coord`
@@ -165,7 +165,7 @@ frontend/src/
   - 显示 topic 是否在线、消息类型、最近更新时间
 
 - `TF`
-  - 浏览 `cabin_frame / Scepter_depth_frame / gripper_frame`
+  - 浏览 `map / Scepter_depth_frame / gripper_frame`
   - 显示最近变换与关键平移值
   - 快速暴露“TF 断了 / 高度不合理”
 
@@ -253,7 +253,7 @@ ROS / rosbridge
 
 1. 所有现有功能仍可用。
 2. 前端存在统一的 `ViewerStore`。
-3. 点云、识别点、规划点全部先统一到 `cabin_frame` 再渲染。
+3. 点云、识别点、规划点全部先统一到 `map` 再渲染。
 4. 所有主要卡片都来自 `PanelRegistry`，而不是在 `UIController` 里硬编码。
 5. 至少支持 2 套以上默认布局切换。
 6. 至少具备 `Topics / TF / Problems` 中的 2 个排查型 panel。

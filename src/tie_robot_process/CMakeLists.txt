@@ -7,6 +7,7 @@ find_package(catkin REQUIRED COMPONENTS
   actionlib_msgs
   diagnostic_updater
   geometry_msgs
+  nav_msgs
   rosgraph_msgs
   roscpp
   rospy
@@ -33,6 +34,7 @@ catkin_package(
     actionlib_msgs
     diagnostic_updater
     geometry_msgs
+    nav_msgs
     rosgraph_msgs
     roscpp
     rospy
@@ -62,7 +64,7 @@ add_library(tie_robot_process_planning
 add_dependencies(tie_robot_process_planning ${catkin_EXPORTED_TARGETS})
 target_link_libraries(tie_robot_process_planning ${catkin_LIBRARIES})
 
-add_executable(suoquNode
+set(SUOQU_NODE_CORE_SOURCES
   src/suoqu/cabin_transport.cpp
   src/suoqu/area_execution.cpp
   src/suoqu/execution_memory_store.cpp
@@ -72,8 +74,8 @@ add_executable(suoquNode
   src/suoqu/service_orchestration.cpp
   src/suoquNode.cpp
 )
-add_dependencies(suoquNode ${catkin_EXPORTED_TARGETS})
-target_link_libraries(suoquNode
+
+set(SUOQU_NODE_LIBRARIES
   ${catkin_LIBRARIES}
   ${LIBMODBUS}
   modbus
@@ -82,12 +84,67 @@ target_link_libraries(suoquNode
   -fopenmp
 )
 
+add_executable(suoquNode
+  src/suoqu_node_compat.cpp
+  ${SUOQU_NODE_CORE_SOURCES}
+)
+add_dependencies(suoquNode ${catkin_EXPORTED_TARGETS})
+target_link_libraries(suoquNode ${SUOQU_NODE_LIBRARIES})
+
+add_executable(suoqu_driver_node
+  src/suoqu_driver_node.cpp
+  ${SUOQU_NODE_CORE_SOURCES}
+)
+add_dependencies(suoqu_driver_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(suoqu_driver_node ${SUOQU_NODE_LIBRARIES})
+
+add_executable(cabin_motion_controller_node
+  src/cabin_motion_controller_node.cpp
+  ${SUOQU_NODE_CORE_SOURCES}
+)
+add_dependencies(cabin_motion_controller_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(cabin_motion_controller_node ${SUOQU_NODE_LIBRARIES})
+
+add_executable(bind_task_executor_node
+  src/bind_task_executor_node.cpp
+  ${SUOQU_NODE_CORE_SOURCES}
+)
+add_dependencies(bind_task_executor_node ${catkin_EXPORTED_TARGETS})
+target_link_libraries(bind_task_executor_node ${SUOQU_NODE_LIBRARIES})
+
 install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 )
 
-install(TARGETS tie_robot_process_planning suoquNode
+install(TARGETS
+  tie_robot_process_planning
+  suoquNode
+  suoqu_driver_node
+  cabin_motion_controller_node
+  bind_task_executor_node
   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
+
+catkin_install_python(PROGRAMS
+  scripts/architecture_role_node.py
+  scripts/global_bind_planner_node.py
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(test_dynamic_bind_planning
+    test/test_dynamic_bind_planning.cpp
+  )
+  if(TARGET test_dynamic_bind_planning)
+    target_include_directories(test_dynamic_bind_planning PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/planning
+    )
+    target_link_libraries(test_dynamic_bind_planning
+      tie_robot_process_planning
+      ${catkin_LIBRARIES}
+      gtest_main
+    )
+  endif()
+endif()

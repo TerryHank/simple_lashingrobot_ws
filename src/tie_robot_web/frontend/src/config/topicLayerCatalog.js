@@ -1,21 +1,34 @@
+import { getTopicLayerSourceTopic } from "./topicRegistry.js";
+
 export const TOPIC_LAYER_MODES = [
   { id: "onlyPointCloud", label: "只显示点云" },
-  { id: "onlyTiePoints", label: "只显示绑扎点" },
-  { id: "pointCloudAndTiePoints", label: "点云 + 绑扎点" },
-  { id: "planningFocus", label: "规划点/执行点" },
+  { id: "onlyPlanningPoints", label: "只显示规划点/绑扎点" },
+  { id: "pointCloudAndPlanningPoints", label: "点云 + 规划点/绑扎点" },
   { id: "machineOnly", label: "只显示机器" },
   { id: "all", label: "全开" },
 ];
 
 export const POINT_CLOUD_SOURCES = [
-  { id: "filteredWorldCoord", label: "滤波世界点云" },
-  { id: "rawWorldCoord", label: "原始世界点云" },
+  { id: "filteredWorldCoord", label: "滤波世界点云", topic: getTopicLayerSourceTopic("filteredWorldCoord") },
+  { id: "rawWorldCoord", label: "原始世界点云", topic: getTopicLayerSourceTopic("rawWorldCoord") },
 ];
 
 export const SCENE_VIEW_MODES = [
   { id: "camera", label: "相机视角" },
   { id: "global", label: "全局视角" },
 ];
+
+export const TF_AXIS_FRAMES = [
+  { id: "map", label: "索驱世界 map" },
+  { id: "base_link", label: "机器 base_link" },
+  { id: "Scepter_depth_frame", label: "相机 Scepter_depth_frame" },
+  { id: "gripper_frame", label: "TCP gripper_frame" },
+];
+
+export const DEFAULT_TF_AXIS_FRAME_VISIBILITY = TF_AXIS_FRAMES.reduce((accumulator, frame) => {
+  accumulator[frame.id] = true;
+  return accumulator;
+}, {});
 
 function getLabel(options, id, fallback = id) {
   return options.find((option) => option.id === id)?.label || fallback;
@@ -29,24 +42,17 @@ export const MODE_PRESETS = {
     showTiePoints: false,
     showPlanningMarkers: false,
   },
-  onlyTiePoints: {
+  onlyPlanningPoints: {
     showRobot: false,
     showAxes: true,
     showPointCloud: false,
-    showTiePoints: true,
-    showPlanningMarkers: false,
+    showTiePoints: false,
+    showPlanningMarkers: true,
   },
-  pointCloudAndTiePoints: {
+  pointCloudAndPlanningPoints: {
     showRobot: true,
     showAxes: true,
     showPointCloud: true,
-    showTiePoints: true,
-    showPlanningMarkers: false,
-  },
-  planningFocus: {
-    showRobot: true,
-    showAxes: true,
-    showPointCloud: false,
     showTiePoints: false,
     showPlanningMarkers: true,
   },
@@ -61,7 +67,7 @@ export const MODE_PRESETS = {
     showRobot: true,
     showAxes: true,
     showPointCloud: true,
-    showTiePoints: true,
+    showTiePoints: false,
     showPlanningMarkers: true,
   },
 };
@@ -72,8 +78,9 @@ export const DEFAULT_TOPIC_LAYER_STATE = {
   showRobot: true,
   showAxes: true,
   showPointCloud: false,
-  showTiePoints: true,
+  showTiePoints: false,
   showPlanningMarkers: true,
+  tfAxisFrameVisibility: DEFAULT_TF_AXIS_FRAME_VISIBILITY,
   pointSize: 0.035,
   pointOpacity: 0.78,
   viewMode: "camera",
@@ -81,10 +88,11 @@ export const DEFAULT_TOPIC_LAYER_STATE = {
 };
 
 export function applyModePreset(mode, currentState) {
-  const preset = MODE_PRESETS[mode] || MODE_PRESETS.pointCloudAndTiePoints;
+  const normalizedMode = MODE_PRESETS[mode] ? mode : "pointCloudAndPlanningPoints";
+  const preset = MODE_PRESETS[normalizedMode];
   return {
     ...currentState,
-    mode,
+    mode: normalizedMode,
     ...preset,
   };
 }

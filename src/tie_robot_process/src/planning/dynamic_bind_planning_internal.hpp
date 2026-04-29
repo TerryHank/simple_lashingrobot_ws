@@ -28,11 +28,18 @@ float clamp_bind_execution_cabin_z(float planned_cabin_z, const DynamicBindPlann
 bool is_local_bind_point_in_range(
     const tie_robot_msgs::PointCoords& point,
     const DynamicBindPlannerConfig& config);
+tf2::Transform build_cabin_from_base_link_transform(
+    const CabinPoint& cabin_point,
+    float cabin_height);
+tf2::Transform build_gripper_from_cabin_transform(
+    const CabinPoint& cabin_point,
+    float cabin_height,
+    const tf2::Transform& gripper_from_base_link);
 void transform_cabin_world_point_to_planned_gripper_point(
     const tie_robot_msgs::PointCoords& world_point,
     const CabinPoint& cabin_point,
     float cabin_height,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     tie_robot_msgs::PointCoords& gripper_point);
 double local_origin_distance_sq(const tie_robot_msgs::PointCoords& point);
 
@@ -60,7 +67,7 @@ std::vector<PseudoSlamCandidatePoint> build_area_bind_candidates(
     const std::vector<tie_robot_msgs::PointCoords>& remaining_world_points,
     const CabinPoint& cabin_point,
     float cabin_height,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config);
 std::vector<tie_robot_msgs::PointCoords> collect_dynamic_bind_seed_world_points(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
@@ -69,12 +76,12 @@ std::vector<tie_robot_msgs::PointCoords> collect_dynamic_bind_seed_world_points(
     size_t max_seed_count);
 DynamicBindPlanningCandidatePose build_dynamic_bind_candidate_pose_from_world_point(
     const std::vector<tie_robot_msgs::PointCoords>& seed_world_points,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config);
 std::vector<PseudoSlamCandidatePoint> collect_world_points_coverable_by_dynamic_pose(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
     const DynamicBindPlanningCandidatePose& candidate_pose,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config);
 PseudoSlamBindGroup build_dynamic_four_point_template_group(
     const std::vector<PseudoSlamCandidatePoint>& coverable_candidates,

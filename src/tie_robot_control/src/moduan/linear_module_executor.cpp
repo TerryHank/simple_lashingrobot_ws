@@ -4,17 +4,21 @@
 #include <chrono>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <thread>
 
 #include <ros/ros.h>
+#include <tie_robot_msgs/ExecuteBindPoints.h>
 
-#include "common.hpp"
+#include <tie_robot_control/common.hpp>
 #include "tie_robot_control/moduan/numeric_codec.hpp"
 #include "tie_robot_control/moduan/register_map.hpp"
 #include "tie_robot_control/moduan/runtime_state.hpp"
 
 using namespace tie_robot_control::moduan_registers;
+
+void pub_moduan_work_state(bool moduan_work_flag);
 
 void apply_module_speed_mm_per_sec(double new_speed)
 {
@@ -30,7 +34,7 @@ ScopedModuleSpeedOverride::ScopedModuleSpeedOverride(double override_speed)
 {
     if (active_) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Moduan_log: 预计算当前区域直执行启用快速度，线性模组速度从%.1lf提升到%.1lf。\n",
             original_speed_,
             override_speed
@@ -44,7 +48,7 @@ ScopedModuleSpeedOverride::~ScopedModuleSpeedOverride()
     if (active_) {
         apply_module_speed_mm_per_sec(original_speed_);
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Moduan_log: 预计算当前区域直执行结束，线性模组速度恢复到%.1lf。\n",
             original_speed_
         );
@@ -116,9 +120,21 @@ bool request_linear_module_zero_via_driver(std::string* error_message)
         return false;
     }
 
-    if (!g_linear_module_driver->requestZero(&driver_error)) {
+    if (!g_linear_module_driver->pulseExecutionEnable(&driver_error)) {
         const std::string detail = compose_linear_module_driver_error_message(
-            "线性模组回零指令下发失败",
+            "线性模组回零执行触发失败",
+            driver_error
+        );
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        ROS_ERROR_STREAM("Moduan_Error: " << detail);
+        return false;
+    }
+
+    if (!g_linear_module_driver->setZeroRequest(true, &driver_error)) {
+        const std::string detail = compose_linear_module_driver_error_message(
+            "线性模组回零请求位写入失败",
             driver_error
         );
         if (error_message != nullptr) {
@@ -134,25 +150,155 @@ bool request_linear_module_zero_via_driver(std::string* error_message)
     return true;
 }
 
-void delay_time(int Axis, double traget_coordinate, int mode)
-{
-    (void)mode;
-    double cur = 0.;
-    const double TOL = 80;
-    const double DT  = 0.02;
+namespace {
 
-    while (true)
+constexpr double kLinearModuleAxisArrivalToleranceMm = 5.0;
+constexpr double kLinearModuleAxisArrivalStableDeltaMm = 1.0;
+constexpr int kLinearModuleAxisArrivalStableSampleCount = 3;
+constexpr int kLinearModuleAxisArrivalTimeoutSec = 20;
+constexpr int kLinearModuleAxisArrivalLogIntervalSec = 2;
+constexpr double kLinearModuleAxisArrivalPollSec = 0.02;
+constexpr auto kFinishAllPollInterval = std::chrono::milliseconds(150);
+constexpr auto kFinishAllTimeout = std::chrono::seconds(kFinishAllTimeoutSec);
+
+class ScopedPlcExecutionState
+{
+public:
+    ScopedPlcExecutionState()
     {
-        {
-            std::lock_guard<std::mutex> lock(module_state_mutex);
-            if (Axis == AXIS_X) cur = module_state.X;
-            else if (Axis == AXIS_Y) cur = module_state.Y;
-            else if (Axis == AXIS_Z) cur = module_state.Z;
-            else if (Axis == AXIS_MOTOR) cur = motor_state.MOTOR_ANGLE;
-        }
-        if (std::fabs(cur - traget_coordinate) <= TOL) break;
-        ros::Duration(DT).sleep();
+        moduan_plc_execution_state.store(true, std::memory_order_release);
+        pub_moduan_work_state(true);
     }
+
+    ~ScopedPlcExecutionState()
+    {
+        moduan_plc_execution_state.store(false, std::memory_order_release);
+        pub_moduan_work_state(false);
+    }
+};
+
+struct LinearModuleAxisSnapshot
+{
+    double position = 0.0;
+    int error_flag = 0;
+    const char* name = "unknown";
+};
+
+LinearModuleAxisSnapshot read_linear_module_axis_snapshot(int Axis)
+{
+    LinearModuleAxisSnapshot snapshot;
+    std::lock_guard<std::mutex> lock(module_state_mutex);
+    if (Axis == AXIS_X) {
+        snapshot.position = module_state.X;
+        snapshot.error_flag = static_cast<int>(module_state.ERROR_FLAG_X);
+        snapshot.name = "X";
+    } else if (Axis == AXIS_Y) {
+        snapshot.position = module_state.Y;
+        snapshot.error_flag = static_cast<int>(module_state.ERROR_FLAG_Y);
+        snapshot.name = "Y";
+    } else if (Axis == AXIS_Z) {
+        snapshot.position = module_state.Z;
+        snapshot.error_flag = static_cast<int>(module_state.ERROR_FLAG_Z);
+        snapshot.name = "Z";
+    } else if (Axis == AXIS_MOTOR) {
+        snapshot.position = motor_state.MOTOR_ANGLE;
+        snapshot.error_flag = static_cast<int>(motor_state.ERROR_FLAG_MOTOR);
+        snapshot.name = "MOTOR";
+    }
+    return snapshot;
+}
+
+}  // namespace
+
+bool wait_linear_module_axis_arrival(int Axis, double target_coordinate)
+{
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+    int stable_sample_count = 0;
+    double previous_position = std::numeric_limits<double>::quiet_NaN();
+
+    while (ros::ok()) {
+        const LinearModuleAxisSnapshot snapshot = read_linear_module_axis_snapshot(Axis);
+        if (snapshot.error_flag != 0) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Error: 等待线性模组%s轴到位时检测到错误标志=%d，目标位置 %.2f，当前位置 %.2f。\n",
+                snapshot.name,
+                snapshot.error_flag,
+                target_coordinate,
+                snapshot.position
+            );
+            return false;
+        }
+
+        const double axis_error_mm = std::fabs(snapshot.position - target_coordinate);
+        const double pose_delta_mm = std::isfinite(previous_position)
+            ? std::fabs(snapshot.position - previous_position)
+            : std::numeric_limits<double>::infinity();
+        previous_position = snapshot.position;
+
+        if (axis_error_mm <= kLinearModuleAxisArrivalToleranceMm &&
+            (!std::isfinite(pose_delta_mm) ||
+             pose_delta_mm <= kLinearModuleAxisArrivalStableDeltaMm)) {
+            stable_sample_count++;
+            if (stable_sample_count >= kLinearModuleAxisArrivalStableSampleCount) {
+                return true;
+            }
+        } else {
+            stable_sample_count = 0;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+        if (elapsed_sec >= kLinearModuleAxisArrivalTimeoutSec) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Error: 等待线性模组%s轴到位超时，目标位置 %.2f，当前位置 %.2f，误差 %.2fmm，连续稳定样本=%d/%d。\n",
+                snapshot.name,
+                target_coordinate,
+                snapshot.position,
+                axis_error_mm,
+                stable_sample_count,
+                kLinearModuleAxisArrivalStableSampleCount
+            );
+            return false;
+        }
+
+        const auto log_elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count();
+        if (log_elapsed_sec >= kLinearModuleAxisArrivalLogIntervalSec) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_log: 等待线性模组%s轴到位中，目标位置 %.2f，当前位置 %.2f，误差 %.2fmm，位置变化 %.2fmm，连续稳定样本=%d/%d。\n",
+                snapshot.name,
+                target_coordinate,
+                snapshot.position,
+                axis_error_mm,
+                std::isfinite(pose_delta_mm) ? pose_delta_mm : -1.0,
+                stable_sample_count,
+                kLinearModuleAxisArrivalStableSampleCount
+            );
+            last_log_time = now;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(error_msg_mutex);
+            if (error_detected) {
+                printCurrentTime();
+                ros_log_printf(
+                    "Moduan_Error: 等待线性模组%s轴到位时收到全局错误标志，目标位置 %.2f，当前位置 %.2f。\n",
+                    snapshot.name,
+                    target_coordinate,
+                    snapshot.position
+                );
+                return false;
+            }
+        }
+
+        ros::Duration(kLinearModuleAxisArrivalPollSec).sleep();
+    }
+    return false;
 }
 
 bool arrive_z(int axis_z, double& z, bool& is_current_z)
@@ -180,7 +326,7 @@ bool arrive_z(int axis_z, double& z, bool& is_current_z)
         if (arrivez_flag == 1)
         {
             printCurrentTime();
-            printf("当前z轴状态: [%d, %d, %lf mm]\n", arrivez_flag, (int)current_z_flag_, z);
+            ros_log_printf("当前z轴状态: [%d, %d, %lf mm]\n", arrivez_flag, (int)current_z_flag_, z);
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -200,7 +346,7 @@ void clear_finishall_flag_if_needed()
     }
 
     printCurrentTime();
-    printf("Moduan_log: 检测到上一轮FINISHALL标志仍为1，先清零后再启动本轮末端执行。\n");
+    ros_log_printf("Moduan_log: 检测到上一轮FINISHALL标志仍为1，先清零后再启动本轮末端执行。\n");
     tie_robot_hw::driver::DriverError driver_error;
     if (ensure_linear_module_driver_started(&driver_error) &&
         g_linear_module_driver->clearFinishAll(&driver_error)) {
@@ -218,7 +364,7 @@ void clear_finishall_flag_if_needed()
     }
 }
 
-bool finish_all(int inter_time)
+bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chrono::seconds timeout)
 {
     const auto start_time = std::chrono::steady_clock::now();
     auto last_log_time = start_time;
@@ -241,11 +387,11 @@ bool finish_all(int inter_time)
         const auto now = std::chrono::steady_clock::now();
         const auto elapsed_sec =
             std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
-        if (elapsed_sec >= kFinishAllTimeoutSec) {
+        if (elapsed_sec >= timeout.count()) {
             printCurrentTime();
-            printf(
+            ros_log_printf(
                 "Moduan_Error: 等待FINISHALL标志超时，超时=%ds，当前FINISH_ALL_FLAG=%d，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
-                kFinishAllTimeoutSec,
+                static_cast<int>(timeout.count()),
                 finishall_flag,
                 cur_x,
                 cur_y,
@@ -258,7 +404,7 @@ bool finish_all(int inter_time)
             std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count();
         if (log_elapsed_sec >= kFinishAllLogIntervalSec) {
             printCurrentTime();
-            printf(
+            ros_log_printf(
                 "Moduan_log: 等待FINISHALL标志中，当前FINISH_ALL_FLAG=%d，已等待%lds，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
                 finishall_flag,
                 static_cast<long>(elapsed_sec),
@@ -269,11 +415,11 @@ bool finish_all(int inter_time)
             last_log_time = now;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(inter_time));
+        std::this_thread::sleep_for(poll_interval);
     }
 
     printCurrentTime();
-    printf("当前子区域绑扎完成，准备启动置0\n");
+    ros_log_printf("当前子区域绑扎完成，准备启动置0\n");
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         PLC_Order_Write(FINISHALL, 0, plc);
@@ -283,7 +429,7 @@ bool finish_all(int inter_time)
 
 void moveLinearModule(double x, double y, double z, double angle) {
     printCurrentTime();
-    printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n", x, y, z);
+    ros_log_printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n", x, y, z);
     bool is_error = false;
     {
         std::lock_guard<std::mutex> lock(error_msg_mutex);
@@ -296,7 +442,7 @@ void moveLinearModule(double x, double y, double z, double angle) {
             is_error = error_detected;
         }
         printCurrentTime();
-        printf("Moduan_Error: waiting on current target pt \n");
+        ros_log_printf("Moduan_Error: waiting on current target pt \n");
     }
 
     {
@@ -311,13 +457,15 @@ void moveLinearModule(double x, double y, double z, double angle) {
         Set_Module_Coordinate(WY_COORDINATE, &y, plc);
     }
 
-    delay_time(AXIS_X, x, 0);
-    delay_time(AXIS_Y, y, 0);
+    if (!wait_linear_module_axis_arrival(AXIS_X, x) ||
+        !wait_linear_module_axis_arrival(AXIS_Y, y)) {
+        return;
+    }
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         Set_Module_Coordinate(WZ_COORDINATE, &z, plc);
     }
-    delay_time(AXIS_Z, z, 0);
+    wait_linear_module_axis_arrival(AXIS_Z, z);
 }
 
 int linear_module_move_origin_single(int Axis)
@@ -337,15 +485,17 @@ void move_linear_module_to_origin()
         std::lock_guard<std::mutex> lock2(plc_mutex);
         Set_Module_Coordinate(WZ_COORDINATE, &zero_target, plc);
     }
-    delay_time(AXIS_Z, zero_target, 0);
+    if (!wait_linear_module_axis_arrival(AXIS_Z, zero_target)) {
+        return;
+    }
 
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         Set_Module_Coordinate(WX_COORDINATE, &zero_target, plc);
         Set_Module_Coordinate(WY_COORDINATE, &zero_target, plc);
     }
-    delay_time(AXIS_X, zero_target, 0);
-    delay_time(AXIS_Y, zero_target, 0);
+    wait_linear_module_axis_arrival(AXIS_X, zero_target);
+    wait_linear_module_axis_arrival(AXIS_Y, zero_target);
 }
 
 double max_bind_height_excess_mm(const std::vector<float>& out_of_height_z_values)
@@ -399,10 +549,22 @@ bool execute_bind_points(
     std::string& response_message,
     bool apply_jump_bind_filter)
 {
+    if (g_use_remote_moduan_driver.load(std::memory_order_relaxed)) {
+        tie_robot_msgs::ExecuteBindPoints raw_execute_srv;
+        raw_execute_srv.request.points = filteredPoints;
+        ScopedPlcExecutionState plc_execution_state;
+        if (!ros::service::call("/moduan/driver/raw_execute_points", raw_execute_srv)) {
+            response_message = "无法调用线性模组驱动层 raw execute 服务 /moduan/driver/raw_execute_points";
+            return false;
+        }
+        response_message = raw_execute_srv.response.message;
+        return raw_execute_srv.response.success;
+    }
+
     ROS_WARN("Cur pt_vec size: %zu\n", filteredPoints.size());
     if (filteredPoints.empty()) {
         printCurrentTime();
-        printf("Moduan_Warn: 预生成绑扎点为空，跳过当前区域。\n");
+        ros_log_printf("Moduan_Warn: 预生成绑扎点为空，跳过当前区域。\n");
         response_message = "预生成绑扎点为空，跳过当前区域";
         return false;
     }
@@ -426,7 +588,7 @@ bool execute_bind_points(
         if (!is_valid_precomputed_tcp_travel_z(static_cast<double>(world_z))) {
             rejected_invalid_tcp_travel_count++;
             printCurrentTime();
-            printf(
+            ros_log_printf(
                 "Moduan_Warn: 预生成点 idx=%d 的局部z=%.2fmm，不是合法TCP行程[%.2f, %.2f]mm，已拒绝下发。\n",
                 point.idx,
                 world_z,
@@ -457,7 +619,7 @@ bool execute_bind_points(
 
     if (selected_bind_point_count == 0 && rejected_invalid_tcp_travel_count > 0) {
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Moduan_Warn: 当前组全部点的局部z都超出TCP行程[%.2f, %.2f]mm，跳过当前组。\n",
             kTcpTravelMinZMm,
             kTcpTravelMaxZMm
@@ -485,16 +647,24 @@ bool execute_bind_points(
             );
             return false;
         }
-        if (!g_linear_module_driver->executeQueuedPoints(
-                build_linear_module_points_from_bind_points(selected_bind_points),
-                &driver_error)) {
+        const std::vector<tie_robot_hw::driver::LinearModulePoint> driver_points =
+            build_linear_module_points_from_bind_points(selected_bind_points);
+        if (!g_linear_module_driver->writeQueuedPoints(driver_points, &driver_error)) {
             response_message = compose_linear_module_driver_error_message(
-                "线性模组预计算点执行下发失败",
+                "线性模组预计算点位写入失败",
                 driver_error
             );
             return false;
         }
-        if (!finish_all(150)) {
+        ScopedPlcExecutionState plc_execution_state;
+        if (!g_linear_module_driver->pulseExecutionEnable(&driver_error)) {
+            response_message = compose_linear_module_driver_error_message(
+                "线性模组预计算点执行触发失败",
+                driver_error
+            );
+            return false;
+        }
+        if (!wait_for_plc_finish_all(kFinishAllPollInterval, kFinishAllTimeout)) {
             response_message = "等待FINISHALL标志超时，当前子区域绑扎未确认完成";
             return false;
         }

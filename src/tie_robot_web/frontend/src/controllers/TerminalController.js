@@ -72,6 +72,7 @@ export class TerminalController {
     this.resizeObserver = null;
     this.theme = document.documentElement.getAttribute("data-theme") || "dark";
     this.terminalConfig = null;
+    this.sessionLabelSyncTimer = null;
   }
 
   init() {
@@ -83,10 +84,15 @@ export class TerminalController {
       this.resizeObserver.observe(this.terminalViewport);
     }
     this.ui.renderTerminalSessions([], null);
+    this.startSessionLabelSync();
     return this;
   }
 
   async ensureConfig() {
+    return this.fetchConfig();
+  }
+
+  async fetchConfig() {
     if (this.terminalConfig) {
       return this.terminalConfig;
     }
@@ -99,7 +105,107 @@ export class TerminalController {
     return this.terminalConfig;
   }
 
+  async hydrateExistingSessions() {
+    this.terminalConfig = null;
+    const config = await this.ensureConfig();
+    const sessions = Array.isArray(config?.sessions) ? config.sessions : [];
+    sessions
+      .map((session) => this.normalizeSessionPayload(session, config))
+      .filter((session) => session?.sessionId && !this.sessions.has(session.sessionId))
+      .forEach((session) => {
+        this.mountSession(session);
+        this.connectSessionSocket(session.sessionId);
+      });
+    if (!this.activeSessionId && this.sessions.size > 0) {
+      const [firstSessionId] = this.sessions.keys();
+      this.activateSession(firstSessionId);
+    }
+    return this.listSessionSummaries();
+  }
+
+  startSessionLabelSync() {
+    if (this.sessionLabelSyncTimer) {
+      return;
+    }
+    this.sessionLabelSyncTimer = window.setInterval(() => {
+      this.refreshSessionSummaries({ suppressLog: true });
+    }, 2500);
+  }
+
+  async refreshSessionSummaries(options = {}) {
+    const suppressLog = Boolean(options?.suppressLog);
+    try {
+      this.terminalConfig = null;
+      const config = await this.ensureConfig();
+      const remoteSessions = Array.isArray(config?.sessions) ? config.sessions : [];
+      const remoteSessionIds = new Set();
+      let changed = false;
+      remoteSessions
+        .map((session) => this.normalizeSessionPayload(session, config))
+        .filter((session) => session?.sessionId)
+        .forEach((session) => {
+          remoteSessionIds.add(session.sessionId);
+          const existing = this.sessions.get(session.sessionId);
+          if (!existing) {
+            this.mountSession(session);
+            this.connectSessionSocket(session.sessionId);
+            changed = true;
+            return;
+          }
+          if (existing.label !== session.label) {
+            existing.label = session.label;
+            changed = true;
+          }
+          existing.terminalPort = session.terminalPort;
+          existing.wsPath = session.wsPath;
+        });
+
+      [...this.sessions.entries()].forEach(([sessionId, session]) => {
+        if (remoteSessionIds.has(sessionId)) {
+          return;
+        }
+        if (session.socket && session.socket.readyState <= WebSocket.OPEN) {
+          session.socket.close();
+        }
+        session.terminal.dispose();
+        session.element.remove();
+        this.sessions.delete(sessionId);
+        changed = true;
+      });
+
+      if (this.activeSessionId && !this.sessions.has(this.activeSessionId)) {
+        this.activeSessionId = this.sessions.keys().next().value || null;
+      }
+      if (changed) {
+        this.ui.renderTerminalSessions(this.listSessionSummaries(), this.activeSessionId);
+      }
+    } catch (error) {
+      if (!suppressLog) {
+        this.report(`同步 tmux 窗口名称失败：${error?.message || String(error)}`, "warn");
+      }
+    }
+  }
+
+  normalizeSessionPayload(session, config = null) {
+    if (!session) {
+      return null;
+    }
+    const sessionId = session.sessionId || session.session_id;
+    if (!sessionId) {
+      return null;
+    }
+    return {
+      ...session,
+      sessionId,
+      label: session.label || session.tmuxSessionName || sessionId,
+      terminalPort: session.terminalPort || config?.terminal_port || this.terminalConfig?.terminal_port || 8081,
+      wsPath: session.wsPath || `/ws/terminal/${sessionId}`,
+      state: session.state || "connecting",
+    };
+  }
+
   async ensureSession() {
+    await this.hydrateExistingSessions();
     if (this.sessions.size > 0) {
       if (!this.activeSessionId) {
         const [firstSessionId] = this.sessions.keys();
@@ -112,6 +218,7 @@ export class TerminalController {
   }
 
   async createSession() {
+    this.ui.setTerminalNotice("正在创建终端会话…", "info");
     const viewportRect = this.terminalViewport?.getBoundingClientRect();
     const config = await this.ensureConfig();
     const response = await fetch("/api/terminal/sessions", {
@@ -130,13 +237,13 @@ export class TerminalController {
     }
 
     const session = {
-      ...payload.session,
-      terminalPort: payload.session.terminalPort || config?.terminal_port || 8081,
+      ...this.normalizeSessionPayload(payload.session, config),
       state: "connecting",
     };
     this.mountSession(session);
     this.connectSessionSocket(session.sessionId);
     this.activateSession(session.sessionId);
+    this.ui.setTerminalNotice(null);
     this.report(`已创建终端：${session.label}`, "success");
     return session;
   }
@@ -241,6 +348,15 @@ export class TerminalController {
         session.state = "error";
         session.terminal.writeln(`\r\n[错误] ${payload.message || "未知错误"}`);
         this.ui.renderTerminalSessions(this.listSessionSummaries(), this.activeSessionId);
+        break;
+      case "gui_session":
+        this.callbacks.onGraphicalSession?.(payload.session);
+        break;
+      case "gui_sessions":
+        this.callbacks.onGraphicalSessions?.(payload.sessions || []);
+        break;
+      case "gui_session_closed":
+        this.callbacks.onGraphicalSessionClosed?.(payload.sessionId);
         break;
       default:
         break;

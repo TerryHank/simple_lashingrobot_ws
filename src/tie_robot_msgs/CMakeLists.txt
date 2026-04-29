@@ -35,6 +35,7 @@ add_action_files(
   StartPseudoSlamScanTask.action
   StartGlobalWorkTask.action
   RunBindPathDirectTestTask.action
+  ExecuteBindPointsTask.action
 )
 
 add_message_files(
@@ -55,6 +56,7 @@ add_message_files(
   Area_info.msg
   AreaProgress.msg
   path_planning_result.msg
+  ModuanState.msg
 )
 
 generate_messages(

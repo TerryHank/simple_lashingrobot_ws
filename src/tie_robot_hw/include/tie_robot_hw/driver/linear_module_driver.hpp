@@ -21,10 +21,11 @@ public:
     bool start(DriverError* error = nullptr);
     void stop();
     bool clearFinishAll(DriverError* error);
-    bool executeQueuedPoints(
+    bool writeQueuedPoints(
         const std::vector<LinearModulePoint>& points,
         DriverError* error);
-    bool requestZero(DriverError* error);
+    bool pulseExecutionEnable(DriverError* error);
+    bool setZeroRequest(bool requested, DriverError* error);
     LinearModuleStateSnapshot readState() const;
     ConnectionState connectionState() const;
     std::string lastErrorText() const;

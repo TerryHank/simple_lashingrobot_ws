@@ -1,0 +1,15 @@
+[Unit]
+Description=Tie Robot frontend web stack
+Wants=network-online.target tie-robot-rosbridge.service
+After=network-online.target tie-robot-rosbridge.service
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKSPACE@
+ExecStart=/bin/bash -lc 'source /opt/ros/noetic/setup.bash && source @WORKSPACE@/devel/setup.bash && FRONTEND_HOST="$$(hostname -I)" && FRONTEND_HOST="$${FRONTEND_HOST%%%% *}" && exec @WORKSPACE@/src/tie_robot_web/scripts/workspace_picker_web_server.py --no-ros --host 0.0.0.0 --port 8080 --browser-host "$${FRONTEND_HOST:-127.0.0.1}"'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

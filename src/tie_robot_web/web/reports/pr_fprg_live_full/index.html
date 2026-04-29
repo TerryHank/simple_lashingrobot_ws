@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 方案1工序消融报告</title>
+  <style>
+    :root {
+      --bg: #eef1f4;
+      --panel: #ffffff;
+      --ink: #1c252e;
+      --muted: #5b6876;
+      --line: #d7dee7;
+      --green: #15803d;
+      --amber: #b45309;
+      --red: #b91c1c;
+      --cyan: #0e7490;
+      --charcoal: #18212b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+    }
+    header {
+      padding: 24px 28px 18px;
+      background: var(--charcoal);
+      color: #f8fafc;
+      border-bottom: 4px solid #26a269;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 27px;
+      letter-spacing: 0;
+    }
+    header p {
+      margin: 0;
+      color: #cbd5e1;
+      line-height: 1.55;
+    }
+    main {
+      padding: 18px 28px 40px;
+      display: grid;
+      gap: 18px;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 12px;
+    }
+    .stat, .table-panel, .scheme-section, .source-strip, .result-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+    .stat {
+      padding: 14px 16px;
+    }
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .stat strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+    .source-strip, .scheme-section {
+      padding: 16px;
+    }
+    .scheme-nav {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      background: rgba(238, 241, 244, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      backdrop-filter: blur(8px);
+    }
+    .scheme-nav p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .scheme-filter-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+    }
+    .scheme-filter-row button {
+      min-height: 48px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #243241;
+      text-align: left;
+      cursor: pointer;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    .scheme-filter-row button.active {
+      border-color: #15803d;
+      box-shadow: inset 0 0 0 1px #15803d;
+      background: #f0fdf4;
+    }
+    .scheme-filter-row button span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .scheme-filter-row button strong {
+      display: block;
+      margin-top: 3px;
+      font-size: 13px;
+      letter-spacing: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .source-strip h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+    .table-panel {
+      padding: 14px;
+      overflow-x: auto;
+    }
+    .table-panel.compact {
+      box-shadow: none;
+      margin-top: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1080px;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 9px;
+      border-bottom: 1px solid #e5ebf2;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #334155;
+      background: #f8fafc;
+      font-weight: 700;
+    }
+    .scheme-title, .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .scheme-title p, .stage {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .scheme-title h2, .result-card h3 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+    .scheme-title h2 {
+      font-size: 20px;
+    }
+    .result-card h3 {
+      font-size: 17px;
+    }
+    .scheme-title > span {
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 5px 8px;
+      color: #334155;
+      background: #f8fafc;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .scheme-desc, .result-card p, .source-strip p {
+      margin: 9px 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .pill.baseline { color: #075985; background: #e0f2fe; }
+    .pill.ok { color: #166534; background: #dcfce7; }
+    .pill.warn { color: #92400e; background: #fef3c7; }
+    .pill.danger { color: #991b1b; background: #fee2e2; }
+    .pill.curve { color: #155e75; background: #cffafe; }
+    .result-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .result-card {
+      padding: 15px;
+      box-shadow: none;
+    }
+    .conclusion {
+      color: var(--ink) !important;
+      font-weight: 700;
+    }
+    .failure {
+      color: var(--red) !important;
+    }
+    .failure-panel {
+      margin-top: 12px;
+      display: grid;
+      gap: 6px;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      background: #fff7f7;
+      color: #7f1d1d;
+      padding: 14px;
+    }
+    .failure-panel strong {
+      font-size: 15px;
+      letter-spacing: 0;
+    }
+    .failure-panel span {
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .metrics {
+      margin: 12px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .metrics span {
+      border: 1px solid #d9e2ec;
+      border-radius: 6px;
+      padding: 5px 8px;
+      background: #f8fafc;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .images {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 12px;
+    }
+    figure {
+      margin: 0;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    figcaption {
+      padding: 8px 10px;
+      background: #f8fafc;
+      color: #334155;
+      border-top: 1px solid #d9e2ec;
+      font-size: 13px;
+    }
+    details {
+      margin-top: 12px;
+    }
+    summary {
+      cursor: pointer;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    pre {
+      overflow-x: auto;
+      padding: 10px;
+      border: 1px solid #d9e2ec;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    @media (max-width: 720px) {
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .images { grid-template-columns: 1fr; }
+      table { min-width: 940px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG 方案1工序消融报告</h1>
+    <p>同一帧输入、锁定同一深度优先响应图。当前只保留方案1直线族识别：钢筋线允许穿过梁筋，梁筋只在最终绑扎点级排除。</p>
+  </header>
+  <main>
+    <section class="summary-grid">
+      <div class="stat"><span>生成时间</span><strong>2026-04-29 13:45:36</strong></div>
+      <div class="stat"><span>帧源</span><strong>raw_world</strong></div>
+      <div class="stat"><span>重复次数</span><strong>3</strong></div>
+      <div class="stat"><span>响应图</span><strong>depth_background_minus_filled</strong></div>
+      <div class="stat"><span>方案数</span><strong>1</strong></div>
+      <div class="stat"><span>消融项/方案</span><strong>7</strong></div>
+    </section>
+    <section class="scheme-nav" aria-label="方案筛选">
+      <p>方案入口：点击后只显示对应方案的 7 个消融项；选“全部方案”可恢复完整列表。</p>
+      <div class="scheme-filter-row"><button type="button" class="active" data-scheme-filter="all" onclick="showScheme('all', this)">全部方案</button>
+            <button type="button" data-scheme-filter="01_current_theta_rho" onclick="showScheme('01_current_theta_rho', this)">
+              <span>方案 1</span>
+              <strong>当前主链：theta/rho 直线族</strong>
+            </button>
+            </div>
+    </section>
+    <section class="source-strip">
+      <h2>输入与基准响应图</h2>
+      <p>用于所有方案和消融项的同一帧输入。</p>
+      <div class="images">
+        <figure><img src="images/00_ir_input.png" alt="ir input"><figcaption>红外输入</figcaption></figure>
+        <figure><img src="images/00_rectified_ir.png" alt="rectified ir"><figcaption>透视展开红外</figcaption></figure>
+        <figure><img src="images/00_response.png" alt="response"><figcaption>锁定响应图</figcaption></figure>
+      </div>
+    </section>
+    <section class="table-panel">
+      <table>
+        <thead>
+          <tr>
+            <th>方案</th>
+            <th>全流程基准</th>
+            <th>均值 ms</th>
+            <th>中位 ms</th>
+            <th>点数</th>
+            <th>相对参考平均漂移 px</th>
+            <th>相对参考最大漂移 px</th>
+            <th>点数变化</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr>
+              <td>方案 1</td>
+              <td>01 当前主链：theta/rho 直线族</td>
+              <td>1280.94</td>
+              <td>1228.98</td>
+              <td>36</td>
+              <td>0.00</td>
+              <td>0.00</td>
+              <td>0</td>
+            </tr>
+            </tbody>
+      </table>
+    </section>
+
+            <section class="scheme-section" id="01_current_theta_rho">
+              <div class="scheme-title">
+                <div>
+                  <p>方案 1</p>
+                  <h2>01 当前主链：theta/rho 直线族</h2>
+                </div>
+                <span>straight</span>
+              </div>
+              <p class="scheme-desc">透视展开后自动估计两组真实方向，在 rho 轴找周期峰值并以直线族求交；梁筋只在最终点级过滤。</p>
+              <div class="table-panel compact">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>工序</th>
+                      <th>消融项</th>
+                      <th>均值 ms</th>
+                      <th>中位 ms</th>
+                      <th>最大 ms</th>
+                      <th>点数</th>
+                      <th>相对本方案最大漂移 px</th>
+                      <th>本方案点数变化</th>
+                      <th>相对参考最大漂移 px</th>
+                      <th>判断</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                <tr class="baseline">
+                  <td>基准</td>
+                  <td>全流程</td>
+                  <td>1280.94</td>
+                  <td>1228.98</td>
+                  <td>1460.46</td>
+                  <td>36</td>
+                  <td>0.00</td>
+                  <td>0</td>
+                  <td>0.00</td>
+                  <td><span class="pill baseline">方案基准</span></td>
+                </tr>
+
+                <tr class="warn">
+                  <td>连续验证</td>
+                  <td>关闭连续/ridge 验证</td>
+                  <td>2150.58</td>
+                  <td>2085.90</td>
+                  <td>2350.38</td>
+                  <td>19</td>
+                  <td>304.02</td>
+                  <td>-17</td>
+                  <td>304.02</td>
+                  <td><span class="pill warn">不能删</span></td>
+                </tr>
+
+                <tr class="warn">
+                  <td>间距筛选</td>
+                  <td>关闭 spacing prune</td>
+                  <td>361.03</td>
+                  <td>359.59</td>
+                  <td>403.64</td>
+                  <td>59</td>
+                  <td>267.02</td>
+                  <td>23</td>
+                  <td>267.02</td>
+                  <td><span class="pill warn">不能删</span></td>
+                </tr>
+
+                <tr class="danger">
+                  <td>peak 支撑</td>
+                  <td>去掉 peak 支撑过滤</td>
+                  <td>1044.04</td>
+                  <td>1038.73</td>
+                  <td>1076.09</td>
+                  <td>45</td>
+                  <td>48.83</td>
+                  <td>9</td>
+                  <td>48.83</td>
+                  <td><span class="pill danger">不能删</span></td>
+                </tr>
+
+                <tr class="danger">
+                  <td>profile-only</td>
+                  <td>只保留 profile 周期 + spacing</td>
+                  <td>577.49</td>
+                  <td>564.93</td>
+                  <td>613.96</td>
+                  <td>25</td>
+                  <td>255.89</td>
+                  <td>-11</td>
+                  <td>255.89</td>
+                  <td><span class="pill danger">不能删</span></td>
+                </tr>
+
+                <tr class="danger">
+                  <td>profile-only</td>
+                  <td>只保留 profile 周期原始线</td>
+                  <td>179.08</td>
+                  <td>193.14</td>
+                  <td>196.35</td>
+                  <td>406</td>
+                  <td>347.94</td>
+                  <td>370</td>
+                  <td>347.94</td>
+                  <td><span class="pill danger">不能删</span></td>
+                </tr>
+
+                <tr class="warn">
+                  <td>theta 候选池</td>
+                  <td>全角度候选池对照</td>
+                  <td>1092.45</td>
+                  <td>1085.72</td>
+                  <td>1106.52</td>
+                  <td>36</td>
+                  <td>0.00</td>
+                  <td>0</td>
+                  <td>0.00</td>
+                  <td><span class="pill warn">可跳过</span></td>
+                </tr>
+                </tbody>
+                </table>
+              </div>
+              <div class="result-grid">
+                <article class="result-card baseline">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">基准</p>
+                      <h3>全流程</h3>
+                    </div>
+                    <span class="pill baseline">方案基准</span>
+                  </div>
+                  <p>回到 08:21 主链：深度响应、局部峰值、连续钢筋条/ridge 验证、spacing 收束；梁筋只在最终点级过滤。</p>
+                  <p class="conclusion">方案内部基准。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 1280.94 ms</span>
+                    <span>median 1228.98 ms</span>
+                    <span>36 points</span>
+                    <span>scheme drift max 0.00 px</span>
+                    <span>reference drift max 0.00 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__full_original.png" alt="方案 1 / 全流程 original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__full_rectified.png" alt="方案 1 / 全流程 rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 82.0, &quot;line_rhos&quot;: [-210.951, -171.08, -130.727, -89.035, -53.419, -8.462], &quot;peak_rhos&quot;: [-310.0, -307.0, -302.0, -283.0, -250.0, -240.0, -232.0, -220.0, -217.0, -211.0, -198.0, -185.0, -171.0, -150.0, -147.0, -131.0, -122.0, -100.0, -90.0, -88.0, -73.0, -53.0, -30.0, -28.0, -9.0, 10.0, 13.0, 28.0, 39.0], &quot;continuous_rhos&quot;: [-231.725, -219.349, -210.951, -198.532, -184.392, -171.08, -130.727, -89.035, -72.718, -53.419, -30.654, -8.462, 10.029, 28.119]}, {&quot;angle_deg&quot;: 172.0, &quot;line_rhos&quot;: [-333.157, -285.197, -230.077, -182.665, -132.273, -81.784], &quot;peak_rhos&quot;: [-400.0, -397.0, -392.0, -379.0, -369.0, -350.0, -347.0, -342.0, -332.0, -310.0, -304.0, -292.0, -286.0, -282.0, -262.0, -252.0, -230.0, -212.0, -190.0, -186.0, -182.0, -160.0, -152.0, -134.0, -132.0, -110.0, -105.0, -92.0, -82.0, -60.0, -50.0, -40.0, -36.0, -32.0, -10.0, -2.0], &quot;continuous_rhos&quot;: [-396.527, -391.64, -349.994, -347.149, -342.544, -333.157, -310.122, -304.425, -292.572, -285.197, -230.077, -211.458, -189.739, -185.649, -182.665, -159.943, -152.658, -132.273, -109.942, -105.051, -92.185, -81.784, -59.975]}]</pre>
+                  </details>
+                </article>
+
+                <article class="result-card warn">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">连续验证</p>
+                      <h3>关闭连续/ridge 验证</h3>
+                    </div>
+                    <span class="pill warn">不能删</span>
+                  </div>
+                  <p>保留 peak 支撑与 spacing 收束，但不沿钢筋方向做连续条验证和 ridge 检查。</p>
+                  <p class="conclusion">用于暴露只靠一维 profile 峰值时会多出多少地板缝/边缘假线。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 2150.58 ms</span>
+                    <span>median 2085.90 ms</span>
+                    <span>19 points</span>
+                    <span>scheme drift max 304.02 px</span>
+                    <span>reference drift max 304.02 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__skip_continuous_original.png" alt="方案 1 / 关闭连续/ridge 验证 original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__skip_continuous_rectified.png" alt="方案 1 / 关闭连续/ridge 验证 rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 84.0, &quot;line_rhos&quot;: [-308.0, -238.0, -166.0, -98.0, -26.0, 39.0], &quot;peak_rhos&quot;: [-308.0, -256.0, -246.0, -238.0, -216.0, -214.0, -196.0, -186.0, -184.0, -166.0, -159.0, -154.0, -136.0, -128.0, -106.0, -101.0, -98.0, -76.0, -56.0, -53.0, -48.0, -26.0, -22.0, -18.0, 2.0, 22.0, 30.0, 39.0], &quot;continuous_rhos&quot;: [-308.0, -256.0, -246.0, -238.0, -216.0, -214.0, -196.0, -186.0, -184.0, -166.0, -159.0, -154.0, -136.0, -128.0, -106.0, -101.0, -98.0, -76.0, -56.0, -53.0, -48.0, -26.0, -22.0, -18.0, 2.0, 22.0, 30.0, 39.0]}, {&quot;angle_deg&quot;: 174.0, &quot;line_rhos&quot;: [-390.0, -304.0, -214.0, -143.0, -89.0, -2.0], &quot;peak_rhos&quot;: [-390.0, -343.0, -304.0, -298.0, -256.0, -214.0, -181.0, -143.0, -96.0, -89.0, -37.0, -11.0, -2.0], &quot;continuous_rhos&quot;: [-390.0, -343.0, -304.0, -298.0, -256.0, -214.0, -181.0, -143.0, -96.0, -89.0, -37.0, -11.0, -2.0]}]</pre>
+                  </details>
+                </article>
+
+                <article class="result-card warn">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">间距筛选</p>
+                      <h3>关闭 spacing prune</h3>
+                    </div>
+                    <span class="pill warn">不能删</span>
+                  </div>
+                  <p>保留连续/ridge 验证，但不做 rho 轴间距收束。</p>
+                  <p class="conclusion">用于观察连续验证后是否仍有密集重复线。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 361.03 ms</span>
+                    <span>median 359.59 ms</span>
+                    <span>59 points</span>
+                    <span>scheme drift max 267.02 px</span>
+                    <span>reference drift max 267.02 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__skip_spacing_original.png" alt="方案 1 / 关闭 spacing prune original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__skip_spacing_rectified.png" alt="方案 1 / 关闭 spacing prune rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 82.0, &quot;line_rhos&quot;: [-231.725, -219.349, -210.951, -198.532, -184.392, -171.08, -130.727, -89.035, -72.718, -53.419, -30.654, -8.462, 10.029, 28.119], &quot;peak_rhos&quot;: [-310.0, -307.0, -302.0, -283.0, -250.0, -240.0, -232.0, -220.0, -217.0, -211.0, -198.0, -185.0, -171.0, -150.0, -147.0, -131.0, -122.0, -100.0, -90.0, -88.0, -73.0, -53.0, -30.0, -28.0, -9.0, 10.0, 13.0, 28.0, 39.0], &quot;continuous_rhos&quot;: [-231.725, -219.349, -210.951, -198.532, -184.392, -171.08, -130.727, -89.035, -72.718, -53.419, -30.654, -8.462, 10.029, 28.119]}, {&quot;angle_deg&quot;: 176.0, &quot;line_rhos&quot;: [-381.96, -290.88, -211.71, -135.648, -35.239], &quot;peak_rhos&quot;: [-381.0, -291.0, -212.0, -136.0, -36.0], &quot;continuous_rhos&quot;: [-381.96, -290.88, -211.71, -135.648, -35.239]}]</pre>
+                  </details>
+                </article>
+
+                <article class="result-card danger">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">peak 支撑</p>
+                      <h3>去掉 peak 支撑过滤</h3>
+                    </div>
+                    <span class="pill danger">不能删</span>
+                  </div>
+                  <p>周期相位给出的候选线不再要求 profile 局部峰值支撑。</p>
+                  <p class="conclusion">可能无法稳定产出两组线族。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 1044.04 ms</span>
+                    <span>median 1038.73 ms</span>
+                    <span>45 points</span>
+                    <span>scheme drift max 48.83 px</span>
+                    <span>reference drift max 48.83 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__skip_peak_support_original.png" alt="方案 1 / 去掉 peak 支撑过滤 original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__skip_peak_support_rectified.png" alt="方案 1 / 去掉 peak 支撑过滤 rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 86.0, &quot;line_rhos&quot;: [-251.679, -201.961, -152.989, -101.595, -51.762, -11.642], &quot;peak_rhos&quot;: [-322.0, -312.0, -302.0, -292.0, -282.0, -272.0, -262.0, -252.0, -242.0, -232.0, -222.0, -212.0, -202.0, -192.0, -182.0, -172.0, -162.0, -152.0, -142.0, -132.0, -122.0, -112.0, -102.0, -92.0, -82.0, -72.0, -62.0, -52.0, -42.0, -32.0, -22.0, -12.0, -2.0, 8.0, 18.0, 26.0], &quot;continuous_rhos&quot;: [-262.228, -251.679, -242.393, -232.938, -212.245, -201.961, -172.207, -162.532, -152.989, -132.322, -112.503, -101.595, -92.416, -81.89, -51.762, -42.177, -32.687, -11.642]}, {&quot;angle_deg&quot;: 176.0, &quot;line_rhos&quot;: [-379.401, -343.618, -318.511, -287.631, -255.273, -135.648, -104.177, -77.172], &quot;peak_rhos&quot;: [-376.0, -346.0, -316.0, -286.0, -256.0, -226.0, -196.0, -166.0, -136.0, -106.0, -76.0, -46.0, -16.0], &quot;continuous_rhos&quot;: [-379.401, -343.618, -318.511, -287.631, -255.273, -135.648, -104.177, -77.172]}]</pre>
+                  </details>
+                </article>
+
+                <article class="result-card danger">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">profile-only</p>
+                      <h3>只保留 profile 周期 + spacing</h3>
+                    </div>
+                    <span class="pill danger">不能删</span>
+                  </div>
+                  <p>关闭局部 refine、peak 支撑和连续验证，只保留周期线与 spacing prune。</p>
+                  <p class="conclusion">通常速度快但假点过多。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 577.49 ms</span>
+                    <span>median 564.93 ms</span>
+                    <span>25 points</span>
+                    <span>scheme drift max 255.89 px</span>
+                    <span>reference drift max 255.89 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__profile_only_spacing_original.png" alt="方案 1 / 只保留 profile 周期 + spacing original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__profile_only_spacing_rectified.png" alt="方案 1 / 只保留 profile 周期 + spacing rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 86.0, &quot;line_rhos&quot;: [-324.0, -254.0, -184.0, -114.0, -44.0, 26.0], &quot;peak_rhos&quot;: [-324.0, -314.0, -304.0, -294.0, -284.0, -274.0, -264.0, -254.0, -244.0, -234.0, -224.0, -214.0, -204.0, -194.0, -184.0, -174.0, -164.0, -154.0, -144.0, -134.0, -124.0, -114.0, -104.0, -94.0, -84.0, -74.0, -64.0, -54.0, -44.0, -34.0, -24.0, -14.0, -4.0, 6.0, 16.0, 26.0], &quot;continuous_rhos&quot;: [-324.0, -314.0, -304.0, -294.0, -284.0, -274.0, -264.0, -254.0, -244.0, -234.0, -224.0, -214.0, -204.0, -194.0, -184.0, -174.0, -164.0, -154.0, -144.0, -134.0, -124.0, -114.0, -104.0, -94.0, -84.0, -74.0, -64.0, -54.0, -44.0, -34.0, -24.0, -14.0, -4.0, 6.0, 16.0, 26.0]}, {&quot;angle_deg&quot;: 176.0, &quot;line_rhos&quot;: [-347.0, -287.0, -227.0, -167.0, -107.0, -47.0], &quot;peak_rhos&quot;: [-377.0, -347.0, -317.0, -287.0, -257.0, -227.0, -197.0, -167.0, -137.0, -107.0, -77.0, -47.0, -17.0], &quot;continuous_rhos&quot;: [-377.0, -347.0, -317.0, -287.0, -257.0, -227.0, -197.0, -167.0, -137.0, -107.0, -77.0, -47.0, -17.0]}]</pre>
+                  </details>
+                </article>
+
+                <article class="result-card danger">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">profile-only</p>
+                      <h3>只保留 profile 周期原始线</h3>
+                    </div>
+                    <span class="pill danger">不能删</span>
+                  </div>
+                  <p>只根据 theta/rho profile 周期相位生成线，所有后续筛选都关闭。</p>
+                  <p class="conclusion">最快但最容易产生大量假点。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 179.08 ms</span>
+                    <span>median 193.14 ms</span>
+                    <span>406 points</span>
+                    <span>scheme drift max 347.94 px</span>
+                    <span>reference drift max 347.94 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__profile_only_raw_original.png" alt="方案 1 / 只保留 profile 周期原始线 original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__profile_only_raw_rectified.png" alt="方案 1 / 只保留 profile 周期原始线 rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 86.0, &quot;line_rhos&quot;: [-324.0, -314.0, -304.0, -294.0, -284.0, -274.0, -264.0, -254.0, -244.0, -234.0, -224.0, -214.0, -204.0, -194.0, -184.0, -174.0, -164.0, -154.0, -144.0, -134.0, -124.0, -114.0, -104.0, -94.0, -84.0, -74.0, -64.0, -54.0, -44.0, -34.0, -24.0, -14.0, -4.0, 6.0, 16.0, 26.0], &quot;peak_rhos&quot;: [-324.0, -314.0, -304.0, -294.0, -284.0, -274.0, -264.0, -254.0, -244.0, -234.0, -224.0, -214.0, -204.0, -194.0, -184.0, -174.0, -164.0, -154.0, -144.0, -134.0, -124.0, -114.0, -104.0, -94.0, -84.0, -74.0, -64.0, -54.0, -44.0, -34.0, -24.0, -14.0, -4.0, 6.0, 16.0, 26.0], &quot;continuous_rhos&quot;: [-324.0, -314.0, -304.0, -294.0, -284.0, -274.0, -264.0, -254.0, -244.0, -234.0, -224.0, -214.0, -204.0, -194.0, -184.0, -174.0, -164.0, -154.0, -144.0, -134.0, -124.0, -114.0, -104.0, -94.0, -84.0, -74.0, -64.0, -54.0, -44.0, -34.0, -24.0, -14.0, -4.0, 6.0, 16.0, 26.0]}, {&quot;angle_deg&quot;: 176.0, &quot;line_rhos&quot;: [-377.0, -347.0, -317.0, -287.0, -257.0, -227.0, -197.0, -167.0, -137.0, -107.0, -77.0, -47.0, -17.0], &quot;peak_rhos&quot;: [-377.0, -347.0, -317.0, -287.0, -257.0, -227.0, -197.0, -167.0, -137.0, -107.0, -77.0, -47.0, -17.0], &quot;continuous_rhos&quot;: [-377.0, -347.0, -317.0, -287.0, -257.0, -227.0, -197.0, -167.0, -137.0, -107.0, -77.0, -47.0, -17.0]}]</pre>
+                  </details>
+                </article>
+
+                <article class="result-card warn">
+                  <div class="card-head">
+                    <div>
+                      <p class="stage">theta 候选池</p>
+                      <h3>全角度候选池对照</h3>
+                    </div>
+                    <span class="pill warn">可跳过</span>
+                  </div>
+                  <p>关闭方向先验收窄，扫描更宽 theta 候选池。</p>
+                  <p class="conclusion">用于确认方向先验没有破坏主链质量。</p>
+
+
+                  <div class="metrics">
+                    <span>mean 1092.45 ms</span>
+                    <span>median 1085.72 ms</span>
+                    <span>36 points</span>
+                    <span>scheme drift max 0.00 px</span>
+                    <span>reference drift max 0.00 px</span>
+                  </div>
+
+                  <div class="images">
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__full_angle_sweep_original.png" alt="方案 1 / 全角度候选池对照 original overlay">
+                      <figcaption>原图识别效果</figcaption>
+                    </figure>
+                    <figure>
+                      <img loading="lazy" src="images/01_current_theta_rho__full_angle_sweep_rectified.png" alt="方案 1 / 全角度候选池对照 rectified overlay">
+                      <figcaption>透视展开识别效果</figcaption>
+                    </figure>
+                  </div>
+
+                  <details>
+                    <summary>线族明细</summary>
+                    <pre>[{&quot;angle_deg&quot;: 82.0, &quot;line_rhos&quot;: [-210.951, -171.08, -130.727, -89.035, -53.419, -8.462], &quot;peak_rhos&quot;: [-310.0, -307.0, -302.0, -283.0, -250.0, -240.0, -232.0, -220.0, -217.0, -211.0, -198.0, -185.0, -171.0, -150.0, -147.0, -131.0, -122.0, -100.0, -90.0, -88.0, -73.0, -53.0, -30.0, -28.0, -9.0, 10.0, 13.0, 28.0, 39.0], &quot;continuous_rhos&quot;: [-231.725, -219.349, -210.951, -198.532, -184.392, -171.08, -130.727, -89.035, -72.718, -53.419, -30.654, -8.462, 10.029, 28.119]}, {&quot;angle_deg&quot;: 172.0, &quot;line_rhos&quot;: [-333.157, -285.197, -230.077, -182.665, -132.273, -81.784], &quot;peak_rhos&quot;: [-400.0, -397.0, -392.0, -379.0, -369.0, -350.0, -347.0, -342.0, -332.0, -310.0, -304.0, -292.0, -286.0, -282.0, -262.0, -252.0, -230.0, -212.0, -190.0, -186.0, -182.0, -160.0, -152.0, -134.0, -132.0, -110.0, -105.0, -92.0, -82.0, -60.0, -50.0, -40.0, -36.0, -32.0, -10.0, -2.0], &quot;continuous_rhos&quot;: [-396.527, -391.64, -349.994, -347.149, -342.544, -333.157, -310.122, -304.425, -292.572, -285.197, -230.077, -211.458, -189.739, -185.649, -182.665, -159.943, -152.658, -132.273, -109.942, -105.051, -92.185, -81.784, -59.975]}]</pre>
+                  </details>
+                </article>
+                </div>
+            </section>
+
+  </main>
+  <script>
+    function showScheme(schemeId, button) {
+      document.querySelectorAll('.scheme-section').forEach(function(section) {
+        section.hidden = schemeId !== 'all' && section.id !== schemeId;
+      });
+      document.querySelectorAll('[data-scheme-filter]').forEach(function(item) {
+        item.classList.remove('active');
+      });
+      if (button) {
+        button.classList.add('active');
+      }
+      if (schemeId !== 'all') {
+        var target = document.getElementById(schemeId);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+cabin_state_X: -260.0
+cabin_state_Y: 1781.9200439453125
+cabin_state_Z: 599.0
+cabin_state_Pitch: 0.0
+cabin_state_Roll: 0.0
+cabin_state_Yaw: 0.0
+cabin_state_speed: 0.0
+motion_status: 0
+internal_calc_error: 0
+device_alarm: 0
+cabin_connect_flag: 1

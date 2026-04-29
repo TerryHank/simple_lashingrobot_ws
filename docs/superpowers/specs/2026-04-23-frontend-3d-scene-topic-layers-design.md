@@ -23,7 +23,7 @@
 
 ### TF
 
-- `cabin_frame -> Scepter_depth_frame`
+- `map -> Scepter_depth_frame`
   - 来源：`tie_robot_process/src/suoquNode.cpp`
   - 语义：索驱带动相机在全局坐标系中的运动
 - `Scepter_depth_frame -> gripper_frame`
@@ -124,7 +124,7 @@
 - 每个像素按 `x/y/z(mm)` 采样成点
 - 默认 stride 采样降密，避免浏览器过载
 - `0/0/0` 和非有限值丢弃
-- 坐标统一转换为米，挂到 `cabin_frame` 场景
+- 坐标统一转换为米，挂到 `map` 场景
 
 ### 绑扎点
 
@@ -143,7 +143,7 @@
 - 机器简化模型先用 box geometry 表示
 - 模型绑定到 `Scepter_depth_frame` 的动态 TF
 - `相机视角`：虚拟相机跟随 `Scepter_depth_frame`
-- `全局视角`：虚拟相机固定观察 `cabin_frame`
+- `全局视角`：虚拟相机固定观察 `map`
 
 ## 不在本轮范围
 

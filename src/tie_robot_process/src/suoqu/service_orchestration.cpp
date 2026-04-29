@@ -60,7 +60,7 @@ bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Respons
             con_path,
             cabin_height,
             cabin_speed,
-            PseudoSlamScanStrategy::kSingleCenter,
+            PseudoSlamScanStrategy::kFixedManualWorkspace,
             false,
             res.message
         );
@@ -123,11 +123,11 @@ bool startGlobalWork(
     tie_robot_msgs::MotionControl::Response& res)
 {
     printCurrentTime();
-    printf("Cabin_log: 收到%s\n", req.command.c_str());
+    ros_log_printf("Cabin_log: 收到%s\n", req.command.c_str());
     try {
         const GlobalExecutionMode execution_mode = get_global_execution_mode();
         printCurrentTime();
-        printf(
+        ros_log_printf(
             "Cabin_log: 当前全局执行模式为%s。\n",
             global_execution_mode_name(execution_mode)
         );
@@ -135,7 +135,7 @@ bool startGlobalWork(
         std::ifstream scan_file(pseudo_slam_bind_path_json_file);
         if (scan_file.good()) {
             printCurrentTime();
-            printf(
+            ros_log_printf(
                 "Cabin_log: 开始执行层检测到pseudo_slam_bind_path.json，优先按预生成路径执行。\n"
             );
             res.success = run_bind_from_scan(res.message);
@@ -162,7 +162,7 @@ bool startGlobalWorkWithOptions(
     tie_robot_msgs::StartGlobalWork::Response& res)
 {
     printCurrentTime();
-    printf(
+    ros_log_printf(
         "Cabin_log: 收到%s，clear_execution_memory=%s（clear_execution_memory=true表示先清记忆再执行）。\n",
         req.command.c_str(),
         req.clear_execution_memory ? "true" : "false"

@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +17,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -153,19 +151,30 @@ def get_request_mode_name(self, request_mode):
     return "default"
 
 
-def build_process_image_timing_message(self, request_mode, response, elapsed_sec):
+def build_process_image_timing_message(self, request_mode, response, elapsed_sec, single_frame_elapsed_ms=None):
+    single_frame_part = (
+        f"single_frame_elapsed_ms={float(single_frame_elapsed_ms):.1f}, "
+        if single_frame_elapsed_ms is not None
+        else ""
+    )
     return (
         "pointAI process_image response: "
         f"mode={self.get_request_mode_name(request_mode)}, "
         f"success={getattr(response, 'success', False)}, "
         f"count={getattr(response, 'count', 0)}, "
+        f"{single_frame_part}"
         f"elapsed_ms={elapsed_sec * 1000.0:.1f}, "
         f"message={getattr(response, 'message', '')}"
     )
 
 
-def log_process_image_timing(self, request_mode, response, elapsed_sec):
-    log_message = self.build_process_image_timing_message(request_mode, response, elapsed_sec)
+def log_process_image_timing(self, request_mode, response, elapsed_sec, single_frame_elapsed_ms=None):
+    log_message = self.build_process_image_timing_message(
+        request_mode,
+        response,
+        elapsed_sec,
+        single_frame_elapsed_ms=single_frame_elapsed_ms,
+    )
     if getattr(response, "success", False):
         rospy.loginfo(log_message)
     else:
@@ -218,12 +227,12 @@ def build_detection_summary_log(
 
     if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
         if output_count > 0:
-            conclusion = f"扫描模式输出{output_count}个规划工作区内世界坐标点，不做2x2限制"
+            conclusion = f"扫描模式输出{output_count}个相机原始坐标点，不做2x2限制"
         else:
             conclusion = "扫描模式当前没有规划工作区内可用点"
     elif request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
         if output_count > 0:
-            conclusion = f"执行微调模式输出{output_count}个可执行范围内世界坐标点，不做2x2限制"
+            conclusion = f"执行微调模式输出{output_count}个相机原始坐标点，不做2x2限制"
         else:
             conclusion = "执行微调模式当前没有可用于局部视觉微调的范围内点"
     elif request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
@@ -291,14 +300,14 @@ def evaluate_point_coords_for_mode(self, point_coords, request_mode):
     if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
         result["success"] = True
         result["message"] = (
-            "扫描模式已直接输出整个矩形画幅内、规划工作区内的世界坐标点"
+            "扫描模式已直接输出整个矩形画幅内、规划工作区内的相机原始坐标点"
         )
         return result
 
     if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
         result["success"] = True
         result["message"] = (
-            "执行微调模式已直接输出当前局部可执行范围内的世界坐标点"
+            "执行微调模式已直接输出当前局部可执行范围内的相机原始坐标点"
         )
         return result
 
@@ -360,10 +369,7 @@ def wait_for_stable_point_coords(self, request_mode):
 
     while not rospy.is_shutdown():
         if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
-            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-                message = "pointAI process_image timed out while waiting for PR-FPRG manual workspace S2"
-            else:
-                message = "pointAI process_image timed out while waiting for stable points"
+            message = "pointAI process_image timed out while waiting for direction-adaptive PR-FPRG main vision"
             rospy.logwarn(message)
             return {
                 "success": False,
@@ -385,39 +391,35 @@ def wait_for_stable_point_coords(self, request_mode):
             continue
         last_processed_frame_seq = current_frame_seq
 
-        # 扫描模式的 S2 现在直接走 PR-FPRG，不再依赖 pre_img() 先出点作为门控。
-        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-            manual_workspace_s2_result = self.try_scan_only_manual_workspace_s2()
-            if manual_workspace_s2_result is None:
-                return {
-                    "success": False,
-                    "message": "扫描模式当前只走 PR-FPRG 手动工作区 S2，请先提交已保存工作区四边形。",
-                    "point_coords": None,
-                    "out_of_height_count": 0,
-                    "out_of_height_point_indices": [],
-                    "out_of_height_z_values": [],
-                }
-            if manual_workspace_s2_result.get("success", False):
-                return manual_workspace_s2_result
+        if self.load_manual_workspace_quad() is None:
+            return {
+                "success": False,
+                "message": "当前主视觉方案为方向自适应 PR-FPRG，请先提交并保存工作区四边形。",
+                "point_coords": None,
+                "out_of_height_count": 0,
+                "out_of_height_point_indices": [],
+                "out_of_height_z_values": [],
+            }
+
+        main_visual_result = self.run_manual_workspace_s2_pipeline(publish=True)
+        single_frame_elapsed_ms = main_visual_result.get("single_frame_elapsed_ms")
+        point_coords = main_visual_result.get("point_coords")
+        if not self.has_detected_points(point_coords):
+            stable_snapshots = []
+            latest_point_coords = None
             rospy.logwarn_throttle(
                 2.0,
-                "pointAI扫描模式等待PR-FPRG手动工作区S2: %s",
-                manual_workspace_s2_result.get("message", "unknown error"),
+                "pointAI等待方向自适应PR-FPRG主视觉有效点: %s",
+                main_visual_result.get("message", "unknown error"),
             )
             rate.sleep()
             continue
 
-        point_coords = self.pre_img(request_mode=request_mode)
-        if not self.has_detected_points(point_coords):
-            stable_snapshots = []
-            latest_point_coords = None
-            rospy.logwarn_throttle(2.0, "pointAI等待有效点，继续轮询视觉")
-            rate.sleep()
-            continue
-
         latest_point_coords = point_coords
-        if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-            return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+        if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):
+            result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+            result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
+            return result
 
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             snapshot = self.build_coordinate_snapshot(point_coords)
@@ -445,6 +447,7 @@ def wait_for_stable_point_coords(self, request_mode):
         if is_stable:
             result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
             if result["success"]:
+                result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
                 return result
 
         if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
@@ -477,6 +480,7 @@ def wait_for_stable_point_coords(self, request_mode):
 
 def handle_process_image(self, req):
     request_mode = self.get_request_mode(req)
+    self.current_result_request_mode = request_mode
     start_time = time.perf_counter()
     self.mark_visual_process_request()
     try:
@@ -493,7 +497,20 @@ def handle_process_image(self, req):
             message=result.get("message", ""),
             out_of_height_points=out_of_height_points,
         )
-        self.log_process_image_timing(request_mode, response, time.perf_counter() - start_time)
+        elapsed_sec = time.perf_counter() - start_time
+        single_frame_elapsed_ms = result.get("single_frame_elapsed_ms")
+        timing_parts = []
+        if single_frame_elapsed_ms is not None:
+            timing_parts.append(f"单帧视觉耗时={float(single_frame_elapsed_ms):.1f}ms")
+        timing_parts.append(f"视觉服务请求耗时={elapsed_sec * 1000.0:.1f}ms")
+        timing_suffix = "；" + "；".join(timing_parts)
+        response.message = f"{response.message}{timing_suffix}" if response.message else timing_suffix.lstrip("；")
+        self.log_process_image_timing(
+            request_mode,
+            response,
+            elapsed_sec,
+            single_frame_elapsed_ms=single_frame_elapsed_ms,
+        )
         self.mark_visual_process_result(response.success, response.message)
         return response
 

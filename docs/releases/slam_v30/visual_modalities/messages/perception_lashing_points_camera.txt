@@ -1,0 +1,278 @@
+count: 46
+PointCoordinatesArray:
+  -
+    idx: 1
+    Pix_coord: [484, 301]
+    World_coord: [317.9015808105469, 82.96649932861328, 937.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 2
+    Pix_coord: [443, 307]
+    World_coord: [237.07672119140625, 93.84832000732422, 935.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 3
+    Pix_coord: [415, 311]
+    World_coord: [182.3426513671875, 101.22093200683594, 935.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 4
+    Pix_coord: [371, 318]
+    World_coord: [96.53805541992188, 114.36711120605469, 937.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 5
+    Pix_coord: [333, 324]
+    World_coord: [22.09722900390625, 125.44967651367188, 937.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 6
+    Pix_coord: [289, 330]
+    World_coord: [-63.960594177246094, 136.24081420898438, 935.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 7
+    Pix_coord: [260, 334]
+    World_coord: [-120.5204086303711, 143.4598388671875, 934.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 8
+    Pix_coord: [228, 339]
+    World_coord: [-183.9864044189453, 153.48301696777344, 939.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 9
+    Pix_coord: [183, 346]
+    World_coord: [-265.3677062988281, 162.1862030029297, 915.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 10
+    Pix_coord: [482, 254]
+    World_coord: [313.3134460449219, -3.838737726211548, 935.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 11
+    Pix_coord: [440, 260]
+    World_coord: [228.9867706298828, 7.150676250457764, 926.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 12
+    Pix_coord: [412, 265]
+    World_coord: [172.70335388183594, 16.08436393737793, 915.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 13
+    Pix_coord: [368, 271]
+    World_coord: [90.66114807128906, 27.553661346435547, 937.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 14
+    Pix_coord: [330, 277]
+    World_coord: [16.20301055908203, 38.594993591308594, 936.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 15
+    Pix_coord: [286, 284]
+    World_coord: [-69.82495880126953, 51.45582580566406, 935.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 16
+    Pix_coord: [258, 288]
+    World_coord: [-124.29258728027344, 58.702598571777344, 933.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 17
+    Pix_coord: [225, 293]
+    World_coord: [-189.2692108154297, 68.1169662475586, 936.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 18
+    Pix_coord: [180, 300]
+    World_coord: [-278.513916015625, 81.3791275024414, 940.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 19
+    Pix_coord: [477, 184]
+    World_coord: [293.4756164550781, -128.4544219970703, 904.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 20
+    Pix_coord: [436, 190]
+    World_coord: [222.67642211914062, -121.40966796875, 932.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 21
+    Pix_coord: [408, 195]
+    World_coord: [168.11798095703125, -112.22348022460938, 932.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 22
+    Pix_coord: [364, 202]
+    World_coord: [82.38330078125, -99.36280822753906, 932.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 23
+    Pix_coord: [326, 208]
+    World_coord: [8.348652839660645, -88.43416595458984, 933.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 24
+    Pix_coord: [282, 214]
+    World_coord: [-77.31194305419922, -77.23299407958984, 931.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 25
+    Pix_coord: [254, 219]
+    World_coord: [-132.23658752441406, -68.27596282958984, 934.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 26
+    Pix_coord: [221, 224]
+    World_coord: [-196.4650115966797, -59.006813049316406, 933.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 27
+    Pix_coord: [176, 231]
+    World_coord: [-284.5469665527344, -46.18178939819336, 934.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 28
+    Pix_coord: [474, 120]
+    World_coord: [296.4016418457031, -249.7480926513672, 931.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 29
+    Pix_coord: [432, 126]
+    World_coord: [214.42124938964844, -238.4800567626953, 930.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 30
+    Pix_coord: [404, 131]
+    World_coord: [159.807861328125, -229.06700134277344, 929.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 31
+    Pix_coord: [360, 138]
+    World_coord: [74.74929809570312, -217.41160583496094, 934.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 32
+    Pix_coord: [322, 144]
+    World_coord: [0.5450560450553894, -205.70169067382812, 931.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 33
+    Pix_coord: [279, 151]
+    World_coord: [-83.06190490722656, -192.64767456054688, 930.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 34
+    Pix_coord: [250, 156]
+    World_coord: [-139.5975341796875, -183.67848205566406, 931.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 35
+    Pix_coord: [218, 161]
+    World_coord: [-201.44944763183594, -174.1272735595703, 929.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 36
+    Pix_coord: [173, 168]
+    World_coord: [-290.0941162109375, -162.00254821777344, 933.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 37
+    Pix_coord: [471, 70]
+    World_coord: [198.49374389648438, -233.2989044189453, 636.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 38
+    Pix_coord: [429, 77]
+    World_coord: [208.8125457763672, -328.6645812988281, 931.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 39
+    Pix_coord: [401, 82]
+    World_coord: [153.98114013671875, -318.8019104003906, 929.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 40
+    Pix_coord: [357, 89]
+    World_coord: [66.67842864990234, -297.7484436035156, 904.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 41
+    Pix_coord: [319, 95]
+    World_coord: [-5.288532257080078, -295.3122253417969, 930.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 42
+    Pix_coord: [276, 102]
+    World_coord: [-88.89491271972656, -282.4791259765625, 930.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 43
+    Pix_coord: [247, 107]
+    World_coord: [-145.59304809570312, -273.90045166015625, 932.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 44
+    Pix_coord: [215, 112]
+    World_coord: [-204.1525421142578, -259.8857727050781, 915.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 45
+    Pix_coord: [170, 120]
+    World_coord: [-295.9459533691406, -250.28460693359375, 933.0]
+    Angle: -45.0
+    is_shuiguan: False
+  -
+    idx: 46
+    Pix_coord: [167, 64]
+    World_coord: [-300.50390625, -351.7657470703125, 929.0]
+    Angle: -45.0
+    is_shuiguan: False

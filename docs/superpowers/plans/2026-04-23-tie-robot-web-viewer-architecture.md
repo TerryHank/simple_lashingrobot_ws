@@ -17,7 +17,7 @@
 - `src/tie_robot_web/frontend/src/state/ViewerStore.js`
   统一保存连接状态、场景对象、布局状态、问题列表。
 - `src/tie_robot_web/frontend/src/data/SceneAdapter.js`
-  统一处理点云、识别点、规划点、TF 到 `cabin_frame` 的归一化。
+  统一处理点云、识别点、规划点、TF 到 `map` 的归一化。
 - `src/tie_robot_web/frontend/src/layout/defaultLayouts.js`
   默认布局模板。
 - `src/tie_robot_web/frontend/src/layout/LayoutManager.js`
@@ -328,7 +328,7 @@ python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePi
 
 - `Scene3DView` 不再直接理解 `/Scepter/worldCoord/*`
 - 点云、识别点、规划点全部通过 `SceneAdapter` 统一后再渲染
-- `SceneAdapter` 负责把点云统一为 `cabin_frame`
+- `SceneAdapter` 负责把点云统一为 `map`
 
 起步 API：
 
@@ -401,7 +401,7 @@ python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePi
 面板先做最小只读版本：
 
 - `TopicsPanelView`：显示关键 topic 在线状态
-- `TfInspectorView`：显示 `cabin_frame / Scepter_depth_frame / gripper_frame`
+- `TfInspectorView`：显示 `map / Scepter_depth_frame / gripper_frame`
 - `ProblemsPanelView`：显示当前问题列表
 
 不要求一期就做复杂交互。

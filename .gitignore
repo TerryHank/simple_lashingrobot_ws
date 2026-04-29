@@ -16,6 +16,8 @@ __pycache__/
 .worktrees/
 
 # Data captures and local runtime files
+.debug_frames/
+.ros/
 *.bag
 *.log
 *.tmp
@@ -33,3 +35,4 @@ src/tie_robot_web/frontend/node_modules/
 src/tie_robot_web/help/node_modules/
 src/tie_robot_web/frontend/.vite/
 src/tie_robot_web/help/.vitepress/.temp/
+.gitnexus

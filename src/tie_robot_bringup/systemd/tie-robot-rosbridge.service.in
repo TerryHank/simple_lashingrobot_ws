@@ -1,0 +1,22 @@
+[Unit]
+Description=Tie Robot ROS bridge websocket stack
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKSPACE@
+Environment=ROS_HOME=@WORKSPACE@/.ros
+Environment=ROS_LOG_DIR=@WORKSPACE@/.ros/log
+Environment=ROS_MASTER_URI=http://127.0.0.1:11311
+ExecStartPre=/bin/mkdir -p @WORKSPACE@/.ros/log
+ExecStart=/bin/bash -lc 'source /opt/ros/noetic/setup.bash && source @WORKSPACE@/devel/setup.bash && exec roslaunch tie_robot_bringup rosbridge_stack.launch'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

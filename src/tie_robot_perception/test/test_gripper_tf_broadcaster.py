@@ -42,23 +42,54 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn('<include file="$(find tie_robot_bringup)/launch/api.launch"', launch_text)
         self.assertIn('name="pointAINode"', launch_text)
-        self.assertIn('type="pointAI.py"', launch_text)
+        self.assertIn('type="pointai_node.py"', launch_text)
         self.assertIn('name="gripper_tf_broadcaster"', launch_text)
         self.assertIn('type="gripper_tf_broadcaster.py"', launch_text)
         self.assertNotIn('name="stable_point_tf_broadcaster"', launch_text)
 
-    def test_run_launch_starts_pointai_and_tf_broadcasters(self):
+    def test_run_launch_keeps_drivers_out_and_tf_stack_owns_gripper_tf(self):
         launch_text = (TIE_ROBOT_BRINGUP_DIR / "launch" / "run.launch").read_text(
             encoding="utf-8"
-        )
-        self.assertIn(
-            '<include file="$(find tie_robot_bringup)/launch/driver_stack.launch" />',
-            launch_text,
         )
         self.assertIn(
             '<include file="$(find tie_robot_bringup)/launch/algorithm_stack.launch" />',
             launch_text,
         )
+        self.assertNotIn("driver_stack.launch", launch_text)
+
+        driver_camera_launch = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "driver_camera.launch"
+        ).read_text(encoding="utf-8")
+        driver_suoqu_launch = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "driver_suoqu.launch"
+        ).read_text(encoding="utf-8")
+        rosbridge_stack_launch = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "rosbridge_stack.launch"
+        ).read_text(encoding="utf-8")
+        tf_stack_launch = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "tf_stack.launch"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn('name="robot_tf_broadcaster"', driver_suoqu_launch)
+        self.assertNotIn('name="gripper_tf_broadcaster"', driver_camera_launch)
+        self.assertIn("tf_stack.launch", rosbridge_stack_launch)
+        self.assertNotIn('name="tf2_web_republisher"', rosbridge_stack_launch)
+        self.assertNotIn('name="gripper_tf_broadcaster"', rosbridge_stack_launch)
+        self.assertIn('name="tf2_web_republisher"', tf_stack_launch)
+        self.assertIn('name="robot_tf_broadcaster"', tf_stack_launch)
+        self.assertIn('type="robot_tf_broadcaster.py"', tf_stack_launch)
+        self.assertIn('name="gripper_tf_broadcaster"', tf_stack_launch)
+        self.assertIn('type="gripper_tf_broadcaster.py"', tf_stack_launch)
+        self.assertIn('$(find tie_robot_perception)/config/gripper_tf.yaml', tf_stack_launch)
+
+    def test_algorithm_stack_does_not_start_bind_point_tf_converter(self):
+        launch_text = (
+            TIE_ROBOT_BRINGUP_DIR / "launch" / "algorithm_stack.launch"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('name="pointAINode"', launch_text)
+        self.assertNotIn('name="stable_point_tf_broadcaster"', launch_text)
+        self.assertNotIn('type="stable_point_tf_broadcaster.py"', launch_text)
 
     def test_load_gripper_tf_config_reads_pose_fields(self):
         config_path = TIE_ROBOT_PERCEPTION_DIR / "config" / "gripper_tf.yaml"
@@ -77,11 +108,11 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertEqual(config["translation_mm"], raw_config["translation_mm"])
         self.assertAlmostEqual(
             config["translation"]["x"],
-            -float(raw_config["translation_mm"]["x"]) / 1000.0,
+            float(raw_config["translation_mm"]["x"]) / 1000.0,
         )
         self.assertAlmostEqual(
             config["translation"]["y"],
-            -float(raw_config["translation_mm"]["y"]) / 1000.0,
+            float(raw_config["translation_mm"]["y"]) / 1000.0,
         )
         self.assertAlmostEqual(
             config["translation"]["z"],
@@ -110,7 +141,7 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         )
         self.assertEqual(
             updated["translation"],
-            {"x": -0.275, "y": -0.084, "z": 0.735},
+            {"x": 0.275, "y": 0.084, "z": 0.735},
         )
 
     def test_save_gripper_tf_config_persists_updated_translation_mm(self):
@@ -135,29 +166,41 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         )
         self.assertNotIn("translation", reloaded)
 
-    def test_broadcaster_subscribes_to_live_offset_topic(self):
+    def test_broadcaster_exposes_tf_layer_offset_topic_and_service_only(self):
         script_text = (
             TIE_ROBOT_PERCEPTION_DIR / "scripts" / "gripper_tf_broadcaster.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset"', script_text)
-        self.assertIn('SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/pointAI/set_gripper_tf_calibration"', script_text)
-        self.assertIn("rospy.Subscriber(POINTAI_OFFSET_TOPIC, Pose", script_text)
+        self.assertNotIn("POINTAI_OFFSET_TOPIC", script_text)
+        self.assertNotIn("/web/pointAI/set_offset", script_text)
+        self.assertNotIn("/web/pointAI/set_gripper_tf_calibration", script_text)
+        self.assertIn('TF_OFFSET_TOPIC = "/web/tf/set_offset"', script_text)
+        self.assertIn("rospy.Subscriber(TF_OFFSET_TOPIC, Pose, handle_set_offset)", script_text)
+        self.assertIn('SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/tf/set_gripper_tf_calibration"', script_text)
         self.assertIn("rospy.Service(", script_text)
         self.assertIn("SetGripperTfCalibration", script_text)
         self.assertIn("无需重启节点", script_text)
 
-    def test_pointai_cabin_z_formula_uses_direct_gripper_tf_z_sign(self):
-        tf_transform_text = (
+    def test_pointai_no_longer_contains_internal_tf_coordinate_projection(self):
+        tf_transform_path = (
             TIE_ROBOT_PERCEPTION_DIR
             / "src"
             / "tie_robot_perception"
             / "pointai"
             / "tf_transform.py"
+        )
+        processor_text = (
+            TIE_ROBOT_PERCEPTION_DIR
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("cabin_z = int(round(float(T[2, 3]) - float(z) + float(T_gripper[2, 3])))", tf_transform_text)
-        self.assertNotIn("cabin_z = int(round(float(T[2, 3]) - float(z) - float(T_gripper[2, 3])))", tf_transform_text)
+        self.assertFalse(tf_transform_path.exists())
+        self.assertNotIn("tf_transform", processor_text)
+        self.assertNotIn("transform_point_to_frame", processor_text)
+        self.assertNotIn("apply_spatial_calibration", processor_text)
 
     def test_build_transform_uses_parent_child_and_translation(self):
         config = {
@@ -176,7 +219,7 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertAlmostEqual(transform.transform.rotation.w, 1.0)
 
     def test_pointai_no_longer_contains_legacy_workspace_tf_publishers(self):
-        pointai_text = (TIE_ROBOT_PERCEPTION_DIR / "scripts" / "pointAI.py").read_text(
+        pointai_text = (TIE_ROBOT_PERCEPTION_DIR / "src" / "tie_robot_perception" / "pointai" / "processor.py").read_text(
             encoding="utf-8"
         )
         for marker in (
@@ -187,40 +230,13 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         ):
             self.assertNotIn(marker, pointai_text)
 
-    def test_stable_point_tf_broadcaster_exists_and_tracks_bind_points(self):
+    def test_legacy_bind_point_tf_converter_has_been_removed(self):
         broadcaster_path = (
             TIE_ROBOT_PERCEPTION_DIR / "scripts" / "stable_point_tf_broadcaster.py"
         )
-        self.assertTrue(broadcaster_path.exists(), "stable_point_tf_broadcaster.py should exist")
-        content = broadcaster_path.read_text(encoding="utf-8")
-
-        self.assertIn("/coordinate_point", content)
-        self.assertIn("/cabin/area_progress", content)
-        self.assertIn("bind_point_", content)
-        self.assertIn("stable_frame_count", content)
-        self.assertIn("stable_z_tolerance_mm", content)
-        self.assertIn("cabin_frame", content)
-
-    def test_stable_point_tracker_promotes_point_after_two_close_z_frames(self):
-        from stable_point_tf_broadcaster import StablePointTracker  # noqa: E402
-
-        tracker = StablePointTracker(stable_frame_count=2, stable_z_tolerance_mm=4.0)
-
-        first_frame = [
-            {"idx": 1, "World_coord": [100.0, 200.0, 1000.0]},
-        ]
-        second_frame = [
-            {"idx": 1, "World_coord": [101.0, 201.0, 1002.5]},
-        ]
-
-        self.assertEqual(tracker.ingest_points(first_frame), [])
-        published = tracker.ingest_points(second_frame)
-
-        self.assertEqual(len(published), 1)
-        self.assertEqual(published[0]["child_frame_id"], "bind_point_1")
-        self.assertEqual(
-            published[0]["translation_m"],
-            [0.101, 0.201, 1.0025],
+        self.assertFalse(
+            broadcaster_path.exists(),
+            "pointAI 输出应保持相机坐标，不再保留订阅 /coordinate_point 并发布 bind_point TF 的转换节点。",
         )
 
 

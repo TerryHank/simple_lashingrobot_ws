@@ -1,0 +1,126 @@
+digraph TieRobotSystemArchitecture {
+  graph [
+    rankdir=TB,
+    bgcolor="#ffffff",
+    pad="0.35",
+    nodesep="0.55",
+    ranksep="0.62",
+    splines=ortho,
+    fontname="Noto Sans CJK SC",
+    label="simple_lashingrobot_ws 工程设计总图\n驱动层保留原子动作，控制/算法层编排执行链",
+    labelloc=t,
+    fontsize=24,
+    fontcolor="#111827"
+  ];
+
+  node [
+    shape=rect,
+    style="rounded,filled",
+    fontname="Noto Sans CJK SC",
+    fontsize=13,
+    margin="0.12,0.08",
+    color="#d1d5db",
+    fillcolor="#ffffff",
+    fontcolor="#111827"
+  ];
+
+  edge [
+    fontname="Noto Sans CJK SC",
+    fontsize=11,
+    color="#2563eb",
+    fontcolor="#374151",
+    arrowsize=0.8
+  ];
+
+  subgraph cluster_ui {
+    label="交互与静态站点";
+    color="#dbeafe";
+    penwidth=1.6;
+    style="rounded,dashed";
+    frontend [label="Tie Robot 前端\n3D Scene / Topic Layers / 控制台", fillcolor="#eff6ff", color="#bfdbfe"];
+    help [label="VitePress 帮助站\n设计 / 架构图 / ROS graph", fillcolor="#f0f9ff", color="#bae6fd"];
+    static_server [label="workspace_picker_web_server.py\nHTTP 静态服务 + 本机系统接口", fillcolor="#f8fafc"];
+  }
+
+  subgraph cluster_bridge {
+    label="常驻桥接层 rosbridge_stack.launch";
+    color="#fed7aa";
+    penwidth=1.6;
+    style="rounded,dashed";
+    rosbridge [label="rosbridge_websocket\nWebSocket <-> ROS topic/service", fillcolor="#fff7ed", color="#fdba74"];
+    rosapi [label="rosapi\n运行时 topic/service 查询", fillcolor="#fff7ed", color="#fdba74"];
+    web_bridge [label="web_action_bridge_node\nWeb Action -> 后端服务", fillcolor="#fff7ed", color="#fdba74"];
+    log_mux [label="system_log_mux.py\n/rosout_agg -> /system_log/all", fillcolor="#f8fafc"];
+    tf_stack [label="TF 常驻层\nrobot_tf / gripper_tf / tf2_web", fillcolor="#f8fafc"];
+  }
+
+  subgraph cluster_algorithm {
+    label="算法与运动控制层 algorithm_stack.launch";
+    color="#bbf7d0";
+    penwidth=1.6;
+    style="rounded,dashed";
+    pointai [label="pointAINode\nPR-FPRG 视觉识别 / process_image", fillcolor="#f0fdf4", color="#86efac"];
+    bind_map [label="bind_map_builder\n全局绑扎点构图", fillcolor="#f0fdf4", color="#86efac"];
+    planner [label="global_bind_planner\npseudo_slam 路径规划", fillcolor="#f0fdf4", color="#86efac"];
+    cabin_motion [label="cabin_motion_controller\n索驱运动控制", fillcolor="#f0fdf4", color="#86efac"];
+    moduan_motion [label="moduan_motion_controller\n线性模组运动控制", fillcolor="#f0fdf4", color="#86efac"];
+    executor [label="bind_task_executor\n扫描 / 账本 / 执行链编排", fillcolor="#dcfce7", color="#22c55e"];
+  }
+
+  subgraph cluster_driver {
+    label="驱动层：原子动作与硬件协议";
+    color="#e9d5ff";
+    penwidth=1.6;
+    style="rounded,dashed";
+    cabin_driver [label="suoqu_driver_node\nTCP 原子指令：move / stop / state", fillcolor="#faf5ff", color="#d8b4fe"];
+    moduan_driver [label="moduan_driver_node\nModbus 原子寄存器动作", fillcolor="#faf5ff", color="#d8b4fe"];
+    camera_driver [label="scepter_manager\n相机 SDK 取帧与发布", fillcolor="#faf5ff", color="#d8b4fe"];
+    world_coord [label="scepter_world_coord_processor\nraw_world_coord / world_coord", fillcolor="#faf5ff", color="#d8b4fe"];
+  }
+
+  subgraph cluster_hardware {
+    label="硬件与运行数据";
+    color="#e5e7eb";
+    penwidth=1.6;
+    style="rounded,dashed";
+    cabin_hw [label="索驱本体\nTCP 控制器", fillcolor="#f9fafb"];
+    moduan_hw [label="线性模组 / PLC\nEN_DISABLE 0->1 边沿触发", fillcolor="#f9fafb"];
+    camera_hw [label="Scepter ToF 相机\nIR / Depth / PointCloud", fillcolor="#f9fafb"];
+    runtime_data [label="运行账本与规划产物\npseudo_slam_points.json\npseudo_slam_bind_path.json\nbind_execution_memory.json", shape=folder, fillcolor="#f9fafb"];
+  }
+
+  frontend -> rosbridge [label="WebSocket topic/service/action", color="#2563eb"];
+  frontend -> help [label="帮助入口", color="#2563eb"];
+  help -> static_server [label="/help/ 静态托管", color="#2563eb"];
+  static_server -> web_bridge [label="systemctl start/stop/restart", color="#dc2626", style=dashed];
+  rosbridge -> rosapi [label="运行时发现", color="#6b7280"];
+  rosbridge -> web_bridge [label="/web/cabin/* Action", color="#2563eb"];
+  rosbridge -> pointai [label="/web/pointAI/* 话题", color="#2563eb"];
+
+  web_bridge -> executor [label="/cabin/start_* / run_bind_path_direct_test", color="#dc2626"];
+  web_bridge -> cabin_motion [label="/web/system/* 间接启停", color="#dc2626", style=dashed];
+  log_mux -> frontend [label="/system_log/all", color="#6b7280"];
+  tf_stack -> frontend [label="/tf via tf2_web_republisher", color="#9333ea"];
+
+  camera_driver -> world_coord [label="IR / Depth / PointCloud", color="#16a34a"];
+  camera_driver -> pointai [label="/Scepter/ir/image_raw", color="#16a34a"];
+  world_coord -> pointai [label="/Scepter/worldCoord/raw_world_coord", color="#16a34a"];
+  pointai -> executor [label="/coordinate_point", color="#16a34a"];
+  pointai -> frontend [label="结果图 / 视觉点", color="#16a34a"];
+
+  executor -> bind_map [label="扫描点构图", color="#dc2626"];
+  executor -> planner [label="生成 bind_path", color="#dc2626"];
+  executor -> cabin_motion [label="区域索驱位姿", color="#dc2626"];
+  executor -> moduan_motion [label="点组 x/y/z", color="#dc2626"];
+  executor -> runtime_data [label="读写账本", color="#16a34a"];
+
+  cabin_motion -> cabin_driver [label="运动服务调用", color="#dc2626"];
+  moduan_motion -> moduan_driver [label="raw_execute_points / single_move", color="#dc2626"];
+  cabin_driver -> cabin_hw [label="TCP 帧", color="#9333ea"];
+  moduan_driver -> moduan_hw [label="Modbus 寄存器", color="#9333ea"];
+  camera_hw -> camera_driver [label="SDK 帧流", color="#9333ea"];
+
+  cabin_driver -> tf_stack [label="/cabin/cabin_data_upload", color="#16a34a"];
+  moduan_driver -> moduan_motion [label="/moduan/moduan_gesture_data", color="#16a34a"];
+  executor -> frontend [label="/cabin/pseudo_slam_markers / progress", color="#16a34a"];
+}

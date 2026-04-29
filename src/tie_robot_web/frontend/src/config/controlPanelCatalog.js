@@ -1,53 +1,15 @@
 export const CONTROL_PANEL_TASKS = [
   { id: "submitQuad", label: "提交\n四边形", tone: "green" },
-  { id: "runSavedS2", label: "触发\nS2", tone: "green" },
+  { id: "runSavedS2", label: "触发\n视觉识别", tone: "green" },
+  { id: "clearVisualRecognition", label: "清除\n识别结果", tone: "blue" },
+  { id: "triggerSingleBind", label: "触发单点\n绑扎", tone: "red" },
   { id: "scanPlan", label: "固定扫描\n规划", tone: "green" },
   { id: "startExecution", label: "开始\n执行层", tone: "green" },
   { id: "startExecutionKeepMemory", label: "保留记忆\n开始", tone: "amber" },
   { id: "runBindPathTest", label: "账本\n测试", tone: "amber" },
-  { id: "moveToPosition", label: "移动到\n索驱位置", tone: "blue" },
+  { id: "setRecognitionPose", label: "设为\n识别位姿", tone: "amber" },
+  { id: "moveToPosition", label: "移动到\n位姿", tone: "blue" },
 ];
-
-export function getControlPanelTaskIds() {
-  return CONTROL_PANEL_TASKS.map((task) => task.id);
-}
-
-export function normalizeControlPanelVisibleTaskIds(taskIds) {
-  const allowedIds = new Set(getControlPanelTaskIds());
-  if (!Array.isArray(taskIds)) {
-    return getControlPanelTaskIds();
-  }
-  return taskIds.filter((taskId, index) => allowedIds.has(taskId) && taskIds.indexOf(taskId) === index);
-}
-
-export function normalizeCustomControlPanelButtons(buttons) {
-  if (!Array.isArray(buttons)) {
-    return [];
-  }
-
-  const seenIds = new Set();
-  return buttons
-    .map((button) => {
-      const rawId = String(button?.id || "").trim();
-      const rawLabel = String(button?.label || button?.name || "").trim();
-      const rawServicePath = String(button?.servicePath || button?.service || "").trim();
-      const normalizedServicePath = rawServicePath
-        ? (rawServicePath.startsWith("/") ? rawServicePath : `/${rawServicePath}`)
-        : "";
-      if (!rawId || !rawLabel || !normalizedServicePath || seenIds.has(rawId)) {
-        return null;
-      }
-      seenIds.add(rawId);
-      return {
-        id: rawId,
-        label: rawLabel,
-        servicePath: normalizedServicePath,
-        serviceType: "std_srvs/Trigger",
-        tone: "blue",
-      };
-    })
-    .filter(Boolean);
-}
 
 export const CONTROL_TOGGLE_DEFINITIONS = {
   pauseResume: {

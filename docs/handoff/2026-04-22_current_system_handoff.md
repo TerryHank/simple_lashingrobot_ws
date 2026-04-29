@@ -175,13 +175,13 @@
 当前保存的是：
 
 - `corner_pixels`
-- `corner_world_cabin_frame`
+- `corner_world_map`
 - 可选 `corner_sample_pixels`
 
 也就是说：
 
 - 交互发生在 2D 图像上
-- 实际保存的是 `cabin_frame` 下的世界坐标四边形
+- 实际保存的是 `map` 下的世界坐标四边形
 
 ### 5.3 当前工作区回显话题
 
@@ -608,7 +608,7 @@
 尤其是：
 
 - 相机坐标
-- `cabin_frame`
+- `map`
 - `gripper_frame`
 - TCP / 虎口局部坐标
 
@@ -713,7 +713,7 @@
 把坐标链做成一份可视化调试清单：
 
 - 相机原始点
-- `cabin_frame` 全局点
+- `map` 全局点
 - `gripper_frame` / TCP 局部点
 - 最终下游执行点
 

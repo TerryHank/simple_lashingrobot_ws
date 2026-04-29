@@ -1,5 +1,24 @@
 #include "tie_robot_perception/camera/scepter_manager.hpp"
 #include <sensor_msgs/point_cloud2_iterator.h>
+
+namespace {
+
+void publish_static_identity_tf(
+    tf2_ros::StaticTransformBroadcaster& broadcaster,
+    const ros::Time& stamp,
+    const std::string& parent_frame,
+    const std::string& child_frame)
+{
+    geometry_msgs::TransformStamped msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = parent_frame;
+    msg.child_frame_id = child_frame;
+    msg.transform.rotation.w = 1.0;
+    broadcaster.sendTransform(msg);
+}
+
+}  // namespace
+
 //define call back function
 void ScepterManager::set_sensor_intrinsics()
 {
@@ -20,50 +39,14 @@ void ScepterManager::set_sensor_intrinsics()
     static tf2_ros::StaticTransformBroadcaster tf_broadcaster;
     ros::Time now = ros::Time::now();
 
-    // PsCameraExtrinsicParameters to ROS transform
-    tf::Transform transform;
-    tf::Matrix3x3 rotation_matrix(extrinsics_.rotation[0], extrinsics_.rotation[1], extrinsics_.rotation[2],
-                                  extrinsics_.rotation[3], extrinsics_.rotation[4], extrinsics_.rotation[5],
-                                  extrinsics_.rotation[6], extrinsics_.rotation[7], extrinsics_.rotation[8]);
-    double roll, pitch, yaw;
-    rotation_matrix.getRPY(roll, pitch, yaw);
-    geometry_msgs::Quaternion orientation = tf::createQuaternionMsgFromRollPitchYaw(roll, pitch, yaw);
-
-    // Publish static TFs
-    geometry_msgs::TransformStamped msg;
-    msg.header.stamp = now;
-    msg.transform.rotation.w = 1.0;
-
-    // Camera base to Color Frame
-    msg.header.frame_id = camera_frame;
-    msg.child_frame_id = color_frame;
-    tf_broadcaster.sendTransform(msg);
-
-    msg.header.frame_id = camera_frame;
-    msg.child_frame_id = points_frame;
-    tf_broadcaster.sendTransform(msg);
-
-    msg.header.frame_id = camera_frame;
-    msg.child_frame_id = depth2colorpoints_frame;
-    tf_broadcaster.sendTransform(msg);
-
-    // Color Frame to Aligned Frame
-    msg.header.frame_id = color_frame;
-    msg.child_frame_id = depth_frame;
-    tf_broadcaster.sendTransform(msg);
-    
-    msg.header.frame_id = depth_frame;
-    msg.child_frame_id = alignedcolor_frame;
-    tf_broadcaster.sendTransform(msg);
-
-    // Color Frame to Depth Frame
-    msg.transform.translation.x = extrinsics_.translation[0] / 1000;
-    msg.transform.translation.y = extrinsics_.translation[1] / 1000;
-    msg.transform.translation.z = extrinsics_.translation[2] / 1000;
-    msg.transform.rotation = orientation;
-    msg.header.frame_id = color_frame;
-    msg.child_frame_id = aligneddepth_frame;
-    tf_broadcaster.sendTransform(msg);
+    // Scepter_depth_frame is owned by the robot TF chain (map -> base_link -> Scepter_depth_frame).
+    // Keep SDK image/point-cloud frames as aliases below it so RViz has one connected tree.
+    publish_static_identity_tf(tf_broadcaster, now, depth_frame, camera_frame);
+    publish_static_identity_tf(tf_broadcaster, now, depth_frame, color_frame);
+    publish_static_identity_tf(tf_broadcaster, now, depth_frame, points_frame);
+    publish_static_identity_tf(tf_broadcaster, now, depth_frame, depth2colorpoints_frame);
+    publish_static_identity_tf(tf_broadcaster, now, depth_frame, alignedcolor_frame);
+    publish_static_identity_tf(tf_broadcaster, now, depth_frame, aligneddepth_frame);
 
     // Get camera parameters (intrinsic)
     checkScStatus(scGetSensorIntrinsicParameters(deviceHandle_, SC_TOF_SENSOR, &this->depth_intrinsics_),

@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +17,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -48,7 +46,7 @@ from tie_robot_perception.perception.workspace_s2 import (
 from .constants import *
 
 def printsomething(self, msg):
-    print("msg:", msg.data)
+    rospy.loginfo("msg: %s", msg.data)
 
 
 def test_callback(self):
@@ -60,7 +58,7 @@ def test_callback(self):
         self.fps = self.frame_count / elapsed_time
         self.frame_count=0
         self.start_time = cur_time
-    print(f"Average FPS: {self.fps:.2f}")
+    rospy.loginfo_throttle(1.0, "Average FPS: %.2f", self.fps)
 
 
 def image_color_callback(self, msg):
@@ -100,7 +98,6 @@ def image_callback(self, msg):
     normalized = cv2.normalize(self.vison_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     self.vison_image = cv2.applyColorMap(normalized, cv2.COLORMAP_JET)
 
-    # self.pre_img()
     self.channels = self.cv2.split(self.image)
     self.Depth_image_Raw =(self.channels[2]).astype(np.int32)
     self.world_image_seq += 1
@@ -110,7 +107,8 @@ def image_callback(self, msg):
         self.image_infrared_copy = np.zeros((480, 640), dtype=np.uint8)
 
     result_image = np.array(self.image_infrared_copy, copy=True)
-    cv2.rectangle(result_image, self.point1, self.point2, 255, 2)
+    if self.load_manual_workspace_quad() is None:
+        cv2.rectangle(result_image, self.point1, self.point2, 255, 2)
     self.draw_scan_workspace_overlay(result_image)
 
     occupied_label_bboxes = []

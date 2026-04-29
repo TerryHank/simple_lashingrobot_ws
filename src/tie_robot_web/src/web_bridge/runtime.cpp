@@ -1,4 +1,4 @@
-#include "tie_robot_web/web_bridge/topics_transfer_runtime.hpp"
+#include "tie_robot_web/web_bridge/web_action_bridge_runtime.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -15,7 +15,7 @@ const std::string kCabinLastFatalErrorDetailFile =
 
 void logMessage(const std::string& topic, const std::string& message)
 {
-    ROS_INFO_STREAM("[topics_transfer] " << topic << ": " << message);
+    ROS_INFO_STREAM("[web_action_bridge] " << topic << ": " << message);
 }
 
 std::string read_latest_cabin_fatal_error_detail()

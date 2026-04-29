@@ -61,8 +61,8 @@
 ### 1. 当前位置来源
 
 - `/cabin/single_move` 服务收的是绝对坐标，而不是增量。
-- 当前工程已经通过 TF 发布 `cabin_frame -> Scepter_depth_frame`，其平移量就是索驱当前 `x / y / z`。
-- 前端通过 `Scene3DView` 读取当前 `Scepter_depth_frame` 在 `cabin_frame` 下的世界坐标，并转换为毫米。
+- 当前工程已经通过 TF 发布 `map -> Scepter_depth_frame`，其平移量就是索驱当前 `x / y / z`。
+- 前端通过 `Scene3DView` 读取当前 `Scepter_depth_frame` 在 `map` 下的世界坐标，并转换为毫米。
 - 该坐标既作为遥控前的计算基准，也作为遥控页 `当前索驱坐标` 的实时显示来源。
 
 ### 2. 单步移动计算

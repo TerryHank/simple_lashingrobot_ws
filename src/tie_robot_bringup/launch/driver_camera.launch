@@ -1,0 +1,5 @@
+<launch>
+    <include file="$(find tie_robot_perception)/launch/scepter_camera.launch">
+        <arg name="camera_respawn" value="true" />
+    </include>
+</launch>

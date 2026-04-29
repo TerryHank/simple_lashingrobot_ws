@@ -231,7 +231,7 @@
 - `image_buffers.py`
   - 图像缓存、订阅数据存取
 - `tf_transform.py`
-  - `Scepter_depth_frame`、`gripper_frame`、`cabin_frame` 的坐标变换
+  - `Scepter_depth_frame`、`gripper_frame`、`map` 的坐标变换
 - `world_coord.py`
   - `worldCoord` 采样和邻域补点
 - `workspace_masks.py`

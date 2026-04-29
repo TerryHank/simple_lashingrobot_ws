@@ -1,28 +1,78 @@
 export class PanelManager {
-  constructor() {
+  constructor({ onLayoutChange = null } = {}) {
     this.panels = new Map();
     this.resizeObservers = new Map();
+    this.onLayoutChange = typeof onLayoutChange === "function" ? onLayoutChange : null;
+    this.suppressLayoutChange = false;
     this.handleWindowResize = this.handleWindowResize.bind(this);
   }
 
+  notifyLayoutChange() {
+    if (this.suppressLayoutChange) {
+      return;
+    }
+    this.onLayoutChange?.(this.getPanelLayoutSnapshot());
+  }
+
+  getCenteredPanelRect(width, height, verticalOffset = 0) {
+    const viewportWidth = Math.max(320, window.innerWidth);
+    const viewportHeight = Math.max(320, window.innerHeight);
+    const boundedWidth = Math.min(
+      Math.max(280, Math.round(width)),
+      Math.max(280, viewportWidth - 40),
+    );
+    const boundedHeight = Math.min(
+      Math.max(100, Math.round(height)),
+      Math.max(100, viewportHeight - 120),
+    );
+    const left = Math.max(20, Math.round((viewportWidth - boundedWidth) / 2));
+    const rawTop = Math.round((viewportHeight - boundedHeight) / 2) + verticalOffset;
+    const maxTop = Math.max(88, viewportHeight - boundedHeight - 20);
+    const top = Math.min(Math.max(88, rawTop), maxTop);
+    return { left, top, width: boundedWidth, height: boundedHeight };
+  }
+
   getDefaultPanelRect(panelId) {
+    if (panelId === "controlPanel") {
+      const width = Math.min(360, Math.max(320, window.innerWidth - 720));
+      const height = Math.min(640, Math.max(360, window.innerHeight - 140));
+      return this.getCenteredPanelRect(width, height);
+    }
+
+    if (panelId === "imagePanel") {
+      const width = Math.min(760, Math.max(460, window.innerWidth - 560));
+      const height = Math.min(560, Math.max(320, window.innerHeight - 220));
+      return this.getCenteredPanelRect(width, height);
+    }
+
+    if (panelId === "settingsPanel") {
+      const width = Math.min(380, Math.max(320, window.innerWidth - 720));
+      const height = Math.min(640, Math.max(360, window.innerHeight - 140));
+      return this.getCenteredPanelRect(width, height);
+    }
+
     if (panelId === "logPanel") {
       const width = Math.min(700, Math.max(520, window.innerWidth - 720));
       const height = Math.min(320, Math.max(240, window.innerHeight - 860));
-      const left = Math.max(360, Math.round((window.innerWidth - width) / 2));
-      const top = Math.max(88, window.innerHeight - height - 126);
-      return { left, top, width, height };
+      return this.getCenteredPanelRect(width, height);
     }
 
     if (panelId === "terminalPanel") {
       const width = Math.min(920, Math.max(620, window.innerWidth - 320));
       const height = Math.min(460, Math.max(320, window.innerHeight - 220));
-      const left = Math.max(96, Math.round((window.innerWidth - width) / 2));
-      const top = Math.max(88, Math.round((window.innerHeight - height) / 2) + 24);
-      return { left, top, width, height };
+      return this.getCenteredPanelRect(width, height);
     }
 
     return null;
+  }
+
+  isUsablePanelRect(rect) {
+    return Number.isFinite(Number(rect?.left))
+      && Number.isFinite(Number(rect?.top))
+      && Number.isFinite(Number(rect?.width))
+      && Number.isFinite(Number(rect?.height))
+      && Number(rect.width) >= 160
+      && Number(rect.height) >= 100;
   }
 
   applyDefaultPanelRect(panelId) {
@@ -47,6 +97,8 @@ export class PanelManager {
     panel.style.transform = "";
     state.maximized = false;
     state.restoreRect = null;
+    state.hasSavedLayout = true;
+    state.lastVisibleRect = { ...defaultRect };
 
     const button = panel.querySelector("[data-panel-maximize]");
     if (button) {
@@ -55,6 +107,7 @@ export class PanelManager {
     }
 
     state.bringToFront?.();
+    this.notifyLayoutChange();
   }
 
   init(root) {
@@ -75,10 +128,12 @@ export class PanelManager {
       panel,
       maximized: false,
       restoreRect: null,
+      hasSavedLayout: false,
+      lastVisibleRect: null,
     };
 
     const bringToFront = () => {
-      const allPanels = document.querySelectorAll(".floating-panel");
+      const allPanels = document.querySelectorAll(".floating-panel, .graphical-app-panel");
       let maxZIndex = 20;
 
       allPanels.forEach((candidate) => {
@@ -86,8 +141,10 @@ export class PanelManager {
         if (candidate !== panel && zIndex > maxZIndex) {
           maxZIndex = zIndex;
         }
+        candidate.classList.remove("is-window-active");
       });
 
+      panel.classList.add("is-window-active");
       panel.style.zIndex = String(maxZIndex + 1);
     };
 
@@ -193,6 +250,7 @@ export class PanelManager {
         isDragging = false;
         document.body.style.userSelect = "";
         clampToViewport();
+        this.notifyLayoutChange();
       });
     }
 
@@ -226,6 +284,7 @@ export class PanelManager {
           panel.classList.remove("is-resizing");
           window.removeEventListener("mousemove", handleResizeMove);
           window.removeEventListener("mouseup", stopResize);
+          this.notifyLayoutChange();
         };
 
         const handleResizeMove = (event) => {
@@ -294,6 +353,14 @@ export class PanelManager {
       });
     }
 
+    if (panelId !== "imagePanel") {
+      const observer = new ResizeObserver(() => {
+        this.notifyLayoutChange();
+      });
+      observer.observe(panel);
+      this.resizeObservers.set(panelId, observer);
+    }
+
     this.panels.set(panelId, { ...state, bringToFront });
   }
 
@@ -326,29 +393,14 @@ export class PanelManager {
         width: rect.width,
         height: rect.height,
       };
+      state.lastVisibleRect = { ...state.restoreRect };
 
       const target = this.getMaximizedRect();
       panel.classList.add("maximized");
-      if (panelId === "imagePanel") {
-        const aspect = getImageAspectRatio();
-        const headerHeight = panelHeader?.offsetHeight || 52;
-        const maxContentHeight = Math.max(120, target.height - headerHeight);
-        let width = target.width;
-        let contentHeight = width / aspect;
-        if (contentHeight > maxContentHeight) {
-          contentHeight = maxContentHeight;
-          width = contentHeight * aspect;
-        }
-        panel.style.left = `${target.left + Math.max(0, (target.width - width) / 2)}px`;
-        panel.style.top = `${target.top}px`;
-        panel.style.width = `${width}px`;
-        panel.style.height = `${headerHeight + contentHeight}px`;
-      } else {
-        panel.style.left = `${target.left}px`;
-        panel.style.top = `${target.top}px`;
-        panel.style.width = `${target.width}px`;
-        panel.style.height = `${target.height}px`;
-      }
+      panel.style.left = `${target.left}px`;
+      panel.style.top = `${target.top}px`;
+      panel.style.width = `${target.width}px`;
+      panel.style.height = `${target.height}px`;
       panel.style.right = "auto";
       panel.style.bottom = "auto";
       panel.style.transform = "";
@@ -358,6 +410,7 @@ export class PanelManager {
         button.title = "还原";
       }
       state.bringToFront?.();
+      this.notifyLayoutChange();
       return;
     }
 
@@ -376,6 +429,7 @@ export class PanelManager {
       button.textContent = "⛶";
       button.title = "最大化";
     }
+    this.notifyLayoutChange();
   }
 
   toggleMaximize(panelId) {
@@ -415,32 +469,83 @@ export class PanelManager {
         return;
       }
       const target = this.getMaximizedRect();
-      if (state.panel.id === "imagePanel") {
-        const imageCanvas = state.panel.querySelector("#irCanvas");
-        const width = Number(imageCanvas?.width) || 640;
-        const height = Number(imageCanvas?.height) || 480;
-        const aspect = height > 0 ? width / height : 4 / 3;
-        const headerHeight = state.panel.querySelector(".panel-header")?.offsetHeight || 52;
-        const maxContentHeight = Math.max(120, target.height - headerHeight);
-        let panelWidth = target.width;
-        let contentHeight = panelWidth / aspect;
-        if (contentHeight > maxContentHeight) {
-          contentHeight = maxContentHeight;
-          panelWidth = contentHeight * aspect;
-        }
-        state.panel.style.left = `${target.left + Math.max(0, (target.width - panelWidth) / 2)}px`;
-        state.panel.style.top = `${target.top}px`;
-        state.panel.style.width = `${panelWidth}px`;
-        state.panel.style.height = `${headerHeight + contentHeight}px`;
-      } else {
-        state.panel.style.left = `${target.left}px`;
-        state.panel.style.top = `${target.top}px`;
-        state.panel.style.width = `${target.width}px`;
-        state.panel.style.height = `${target.height}px`;
-      }
+      state.panel.style.left = `${target.left}px`;
+      state.panel.style.top = `${target.top}px`;
+      state.panel.style.width = `${target.width}px`;
+      state.panel.style.height = `${target.height}px`;
       state.panel.style.right = "auto";
       state.panel.style.bottom = "auto";
       state.panel.style.transform = "";
     });
+    this.notifyLayoutChange();
+  }
+
+  hasPanelLayout(panelId) {
+    const state = this.panels.get(panelId);
+    return Boolean(state?.hasSavedLayout);
+  }
+
+  applyPanelLayout(layout) {
+    const layoutPanels = layout?.panels || {};
+    this.suppressLayoutChange = true;
+    Object.entries(layoutPanels).forEach(([panelId, panelLayout]) => {
+      const state = this.panels.get(panelId);
+      if (!state || !panelLayout?.rect) {
+        return;
+      }
+      const { panel } = state;
+      const rect = panelLayout.rect;
+      if (!this.isUsablePanelRect(rect)) {
+        return;
+      }
+      panel.classList.toggle("maximized", Boolean(panelLayout.maximized));
+      panel.style.left = `${Number(rect.left) || 20}px`;
+      panel.style.top = `${Number(rect.top) || 88}px`;
+      panel.style.width = `${Math.max(280, Number(rect.width) || panel.offsetWidth || 320)}px`;
+      panel.style.height = `${Math.max(100, Number(rect.height) || panel.offsetHeight || 240)}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      panel.style.transform = "";
+      state.maximized = Boolean(panelLayout.maximized);
+      state.restoreRect = panelLayout.restoreRect || null;
+      state.hasSavedLayout = true;
+      state.lastVisibleRect = {
+        left: Math.round(Number(rect.left) || 20),
+        top: Math.round(Number(rect.top) || 88),
+        width: Math.round(Math.max(280, Number(rect.width) || panel.offsetWidth || 320)),
+        height: Math.round(Math.max(100, Number(rect.height) || panel.offsetHeight || 240)),
+      };
+      const button = panel.querySelector("[data-panel-maximize]");
+      if (button) {
+        button.textContent = state.maximized ? "❐" : "⛶";
+        button.title = state.maximized ? "还原" : "最大化";
+      }
+    });
+    this.suppressLayoutChange = false;
+  }
+
+  getPanelLayoutSnapshot() {
+    const panels = {};
+    this.panels.forEach((state, panelId) => {
+      const rect = state.panel.getBoundingClientRect();
+      const currentRect = {
+        left: Math.round(rect.left),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+      const storedRect = this.isUsablePanelRect(currentRect)
+        ? currentRect
+        : state.lastVisibleRect;
+      if (storedRect) {
+        state.lastVisibleRect = { ...storedRect };
+      }
+      panels[panelId] = {
+        ...(storedRect ? { rect: storedRect } : {}),
+        maximized: Boolean(state.maximized),
+        restoreRect: state.restoreRect || null,
+      };
+    });
+    return panels;
   }
 }

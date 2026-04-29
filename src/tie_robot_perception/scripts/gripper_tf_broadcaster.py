@@ -16,8 +16,8 @@ from tie_robot_msgs.srv import (
 )
 from tf.transformations import quaternion_from_euler
 
-POINTAI_OFFSET_TOPIC = "/web/pointAI/set_offset"
-SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/pointAI/set_gripper_tf_calibration"
+TF_OFFSET_TOPIC = "/web/tf/set_offset"
+SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/tf/set_gripper_tf_calibration"
 
 
 def _read_string(data, key):
@@ -103,8 +103,8 @@ def load_gripper_tf_config(config_path, allow_identity_config=False):
         "child_frame": _read_string(data, "child_frame"),
         "translation_mm": translation_mm,
         "translation": {
-            "x": -translation_mm["x"] / 1000.0,
-            "y": -translation_mm["y"] / 1000.0,
+            "x": translation_mm["x"] / 1000.0,
+            "y": translation_mm["y"] / 1000.0,
             "z": translation_mm["z"] / 1000.0,
         },
         "rotation_rpy": {
@@ -126,8 +126,8 @@ def with_updated_translation_mm(config, x_mm, y_mm, z_mm, allow_identity_config=
         "z": float(z_mm),
     }
     updated["translation"] = {
-        "x": -updated["translation_mm"]["x"] / 1000.0,
-        "y": -updated["translation_mm"]["y"] / 1000.0,
+        "x": updated["translation_mm"]["x"] / 1000.0,
+        "y": updated["translation_mm"]["y"] / 1000.0,
         "z": updated["translation_mm"]["z"] / 1000.0,
     }
     validate_gripper_tf_config(updated, allow_identity_config=allow_identity_config)
@@ -244,7 +244,7 @@ def main():
         )
         return updated_config
 
-    def handle_legacy_offset(msg):
+    def handle_set_offset(msg):
         try:
             apply_translation_update(
                 msg.position.x,
@@ -254,7 +254,7 @@ def main():
         except Exception as exc:
             rospy.logerr(
                 "gripper_tf_broadcaster: 处理%s失败，无法实时更新TF平移标定: %s",
-                POINTAI_OFFSET_TOPIC,
+                TF_OFFSET_TOPIC,
                 exc,
             )
 
@@ -286,7 +286,7 @@ def main():
                 applied_z_mm=runtime_config["value"]["translation_mm"]["z"],
             )
 
-    rospy.Subscriber(POINTAI_OFFSET_TOPIC, Pose, handle_legacy_offset)
+    rospy.Subscriber(TF_OFFSET_TOPIC, Pose, handle_set_offset)
     rospy.Service(
         SET_GRIPPER_TF_CALIBRATION_SERVICE,
         SetGripperTfCalibration,

@@ -20,6 +20,8 @@
 - `tie_robot_web` 负责新前端、桥接和帮助站
 - `tie_robot_bringup` 负责启动装配
 
+完整设计图见：[工程设计与架构图](./system-design)。当前 ROS 节点、话题、服务和 Action 摘要见：[ROS Graph](./ros-graph)。
+
 ## 这轮结构化重点
 
 - 巨型入口文件被拆成“薄入口 + 模块实现”
@@ -29,11 +31,11 @@
 - `3D Scene` 不再只是一个独立面板，而是整个页面的背景层
 - 顶部工具条负责面板显隐、视角快捷切换和帮助入口
 - `Topic Layers` 会按当前相机模态、TF 和可视话题切换 `只显示点云 / 只显示绑扎点 / 点云+绑扎点 / 规划点 / 只显示机器 / 全开`
-- 识别到的绑扎点直接显示 `/coordinate_point` 中的全局世界坐标
+- 识别到的绑扎点直接显示 `/coordinate_point` 中的相机原始坐标，前端只通过 TF 投到 `map`
 - 点云图层复用 `/Scepter/worldCoord/world_coord` 与 `/Scepter/worldCoord/raw_world_coord`，并按 `Scepter_depth_frame` 当前 TF 投到全局场景
 - `moduanNode.cpp` 收成 `moduan/` 目录
 - `pointAI.py` 收成 `pointai/` Python 包
-- `topics_transfer.cpp` 收成 `web_bridge/` 目录
+- `web_action_bridge.cpp` 收成 `web_bridge/` 目录，只保留 Action/Service 桥接；前端话题直接走 `topicRegistry.js`
 - `dynamic_bind_planning.cpp` 收成 `planning/` 多文件
 - `suoquNode.cpp` 已拆出 `cabin_transport.cpp`、`pseudo_slam_markers.cpp`、`pseudo_slam_scan_processing.cpp`、`service_orchestration.cpp`
 - 预计算账本与执行主体已继续拆成 `area_execution.cpp`、`execution_memory_store.cpp`、`bind_path_store.cpp`

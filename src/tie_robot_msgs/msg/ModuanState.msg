@@ -1,0 +1,11 @@
+bool connected
+bool ready
+bool executing
+bool finish_all
+bool error
+float64 x
+float64 y
+float64 z
+float64 motor_angle
+string phase
+string last_error

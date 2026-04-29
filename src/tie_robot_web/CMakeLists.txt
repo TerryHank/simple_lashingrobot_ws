@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 catkin_package(
+  INCLUDE_DIRS include
   CATKIN_DEPENDS
     actionlib
     geometry_msgs
@@ -31,16 +32,24 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-add_executable(topictransNode
-  src/topics_transfer.cpp
+set(WEB_ACTION_BRIDGE_NODE_SOURCES
+  src/web_action_bridge.cpp
   src/web_bridge/runtime.cpp
   src/web_bridge/action_bridge.cpp
   src/web_bridge/process_control.cpp
-  src/web_bridge/subscriber_callbacks.cpp
   src/web_bridge/node_app.cpp
 )
-add_dependencies(topictransNode ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-target_link_libraries(topictransNode ${catkin_LIBRARIES})
+
+foreach(WEB_ACTION_BRIDGE_TARGET
+    web_action_bridge_node
+    webActionBridgeNode
+)
+  add_executable(${WEB_ACTION_BRIDGE_TARGET}
+    ${WEB_ACTION_BRIDGE_NODE_SOURCES}
+  )
+  add_dependencies(${WEB_ACTION_BRIDGE_TARGET} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+  target_link_libraries(${WEB_ACTION_BRIDGE_TARGET} ${catkin_LIBRARIES})
+endforeach()
 
 catkin_install_python(PROGRAMS
   scripts/system_log_mux.py
@@ -53,6 +62,14 @@ install(DIRECTORY web
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
-install(TARGETS topictransNode
+install(DIRECTORY include/${PROJECT_NAME}/
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+)
+
+install(TARGETS
+  web_action_bridge_node
+  webActionBridgeNode
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

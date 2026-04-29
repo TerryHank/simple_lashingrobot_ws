@@ -61,6 +61,43 @@ class GiantBusinessStructuringTest(unittest.TestCase):
         self.assertIn("/camera-sdk/index", vitepress_config)
         self.assertIn("/camera-sdk/vendor-vzense/zh-cn/README", vitepress_config)
 
+    def test_help_site_documents_architecture_design_and_ros_graph(self):
+        expected = [
+            HELP_ROOT / "guide" / "system-design.md",
+            HELP_ROOT / "guide" / "ros-graph.md",
+            HELP_ROOT / "scripts" / "generate_rqt_rosgraph.py",
+            HELP_ROOT / "public" / "images" / "architecture" / "tie-robot-system-architecture.svg",
+            HELP_ROOT / "public" / "images" / "architecture" / "tie-robot-system-architecture.png",
+            HELP_ROOT / "public" / "images" / "architecture" / "tie-robot-ros-graph.dot",
+            HELP_ROOT / "public" / "images" / "architecture" / "tie-robot-ros-graph.svg",
+            HELP_ROOT / "public" / "images" / "architecture" / "tie-robot-ros-graph.png",
+        ]
+        for path in expected:
+            with self.subTest(path=path):
+                self.assertTrue(path.exists(), str(path))
+
+        vitepress_config = (HELP_ROOT / ".vitepress" / "config.mjs").read_text(encoding="utf-8")
+        help_index = (HELP_ROOT / "index.md").read_text(encoding="utf-8")
+        system_design = (HELP_ROOT / "guide" / "system-design.md").read_text(encoding="utf-8")
+        ros_graph = (HELP_ROOT / "guide" / "ros-graph.md").read_text(encoding="utf-8")
+        ros_graph_dot = (
+            HELP_ROOT / "public" / "images" / "architecture" / "tie-robot-ros-graph.dot"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("/guide/system-design", vitepress_config)
+        self.assertIn("/guide/ros-graph", vitepress_config)
+        self.assertIn("./guide/system-design", help_index)
+        self.assertIn("./guide/ros-graph", help_index)
+        self.assertIn("/images/architecture/tie-robot-system-architecture.svg", system_design)
+        self.assertIn("驱动层原子动作", system_design)
+        self.assertIn("/images/architecture/tie-robot-ros-graph.svg", ros_graph)
+        self.assertIn("rqt_graph", ros_graph)
+        self.assertIn("rosbridge_stack.launch", ros_graph)
+        self.assertIn("rqt_graph.dotcode.RosGraphDotcodeGenerator", ros_graph_dot)
+        self.assertIn("shape=ellipse", ros_graph_dot)
+        self.assertIn("shape=box", ros_graph_dot)
+        self.assertNotIn("当前 ROS Graph 摘要", ros_graph_dot)
+
     def test_moduan_node_is_split_into_structured_modules(self):
         expected = [
             WORKSPACE_ROOT / "src" / "tie_robot_control" / "include" / "tie_robot_control" / "moduan" / "register_map.hpp",
@@ -82,6 +119,9 @@ class GiantBusinessStructuringTest(unittest.TestCase):
         expected = [
             WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "__init__.py",
             WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "processor.py",
+            WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "node.py",
+            WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "state.py",
+            WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "ros_interfaces.py",
             WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "runtime_config.py",
             WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "world_coord.py",
             WORKSPACE_ROOT / "src" / "tie_robot_perception" / "src" / "tie_robot_perception" / "pointai" / "matrix_selection.py",
@@ -91,7 +131,8 @@ class GiantBusinessStructuringTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(path.exists(), str(path))
 
-        pointai_entry = WORKSPACE_ROOT / "src" / "tie_robot_perception" / "scripts" / "pointAI.py"
+        self.assertFalse((WORKSPACE_ROOT / "src" / "tie_robot_perception" / "scripts" / "pointAI.py").exists())
+        pointai_entry = WORKSPACE_ROOT / "src" / "tie_robot_perception" / "scripts" / "pointai_node.py"
         with pointai_entry.open(encoding="utf-8") as handle:
             line_count = sum(1 for _ in handle)
         self.assertLess(line_count, 900)
@@ -151,7 +192,7 @@ class GiantBusinessStructuringTest(unittest.TestCase):
 
         built_entry = WORKSPACE_ROOT / "src" / "tie_robot_web" / "web" / "index.html"
         built_html = built_entry.read_text(encoding="utf-8")
-        self.assertIn("Tie Robot Console", built_html)
+        self.assertIn("绑扎机器人控制台", built_html)
 
     def test_frontend_3d_scene_and_topic_layers_scaffold_exists(self):
         expected = [
@@ -171,8 +212,8 @@ class GiantBusinessStructuringTest(unittest.TestCase):
         ui_controller = (
             WORKSPACE_ROOT / "src" / "tie_robot_web" / "frontend" / "src" / "ui" / "UIController.js"
         ).read_text(encoding="utf-8")
-        self.assertIn("3D Scene", ui_controller)
-        self.assertIn("Topic Layers", ui_controller)
+        self.assertIn('id="sceneBackground"', ui_controller)
+        self.assertIn("图层与数据", ui_controller)
 
         overview = (HELP_ROOT / "guide" / "overview.md").read_text(encoding="utf-8")
         dev_entrypoints = (HELP_ROOT / "guide" / "dev-entrypoints.md").read_text(encoding="utf-8")
@@ -192,28 +233,27 @@ class GiantBusinessStructuringTest(unittest.TestCase):
         self.assertIn("scene-background", ui_controller)
         self.assertIn("top-toolbar", ui_controller)
         self.assertIn("data-toolbar-action", ui_controller)
-        self.assertIn("workspacePanel", ui_controller)
-        self.assertIn("topicLayersPanel", ui_controller)
+        self.assertIn('data-settings-page="workspace"', ui_controller)
+        self.assertIn('data-settings-page="layers"', ui_controller)
 
         self.assertIn(".scene-background", app_css)
         self.assertIn(".top-toolbar", app_css)
         self.assertIn(".toolbar-pill", app_css)
         self.assertIn(".scene-overlay", app_css)
 
-    def test_topics_transfer_is_split_into_bridge_modules(self):
+    def test_web_action_bridge_is_split_into_bridge_modules(self):
         expected = [
-            WORKSPACE_ROOT / "src" / "tie_robot_web" / "include" / "tie_robot_web" / "web_bridge" / "topics_transfer_runtime.hpp",
+            WORKSPACE_ROOT / "src" / "tie_robot_web" / "include" / "tie_robot_web" / "web_bridge" / "web_action_bridge_runtime.hpp",
             WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "web_bridge" / "runtime.cpp",
             WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "web_bridge" / "action_bridge.cpp",
             WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "web_bridge" / "process_control.cpp",
-            WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "web_bridge" / "subscriber_callbacks.cpp",
             WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "web_bridge" / "node_app.cpp",
         ]
         for path in expected:
             with self.subTest(path=path):
                 self.assertTrue(path.exists(), str(path))
 
-        entry = WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "topics_transfer.cpp"
+        entry = WORKSPACE_ROOT / "src" / "tie_robot_web" / "src" / "web_action_bridge.cpp"
         with entry.open(encoding="utf-8") as handle:
             line_count = sum(1 for _ in handle)
         self.assertLess(line_count, 40)

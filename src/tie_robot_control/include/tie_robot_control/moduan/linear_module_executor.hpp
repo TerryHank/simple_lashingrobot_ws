@@ -1,6 +1,7 @@
 #ifndef TIE_ROBOT_CONTROL_MODUAN_LINEAR_MODULE_EXECUTOR_HPP
 #define TIE_ROBOT_CONTROL_MODUAN_LINEAR_MODULE_EXECUTOR_HPP
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -24,10 +25,10 @@ std::string compose_linear_module_driver_error_message(
     const tie_robot_hw::driver::DriverError& driver_error);
 bool ensure_linear_module_driver_started(tie_robot_hw::driver::DriverError* error);
 bool request_linear_module_zero_via_driver(std::string* error_message);
-void delay_time(int Axis, double traget_coordinate, int mode);
+bool wait_linear_module_axis_arrival(int Axis, double target_coordinate);
 bool arrive_z(int axis_z, double& z, bool& is_current_z);
 void clear_finishall_flag_if_needed();
-bool finish_all(int inter_time);
+bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chrono::seconds timeout);
 void moveLinearModule(double x, double y, double z, double angle);
 int linear_module_move_origin_single(int Axis);
 void move_linear_module_to_origin();

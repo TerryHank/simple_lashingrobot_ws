@@ -7,6 +7,28 @@ import {
   sensorImageToImageData,
 } from "../utils/irImageUtils.js";
 
+function normalizeImageSize(source) {
+  const width = Number(source?.width);
+  const height = Number(source?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width, height };
+}
+
+function extractPointPixel(point) {
+  const pixCoord = Array.isArray(point?.Pix_coord) ? point.Pix_coord : [];
+  if (pixCoord.length < 2) {
+    return null;
+  }
+  const x = Number(pixCoord[0]);
+  const y = Number(pixCoord[1]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return null;
+  }
+  return { x, y };
+}
+
 export class WorkspaceCanvasView {
   constructor({ canvas, overlayCanvas, onSelectionChanged, onMessage }) {
     this.canvas = canvas;
@@ -17,9 +39,11 @@ export class WorkspaceCanvasView {
     this.onMessage = onMessage;
     this.lastImageMessage = null;
     this.lastExecutionResultMessage = null;
+    this.lastVisualRecognitionPointsMessage = null;
+    this.visualRecognitionPointSourceSize = null;
     this.savedWorkspacePoints = [];
     this.selectedPoints = [];
-    this.displaySettings = { mode: "auto", gamma: 0.85, overlayOpacity: 0.88 };
+    this.displaySettings = { mode: "raw", gamma: 1.0, overlayOpacity: 0.88 };
     this.overlayEnabled = true;
     this.savedWorkspaceGuideVisible = false;
     this.dragState = { activeIndex: -1, moved: false };
@@ -61,6 +85,22 @@ export class WorkspaceCanvasView {
 
   setExecutionOverlayMessage(message) {
     this.lastExecutionResultMessage = message;
+    this.drawOverlay();
+  }
+
+  setVisualRecognitionOverlaySourceSize(source) {
+    this.visualRecognitionPointSourceSize = normalizeImageSize(source);
+    this.drawOverlay();
+  }
+
+  setVisualRecognitionPointsMessage(message, { sourceSize = null } = {}) {
+    this.lastVisualRecognitionPointsMessage = Array.isArray(message?.PointCoordinatesArray)
+      ? message
+      : null;
+    this.visualRecognitionPointSourceSize =
+      normalizeImageSize(sourceSize)
+      || this.visualRecognitionPointSourceSize
+      || this.getCurrentImageSize();
     this.drawOverlay();
   }
 
@@ -117,10 +157,11 @@ export class WorkspaceCanvasView {
   }
 
   draw() {
-    if (!this.lastImageMessage) {
+    const imageMessage = this.lastImageMessage;
+    if (!imageMessage) {
       return;
     }
-    const imageData = sensorImageToImageData(this.lastImageMessage, this.displaySettings);
+    const imageData = sensorImageToImageData(imageMessage, this.displaySettings);
     this.canvas.width = imageData.width;
     this.canvas.height = imageData.height;
     this.overlayCanvas.width = imageData.width;
@@ -130,16 +171,75 @@ export class WorkspaceCanvasView {
     this.drawOverlay();
   }
 
+  getCurrentImageSize() {
+    return normalizeImageSize(this.lastImageMessage)
+      || normalizeImageSize({ width: this.canvas.width, height: this.canvas.height });
+  }
+
   drawOverlay() {
     this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-    if (!this.overlayEnabled || !this.lastExecutionResultMessage) {
+    if (this.overlayEnabled && this.lastExecutionResultMessage) {
+      const imageData = sensorImageToImageData(this.lastExecutionResultMessage, { mode: "raw", gamma: 1.0, overlayOpacity: 1.0 });
+      if (imageData.width === this.overlayCanvas.width && imageData.height === this.overlayCanvas.height) {
+        this.overlayCtx.putImageData(imageData, 0, 0);
+      }
+    }
+    this.drawVisualRecognitionPoints();
+    this.overlayCanvas.style.opacity = String(this.displaySettings.overlayOpacity);
+  }
+
+  drawVisualRecognitionPoints() {
+    const points = Array.isArray(this.lastVisualRecognitionPointsMessage?.PointCoordinatesArray)
+      ? this.lastVisualRecognitionPointsMessage.PointCoordinatesArray
+      : [];
+    if (!points.length || this.overlayCanvas.width <= 0 || this.overlayCanvas.height <= 0) {
       return;
     }
-    const imageData = sensorImageToImageData(this.lastExecutionResultMessage, { mode: "raw", gamma: 1.0, overlayOpacity: 1.0 });
-    this.overlayCanvas.width = imageData.width;
-    this.overlayCanvas.height = imageData.height;
-    this.overlayCtx.putImageData(imageData, 0, 0);
-    this.overlayCanvas.style.opacity = String(this.displaySettings.overlayOpacity);
+
+    const sourceSize = this.visualRecognitionPointSourceSize || this.getCurrentImageSize();
+    if (!sourceSize) {
+      return;
+    }
+
+    const xScale = this.overlayCanvas.width / sourceSize.width;
+    const yScale = this.overlayCanvas.height / sourceSize.height;
+    this.overlayCtx.save();
+    this.overlayCtx.font = "14px monospace";
+    this.overlayCtx.lineWidth = 2;
+    this.overlayCtx.textBaseline = "middle";
+    points.forEach((point, index) => {
+      const pixel = extractPointPixel(point);
+      if (!pixel) {
+        return;
+      }
+      const x = pixel.x * xScale;
+      const y = pixel.y * yScale;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return;
+      }
+      const label = String(Number.isFinite(Number(point?.idx)) ? Number(point.idx) : index + 1);
+      this.overlayCtx.beginPath();
+      this.overlayCtx.arc(x, y, 7, 0, Math.PI * 2);
+      this.overlayCtx.fillStyle = "rgba(255, 45, 85, 0.92)";
+      this.overlayCtx.fill();
+      this.overlayCtx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+      this.overlayCtx.stroke();
+      this.overlayCtx.beginPath();
+      this.overlayCtx.moveTo(x - 11, y);
+      this.overlayCtx.lineTo(x + 11, y);
+      this.overlayCtx.moveTo(x, y - 11);
+      this.overlayCtx.lineTo(x, y + 11);
+      this.overlayCtx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      this.overlayCtx.stroke();
+      const textWidth = this.overlayCtx.measureText(label).width;
+      const labelX = Math.min(Math.max(x + 10, 2), Math.max(2, this.overlayCanvas.width - textWidth - 8));
+      const labelY = Math.min(Math.max(y - 12, 10), Math.max(10, this.overlayCanvas.height - 10));
+      this.overlayCtx.fillStyle = "rgba(8, 17, 34, 0.78)";
+      this.overlayCtx.fillRect(labelX - 3, labelY - 8, textWidth + 6, 16);
+      this.overlayCtx.fillStyle = "#ffffff";
+      this.overlayCtx.fillText(label, labelX, labelY);
+    });
+    this.overlayCtx.restore();
   }
 
   drawWorkspacePolylines() {

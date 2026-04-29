@@ -56,7 +56,7 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
     const CabinPoint& path_origin,
     float cabin_height,
-    const tf2::Transform& gripper_from_scepter,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config = DynamicBindPlannerConfig{});
 
 BindExecutionPathOriginPose build_dynamic_bind_execution_path_origin(

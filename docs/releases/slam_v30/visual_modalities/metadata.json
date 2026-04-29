@@ -1,0 +1,331 @@
+{
+  "release": "slam/v30",
+  "generated_at": "2026-04-29T13:37:49",
+  "ros_master_uri": "http://localhost:11311",
+  "bag_path": "docs/releases/slam_v30/visual_modalities/slam_v30_visual_modalities.bag",
+  "bag_name": "slam_v30_visual_modalities.bag",
+  "topic_count": 23,
+  "captured_count": 19,
+  "records": [
+    {
+      "topic": "/Scepter/color/image_raw",
+      "resolved_topic": "/Scepter/color/image_raw",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441026.7105803,
+      "array_path": "arrays/Scepter_color_image_raw.npy",
+      "encoding": "bgr8",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint8",
+      "shape": [
+        480,
+        640,
+        3
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 4.0,
+        "max": 234.0,
+        "mean": 141.462470703125
+      },
+      "preview_path": "images/Scepter_color_image_raw.png"
+    },
+    {
+      "topic": "/Scepter/color/camera_info",
+      "resolved_topic": "/Scepter/color/camera_info",
+      "captured": true,
+      "type": "sensor_msgs.msg._CameraInfo.CameraInfo",
+      "stamp": 1777441026.914433,
+      "message_path": "messages/Scepter_color_camera_info.txt"
+    },
+    {
+      "topic": "/Scepter/depth/image_raw",
+      "resolved_topic": "/Scepter/depth/image_raw",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441027.115668,
+      "array_path": "arrays/Scepter_depth_image_raw.npy",
+      "encoding": "16UC1",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint16",
+      "shape": [
+        480,
+        640
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 0.0,
+        "max": 1028.0,
+        "mean": 905.5318326822917
+      },
+      "preview_path": "images/Scepter_depth_image_raw.png"
+    },
+    {
+      "topic": "/Scepter/depth/camera_info",
+      "resolved_topic": "/Scepter/depth/camera_info",
+      "captured": true,
+      "type": "sensor_msgs.msg._CameraInfo.CameraInfo",
+      "stamp": 1777441027.3042138,
+      "message_path": "messages/Scepter_depth_camera_info.txt"
+    },
+    {
+      "topic": "/Scepter/ir/image_raw",
+      "resolved_topic": "/Scepter/ir/image_raw",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441027.5039034,
+      "array_path": "arrays/Scepter_ir_image_raw.npy",
+      "encoding": "8UC1",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint8",
+      "shape": [
+        480,
+        640
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 3.0,
+        "max": 203.0,
+        "mean": 73.21022135416666
+      },
+      "preview_path": "images/Scepter_ir_image_raw.png"
+    },
+    {
+      "topic": "/Scepter/ir/camera_info",
+      "resolved_topic": "/Scepter/ir/camera_info",
+      "captured": true,
+      "type": "sensor_msgs.msg._CameraInfo.CameraInfo",
+      "stamp": 1777441027.703237,
+      "message_path": "messages/Scepter_ir_camera_info.txt"
+    },
+    {
+      "topic": "/Scepter/transformedColor/image_raw",
+      "resolved_topic": "/Scepter/transformedColor/image_raw",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441027.9042158,
+      "array_path": "arrays/Scepter_transformedColor_image_raw.npy",
+      "encoding": "bgr8",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint8",
+      "shape": [
+        480,
+        640,
+        3
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 0.0,
+        "max": 228.0,
+        "mean": 150.94218098958333
+      },
+      "preview_path": "images/Scepter_transformedColor_image_raw.png"
+    },
+    {
+      "topic": "/Scepter/transformedDepth/image_raw",
+      "resolved_topic": "/Scepter/transformedDepth/image_raw",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441028.1238453,
+      "array_path": "arrays/Scepter_transformedDepth_image_raw.npy",
+      "encoding": "16UC1",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint16",
+      "shape": [
+        480,
+        640
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 287.0,
+        "max": 65535.0,
+        "mean": 12678.420836588542
+      },
+      "preview_path": "images/Scepter_transformedDepth_image_raw.png"
+    },
+    {
+      "topic": "/Scepter/worldCoord/raw_world_coord",
+      "resolved_topic": "/Scepter/worldCoord/raw_world_coord",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441028.1238453,
+      "array_path": "arrays/Scepter_worldCoord_raw_world_coord.npy",
+      "encoding": "32FC3",
+      "height": 480,
+      "width": 640,
+      "dtype": "float32",
+      "shape": [
+        480,
+        640,
+        3
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 0.0,
+        "max": 1016.0,
+        "mean": 905.6668701171875
+      },
+      "preview_path": "images/Scepter_worldCoord_raw_world_coord.png"
+    },
+    {
+      "topic": "/Scepter/worldCoord/world_coord",
+      "resolved_topic": "/Scepter/worldCoord/world_coord",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441028.5072882,
+      "array_path": "arrays/Scepter_worldCoord_world_coord.npy",
+      "encoding": "32FC3",
+      "height": 480,
+      "width": 640,
+      "dtype": "float32",
+      "shape": [
+        480,
+        640,
+        3
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 0.0,
+        "max": 1078.0,
+        "mean": 175.27479553222656
+      },
+      "preview_path": "images/Scepter_worldCoord_world_coord.png"
+    },
+    {
+      "topic": "/Scepter/worldCoord/camera_info",
+      "resolved_topic": "/Scepter/worldCoord/camera_info",
+      "captured": true,
+      "type": "sensor_msgs.msg._CameraInfo.CameraInfo",
+      "stamp": 1777441028.7055469,
+      "message_path": "messages/Scepter_worldCoord_camera_info.txt"
+    },
+    {
+      "topic": "/pointAI/result_image_raw",
+      "resolved_topic": "/pointAI/result_image_raw",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441029.0294561,
+      "array_path": "arrays/pointAI_result_image_raw.npy",
+      "encoding": "mono8",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint8",
+      "shape": [
+        480,
+        640
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 3.0,
+        "max": 203.0,
+        "mean": 74.6151171875
+      },
+      "preview_path": "images/pointAI_result_image_raw.png"
+    },
+    {
+      "topic": "/pointAI/line_image",
+      "resolved_topic": "/pointAI/line_image",
+      "captured": false,
+      "type": "sensor_msgs.msg._Image.Image",
+      "error": "timeout exceeded while waiting for message on topic /pointAI/line_image"
+    },
+    {
+      "topic": "/perception/lashing/result_image",
+      "resolved_topic": "/perception/lashing/result_image",
+      "captured": true,
+      "type": "sensor_msgs.msg._Image.Image",
+      "stamp": 1777441035.078441,
+      "array_path": "arrays/perception_lashing_result_image.npy",
+      "encoding": "bgr8",
+      "height": 480,
+      "width": 640,
+      "dtype": "uint8",
+      "shape": [
+        480,
+        640,
+        3
+      ],
+      "stats": {
+        "finite_count": 307200,
+        "min": 0.0,
+        "max": 255.0,
+        "mean": 74.442724609375
+      },
+      "preview_path": "images/perception_lashing_result_image.png"
+    },
+    {
+      "topic": "/perception/lashing/points_camera",
+      "resolved_topic": "/perception/lashing/points_camera",
+      "captured": true,
+      "type": "tie_robot_msgs.msg._PointsArray.PointsArray",
+      "stamp": 1777441039.1841376,
+      "message_path": "messages/perception_lashing_points_camera.txt"
+    },
+    {
+      "topic": "/perception/lashing/workspace/quad_pixels",
+      "resolved_topic": "/perception/lashing/workspace/quad_pixels",
+      "captured": true,
+      "type": "std_msgs.msg._Float32MultiArray.Float32MultiArray",
+      "stamp": 1777441039.2030394,
+      "message_path": "messages/perception_lashing_workspace_quad_pixels.txt"
+    },
+    {
+      "topic": "/coordinate_point",
+      "resolved_topic": "/coordinate_point",
+      "captured": false,
+      "type": "tie_robot_msgs.msg._PointsArray.PointsArray",
+      "error": "timeout exceeded while waiting for message on topic /coordinate_point"
+    },
+    {
+      "topic": "/cabin/cabin_data_upload",
+      "resolved_topic": "/cabin/cabin_data_upload",
+      "captured": true,
+      "type": "tie_robot_msgs.msg._cabin_upload.cabin_upload",
+      "stamp": 1777441049.2924209,
+      "message_path": "messages/cabin_cabin_data_upload.txt"
+    },
+    {
+      "topic": "/moduan/moduan_gesture_data",
+      "resolved_topic": "/moduan/moduan_gesture_data",
+      "captured": true,
+      "type": "tie_robot_msgs.msg._linear_module_upload.linear_module_upload",
+      "stamp": 1777441049.3705833,
+      "message_path": "messages/moduan_moduan_gesture_data.txt"
+    },
+    {
+      "topic": "/robot/binding_gun_status",
+      "resolved_topic": "/robot/binding_gun_status",
+      "captured": false,
+      "type": "std_msgs.msg._Float32.Float32",
+      "error": "timeout exceeded while waiting for message on topic /robot/binding_gun_status"
+    },
+    {
+      "topic": "/robot/moduan_status",
+      "resolved_topic": "/robot/moduan_status",
+      "captured": false,
+      "type": "std_msgs.msg._Float32.Float32",
+      "error": "timeout exceeded while waiting for message on topic /robot/moduan_status"
+    },
+    {
+      "topic": "/tf",
+      "resolved_topic": "/tf",
+      "captured": true,
+      "type": "tf2_msgs.msg._TFMessage.TFMessage",
+      "stamp": 1777441069.4464293,
+      "message_path": "messages/tf.txt"
+    },
+    {
+      "topic": "/tf_static",
+      "resolved_topic": "/tf_static",
+      "captured": true,
+      "type": "tf2_msgs.msg._TFMessage.TFMessage",
+      "stamp": 1777441069.4648438,
+      "message_path": "messages/tf_static.txt"
+    }
+  ]
+}

@@ -1,5 +1,12 @@
 #include "tie_robot_perception/camera/scepter_manager.hpp"
 #include <sensor_msgs/point_cloud2_iterator.h>
+
+namespace {
+
+constexpr int kMaxConsecutiveFrameReadyFailures = 30;
+
+}  // namespace
+
 //define call back function
 void ScepterManager::paramCallback(scepter_param::Sceptertof_roscppConfig& config,uint32_t level)
 {           
@@ -307,8 +314,19 @@ void ScepterManager::run()
         ScStatus status =  scGetFrameReady(deviceHandle_, 1200, &psReadFrame);
         if (status != SC_OK)
         {
+            ++missed_frames;
+            if (missed_frames >= kMaxConsecutiveFrameReadyFailures)
+            {
+                ROS_ERROR(
+                    "相机连续取帧失败 %d 次，主动退出等待 roslaunch/systemd 守护重启。",
+                    missed_frames
+                );
+                ros::shutdown();
+                break;
+            }
             continue;
         }
+        missed_frames = 0;
 
         now = ros::Time::now();
         ScFrame frame = {0};
@@ -389,4 +407,3 @@ void ScepterManager::checkScStatus(ScStatus status, const std::string &message_o
         return;
     ROS_ERROR("%s", message_on_fail.c_str());
 }
-

@@ -1,21 +1,52 @@
 <launch>
     <node name="pointAINode"
           pkg="tie_robot_perception"
-          type="pointAI.py"
+          type="pointai_node.py"
           output="log"
           respawn="true"
           respawn_delay="2.0">
         <env name="ROSCONSOLE_FORMAT" value="[${severity}] ${message}" />
+        <param name="height_threshold" value="7.0" />
     </node>
 
-    <node name="stable_point_tf_broadcaster"
-          pkg="tie_robot_perception"
-          type="stable_point_tf_broadcaster.py"
+    <node name="bind_map_builder"
+          pkg="tie_robot_process"
+          type="architecture_role_node.py"
           output="log"
           respawn="true"
           respawn_delay="2.0">
-        <param name="stable_frame_count" value="2" />
-        <param name="stable_z_tolerance_mm" value="4.0" />
-        <param name="publish_rate_hz" value="20.0" />
+        <param name="role_name" value="bind_map_builder" />
+    </node>
+
+    <node name="global_bind_planner"
+          pkg="tie_robot_process"
+          type="global_bind_planner_node.py"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+    </node>
+
+    <node name="cabin_motion_controller"
+          pkg="tie_robot_process"
+          type="cabin_motion_controller_node"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+    </node>
+
+    <node name="moduan_motion_controller"
+          pkg="tie_robot_control"
+          type="moduan_motion_controller_node"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
+    </node>
+
+    <node name="bind_task_executor"
+          pkg="tie_robot_process"
+          type="bind_task_executor_node"
+          output="log"
+          respawn="true"
+          respawn_delay="2.0">
     </node>
 </launch>

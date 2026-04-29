@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   sensor_msgs
   std_msgs
+  std_srvs
   tf2
   tf2_geometry_msgs
   tf2_ros
@@ -68,6 +69,7 @@ catkin_package(
     rospy
     sensor_msgs
     std_msgs
+    std_srvs
     tf2
     tf2_geometry_msgs
     tf2_ros
@@ -113,9 +115,9 @@ target_link_libraries(scepter_world_coord_processor
 )
 
 catkin_install_python(PROGRAMS
-  scripts/pointAI.py
+  scripts/pointai_node.py
   scripts/gripper_tf_broadcaster.py
-  scripts/stable_point_tf_broadcaster.py
+  scripts/robot_tf_broadcaster.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import rospy
 import torch
-import tf2_ros
 from cv2 import ximgproc
 from cv2.ppf_match_3d import Pose3D
 from cv_bridge import CvBridge
@@ -18,7 +17,6 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from sklearn.cluster import DBSCAN
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger, TriggerResponse
-from tf.transformations import quaternion_matrix
 
 from tie_robot_msgs.msg import PointCoords, PointsArray, motion
 from tie_robot_msgs.srv import (
@@ -47,54 +45,32 @@ from tie_robot_perception.perception.workspace_s2 import (
 )
 from .constants import *
 
-def get_cabin_frame_xy_channels(self):
+def get_camera_frame_xy_channels(self):
     if not self.ensure_raw_world_channels():
         return None
 
-    cached_seq = getattr(self, "_cached_cabin_frame_xy_seq", None)
+    cached_seq = getattr(self, "_cached_camera_frame_xy_seq", None)
     current_seq = getattr(self, "world_image_seq", 0)
     if cached_seq == current_seq:
-        return getattr(self, "_cached_cabin_frame_xy_channels", None)
-
-    transform_matrix = self.lookup_transform_matrix_mm("cabin_frame", source_frame="Scepter_depth_frame")
-    if transform_matrix is None:
-        return None
+        return getattr(self, "_cached_camera_frame_xy_channels", None)
 
     source_x = self.x_channel.astype(np.float32)
     source_y = self.y_channel.astype(np.float32)
-    source_z = self.depth_v.astype(np.float32)
-    valid_mask = source_z != 0.0
-
-    target_x = (
-        transform_matrix[0, 0] * source_x
-        + transform_matrix[0, 1] * source_y
-        + transform_matrix[0, 2] * source_z
-        + transform_matrix[0, 3]
-    )
-    target_y = (
-        transform_matrix[1, 0] * source_x
-        + transform_matrix[1, 1] * source_y
-        + transform_matrix[1, 2] * source_z
-        + transform_matrix[1, 3]
-    )
+    valid_mask = self.depth_v.astype(np.float32) != 0.0
 
     cached_channels = {
-        "x": target_x.astype(np.float32),
-        "y": target_y.astype(np.float32),
+        "x": source_x,
+        "y": source_y,
         "valid_mask": valid_mask.astype(bool),
     }
-    self._cached_cabin_frame_xy_seq = current_seq
-    self._cached_cabin_frame_xy_channels = cached_channels
+    self._cached_camera_frame_xy_seq = current_seq
+    self._cached_camera_frame_xy_channels = cached_channels
     return cached_channels
 
 
 def image_raw_world_callback(self, msg):
-    img = self.bridge.imgmsg_to_cv2(msg)          # 先取图
-    img = np.array(img, copy=True)                # 保证可写
-    # ① 通道对调  X↔Y
-    img[:, :, 0], img[:, :, 1] = img[:, :, 1], img[:, :, 0].copy()
-    # ② 新 Y 翻符号 → 正向朝上
-    img[:, :, 1] *= -1
+    img = self.bridge.imgmsg_to_cv2(msg)
+    img = np.array(img, copy=True)
     self.image_raw_world = img
     self.mark_visual_input("raw_world_coord")
     self.ensure_raw_world_channels()
@@ -105,9 +81,9 @@ def ensure_raw_world_channels(self):
         return False
 
     image_raw_world_channels = self.cv2.split(self.image_raw_world)
-    self.x_channel = (image_raw_world_channels[0]).astype(np.int32)
-    self.y_channel = (image_raw_world_channels[1]).astype(np.int32)
-    self.depth_v = (image_raw_world_channels[2]).astype(np.int32)
+    self.x_channel = (image_raw_world_channels[0]).astype(np.float32)
+    self.y_channel = (image_raw_world_channels[1]).astype(np.float32)
+    self.depth_v = (image_raw_world_channels[2]).astype(np.float32)
     return True
 
 
@@ -117,9 +93,9 @@ def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y, search_radius=6):
     pixel_y = int(np.clip(pixel_y, 0, height - 1))
 
     raw_world_coord = [
-        int(self.x_channel[pixel_y, pixel_x]),
-        int(self.y_channel[pixel_y, pixel_x]),
-        int(self.depth_v[pixel_y, pixel_x]),
+        float(self.x_channel[pixel_y, pixel_x]),
+        float(self.y_channel[pixel_y, pixel_x]),
+        float(self.depth_v[pixel_y, pixel_x]),
     ]
     if raw_world_coord[0] != 0 and raw_world_coord[1] != 0 and raw_world_coord[2] != 0:
         return raw_world_coord, [pixel_x, pixel_y], False
@@ -137,9 +113,9 @@ def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y, search_radius=6):
         for sample_y in range(min_y, max_y + 1):
             for sample_x in range(min_x, max_x + 1):
                 sample_world_coord = [
-                    int(self.x_channel[sample_y, sample_x]),
-                    int(self.y_channel[sample_y, sample_x]),
-                    int(self.depth_v[sample_y, sample_x]),
+                    float(self.x_channel[sample_y, sample_x]),
+                    float(self.y_channel[sample_y, sample_x]),
+                    float(self.depth_v[sample_y, sample_x]),
                 ]
                 if sample_world_coord[0] == 0 or sample_world_coord[1] == 0 or sample_world_coord[2] == 0:
                     continue

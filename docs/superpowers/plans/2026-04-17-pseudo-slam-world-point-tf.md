@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add persistent `cabin_frame -> pseudo_slam_point_<global_idx>` TF broadcasting that mirrors scan-time world-point markers in RViz.
+**Goal:** Add persistent `map -> pseudo_slam_point_<global_idx>` TF broadcasting that mirrors scan-time world-point markers in RViz.
 
 **Architecture:** Keep all scan-time world-point visualization inside `suoquNode.cpp`. Reuse the existing TF broadcaster for both cabin pose TF and scan-point TF, while maintaining a thread-safe cache of the current scan point set so TFs stay visible after scanning finishes.
 
@@ -24,7 +24,7 @@ def test_suoqu_publishes_pseudo_slam_world_point_tfs(self):
     self.assertIn("pseudo_slam_point_", suoqu_text)
     self.assertIn("sendTransform", suoqu_text)
     self.assertIn("pseudo_slam_tf_points", suoqu_text)
-    self.assertIn("cabin_frame", suoqu_text)
+    self.assertIn("map", suoqu_text)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -37,7 +37,7 @@ Expected: FAIL because `suoquNode.cpp` does not yet contain the new TF broadcast
 Update `suoquNode.cpp` to:
 - add a thread-safe cache for current pseudo-slam world points
 - refresh that cache at scan start and after each merge update
-- publish `cabin_frame -> pseudo_slam_point_<global_idx>` transforms
+- publish `map -> pseudo_slam_point_<global_idx>` transforms
 
 - [ ] **Step 4: Run test to verify it passes**
 

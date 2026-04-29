@@ -12,7 +12,7 @@
 
     <node name="pointAINode"
           pkg="tie_robot_perception"
-          type="pointAI.py"
+          type="pointai_node.py"
           output="log">
         <env name="ROSCONSOLE_FORMAT" value="[${severity}] ${message}" />
     </node>

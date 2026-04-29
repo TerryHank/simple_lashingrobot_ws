@@ -1,0 +1,16 @@
+linear_module_position_X: -0.8100000023841858
+linear_module_position_Y: 0.9200000166893005
+linear_module_position_Z: 1.9700000286102295
+linear_module_speed_X: 0.009999999776482582
+linear_module_speed_Y: 0.009999999776482582
+linear_module_speed_Z: 0.0
+linear_module_error_flag_X: 0
+linear_module_error_flag_Y: 0
+linear_module_error_flag_Z: 0
+motor_angle: -4.0
+motor_speed: 0.0
+motor_error_flag: 0
+robot_battery_voltage: 53.22999954223633
+robot_temperature: 27.670000076293945
+x_gesture: 0.0
+y_gesture: 0.0

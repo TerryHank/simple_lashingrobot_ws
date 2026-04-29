@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { decodeFloat32XYZImage } from "../utils/irImageUtils.js";
 
-const CABIN_FRAME = "cabin_frame";
+const MAP_FRAME = "map";
+const BASE_LINK_FRAME = "base_link";
 const SCEPTER_FRAME = "Scepter_depth_frame";
 const GRIPPER_FRAME = "gripper_frame";
 const ROBOT_BODY_SIZE_METERS = 0.7;
@@ -17,6 +18,8 @@ const CAMERA_VIEW_OFFSET = new THREE.Vector3(-0.85, -1.25, 0.55);
 const CAMERA_VIEW_TARGET_OFFSET = new THREE.Vector3(0.18, 0, 0.04);
 const GLOBAL_VIEW_POSITION = new THREE.Vector3(3.6, -4.1, 2.8);
 const GLOBAL_VIEW_TARGET = new THREE.Vector3(0, 0, 0.1);
+const MARKER_TYPE_SPHERE_LIST = 7;
+const MARKER_TYPE_POINTS = 8;
 
 function buildPointsObject(colorHex) {
   const geometry = new THREE.BufferGeometry();
@@ -31,6 +34,17 @@ function buildPointsObject(colorHex) {
   return new THREE.Points(geometry, material);
 }
 
+function buildLineSegmentsObject(colorHex) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
+  const material = new THREE.LineBasicMaterial({
+    color: colorHex,
+    transparent: true,
+    opacity: 0.6,
+  });
+  return new THREE.LineSegments(geometry, material);
+}
+
 function toVector3Meters(point) {
   return new THREE.Vector3(
     Number(point?.x || 0),
@@ -39,12 +53,184 @@ function toVector3Meters(point) {
   );
 }
 
+function isPlanningPointMarker(marker) {
+  return marker?.ns === "pseudo_slam_points"
+    || marker?.type === MARKER_TYPE_SPHERE_LIST
+    || marker?.type === MARKER_TYPE_POINTS;
+}
+
+function buildMarkerPointPositions(markers) {
+  const positions = [];
+  markers.forEach((marker) => {
+    if (!isPlanningPointMarker(marker)) {
+      return;
+    }
+    const markerPoints = Array.isArray(marker?.points) ? marker.points : [];
+    markerPoints.forEach((point) => {
+      positions.push(
+        Number(point?.x || 0),
+        Number(point?.y || 0),
+        Number(point?.z || 0),
+      );
+    });
+  });
+  return positions;
+}
+
+function toMetersFromMillimeters(value) {
+  return Number(value || 0) / 1000.0;
+}
+
+function buildSequentialSegmentPositionsFromVectors(vectors) {
+  if (!Array.isArray(vectors) || vectors.length < 2) {
+    return [];
+  }
+
+  const linePositions = [];
+  for (let index = 1; index < vectors.length; index += 1) {
+    const startPoint = vectors[index - 1];
+    const endPoint = vectors[index];
+    linePositions.push(
+      startPoint.x,
+      startPoint.y,
+      startPoint.z,
+      endPoint.x,
+      endPoint.y,
+      endPoint.z,
+    );
+  }
+  return linePositions;
+}
+
+function buildAreaWorldPoints(area) {
+  const points = [];
+  const groups = Array.isArray(area?.groups) ? area.groups : [];
+  groups.forEach((group) => {
+    const groupPoints = Array.isArray(group?.points) ? group.points : [];
+    groupPoints.forEach((point) => {
+      points.push(new THREE.Vector3(
+        toMetersFromMillimeters(point?.world_x),
+        toMetersFromMillimeters(point?.world_y),
+        toMetersFromMillimeters(point?.world_z),
+      ));
+    });
+  });
+  return points;
+}
+
+function dedupeAreaPoints(points) {
+  const seenKeys = new Set();
+  return points.filter((point) => {
+    const key = `${point.x.toFixed(6)},${point.y.toFixed(6)}`;
+    if (seenKeys.has(key)) {
+      return false;
+    }
+    seenKeys.add(key);
+    return true;
+  });
+}
+
+function buildConvexHullXY(points) {
+  const uniquePoints = dedupeAreaPoints(points).sort((left, right) => (
+    left.x === right.x ? left.y - right.y : left.x - right.x
+  ));
+  if (uniquePoints.length <= 2) {
+    return uniquePoints;
+  }
+
+  const cross = (origin, pointA, pointB) => (
+    ((pointA.x - origin.x) * (pointB.y - origin.y))
+    - ((pointA.y - origin.y) * (pointB.x - origin.x))
+  );
+
+  const lowerHull = [];
+  uniquePoints.forEach((point) => {
+    while (lowerHull.length >= 2 && cross(lowerHull[lowerHull.length - 2], lowerHull[lowerHull.length - 1], point) <= 0) {
+      lowerHull.pop();
+    }
+    lowerHull.push(point);
+  });
+
+  const upperHull = [];
+  [...uniquePoints].reverse().forEach((point) => {
+    while (upperHull.length >= 2 && cross(upperHull[upperHull.length - 2], upperHull[upperHull.length - 1], point) <= 0) {
+      upperHull.pop();
+    }
+    upperHull.push(point);
+  });
+
+  lowerHull.pop();
+  upperHull.pop();
+  return lowerHull.concat(upperHull);
+}
+
+function buildAreaCenterPositions(areas) {
+  const positions = [];
+  areas.forEach((area) => {
+    const cabinPose = area?.cabin_pose || {};
+    positions.push(
+      toMetersFromMillimeters(cabinPose.x),
+      toMetersFromMillimeters(cabinPose.y),
+      toMetersFromMillimeters(cabinPose.z),
+    );
+  });
+  return positions;
+}
+
+function buildAreaCenterPathPositions(areas, pathOrigin = null) {
+  const routePoints = [];
+  if (pathOrigin && typeof pathOrigin === "object") {
+    routePoints.push(new THREE.Vector3(
+      toMetersFromMillimeters(pathOrigin.x),
+      toMetersFromMillimeters(pathOrigin.y),
+      toMetersFromMillimeters(pathOrigin.z),
+    ));
+  }
+
+  areas.forEach((area) => {
+    const cabinPose = area?.cabin_pose || {};
+    routePoints.push(new THREE.Vector3(
+      toMetersFromMillimeters(cabinPose.x),
+      toMetersFromMillimeters(cabinPose.y),
+      toMetersFromMillimeters(cabinPose.z),
+    ));
+  });
+
+  return buildSequentialSegmentPositionsFromVectors(routePoints);
+}
+
+function buildAreaOutlineSegmentPositions(areas) {
+  const positions = [];
+  areas.forEach((area) => {
+    const hullPoints = buildConvexHullXY(buildAreaWorldPoints(area));
+    if (hullPoints.length < 2) {
+      return;
+    }
+    if (hullPoints.length === 2) {
+      positions.push(
+        hullPoints[0].x, hullPoints[0].y, hullPoints[0].z,
+        hullPoints[1].x, hullPoints[1].y, hullPoints[1].z,
+      );
+      return;
+    }
+    for (let index = 0; index < hullPoints.length; index += 1) {
+      const startPoint = hullPoints[index];
+      const endPoint = hullPoints[(index + 1) % hullPoints.length];
+      positions.push(
+        startPoint.x, startPoint.y, startPoint.z,
+        endPoint.x, endPoint.y, endPoint.z,
+      );
+    }
+  });
+  return positions;
+}
+
 function composeWorldTransform(frameId, transformMap, cache = new Map(), stack = new Set()) {
   if (cache.has(frameId)) {
     return cache.get(frameId);
   }
 
-  if (frameId === CABIN_FRAME) {
+  if (frameId === MAP_FRAME) {
     const identity = {
       position: new THREE.Vector3(0, 0, 0),
       quaternion: new THREE.Quaternion(),
@@ -80,12 +266,14 @@ function composeWorldTransform(frameId, transformMap, cache = new Map(), stack =
   return world;
 }
 
-function getPointAiStyleLocalPoint(localPoint) {
-  return new THREE.Vector3(
-    localPoint.y,
-    -localPoint.x,
-    localPoint.z,
-  );
+function getTfAxisFrameVisibility(state) {
+  const configuredVisibility = state?.tfAxisFrameVisibility || {};
+  return {
+    [MAP_FRAME]: configuredVisibility[MAP_FRAME] !== false,
+    [BASE_LINK_FRAME]: configuredVisibility[BASE_LINK_FRAME] !== false,
+    [SCEPTER_FRAME]: configuredVisibility[SCEPTER_FRAME] !== false,
+    [GRIPPER_FRAME]: configuredVisibility[GRIPPER_FRAME] !== false,
+  };
 }
 
 export class Scene3DView {
@@ -98,6 +286,8 @@ export class Scene3DView {
       filteredWorldCoord: new Float32Array(),
       rawWorldCoord: new Float32Array(),
     };
+    this.sourceTiePointCameraPositions = new Float32Array();
+    this.planningPointsFollowTiePoints = false;
     this.pointCounts = {
       filteredWorldCoord: 0,
       rawWorldCoord: 0,
@@ -133,8 +323,12 @@ export class Scene3DView {
     this.grid.rotation.x = Math.PI / 2;
     this.scene.add(this.grid);
 
-    this.cabinAxes = new THREE.AxesHelper(0.4);
-    this.scene.add(this.cabinAxes);
+    this.mapAxes = new THREE.AxesHelper(0.4);
+    this.scene.add(this.mapAxes);
+
+    this.baseLinkFrame = new THREE.Group();
+    this.baseLinkFrame.add(new THREE.AxesHelper(0.32));
+    this.scene.add(this.baseLinkFrame);
 
     this.scepterFrame = new THREE.Group();
     this.scepterFrame.add(new THREE.AxesHelper(0.28));
@@ -182,12 +376,31 @@ export class Scene3DView {
     this.rawPointCloud = buildPointsObject(0x4f6b7d);
     this.tiePoints = buildPointsObject(0x57ff9d);
     this.planningPoints = buildPointsObject(0xf8d462);
+    this.planningAreaCenters = buildPointsObject(0xff8f3d);
+    this.planningAreaCenters.material.size = 0.055;
+    this.planningAreaCenters.material.opacity = 0.9;
+    const planningAreaPathTemplate = buildLineSegmentsObject(0xffc14d);
+    this.planningAreaPath = new THREE.LineSegments(
+      planningAreaPathTemplate.geometry,
+      planningAreaPathTemplate.material,
+    );
+    const planningAreaOutlinesTemplate = buildLineSegmentsObject(0xff8f3d);
+    this.planningAreaOutlines = new THREE.LineSegments(
+      planningAreaOutlinesTemplate.geometry,
+      planningAreaOutlinesTemplate.material,
+    );
     this.scene.add(
       this.filteredPointCloud,
       this.rawPointCloud,
       this.tiePoints,
       this.planningPoints,
+      this.planningAreaCenters,
+      this.planningAreaPath,
+      this.planningAreaOutlines,
     );
+    this.planningAreaCenters.renderOrder = 2;
+    this.planningAreaPath.renderOrder = 2;
+    this.planningAreaOutlines.renderOrder = 2;
 
     this.viewMode = "camera";
     this.followCamera = false;
@@ -229,10 +442,13 @@ export class Scene3DView {
     this.layerState = { ...state };
     this.robotGroup.visible = Boolean(state.showRobot);
     this.tcpToolGroup.visible = Boolean(state.showRobot);
-    const axesVisible = Boolean(state.showAxes);
-    this.cabinAxes.visible = axesVisible;
-    this.scepterFrame.visible = axesVisible;
-    this.gripperFrame.visible = axesVisible;
+    const baseLinkTransform = this.getWorldTransform(BASE_LINK_FRAME);
+    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
+    const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
+    this.mapAxes.visible = this.isTfAxisFrameVisible(MAP_FRAME);
+    this.baseLinkFrame.visible = Boolean(baseLinkTransform) && this.isTfAxisFrameVisible(BASE_LINK_FRAME);
+    this.scepterFrame.visible = Boolean(scepterTransform) && this.isTfAxisFrameVisible(SCEPTER_FRAME);
+    this.gripperFrame.visible = Boolean(gripperTransform) && this.isTfAxisFrameVisible(GRIPPER_FRAME);
     // 地面网格是固定参考面，不跟“坐标轴”开关绑定，避免主场景地面消失。
     this.grid.visible = true;
 
@@ -242,6 +458,9 @@ export class Scene3DView {
       Boolean(state.showPointCloud) && state.pointCloudSource === "rawWorldCoord";
     this.tiePoints.visible = Boolean(state.showTiePoints);
     this.planningPoints.visible = Boolean(state.showPlanningMarkers);
+    this.planningAreaCenters.visible = Boolean(state.showPlanningMarkers);
+    this.planningAreaPath.visible = Boolean(state.showPlanningMarkers);
+    this.planningAreaOutlines.visible = Boolean(state.showPlanningMarkers);
 
     [this.filteredPointCloud, this.rawPointCloud, this.tiePoints, this.planningPoints].forEach((object) => {
       object.material.size = Number(state.pointSize) || 0.035;
@@ -300,16 +519,20 @@ export class Scene3DView {
     this.cachedWorldTransforms.clear();
     this.applyFrameTransforms();
     this.refreshPointCloudWorldPositions();
+    this.refreshTiePointWorldPositions();
   }
 
   applyFrameTransforms() {
+    const baseLinkTransform = this.getWorldTransform(BASE_LINK_FRAME);
+    this.applyGroupWorldAlignedTransform(this.baseLinkFrame, baseLinkTransform, BASE_LINK_FRAME);
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
-    this.applyGroupTransform(this.scepterFrame, scepterTransform);
+    this.applyGroupTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);
     const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
-    this.applyGroupTransform(this.gripperFrame, gripperTransform);
-    if (scepterTransform) {
+    this.applyGroupTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);
+    const robotTransform = baseLinkTransform || scepterTransform;
+    if (robotTransform) {
       this.robotGroup.visible = this.layerState.showRobot !== false;
-      this.applyCustomDisplayPose(this.robotGroup, scepterTransform.position);
+      this.applyWorldAlignedDisplayPose(this.robotGroup, robotTransform.position);
     } else {
       this.robotGroup.visible = false;
     }
@@ -322,15 +545,36 @@ export class Scene3DView {
     }
   }
 
-  applyGroupTransform(group, transform) {
+  isTfAxisFrameVisible(frameId) {
+    if (!this.layerState?.showAxes) {
+      return false;
+    }
+    const tfAxisFrameVisibility = getTfAxisFrameVisibility(this.layerState);
+    return tfAxisFrameVisibility[frameId] !== false;
+  }
+
+  applyGroupTransform(group, transform, frameId) {
     if (!transform) {
       group.visible = false;
       return;
     }
-    if (this.layerState.showAxes !== false) {
-      group.visible = true;
-    }
+    group.visible = this.isTfAxisFrameVisible(frameId);
     this.applyCustomDisplayPose(group, transform.position);
+  }
+
+  applyGroupWorldAlignedTransform(group, transform, frameId) {
+    if (!transform) {
+      group.visible = false;
+      return;
+    }
+    group.visible = this.isTfAxisFrameVisible(frameId);
+    this.applyWorldAlignedDisplayPose(group, transform.position);
+  }
+
+  applyWorldAlignedDisplayPose(group, position) {
+    group.position.copy(position);
+    group.quaternion.identity();
+    group.scale.set(1, 1, 1);
   }
 
   applyCustomDisplayPose(group, position) {
@@ -358,6 +602,9 @@ export class Scene3DView {
       if (materials[1]?.color) {
         materials[1].color.setHex(0xa6b2c2);
       }
+      this.planningAreaCenters.material.color.setHex(0xe1781d);
+      this.planningAreaPath.material.color.setHex(0xd69314);
+      this.planningAreaOutlines.material.color.setHex(0xe1781d);
       return;
     }
 
@@ -373,6 +620,9 @@ export class Scene3DView {
     if (materials[1]?.color) {
       materials[1].color.setHex(0xe8eef7);
     }
+    this.planningAreaCenters.material.color.setHex(0xff8f3d);
+    this.planningAreaPath.material.color.setHex(0xffc14d);
+    this.planningAreaOutlines.material.color.setHex(0xff8f3d);
   }
 
   getKnownTransformCount() {
@@ -389,15 +639,41 @@ export class Scene3DView {
   }
 
   getCurrentCabinPositionMm() {
-    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
-    if (!scepterTransform) {
+    const poseTransform = this.getWorldTransform(BASE_LINK_FRAME) || this.getWorldTransform(SCEPTER_FRAME);
+    if (!poseTransform) {
       return null;
     }
 
     return {
-      x: scepterTransform.position.x * 1000.0,
-      y: scepterTransform.position.y * 1000.0,
-      z: scepterTransform.position.z * 1000.0,
+      x: poseTransform.position.x * 1000.0,
+      y: poseTransform.position.y * 1000.0,
+      z: poseTransform.position.z * 1000.0,
+    };
+  }
+
+  getLinearModuleGlobalPositionMm(localPosition) {
+    const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
+    if (!gripperTransform) {
+      return null;
+    }
+
+    const localX = Number(localPosition?.x);
+    const localY = Number(localPosition?.y);
+    const localZ = Number(localPosition?.z);
+    if (![localX, localY, localZ].every(Number.isFinite)) {
+      return null;
+    }
+
+    const localPoint = new THREE.Vector3(
+      localX / 1000.0,
+      localY / 1000.0,
+      localZ / 1000.0,
+    ).applyQuaternion(gripperTransform.quaternion);
+    const globalPoint = gripperTransform.position.clone().add(localPoint);
+    return {
+      x: globalPoint.x * 1000.0,
+      y: globalPoint.y * 1000.0,
+      z: globalPoint.z * 1000.0,
     };
   }
 
@@ -428,8 +704,8 @@ export class Scene3DView {
         parentFrame: SCEPTER_FRAME,
         childFrame: GRIPPER_FRAME,
         translationMm: {
-          x: -directRecord.position.x * 1000.0,
-          y: -directRecord.position.y * 1000.0,
+          x: directRecord.position.x * 1000.0,
+          y: directRecord.position.y * 1000.0,
           z: directRecord.position.z * 1000.0,
         },
         publishedTranslationMeters: {
@@ -451,8 +727,8 @@ export class Scene3DView {
       parentFrame: SCEPTER_FRAME,
       childFrame: GRIPPER_FRAME,
       translationMm: {
-        x: -relative.x * 1000.0,
-        y: -relative.y * 1000.0,
+        x: relative.x * 1000.0,
+        y: relative.y * 1000.0,
         z: relative.z * 1000.0,
       },
       publishedTranslationMeters: {
@@ -463,24 +739,15 @@ export class Scene3DView {
     };
   }
 
-  convertScepterPointCloudPointToCabinPoint(localPoint) {
+  convertScepterPointCloudPointToMapPoint(localPoint) {
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
     if (!scepterTransform) {
       return null;
     }
 
-    // `world_coord` 在当前工程里不是 cabin_frame 下的全局点，
-    // 而是 pointAI 使用的相机局部点云图像。pointAI 在接入时会先做 X/Y 对调、
-    // Y 反号，再按与后端 tf_transform.py 一致的“索驱高度 - 深度 + gripper_tf.z”
-    // 把相机深度映射到 cabin z。
-    const pointAiStyleLocalPoint = getPointAiStyleLocalPoint(localPoint);
-    const gripperOffsetZ = this.getGripperOffsetRelativeToScepter();
-
-    return new THREE.Vector3(
-      scepterTransform.position.x + pointAiStyleLocalPoint.x,
-      scepterTransform.position.y + pointAiStyleLocalPoint.y,
-      scepterTransform.position.z - pointAiStyleLocalPoint.z + gripperOffsetZ,
-    );
+    // pointAI 发布 Scepter_depth_frame 下的相机点，前端只负责走 TF 到 map。
+    const pointInMap = localPoint.clone().applyQuaternion(scepterTransform.quaternion);
+    return scepterTransform.position.clone().add(pointInMap);
   }
 
   applyPointCloudWorldPositions(source) {
@@ -498,20 +765,47 @@ export class Scene3DView {
         localPositions[index + 1],
         localPositions[index + 2],
       );
-      const cabinPoint = this.convertScepterPointCloudPointToCabinPoint(point);
-      if (!cabinPoint) {
+      const mapPoint = this.convertScepterPointCloudPointToMapPoint(point);
+      if (!mapPoint) {
         continue;
       }
-      worldPositions.push(cabinPoint.x, cabinPoint.y, cabinPoint.z);
+      worldPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
     }
     const target = source === "rawWorldCoord" ? this.rawPointCloud : this.filteredPointCloud;
     target.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
     target.geometry.computeBoundingSphere();
   }
 
+  refreshTiePointWorldPositions() {
+    const cameraPositions = this.sourceTiePointCameraPositions;
+    const worldPositions = [];
+    for (let index = 0; index < cameraPositions.length; index += 3) {
+      const vector = new THREE.Vector3(
+        cameraPositions[index],
+        cameraPositions[index + 1],
+        cameraPositions[index + 2],
+      );
+      const mapPoint = this.convertScepterPointCloudPointToMapPoint(vector);
+      if (!mapPoint) {
+        continue;
+      }
+      worldPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
+    }
+
+    this.tiePoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
+    this.tiePoints.geometry.computeBoundingSphere();
+    this.pointCounts.tiePoints = worldPositions.length / 3;
+    if (this.planningPointsFollowTiePoints) {
+      this.planningPoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
+      this.planningPoints.geometry.computeBoundingSphere();
+      this.pointCounts.planningPoints = this.pointCounts.tiePoints;
+    }
+    return worldPositions;
+  }
+
   setTiePointsMessage(message) {
     const points = Array.isArray(message?.PointCoordinatesArray) ? message.PointCoordinatesArray : [];
-    const positions = [];
+    const cameraPositions = [];
     points.forEach((point) => {
       const world = Array.isArray(point?.World_coord) ? point.World_coord : [];
       if (world.length < 3) {
@@ -522,31 +816,52 @@ export class Scene3DView {
         y: Number(world[1]) / 1000.0,
         z: Number(world[2]) / 1000.0,
       });
-      positions.push(vector.x, vector.y, vector.z);
+      cameraPositions.push(vector.x, vector.y, vector.z);
     });
-    this.tiePoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    this.tiePoints.geometry.computeBoundingSphere();
-    this.pointCounts.tiePoints = positions.length / 3;
+    this.sourceTiePointCameraPositions = new Float32Array(cameraPositions);
+    if (this.pointCounts.planningPoints <= 0 || this.planningPointsFollowTiePoints) {
+      this.planningPointsFollowTiePoints = true;
+    }
+    const worldPositions = this.refreshTiePointWorldPositions();
+    if (this.planningPointsFollowTiePoints) {
+      this.planningPoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
+      this.planningPoints.geometry.computeBoundingSphere();
+      this.pointCounts.planningPoints = this.pointCounts.tiePoints;
+    }
     return this.pointCounts.tiePoints;
   }
 
   setPlanningMarkersMessage(message) {
     const markers = Array.isArray(message?.markers) ? message.markers : [];
-    const positions = [];
-    markers.forEach((marker) => {
-      const markerPoints = Array.isArray(marker?.points) ? marker.points : [];
-      markerPoints.forEach((point) => {
-        positions.push(
-          Number(point?.x || 0),
-          Number(point?.y || 0),
-          Number(point?.z || 0),
-        );
-      });
-    });
+    const positions = buildMarkerPointPositions(markers);
+    this.planningPointsFollowTiePoints = false;
     this.planningPoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     this.planningPoints.geometry.computeBoundingSphere();
     this.pointCounts.planningPoints = positions.length / 3;
     return this.pointCounts.planningPoints;
+  }
+
+  setPlanningAreaPayload(payload) {
+    const areas = Array.isArray(payload?.areas) ? payload.areas : [];
+    const areaCenterPositions = buildAreaCenterPositions(areas);
+    const areaPathPositions = buildAreaCenterPathPositions(areas, payload?.path_origin || null);
+    const areaOutlinePositions = buildAreaOutlineSegmentPositions(areas);
+
+    this.planningAreaCenters.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(areaCenterPositions, 3),
+    );
+    this.planningAreaCenters.geometry.computeBoundingSphere();
+    this.planningAreaPath.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(areaPathPositions, 3),
+    );
+    this.planningAreaPath.geometry.computeBoundingSphere();
+    this.planningAreaOutlines.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(areaOutlinePositions, 3),
+    );
+    this.planningAreaOutlines.geometry.computeBoundingSphere();
   }
 
   setPointCloudImageMessage(source, message) {

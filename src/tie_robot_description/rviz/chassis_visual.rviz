@@ -15,7 +15,7 @@ Panels:
           Class: rviz/RobotModel
           Description: ''
           Enabled: true
-          Fixed Frame: odom
+          Fixed Frame: map
           Links:
             Default:
               Alpha: 1
