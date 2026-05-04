@@ -1,0 +1,22 @@
+{
+  "report": "docs/reports/current_visual_recognition_flow/index.html",
+  "scan_metrics": {
+    "rectified_width": 128,
+    "rectified_height": 136,
+    "vertical_period": 30,
+    "vertical_phase": 24,
+    "horizontal_period": 30,
+    "horizontal_phase": 13,
+    "vertical_line_count": 4,
+    "horizontal_line_count": 5,
+    "point_count": 20,
+    "source": "docs/releases/slam_v30/visual_modalities"
+  },
+  "execution_metrics": {
+    "hough_line_count": 51,
+    "hough_intersection_count": 295,
+    "binary_pixels": 66274,
+    "source": "docs/releases/slam_v30/visual_modalities"
+  },
+  "image_count": 15
+}

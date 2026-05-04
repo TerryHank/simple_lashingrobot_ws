@@ -14,6 +14,23 @@ export class SystemControlController {
     return SYSTEM_CONTROL_ACTIONS;
   }
 
+  async refreshDemoModeStatus() {
+    const action = getSystemControlAction("toggleDemoMode");
+    const endpoint = action?.statusEndpoint || "/api/system/demo_mode_status";
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json",
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success === false) {
+      throw new Error(payload?.message || response.statusText || "未知错误");
+    }
+    this.callbacks.onDemoModeStatus?.(payload);
+    return payload;
+  }
+
   handle(actionId) {
     const action = getSystemControlAction(actionId);
     if (!action) {
@@ -114,10 +131,14 @@ export class SystemControlController {
     try {
       const message = await this.executeHttpAction(action);
       this.callbacks.onPendingChange?.(action.id, false);
-      this.report(message || `${action.label}已受理`, "success");
+      this.applyHttpActionPayload(action, message);
+      this.report(message?.message || `${action.label}已受理`, "success");
     } catch (error) {
       this.callbacks.onPendingChange?.(action.id, false);
       this.report(`${action.label}失败：${error?.message || String(error)}`, "error");
+      if (action.id === "toggleDemoMode") {
+        this.refreshDemoModeStatus().catch(() => {});
+      }
     }
   }
 
@@ -133,6 +154,16 @@ export class SystemControlController {
     if (!response.ok || payload?.success === false) {
       throw new Error(payload?.message || response.statusText || "未知错误");
     }
-    return payload?.message || `${action.label}已受理`;
+    return payload || {};
+  }
+
+  applyHttpActionPayload(action, payload) {
+    if (action.id !== "toggleDemoMode") {
+      return;
+    }
+    this.callbacks.onDemoModeStatus?.(payload);
+    if (payload?.active && payload?.legacyFrontendUrl) {
+      this.callbacks.onOpenUrl?.(payload.legacyFrontendUrl);
+    }
   }
 }

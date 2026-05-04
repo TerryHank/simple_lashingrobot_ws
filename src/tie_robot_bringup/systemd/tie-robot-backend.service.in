@@ -2,6 +2,7 @@
 Description=Tie Robot ROS backend stack
 Wants=network-online.target tie-robot-rosbridge.service
 After=network-online.target tie-robot-rosbridge.service
+PartOf=tie-robot-rosbridge.service
 
 [Service]
 Type=simple
@@ -17,7 +18,7 @@ Restart=on-failure
 RestartSec=5
 KillSignal=SIGINT
 KillMode=control-group
-TimeoutStopSec=30
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target

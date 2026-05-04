@@ -1,0 +1,134 @@
+{
+  "generated_at": "2026-05-04 23:16:53",
+  "frame_source": "live_raw_world_current_capture",
+  "captured_at": "2026-05-04 23:16:02",
+  "physical_prior": {
+    "spacing_cm": [
+      12,
+      16
+    ],
+    "spacing_px": [
+      24.0,
+      32.0
+    ],
+    "line_count_per_axis": [
+      15,
+      18
+    ],
+    "target_points": [
+      225,
+      324
+    ]
+  },
+  "rectified_size": [
+    496,
+    517
+  ],
+  "rows": [
+    {
+      "id": "combined_response_full_pipeline",
+      "point_count": 256,
+      "line_counts": [
+        16,
+        16
+      ],
+      "mean_base": 0.9704223638400435,
+      "mean_hessian": 0.7505412953905761,
+      "mean_frangi": 0.9271973961731419,
+      "mean_completed": 0.9224813170731068,
+      "binary_support": 0.9375,
+      "close_pairs_lt_8px": 0,
+      "quality_score": 0.9165371188963763
+    },
+    {
+      "id": "selected_response_full_pipeline",
+      "point_count": 256,
+      "line_counts": [
+        16,
+        16
+      ],
+      "mean_base": 0.970422092359513,
+      "mean_hessian": 0.7504722987068817,
+      "mean_frangi": 0.927198663703166,
+      "mean_completed": 0.9224828251171857,
+      "binary_support": 0.9375,
+      "close_pairs_lt_8px": 0,
+      "quality_score": 0.9165251064952463
+    },
+    {
+      "id": "fused_instance_response_full_pipeline",
+      "point_count": 256,
+      "line_counts": [
+        16,
+        16
+      ],
+      "mean_base": 0.9701973015908152,
+      "mean_hessian": 0.7283627570141107,
+      "mean_frangi": 0.9086199242155999,
+      "mean_completed": 0.9095706988591701,
+      "binary_support": 0.921875,
+      "close_pairs_lt_8px": 0,
+      "quality_score": 0.9055210738047026
+    },
+    {
+      "id": "depth_gradient_hessian_frangi_full_pipeline",
+      "point_count": 256,
+      "line_counts": [
+        16,
+        16
+      ],
+      "mean_base": 0.9144789895508438,
+      "mean_hessian": 0.6058736930135638,
+      "mean_frangi": 0.8269170064013451,
+      "mean_completed": 0.8238747528521344,
+      "binary_support": 0.91015625,
+      "close_pairs_lt_8px": 0,
+      "quality_score": 0.8410680789477193
+    },
+    {
+      "id": "frangi_like_full_pipeline",
+      "point_count": 256,
+      "line_counts": [
+        16,
+        16
+      ],
+      "mean_base": 0.9333858047612011,
+      "mean_hessian": 0.6190599773544818,
+      "mean_frangi": 0.7884395059663802,
+      "mean_completed": 0.8109039389528334,
+      "binary_support": 0.8515625,
+      "close_pairs_lt_8px": 0,
+      "quality_score": 0.8329295223252848
+    },
+    {
+      "id": "hessian_ridge_full_pipeline",
+      "point_count": 256,
+      "line_counts": [
+        16,
+        16
+      ],
+      "mean_base": 0.7628562609897926,
+      "mean_hessian": 0.49697844364345656,
+      "mean_frangi": 0.6831705989898182,
+      "mean_completed": 0.7070197382126935,
+      "binary_support": 0.91796875,
+      "close_pairs_lt_8px": 0,
+      "quality_score": 0.7428038008156727
+    }
+  ],
+  "recommended": {
+    "id": "combined_response_full_pipeline",
+    "point_count": 256,
+    "line_counts": [
+      16,
+      16
+    ],
+    "mean_base": 0.9704223638400435,
+    "mean_hessian": 0.7505412953905761,
+    "mean_frangi": 0.9271973961731419,
+    "mean_completed": 0.9224813170731068,
+    "binary_support": 0.9375,
+    "close_pairs_lt_8px": 0,
+    "quality_score": 0.9165371188963763
+  }
+}

@@ -3,8 +3,11 @@
 import math
 import os
 import re
+import subprocess
+import time
 from pathlib import Path
 
+import rosgraph
 import rospy
 from rosgraph_msgs.msg import Log
 
@@ -15,6 +18,42 @@ ROSOUT_AGG_TOPIC = "/rosout_agg"
 STDOUT_PREFIX = "[stdout]"
 STDOUT_FILE_PATTERN = re.compile(r"^(?P<node>.+)-\d+-stdout\.log$")
 INVALID_TOPIC_CHARS_PATTERN = re.compile(r"[^A-Za-z0-9_]")
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+DRIVER_LINK_POLL_PERIOD_SEC = 3.0
+DRIVER_LINK_REMINDER_SEC = 15.0
+DRIVER_LINK_JOURNAL_LINES = 120
+DRIVER_LINK_LOG_TAIL_BYTES = 16384
+DRIVER_LINK_MONITORS = (
+    {
+        "label": "索驱",
+        "node_name": "suoqu_driver_node",
+        "status_topic": "/cabin/cabin_data_upload",
+        "service_unit": "tie-robot-driver-suoqu.service",
+    },
+    {
+        "label": "末端",
+        "node_name": "moduan_driver_node",
+        "status_topic": "/moduan/moduan_gesture_data",
+        "service_unit": "tie-robot-driver-moduan.service",
+    },
+)
+FAILURE_REASON_TOKENS = (
+    "[ERROR]",
+    " ERROR",
+    "_ERROR:",
+    "ERROR:",
+    "FATAL",
+    "失败",
+    "拒绝连接",
+    "未连接",
+    "断开",
+    "断链",
+    "has died",
+    "write error",
+    "cannot ping",
+    "PLC",
+    "XmlRpcClient",
+)
 
 
 def sanitize_node_name(node_name):
@@ -28,6 +67,10 @@ def sanitize_node_name(node_name):
 
     sanitized = INVALID_TOPIC_CHARS_PATTERN.sub("_", basename)
     return sanitized or "unknown"
+
+
+def canonical_ros_node_name(node_name):
+    return f"/{sanitize_node_name(node_name)}"
 
 
 def make_node_topic(node_name):
@@ -141,6 +184,96 @@ def infer_log_level(line_text):
     return Log.INFO
 
 
+def strip_ansi(text):
+    return ANSI_ESCAPE_PATTERN.sub("", str(text or "")).strip()
+
+
+def is_failure_reason_line(line_text):
+    text = strip_ansi(line_text)
+    if not text:
+        return False
+    upper = text.upper()
+    return any(token.upper() in upper for token in FAILURE_REASON_TOKENS)
+
+
+def extract_recent_failure_reason(lines):
+    for line in reversed(list(lines or [])):
+        text = strip_ansi(line)
+        if is_failure_reason_line(text):
+            return text[-300:]
+    return None
+
+
+def normalize_topic_publishers(system_state_publishers):
+    return {
+        topic: {canonical_ros_node_name(node_name) for node_name in nodes}
+        for topic, nodes in system_state_publishers
+    }
+
+
+def collect_registered_nodes(*system_state_groups):
+    registered = set()
+    for group in system_state_groups:
+        for _name, nodes in group:
+            registered.update(canonical_ros_node_name(node_name) for node_name in nodes)
+    return registered
+
+
+def build_driver_link_status(monitor, topic_publishers, registered_nodes, recent_reason=None):
+    label = monitor["label"]
+    status_topic = monitor["status_topic"]
+    node_name = sanitize_node_name(monitor["node_name"])
+    canonical_node = canonical_ros_node_name(node_name)
+    publishers = {
+        canonical_ros_node_name(node_name)
+        for node_name in topic_publishers.get(status_topic, set())
+    }
+    registered = {
+        canonical_ros_node_name(node_name)
+        for node_name in registered_nodes
+    }
+
+    topic_has_publisher = bool(publishers)
+    node_is_registered = canonical_node in registered
+    connected = topic_has_publisher and node_is_registered
+    if connected:
+        return {
+            "connected": True,
+            "level": Log.INFO,
+            "node_name": node_name,
+            "message": f"{label}链路恢复：{canonical_node} 正在发布 {status_topic}",
+        }
+
+    reasons = []
+    if not topic_has_publisher:
+        reasons.append(f"{status_topic} 无发布者")
+    if not node_is_registered:
+        reasons.append(f"{canonical_node} 未注册到当前 ROS master")
+    if recent_reason:
+        reasons.append(f"最近错误：{recent_reason}")
+    if not reasons:
+        reasons.append("状态未知")
+    return {
+        "connected": False,
+        "level": Log.ERROR,
+        "node_name": node_name,
+        "message": f"{label}断链：" + "；".join(reasons),
+    }
+
+
+def build_driver_link_log_message(status):
+    msg = Log()
+    msg.header.stamp = rospy.Time.now()
+    msg.level = status["level"]
+    msg.name = canonical_ros_node_name(status["node_name"])
+    msg.file = "system_log_mux"
+    msg.function = "driver_link_monitor"
+    msg.line = 0
+    msg.topics = []
+    msg.msg = status["message"]
+    return msg
+
+
 def build_stdout_log_message(node_name, line_text, source_path):
     msg = Log()
     msg.header.stamp = rospy.Time.now()
@@ -210,8 +343,13 @@ class SystemLogMux:
             self_node_name=rospy.get_name(),
         )
         self.stdout_poll_hz = stdout_poll_hz
+        self.driver_link_last_states = {}
+        self.driver_link_last_emit_monotonic = {}
         self.stdout_timer = rospy.Timer(
             rospy.Duration(1.0 / stdout_poll_hz), self._poll_stdout_logs
+        )
+        self.driver_link_timer = rospy.Timer(
+            rospy.Duration(DRIVER_LINK_POLL_PERIOD_SEC), self._poll_driver_links
         )
         self.ros_log_subscriber = rospy.Subscriber(
             ros_log_topic, Log, self._handle_ros_log, queue_size=500
@@ -232,7 +370,101 @@ class SystemLogMux:
     def _poll_stdout_logs(self, _event):
         for node_name, source_path, line_text in self.stdout_tailer.poll():
             stdout_msg = build_stdout_log_message(node_name, line_text, source_path)
+            self._publisher_for_node(node_name).publish(stdout_msg)
             self.stdout_publisher.publish(stdout_msg)
+
+    def _poll_driver_links(self, _event):
+        try:
+            topic_publishers, registered_nodes = self._read_master_state()
+        except Exception as exc:
+            topic_publishers = {}
+            registered_nodes = set()
+            master_error = f"ROS master状态查询失败：{exc}"
+        else:
+            master_error = None
+
+        now = time.monotonic()
+        for monitor in DRIVER_LINK_MONITORS:
+            first_status = build_driver_link_status(
+                monitor,
+                topic_publishers,
+                registered_nodes,
+                recent_reason=master_error,
+            )
+            recent_reason = None
+            if not first_status["connected"] and master_error is None:
+                recent_reason = self._recent_driver_failure_reason(monitor)
+            status = build_driver_link_status(
+                monitor,
+                topic_publishers,
+                registered_nodes,
+                recent_reason=recent_reason or master_error,
+            )
+            previous_message = self.driver_link_last_states.get(monitor["node_name"])
+            previous_emit = self.driver_link_last_emit_monotonic.get(monitor["node_name"], 0.0)
+            should_emit = (
+                previous_message != status["message"]
+                or (not status["connected"] and now - previous_emit >= DRIVER_LINK_REMINDER_SEC)
+            )
+            if not should_emit:
+                continue
+
+            self.driver_link_last_states[monitor["node_name"]] = status["message"]
+            self.driver_link_last_emit_monotonic[monitor["node_name"]] = now
+            log_msg = build_driver_link_log_message(status)
+            self._publisher_for_node(status["node_name"]).publish(log_msg)
+            self.stdout_publisher.publish(log_msg)
+
+    def _read_master_state(self):
+        master = rosgraph.Master(rospy.get_name())
+        publishers, subscribers, services = master.getSystemState()
+        return (
+            normalize_topic_publishers(publishers),
+            collect_registered_nodes(publishers, subscribers, services),
+        )
+
+    def _recent_driver_failure_reason(self, monitor):
+        stdout_reason = None
+        latest_stdout_logs = discover_latest_stdout_logs(self.log_root)
+        stdout_path = latest_stdout_logs.get(sanitize_node_name(monitor["node_name"]))
+        if stdout_path is not None:
+            stdout_lines, _position, _partial = read_recent_lines(
+                stdout_path,
+                DRIVER_LINK_LOG_TAIL_BYTES,
+            )
+            stdout_reason = extract_recent_failure_reason(stdout_lines)
+        if stdout_reason:
+            return stdout_reason
+
+        journal_lines = read_recent_journal_lines(
+            monitor.get("service_unit"),
+            DRIVER_LINK_JOURNAL_LINES,
+        )
+        return extract_recent_failure_reason(journal_lines)
+
+
+def read_recent_journal_lines(service_unit, line_count):
+    if not service_unit:
+        return []
+    try:
+        completed = subprocess.run(
+            [
+                "journalctl",
+                "--no-pager",
+                "-u",
+                str(service_unit),
+                "-n",
+                str(max(1, int(line_count))),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception as exc:
+        return [f"journalctl读取失败: {exc}"]
+    text = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+    return [line for line in text.splitlines() if line.strip()]
 
 
 def main():

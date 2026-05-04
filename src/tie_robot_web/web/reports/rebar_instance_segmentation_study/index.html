@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>钢筋实例分割与全尺度鲁棒方案调研</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f5f7;color:#16202a}header{background:#fff;border-bottom:1px solid #d8e0ea;padding:24px 28px}h1{margin:0 0 10px;font-size:28px;letter-spacing:0}.meta{display:flex;flex-wrap:wrap;gap:8px;color:#526071;font-size:13px}.pill{border:1px solid #d6e0ec;background:#f8fafc;border-radius:6px;padding:4px 8px}main{display:grid;gap:16px;padding:20px 28px 36px;max-width:100vw}section{background:#fff;border:1px solid #d8e0ea;border-radius:8px;padding:16px;min-width:0}h2{margin:0 0 10px;font-size:20px;letter-spacing:0}h3{margin:12px 0 8px;font-size:16px}p,li{line-height:1.58;color:#334155;font-size:14px}code{background:#eef2f7;border:1px solid #d8e0ea;border-radius:4px;padding:1px 4px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:14px}figure{margin:0;background:#0f172a;border-radius:8px;overflow:hidden;border:1px solid #d8e0ea}img{display:block;width:100%;height:auto;max-height:min(78vh,920px);object-fit:contain}figcaption{background:#f8fafc;color:#334155;padding:8px 10px;font-size:13px;border-top:1px solid #d8e0ea}table{width:100%;border-collapse:collapse;font-size:13px;display:block;overflow-x:auto}th,td{text-align:left;vertical-align:top;border:1px solid #d8e0ea;padding:7px 8px;white-space:nowrap}th{background:#edf3f9}.callout{border-left:4px solid #2563eb;background:#f8fbff;padding:10px 12px;border-radius:6px}.warn{border-left-color:#dc2626;background:#fff7f7}.ok{border-left-color:#16a34a;background:#f7fff9}.steps{counter-reset:s}.steps li{margin:8px 0}@media(max-width:720px){header,main{padding-left:14px;padding-right:14px}}
+</style>
+</head>
+<body>
+<header>
+<h1>钢筋实例分割与全尺度鲁棒方案调研</h1>
+<div class="meta">
+<span class="pill">生成时间：2026-04-30 11:27:42</span>
+<span class="pill">模态快照：rebar_instance_segmentation_modalities_20260430_112028</span>
+<span class="pill">目标：rebar / beam / floor seam / TCP 实例级图谱</span>
+</div>
+</header>
+<main>
+<section>
+<h2>一句话结论</h2>
+<div class="callout warn"><p>现在的梁筋检测不是实例分割，而是 <code>detect_workspace_s2_structural_edge_bands</code>：只在 rectified 工作区左右边缘寻找宽而强的竖向响应带。画面里有梁筋但 <code>beam_bands=[]</code>，说明当前规则没有触发，不能代表“没有梁筋”。</p></div>
+<div class="callout ok"><p>推荐路线：不要继续只调阈值。下一代主方案应做“物理尺度归一 BEV + 多模态钢筋概率图 + 多尺度脊线中心线 + 3D/高度分层 + 图优化实例分割”，深度模型作为训练后校验或替代分割头，而不是裸 SAM/裸 YOLO 直接上线。</p></div>
+</section>
+<section>
+<h2>本机可用视觉模态</h2>
+<p>本机当前不仅有 IR 和 depth，还有 color、transformedColor、transformedDepth、worldCoord/raw_world_coord、worldCoord/world_coord、depthCloudPoint。深度世界坐标和点云是区分梁筋/普通钢筋/地板缝的关键。</p>
+<div class="grid"><figure><img src="images/modality_montage.png"><figcaption>当前模态预览拼图</figcaption></figure></div>
+<table><thead><tr><th>Topic</th><th>Captured</th><th>Encoding</th><th>Shape</th><th>Min</th><th>Max</th><th>Mean</th><th>Error</th></tr></thead><tbody><tr><td><code>/Scepter/color/image_raw</code></td><td>yes</td><td>bgr8</td><td>[480, 640, 3]</td><td>3.0</td><td>197.0</td><td>131.08047526041668</td><td></td></tr><tr><td><code>/Scepter/color/camera_info</code></td><td>yes</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td><code>/Scepter/depth/image_raw</code></td><td>yes</td><td>16UC1</td><td>[480, 640]</td><td>0.0</td><td>1829.0</td><td>1634.4134537760417</td><td></td></tr><tr><td><code>/Scepter/depth/camera_info</code></td><td>yes</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td><code>/Scepter/ir/image_raw</code></td><td>yes</td><td>8UC1</td><td>[480, 640]</td><td>2.0</td><td>203.0</td><td>28.628772786458335</td><td></td></tr><tr><td><code>/Scepter/ir/camera_info</code></td><td>yes</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td><code>/Scepter/transformedColor/image_raw</code></td><td>yes</td><td>bgr8</td><td>[480, 640, 3]</td><td>0.0</td><td>198.0</td><td>139.71970703125</td><td></td></tr><tr><td><code>/Scepter/transformedDepth/image_raw</code></td><td>yes</td><td>16UC1</td><td>[480, 640]</td><td>318.0</td><td>65535.0</td><td>14461.276168619792</td><td></td></tr><tr><td><code>/Scepter/worldCoord/raw_world_coord</code></td><td>yes</td><td>32FC3</td><td>[480, 640, 3]</td><td>0.0</td><td>1826.0</td><td>1634.401611328125</td><td></td></tr><tr><td><code>/Scepter/worldCoord/world_coord</code></td><td>yes</td><td>32FC3</td><td>[480, 640, 3]</td><td>0.0</td><td>2027.0</td><td>359.0205078125</td><td></td></tr><tr><td><code>/Scepter/worldCoord/camera_info</code></td><td>yes</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td><code>/pointAI/result_image_raw</code></td><td>yes</td><td>mono8</td><td>[480, 640]</td><td>2.0</td><td>203.0</td><td>30.708502604166668</td><td></td></tr><tr><td><code>/pointAI/line_image</code></td><td>no</td><td></td><td></td><td></td><td></td><td></td><td>topic type unavailable</td></tr><tr><td><code>/perception/lashing/result_image</code></td><td>no</td><td></td><td></td><td></td><td></td><td></td><td>timeout exceeded while waiting for message on topic /perception/lashing/result_image</td></tr><tr><td><code>/perception/lashing/points_camera</code></td><td>no</td><td></td><td></td><td></td><td></td><td></td><td>timeout exceeded while waiting for message on topic /perception/lashing/points_camera</td></tr><tr><td><code>/perception/lashing/workspace/quad_pixels</code></td><td>yes</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td><code>/coordinate_point</code></td><td>no</td><td></td><td></td><td></td><td></td><td></td><td>timeout exceeded while waiting for message on topic /coordinate_point</td></tr><tr><td><code>/Scepter/depthCloudPoint/cloud_points</code></td><td>yes</td><td></td><td></td><td></td><td></td><td></td><td></td></tr><tr><td><code>/Scepter/depth2colorCloudPoint/cloud_points</code></td><td>no</td><td></td><td></td><td></td><td></td><td></td><td>timeout exceeded while waiting for message on topic /Scepter/depth2colorCloudPoint/cloud_points</td></tr></tbody></table>
+</section>
+<section>
+<h2>方法遍历矩阵</h2>
+<table><thead><tr><th>方法</th><th>核心</th><th>跨尺度鲁棒性</th><th>速度</th><th>数据需求</th><th>判断</th></tr></thead><tbody><tr><td>当前梁筋 edge-band mask</td><td>二维组合响应的边缘宽强带</td><td>低</td><td>快</td><td>无</td><td>只适合左右边缘粗结构；会漏内部梁筋/弱梁筋</td></tr>
+<tr><td>阈值+形态学/连通域</td><td>IR/depth/height 上阈值再开闭运算</td><td>低-中</td><td>快</td><td>无</td><td>尺度和光照变化一大就漂，适合做候选不是最终</td></tr>
+<tr><td>Hough/LSD 线检测</td><td>直线/线段检测</td><td>中</td><td>快</td><td>无</td><td>对直线好，对弯曲钢筋和交叉处实例分离差</td></tr>
+<tr><td>Steger / Hessian ridge</td><td>多尺度中心线+宽度估计</td><td>中-高</td><td>快-中</td><td>无</td><td>适合钢筋这种细长结构，是短期主力候选</td></tr>
+<tr><td>Frangi vesselness</td><td>多尺度管状增强</td><td>中-高</td><td>快-中</td><td>无</td><td>可增强钢筋概率图，但交点/密集平行线需图优化</td></tr>
+<tr><td>点云切片/高度分层</td><td>worldCoord/PointCloud2 中按高度和截面聚类</td><td>高</td><td>中</td><td>无</td><td>对梁筋/层级/尺度最关键，应进入主方案</td></tr>
+<tr><td>U-Net/DeepLab 语义分割</td><td>像素级 rebar/beam/floor/tcp 类别</td><td>高</td><td>中-慢</td><td>需要标注</td><td>输出非实例，需要骨架/连通图拆实例</td></tr>
+<tr><td>Mask R-CNN/BA-Mask-RCNN</td><td>实例 mask</td><td>高</td><td>慢-中</td><td>需要标注</td><td>论文中 rebar 检测效果强，但 CPU 需优化或裁剪</td></tr>
+<tr><td>YOLO-seg/YOLO11-seg</td><td>实时实例分割</td><td>高</td><td>中</td><td>需要标注</td><td>本机已有 ultralytics/onnxruntime，无 CUDA；要实测 CPU 100ms</td></tr>
+<tr><td>SAM/SAM2</td><td>通用分割/交互标注</td><td>中</td><td>慢</td><td>少量提示</td><td>本机未装；更适合辅助标注，不建议直接当现场主链</td></tr>
+<tr><td>推荐混合方案</td><td>物理归一BEV + 多模态ridge + 图优化 + 小模型分割校验</td><td>最高</td><td>可控</td><td>少量标注</td><td>最符合不同尺度鲁棒与100ms工程约束</td></tr></tbody></table>
+</section>
+<section>
+<h2>推荐技术路径</h2>
+<ol class="steps">
+<li><b>同步采集并物理归一化：</b>把 IR/depth/color/worldCoord 投到同一个手动工作区 BEV，固定 mm/px，而不是固定像素尺度；这一步解决“远近尺度变化导致峰值宽度变”的根因。</li>
+<li><b>多模态概率图：</b>组合 IR 暗线、depth 凹凸/梯度、worldCoord 高度、点云局部法向/曲率，生成 <code>P(rebar)</code>、<code>P(beam)</code>、<code>P(floor seam)</code>、<code>P(tcp/occluder)</code>。</li>
+<li><b>多尺度脊线中心线：</b>用 Steger/Hessian/Frangi 类多尺度线结构检测，输出中心线、宽度、方向、响应强度，而不是只用一维 profile 峰值。</li>
+<li><b>实例图构建：</b>骨架化后建立图：边是钢筋实例候选，节点是交叉点；通过方向连续性、宽度稳定性、3D 高度层级、梁筋类别把普通钢筋和梁筋拆开。</li>
+<li><b>全局网格约束：</b>保留 PR-FPRG 的周期/相位优势，但从“决定线在哪里”降级为“约束实例图不乱跑”。曲线只允许在实例图中微调，不能追单条强地板缝。</li>
+<li><b>绑扎点生成：</b>只取普通钢筋实例之间的交点；梁筋实例上的点过滤，但普通钢筋允许穿过梁筋。过滤要发生在点层，不删除整条钢筋实例。</li>
+<li><b>深度模型增强：</b>用当前规则和人工修正生成伪标签，训练小型 YOLO-seg/U-Net/Mask R-CNN 分割 <code>ordinary_rebar</code>、<code>beam_rebar</code>、<code>floor_seam</code>、<code>tcp</code>。SAM 只建议做标注辅助。</li>
+<li><b>速度落地：</b>先 CPU OpenCV/Numpy 原型评估；热点下沉 C++/OpenCV ximgproc/ONNXRuntime。当前本机无 CUDA，不能假定大模型实时。</li>
+</ol>
+</section>
+<section>
+<h2>为什么这条路线能解决你指出的问题</h2>
+<ul>
+<li><b>梁筋漏检：</b>不再只找边缘宽带，而把梁筋作为实例类别，从 2D 宽度、3D 高度/层级、方向和时序稳定性联合判断。</li>
+<li><b>地板缝误识别：</b>地板缝在 2D 响应像线，但在 depth/worldCoord/高度层级上不像凸起钢筋；融合后会被降权。</li>
+<li><b>曲线跑偏：</b>曲线不再自由追强响应，而只能沿实例图和全局网格约束微调。</li>
+<li><b>远距离差：</b>固定物理分辨率 + 多尺度 ridge + 必要时主动调整相机姿态；如果投影宽度低于传感器分辨极限，则需要移动相机，不可能靠算法凭空恢复。</li>
+</ul>
+</section>
+<section>
+<h2>文献依据</h2>
+<ol><li><a href="https://www.mdpi.com/2071-1050/13/22/12509">RGB-D rebar spacing/clearance inspection</a></li>
+<li><a href="https://www.mdpi.com/1424-8220/21/16/5428">Sparse-data deep learning for rebar segmentation</a></li>
+<li><a href="https://www.sciencedirect.com/science/article/pii/S0926580526000427">Boundary-Aware Mask R-CNN for automated rebar inspection</a></li>
+<li><a href="https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0271051">MaskID dense rebar counting with Mask R-CNN</a></li>
+<li><a href="https://openaccess.thecvf.com/content_ICCV_2017/papers/He_Mask_R-CNN_ICCV_2017_paper.pdf">Mask R-CNN paper</a></li>
+<li><a href="https://arxiv.org/abs/1505.04597">U-Net paper</a></li>
+<li><a href="https://arxiv.org/abs/2304.02643">Segment Anything paper</a></li>
+<li><a href="https://ieeexplore.ieee.org/document/659930/">Steger curvilinear structures detector</a></li>
+<li><a href="https://citeseerx.ist.psu.edu/document?doi=454ad65e94b885c3f577576c910821cece5e2179&repid=rep1&type=pdf">Frangi multiscale vessel enhancement</a></li>
+<li><a href="https://docs.ultralytics.com/tasks/segment/">Ultralytics segmentation docs</a></li></ol>
+</section>
+</main>
+</body>
+</html>

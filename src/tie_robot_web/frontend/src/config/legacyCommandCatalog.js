@@ -45,7 +45,7 @@ export const LEGACY_COMMANDS = [
   { id: 18, name: "急停作业", topic: TOPICS.control.forcedStop, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 19, name: "设置Z固定高度", topic: TOPICS.algorithm.setHeightThreshold, type: MESSAGE_TYPES.float32, group: "视觉调试" },
   { id: 21, name: "保存绑扎数据", topic: TOPICS.control.saveBindingData, type: MESSAGE_TYPES.float32, group: "末端控制" },
-  { id: 22, name: "修正TF外参", topic: TOPICS.tf.setOffset, type: MESSAGE_TYPES.pose, group: "TF标定" },
+  { id: 22, name: "修正TF外参", topic: TOPICS.tf.setCameraTcpExtrinsic, type: MESSAGE_TYPES.pose, group: "TF标定" },
   { id: 23, name: "设置索驱速度", topic: TOPICS.process.setCabinSpeed, type: MESSAGE_TYPES.float32, group: "流程控制" },
   { id: 24, name: "设置末端速度", topic: TOPICS.control.setModuanSpeed, type: MESSAGE_TYPES.float32, group: "末端控制" },
 ];

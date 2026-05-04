@@ -22,9 +22,13 @@ TIE_ROBOT_BRINGUP_FRONTEND_AUTOSTART_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "script
 TIE_ROBOT_BRINGUP_BACKEND_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-backend.service.in"
 TIE_ROBOT_BRINGUP_BACKEND_SUDOERS = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-backend-control.sudoers.in"
 TIE_ROBOT_BRINGUP_BACKEND_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_backend_service.sh"
+TIE_ROBOT_BRINGUP_DEMO_MODE_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-demo-show-full.service.in"
+TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-demo-rosbridge.service.in"
+TIE_ROBOT_BRINGUP_DEMO_MODE_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_demo_mode_service.sh"
 TIE_ROBOT_BRINGUP_ROSBRIDGE_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-rosbridge.service.in"
 TIE_ROBOT_BRINGUP_ROSBRIDGE_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_rosbridge_service.sh"
 TIE_ROBOT_BRINGUP_ROSBRIDGE_STACK = TIE_ROBOT_BRINGUP_DIR / "launch" / "rosbridge_stack.launch"
+TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_LAUNCH = TIE_ROBOT_BRINGUP_DIR / "launch" / "demo_rosbridge_light.launch"
 TIE_ROBOT_BRINGUP_TF_STACK = TIE_ROBOT_BRINGUP_DIR / "launch" / "tf_stack.launch"
 TIE_ROBOT_BRINGUP_DRIVER_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_driver_services.sh"
 TIE_ROBOT_BRINGUP_DRIVER_SUDOERS = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-driver-control.sudoers.in"
@@ -204,6 +208,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("roslaunch tie_robot_bringup run.launch", backend_service)
         self.assertIn("KillSignal=SIGINT", backend_service)
         self.assertIn("KillMode=control-group", backend_service)
+        self.assertIn("TimeoutStopSec=5", backend_service)
         self.assertIn("Restart=on-failure", backend_service)
         self.assertNotIn("workspace_picker_web_server", backend_service)
 
@@ -211,15 +216,29 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("/usr/bin/systemctl start tie-robot-backend.service", backend_sudoers)
         self.assertIn("/usr/bin/systemctl stop tie-robot-backend.service", backend_sudoers)
         self.assertIn("/usr/bin/systemctl restart tie-robot-backend.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl start tie-robot-rosbridge.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl stop tie-robot-rosbridge.service", backend_sudoers)
+        for service_name in TIE_ROBOT_DRIVER_SERVICE_NAMES:
+            self.assertIn(f"/usr/bin/systemctl restart {service_name}", backend_sudoers)
+        self.assertIn(
+            "/usr/bin/systemctl stop tie-robot-backend.service "
+            "tie-robot-driver-suoqu.service tie-robot-driver-moduan.service "
+            "tie-robot-driver-camera.service tie-robot-rosbridge.service",
+            backend_sudoers,
+        )
         self.assertIn("visudo -cf", backend_installer)
         self.assertIn("tie-robot-backend.service", backend_installer)
         self.assertIn("tie-robot-backend-control", backend_installer)
         self.assertNotIn("systemctl enable tie-robot-backend.service", backend_installer)
 
         self.assertIn('ROS_BACKEND_SERVICE = "tie-robot-backend.service"', server_script)
+        self.assertIn('ROSBRIDGE_SERVICE = "tie-robot-rosbridge.service"', server_script)
+        self.assertIn("FULL_ROS_STACK_STOP_ORDER = (", server_script)
+        self.assertIn("FULL_ROS_STACK_START_ORDER = (", server_script)
         self.assertIn('"/api/system/start_ros_stack": "start"', server_script)
         self.assertIn('"/api/system/stop_ros_stack": "stop"', server_script)
-        self.assertIn('"/api/system/restart_ros_stack": "restart"', server_script)
+        self.assertIn('"/api/system/restart_ros_stack": FULL_ROS_STACK_RESTART_ACTION', server_script)
+        self.assertIn("handle_full_ros_stack_restart", server_script)
         self.assertIn('"/api/system/ros_stack_status"', server_script)
         self.assertIn("sudo", server_script)
         self.assertIn("systemctl", server_script)
@@ -227,6 +246,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertNotIn('"/api/system/restart_ros_stack": WORKSPACE_ROOT / "restart_ros_stack.sh"', server_script)
 
         self.assertIn('id: "stopRosStack"', system_control_catalog)
+        self.assertIn('description: "快速停止 rosbridge、驱动层和 ROS 后端，再按依赖顺序重新启动"', system_control_catalog)
         self.assertIn('httpEndpoint: "/api/system/stop_ros_stack"', system_control_catalog)
         self.assertIn('serviceKey: null', system_control_catalog)
         self.assertNotIn('serviceKey: "startAlgorithmStackService"', system_control_catalog)
@@ -274,6 +294,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("roslaunch tie_robot_bringup rosbridge_stack.launch", rosbridge_service)
         self.assertIn("Restart=always", rosbridge_service)
         self.assertIn("KillSignal=SIGINT", rosbridge_service)
+        self.assertIn("TimeoutStopSec=5", rosbridge_service)
         self.assertNotIn("roslaunch tie_robot_bringup run.launch", rosbridge_service)
         self.assertNotIn("workspace_picker_web_server", rosbridge_service)
 
@@ -360,6 +381,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
             self.assertIn("StartLimitIntervalSec=0", service_template)
             self.assertIn("KillSignal=SIGINT", service_template)
             self.assertIn("KillMode=control-group", service_template)
+            self.assertIn("TimeoutStopSec=5", service_template)
             self.assertNotIn("run.launch", service_template)
             self.assertIn(service_name, driver_installer)
             self.assertIn(f"/usr/bin/systemctl start {service_name}", driver_sudoers)
@@ -451,6 +473,144 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertNotIn("roslaunch tie_robot_bringup api.launch start_gb28181", ui_controller)
         self.assertNotIn("src/tie_robot_gb28181/config/gb28181_device.yaml", ui_controller)
 
+    def test_network_ping_api_uses_safe_ping_command(self):
+        module = self.server_module
+        self.assertEqual(module.normalize_ping_host(" 192.168.6.62 "), "192.168.6.62")
+        self.assertEqual(module.normalize_ping_host("linear-module.local"), "linear-module.local")
+
+        for bad_host in ("", "192.168.6.62;reboot", "bad host", "-c 99 192.168.6.62", "x" * 254):
+            with self.assertRaises(ValueError):
+                module.normalize_ping_host(bad_host)
+
+        captured = {}
+        original_run = module.subprocess.run
+        original_ping_bin = module.PING_BIN
+
+        def fake_run(command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+            return module.subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    "3 packets transmitted, 3 received, 0% packet loss\n"
+                    "rtt min/avg/max/mdev = 0.100/0.200/0.300/0.010 ms\n"
+                ),
+                stderr="",
+            )
+
+        try:
+            module.PING_BIN = "/bin/ping"
+            module.subprocess.run = fake_run
+            result = module.run_network_ping("192.168.6.62")
+        finally:
+            module.subprocess.run = original_run
+            module.PING_BIN = original_ping_bin
+
+        self.assertEqual(captured["command"], ["/bin/ping", "-c", "3", "-W", "1", "192.168.6.62"])
+        self.assertNotIn("shell", captured["kwargs"])
+        self.assertEqual(captured["kwargs"]["timeout"], 6)
+        self.assertTrue(result["success"])
+        self.assertTrue(result["reachable"])
+        self.assertIn("0% packet loss", result["summary"])
+
+    def test_settings_page_has_manual_network_ping_panel(self):
+        server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        app_logic = (
+            FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
+        ).read_text(encoding="utf-8")
+        storage_utils = STORAGE_UTILS.read_text(encoding="utf-8")
+        app_css = (
+            FRONTEND_SRC_DIR / "styles" / "app.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('"/api/network/ping"', server_script)
+        self.assertIn("handle_network_ping_post", server_script)
+        self.assertIn("run_network_ping", server_script)
+        self.assertIn('{ id: "networkPing", label: "网络配置" }', ui_controller)
+        self.assertIn('data-settings-page="networkPing"', ui_controller)
+        self.assertIn('id="networkPingCabinHost"', ui_controller)
+        self.assertIn('id="networkPingModuanHost"', ui_controller)
+        self.assertIn("上位机 IP", ui_controller)
+        self.assertIn('buttonLabel: "保存并测试"', ui_controller)
+        self.assertIn('data-state="idle"', ui_controller)
+        self.assertIn('data-network-ping-target="cabin"', ui_controller)
+        self.assertIn('data-network-ping-target="moduan"', ui_controller)
+        self.assertIn("getNetworkPingSettings()", ui_controller)
+        self.assertIn("setNetworkPingResult(targetId, result)", ui_controller)
+        self.assertIn("button.dataset.state = state;", ui_controller)
+        self.assertIn(
+            "settings[target.settingsKey] = value == null ? target.defaultHost : String(value).trim();",
+            ui_controller,
+        )
+        self.assertIn("连接成功", ui_controller)
+        self.assertIn("连接失败", ui_controller)
+        self.assertNotIn('class="network-ping-result mono"', ui_controller)
+        self.assertNotIn("result?.stdout, result?.stderr", ui_controller)
+        self.assertIn("onNetworkPingTest(callback)", ui_controller)
+        self.assertIn("loadNetworkPingSettings", storage_utils)
+        self.assertIn("saveNetworkPingSettings", storage_utils)
+        self.assertIn('cabinHost: "192.168.6.62"', storage_utils)
+        self.assertIn('moduanHost: "192.168.6.167"', storage_utils)
+        self.assertIn("this.networkPingSettings = loadNetworkPingSettings();", app_logic)
+        self.assertIn('fetch("/api/network/ping"', app_logic)
+        self.assertIn("handleNetworkPingTest(targetId)", app_logic)
+        self.assertIn(".network-ping-grid", app_css)
+        self.assertIn('.network-ping-button[data-state="success"]', app_css)
+        self.assertIn('.network-ping-button[data-state="error"]', app_css)
+        self.assertIn(".network-ping-result", app_css)
+
+    def test_scene_view_modes_are_free_camera_top_and_follow_origin(self):
+        topic_layer_catalog = (
+            FRONTEND_SRC_DIR / "config" / "topicLayerCatalog.js"
+        ).read_text(encoding="utf-8")
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        scene_view = (
+            FRONTEND_SRC_DIR / "views" / "Scene3DView.js"
+        ).read_text(encoding="utf-8")
+        topic_layer_controller = (
+            FRONTEND_SRC_DIR / "controllers" / "TopicLayerController.js"
+        ).read_text(encoding="utf-8")
+        app_css = (
+            FRONTEND_SRC_DIR / "styles" / "app.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('{ id: "free", label: "自由视角" }', topic_layer_catalog)
+        self.assertIn('{ id: "camera", label: "相机视角" }', topic_layer_catalog)
+        self.assertIn('{ id: "top", label: "俯视视角" }', topic_layer_catalog)
+        self.assertIn('viewMode: "free"', topic_layer_catalog)
+        self.assertIn("followOrigin: false", topic_layer_catalog)
+        self.assertNotIn("followCamera", topic_layer_catalog)
+
+        self.assertIn('class="settings-grid scene-view-grid"', ui_controller)
+        self.assertIn('class="settings-section scene-view-card"', ui_controller)
+        self.assertIn('class="scene-view-mode-group"', ui_controller)
+        self.assertIn('data-scene-view-mode="${mode.id}"', ui_controller)
+        self.assertIn('id="followOriginToggle"', ui_controller)
+        self.assertIn("跟随原点", ui_controller)
+        self.assertNotIn("跟随相机", ui_controller)
+        self.assertIn(".scene-view-grid", app_css)
+        self.assertIn(".scene-view-mode-button", app_css)
+
+        self.assertIn('this.viewMode = "free";', scene_view)
+        self.assertIn("setFollowOrigin(enabled)", scene_view)
+        self.assertIn("resolveSceneViewOrigin(viewMode = this.viewMode)", scene_view)
+        self.assertIn("CAMERA_VIEW_FORWARD_AXIS.clone().applyQuaternion(scepterTransform.quaternion)", scene_view)
+        self.assertIn("TOP_VIEW_FORWARD_AXIS", scene_view)
+        self.assertIn("new THREE.Vector3(0, 0, -1)", scene_view)
+        self.assertIn("this.controls.enabled = this.viewMode === \"free\";", scene_view)
+        self.assertIn("this.camera.position.copy(position);", scene_view)
+        self.assertIn("this.controls.target.copy(target);", scene_view)
+        self.assertNotIn("setFollowCamera", scene_view)
+
+        self.assertIn("this.sceneView.setFollowOrigin(this.state.followOrigin);", topic_layer_controller)
+        self.assertNotIn("setFollowCamera", topic_layer_controller)
+
     def test_settings_page_dropdown_supports_drag_order_persistence(self):
         ui_controller = (
             FRONTEND_SRC_DIR / "ui" / "UIController.js"
@@ -467,6 +627,8 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("loadSettingsPageOrderPreference", storage_utils)
         self.assertIn("saveSettingsPageOrderPreference", storage_utils)
         self.assertIn("settingsPageOrder", ui_controller)
+        self.assertIn('layers: "scene"', ui_controller)
+        self.assertIn('calibration: "visualDebug"', ui_controller)
         self.assertIn("renderSettingsPageOptionMarkup()", ui_controller)
         self.assertIn("handleSettingsPagePointerDown", ui_controller)
         self.assertIn("handleSettingsPagePointerMove", ui_controller)
@@ -485,10 +647,17 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("drag.orderChanged = true;", ui_controller)
         self.assertIn("moveSettingsPageOption", ui_controller)
         self.assertIn("onSettingsPageOrderChange", ui_controller)
+        self.assertIn("getSettingsPageHomeFirstOrder", ui_controller)
+        self.assertIn("notifySettingsPageOrderCommitted", ui_controller)
+        self.assertIn("this.handleSettingsHomePageChange?.(normalizedHomePageId);", ui_controller)
+        self.assertIn("notifyOrder: true", ui_controller)
+        self.assertIn("reorder: false", ui_controller)
         self.assertIn("settings-page-drag-handle", ui_controller)
         self.assertIn("optionRow.draggable = false", ui_controller)
         self.assertIn("loadSettingsPageOrderPreference", app_logic)
         self.assertIn("saveSettingsPageOrderPreference", app_logic)
+        self.assertIn("const homeFirstPageOrder = this.ui.getSettingsPageOrder();", app_logic)
+        self.assertIn("saveSettingsPageOrderPreference(homeFirstPageOrder);", app_logic)
         self.assertIn(".settings-page-drag-handle", app_css)
         self.assertIn(".settings-page-option-row.is-dragging", app_css)
         self.assertIn(".settings-page-option-row.is-sorting", app_css)
@@ -613,31 +782,46 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('{ id: "topics", label: "话题总览" }', ui_controller)
         self.assertIn('{ id: "workspace", label: "工作区选点" }', ui_controller)
         self.assertIn('{ id: "scene", label: "显示与视角" }', ui_controller)
-        self.assertIn('{ id: "layers", label: "图层与数据" }', ui_controller)
-        self.assertIn('{ id: "calibration", label: "相机-TCP外参" }', ui_controller)
+        self.assertNotIn('{ id: "layers", label: "图层与数据" }', ui_controller)
+        self.assertIn('layers: "scene"', ui_controller)
+        self.assertNotIn('{ id: "calibration", label: "相机-TCP外参" }', ui_controller)
+        self.assertIn('calibration: "visualDebug"', ui_controller)
         self.assertIn("renderSettingsPageOptionMarkup()", ui_controller)
         self.assertIn('data-settings-page="topics"', ui_controller)
         self.assertIn('data-settings-page="workspace"', ui_controller)
         self.assertIn('data-settings-page="scene"', ui_controller)
-        self.assertIn('data-settings-page="layers"', ui_controller)
-        self.assertIn('data-settings-page="calibration"', ui_controller)
+        self.assertNotIn('data-settings-page="layers"', ui_controller)
+        self.assertNotIn('data-settings-page="calibration"', ui_controller)
+        self.assertLess(ui_controller.index('data-settings-page="visualDebug"'), ui_controller.index('id="gripperTfCurrent"'))
+        self.assertLess(ui_controller.index('id="gripperTfCurrent"'), ui_controller.index('id="visualDebugLogList"'))
+        self.assertLess(ui_controller.index('data-settings-page="scene"'), ui_controller.index('id="topicLayerMode"'))
+        self.assertLess(ui_controller.index('id="topicLayerStats"'), ui_controller.index('data-settings-page="homeCalibration"'))
         self.assertIn('id="topicInventoryList"', ui_controller)
         self.assertIn("topic-inventory-group", ui_controller)
         self.assertIn('const rootNamespace = normalizedSegments[0] ? `/${normalizedSegments[0]}` : "(根级话题)";', ui_controller)
         self.assertIn('data-topic-group-toggle="${groupKey}"', ui_controller)
         self.assertIn("bindTopicInventoryGroupToggles()", ui_controller)
         self.assertIn("相机-TCP外参", ui_controller)
+        self.assertIn('settings-section gripper-tf-calibration-card', ui_controller)
+        self.assertIn('gripper-tf-current', ui_controller)
+        self.assertIn('gripper-tf-grid', ui_controller)
+        self.assertIn('gripper-tf-actions', ui_controller)
         self.assertIn('id="gripperTfCurrent"', ui_controller)
         self.assertIn('id="gripperTfX"', ui_controller)
         self.assertIn('id="gripperTfY"', ui_controller)
         self.assertIn('id="gripperTfZ"', ui_controller)
         self.assertIn('id="applyGripperTfCalibration"', ui_controller)
+        self.assertIn(".gripper-tf-calibration-card {", app_css)
+        self.assertIn(".gripper-tf-current {", app_css)
+        self.assertIn(".gripper-tf-grid {", app_css)
+        self.assertIn(".gripper-tf-actions {", app_css)
+        self.assertIn(".gripper-tf-actions .primary-btn {", app_css)
         self.assertIn("工作区选点", ui_controller)
         self.assertIn('id: "setRecognitionPose", label: "设为\\n识别位姿"', control_panel_catalog)
         self.assertIn('id: "moveToPosition", label: "移动到\\n位姿"', control_panel_catalog)
         self.assertIn("图层设置", ui_controller)
         self.assertIn("显示与视角", ui_controller)
-        self.assertIn("图层与数据", ui_controller)
+        self.assertNotIn("图层与数据", ui_controller)
         self.assertIn('this.setSettingsPage("topics");', ui_controller)
         self.assertNotIn("系统控制", ui_controller)
         self.assertNotIn('data-settings-action="${action.id}"', ui_controller)
@@ -799,6 +983,10 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("topic: TOPICS.logs.all", log_topic_catalog)
         self.assertIn("topic: TOPICS.logs.cabin", log_topic_catalog)
         self.assertIn("topic: TOPICS.logs.moduan", log_topic_catalog)
+        self.assertIn('"suoqu_driver_node"', log_topic_catalog)
+        self.assertIn('"moduan_driver_node"', log_topic_catalog)
+        self.assertIn('cabin: "/system_log/suoqu_driver_node"', topic_registry)
+        self.assertIn('moduan: "/system_log/moduan_driver_node"', topic_registry)
         self.assertIn("web_action_bridge_node", log_topic_catalog)
         self.assertNotIn("topicTransNode", log_topic_catalog)
         self.assertNotIn("/web/pointAI/set_offset", legacy_command_catalog)
@@ -1278,11 +1466,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("onStatusChipAction(callback)", ui_controller)
         self.assertIn("setStatusChipState(statusId, level, detail)", ui_controller)
         self.assertIn('ros: level === "success" ? "restartRosStack" : "startRosStack"', ui_controller)
-        self.assertIn('chassis: level === "success" ? "stopCabinSubsystem" : "startCabinSubsystem"', ui_controller)
+        self.assertIn('chassis: level === "success" ? "stopCabinSubsystem" : "restartCabinSubsystem"', ui_controller)
         self.assertIn('moduan: level === "success" ? "stopModuanSubsystem" : "startModuanSubsystem"', ui_controller)
         self.assertIn('visual: level === "success" ? "stopVisualSubsystem" : "startVisualSubsystem"', ui_controller)
         self.assertIn('ros: level === "success" ? "重启ROS" : "启动ROS"', ui_controller)
-        self.assertIn('chassis: level === "success" ? "关闭" : "启动"', ui_controller)
+        self.assertIn('chassis: level === "success" ? "关闭" : "重启"', ui_controller)
         self.assertIn('visual: level === "success" ? "关闭" : "启动"', ui_controller)
         self.assertIn('chip.dataset.statusAction = nextAction;', ui_controller)
         self.assertIn('button.dataset.statusAction === actionId', ui_controller)
@@ -1312,11 +1500,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("当前图像图层会等待视觉识别点位覆盖层", task_action_controller)
         self.assertIn("handleVisualRecognitionPointsMessage(message)", app_logic)
         self.assertIn("showVisualRecognitionOverlayMessage(message)", app_logic)
-        self.assertIn("if (this.prFprgOverlayRequested) {", app_logic)
+        self.assertIn("if (this.surfaceDpOverlayRequested) {", app_logic)
         self.assertIn("this.showVisualRecognitionOverlayMessage(message);", app_logic)
-        self.assertIn("if (this.prFprgOverlayActive) {", app_logic)
-        self.assertIn("this.prFprgOverlayRequested = false;", app_logic)
-        self.assertIn("if (!this.prFprgOverlayRequested) {", app_logic)
+        self.assertIn("if (this.surfaceDpOverlayActive) {", app_logic)
+        self.assertIn("this.surfaceDpOverlayRequested = false;", app_logic)
+        self.assertIn("if (!this.surfaceDpOverlayRequested) {", app_logic)
         self.assertIn("this.workspaceView.setS2OverlayMessage(message);", app_logic)
         self.assertIn("this.workspaceView.setVisualRecognitionOverlaySourceSize", app_logic)
         self.assertIn("后端视觉识别结果图已叠加在当前图像图层", app_logic)
@@ -1325,7 +1513,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
             app_logic.index("onExecutionOverlay: (message) => {"):
             app_logic.index("onWorkspaceS2Overlay: (message) => {")
         ]
-        self.assertIn("if (this.prFprgOverlayRequested) {\n          return;\n        }", execution_overlay_body)
+        self.assertIn("if (this.surfaceDpOverlayRequested) {\n          return;\n        }", execution_overlay_body)
         self.assertNotIn("this.showVisualRecognitionOverlayMessage(message);", execution_overlay_body)
 
     def test_visual_recognition_uses_canonical_service_and_result_image_topic(self):
@@ -1390,6 +1578,75 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('encoding.includes("mono16") || encoding.includes("16uc1")', image_utils)
         self.assertIn('encoding.includes("32fc1")', image_utils)
         self.assertIn('encoding.includes("32fc3")', image_utils)
+
+    def test_ir_image_draws_live_tcp_workspace_boundary_overlay(self):
+        topic_registry = TOPIC_REGISTRY.read_text(encoding="utf-8")
+        ros_connection_controller = (
+            FRONTEND_SRC_DIR / "controllers" / "RosConnectionController.js"
+        ).read_text(encoding="utf-8")
+        app_logic = (
+            FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
+        ).read_text(encoding="utf-8")
+        scene_view = (
+            FRONTEND_SRC_DIR / "views" / "Scene3DView.js"
+        ).read_text(encoding="utf-8")
+        workspace_canvas_view = (
+            FRONTEND_SRC_DIR / "views" / "WorkspaceCanvasView.js"
+        ).read_text(encoding="utf-8")
+        overlay_utils = (
+            FRONTEND_SRC_DIR / "utils" / "tcpWorkspaceOverlay.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('cameraInfo: "sensor_msgs/CameraInfo"', topic_registry)
+        self.assertIn('irCameraInfo: "/Scepter/ir/camera_info"', topic_registry)
+        self.assertIn('key: "camera.irCameraInfo"', topic_registry)
+        self.assertIn('this.buildTopicFromRegistry("camera.irCameraInfo")', ros_connection_controller)
+        self.assertIn("this.callbacks.onIrCameraInfo?.(message)", ros_connection_controller)
+        self.assertIn("this.irCameraInfo = null;", app_logic)
+        self.assertIn("onIrCameraInfo: (message) => {", app_logic)
+        self.assertIn("syncTcpWorkspaceBoundaryOverlay()", app_logic)
+        self.assertIn("this.workspaceView.setTcpWorkspaceBoundary(boundary);", app_logic)
+        self.assertIn("projectTcpWorkspaceBoundaryToImage(cameraInfo)", scene_view)
+        self.assertIn("GRIPPER_FRAME", scene_view)
+        self.assertNotIn("applyDistortion", scene_view)
+        self.assertIn("setTcpWorkspaceBoundary(boundary)", workspace_canvas_view)
+        self.assertIn("drawTcpWorkspaceBoundary()", workspace_canvas_view)
+        self.assertIn("TCP_WORKSPACE_BOUNDARY_MM", overlay_utils)
+        self.assertIn("max: 380", overlay_utils)
+        self.assertIn("max: 330", overlay_utils)
+        self.assertIn("projectCameraPointMetersToImagePixel", overlay_utils)
+
+    def test_ir_camera_info_distortion_is_not_used_by_tf_or_visual_layers(self):
+        scene_view = (
+            FRONTEND_SRC_DIR / "views" / "Scene3DView.js"
+        ).read_text(encoding="utf-8")
+        overlay_utils = (
+            FRONTEND_SRC_DIR / "utils" / "tcpWorkspaceOverlay.js"
+        ).read_text(encoding="utf-8")
+        pointai_image_buffers = (
+            TIE_ROBOT_PERCEPTION_DIR
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "image_buffers.py"
+        ).read_text(encoding="utf-8")
+        robot_tf_broadcaster = (
+            TIE_ROBOT_PERCEPTION_DIR / "scripts" / "robot_tf_broadcaster.py"
+        ).read_text(encoding="utf-8")
+        gripper_tf_broadcaster = (
+            TIE_ROBOT_PERCEPTION_DIR / "scripts" / "gripper_tf_broadcaster.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("cameraInfo?.D", overlay_utils)
+        self.assertNotIn(".D", overlay_utils)
+        self.assertNotIn("applyPlumbBobDistortion", overlay_utils)
+        self.assertNotIn("applyDistortion", overlay_utils)
+        self.assertNotIn("undistort", overlay_utils)
+        self.assertNotIn("applyDistortion", scene_view)
+        self.assertNotIn("msg.D", pointai_image_buffers)
+        self.assertNotIn("dist_coeffs = np.array", pointai_image_buffers)
+        self.assertNotIn("CameraInfo", robot_tf_broadcaster)
+        self.assertNotIn("CameraInfo", gripper_tf_broadcaster)
 
     def test_scene_view_renders_area_planning_from_bind_path_json(self):
         scene_view = (
@@ -1496,16 +1753,20 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.grid.visible = true;", scene_view)
         self.assertIn("this.robotGroup.visible = false;", scene_view)
         self.assertIn("const baseLinkTransform = this.getWorldTransform(BASE_LINK_FRAME);", scene_view)
-        self.assertIn("this.applyGroupWorldAlignedTransform(this.baseLinkFrame, baseLinkTransform, BASE_LINK_FRAME);", scene_view)
+        self.assertIn("this.applyGroupTfTransform(this.baseLinkFrame, baseLinkTransform, BASE_LINK_FRAME);", scene_view)
         self.assertIn("const robotTransform = baseLinkTransform || scepterTransform;", scene_view)
         self.assertIn("if (robotTransform)", scene_view)
         self.assertIn("this.applyWorldAlignedDisplayPose(this.robotGroup, robotTransform.position);", scene_view)
+        self.assertIn("robotMesh.position.z = ROBOT_BODY_SIZE_METERS / 2.0;", scene_view)
         self.assertNotIn("ROBOT_BODY_CLEARANCE_ABOVE_TCP_METERS", scene_view)
         self.assertIn("if (gripperTransform)", scene_view)
         self.assertIn("this.applyCustomDisplayPose(this.tcpToolGroup, gripperTransform.position);", scene_view)
+        self.assertIn("tcpToolMesh.position.z = -TCP_TOOL_SIZE_METERS.z / 2.0;", scene_view)
         self.assertNotIn("this.robotGroup.position.z += 0.58;", scene_view)
         self.assertIn("applyCustomDisplayPose(group, position)", scene_view)
         self.assertIn("applyWorldAlignedDisplayPose(group, position)", scene_view)
+        self.assertIn("applyTfFramePose(group, transform)", scene_view)
+        self.assertIn("group.quaternion.copy(transform.quaternion);", scene_view)
         self.assertIn("group.quaternion.identity();", scene_view)
         self.assertIn("group.scale.set(1, 1, -1);", scene_view)
         self.assertNotIn("this.robotGroup.quaternion.copy(scepterTransform.quaternion);", scene_view)
@@ -1540,13 +1801,19 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.baseLinkFrame = new THREE.Group();", scene_view)
         self.assertIn("this.baseLinkFrame.add(new THREE.AxesHelper(0.32));", scene_view)
         self.assertIn("this.baseLinkFrame.visible = Boolean(baseLinkTransform) && this.isTfAxisFrameVisible(BASE_LINK_FRAME);", scene_view)
+        self.assertIn("robotMesh.position.z = ROBOT_BODY_SIZE_METERS / 2.0;", scene_view)
+        self.assertIn("this.applyGroupTfTransform(this.baseLinkFrame, baseLinkTransform, BASE_LINK_FRAME);", scene_view)
+        self.assertIn("this.applyGroupTfTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);", scene_view)
+        self.assertIn("this.applyGroupTfTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);", scene_view)
+        self.assertIn("this.applyTfFramePose(group, transform);", scene_view)
         self.assertIn("const poseTransform = this.getWorldTransform(BASE_LINK_FRAME) || this.getWorldTransform(SCEPTER_FRAME);", scene_view)
 
         self.assertIn("base_transform = TransformStamped()", robot_tf_broadcaster)
         self.assertIn("base_transform.header.frame_id = map_frame", robot_tf_broadcaster)
         self.assertIn("base_transform.child_frame_id = base_link_frame", robot_tf_broadcaster)
         self.assertIn("base_transform.transform.rotation.w = 1.0", robot_tf_broadcaster)
-        self.assertIn('latest_pose_mm["z"] / 1000.0', robot_tf_broadcaster)
+        self.assertIn("cabin_to_map_sign", robot_tf_broadcaster)
+        self.assertIn("apply_cabin_to_map_sign_mm(latest_pose_mm, config)", robot_tf_broadcaster)
         self.assertNotIn('latest_pose_mm = {"x": 0.0, "y": 0.0, "z": 0.0}', robot_tf_broadcaster)
         self.assertNotIn("publishing zero pose TF", robot_tf_broadcaster)
         self.assertIn('latest_pose_mm = {"value": None}', robot_tf_broadcaster)
@@ -1561,18 +1828,16 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("scepter_transform = TransformStamped()", robot_tf_broadcaster)
         self.assertIn("scepter_transform.header.frame_id = base_link_frame", robot_tf_broadcaster)
         self.assertIn("scepter_transform.child_frame_id = scepter_frame", robot_tf_broadcaster)
-        self.assertIn("scepter_transform.transform.translation.x = 0.0", robot_tf_broadcaster)
-        self.assertIn("scepter_transform.transform.translation.y = 0.0", robot_tf_broadcaster)
-        self.assertIn("scepter_transform.transform.translation.z = 0.0", robot_tf_broadcaster)
-        self.assertIn("scepter_quat = quaternion_from_euler(math.pi, 0.0, 0.0)", robot_tf_broadcaster)
+        self.assertIn('apply_cabin_to_map_sign_mm(config["base_to_camera_mm"], config)', robot_tf_broadcaster)
+        self.assertIn('_set_quaternion_from_rpy(scepter_transform, config["base_to_camera_rpy"])', robot_tf_broadcaster)
         self.assertIn("broadcaster.sendTransform([base_transform, scepter_transform])", robot_tf_broadcaster)
         self.assertNotIn("cabin_tf_broadcaster->sendTransform(transforms);", suoqu_node)
         self.assertNotIn("double camera_z_offset_m = 0.0;", suoqu_node)
         self.assertNotIn("camera_z_offset_m = -gripper_from_scepter.getOrigin().z();", suoqu_node)
-        self.assertIn("const nextPosition = scepterTransform.position.clone().add(CAMERA_VIEW_OFFSET);", scene_view)
-        self.assertIn("const nextTarget = scepterTransform.position.clone().add(CAMERA_VIEW_TARGET_OFFSET);", scene_view)
-        self.assertNotIn("CAMERA_VIEW_OFFSET.clone().applyQuaternion(scepterTransform.quaternion)", scene_view)
-        self.assertNotIn("CAMERA_VIEW_TARGET_OFFSET.clone().applyQuaternion(scepterTransform.quaternion)", scene_view)
+        self.assertIn("const position = scepterTransform.position.clone();", scene_view)
+        self.assertIn("CAMERA_VIEW_FORWARD_AXIS.clone().applyQuaternion(scepterTransform.quaternion)", scene_view)
+        self.assertIn("CAMERA_VIEW_UP_AXIS.clone().applyQuaternion(scepterTransform.quaternion)", scene_view)
+        self.assertIn("TOP_VIEW_FORWARD_AXIS", scene_view)
 
     def test_tf_axes_can_be_toggled_per_frame(self):
         topic_layer_catalog = (
@@ -1604,8 +1869,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.baseLinkFrame.visible = Boolean(baseLinkTransform) && this.isTfAxisFrameVisible(BASE_LINK_FRAME);", scene_view)
         self.assertIn("this.scepterFrame.visible = Boolean(scepterTransform) && this.isTfAxisFrameVisible(SCEPTER_FRAME);", scene_view)
         self.assertIn("this.gripperFrame.visible = Boolean(gripperTransform) && this.isTfAxisFrameVisible(GRIPPER_FRAME);", scene_view)
-        self.assertIn("this.applyGroupTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);", scene_view)
-        self.assertIn("this.applyGroupTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);", scene_view)
+        self.assertIn("this.applyGroupTfTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);", scene_view)
+        self.assertIn("this.applyGroupTfTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);", scene_view)
+        self.assertIn("this.applyTfFramePose(group, transform);", scene_view)
         self.assertIn("group.visible = this.isTfAxisFrameVisible(frameId);", scene_view)
         self.assertNotIn("if (this.layerState.showAxes !== false) {\n      group.visible = true;", scene_view)
 
@@ -1785,11 +2051,14 @@ class WorkspacePickerWebTest(unittest.TestCase):
         stop_algorithm_script = (WORKSPACE_SRC.parent / "stop_algorithm_stack.sh").read_text(encoding="utf-8")
 
         self.assertIn('ROS_BACKEND_SERVICE = "tie-robot-backend.service"', server_script)
+        self.assertIn('ROSBRIDGE_SERVICE = "tie-robot-rosbridge.service"', server_script)
         self.assertIn('"/api/system/start_ros_stack": "start"', server_script)
         self.assertIn('"/api/system/stop_ros_stack": "stop"', server_script)
-        self.assertIn('"/api/system/restart_ros_stack": "restart"', server_script)
+        self.assertIn('"/api/system/restart_ros_stack": FULL_ROS_STACK_RESTART_ACTION', server_script)
         self.assertIn('"/api/system/ros_stack_status"', server_script)
-        self.assertIn('["sudo", "-n", SYSTEMCTL_BIN, action, ROS_BACKEND_SERVICE]', server_script)
+        self.assertIn('command = ["sudo", "-n", SYSTEMCTL_BIN, action, *service_names]', server_script)
+        self.assertIn("FULL_ROS_STACK_STOP_ORDER", server_script)
+        self.assertIn("FULL_ROS_STACK_START_ORDER", server_script)
         self.assertNotIn('"/api/system/start_ros_stack": WORKSPACE_ROOT / "start_.sh"', server_script)
         self.assertNotIn('"/api/system/restart_ros_stack": WORKSPACE_ROOT / "restart_ros_stack.sh"', server_script)
         self.assertIn('"/api/system/start_driver_stack": ("start", "all")', server_script)
@@ -1808,13 +2077,15 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('id: "stopDriverStack"', system_control_catalog)
         self.assertIn('id: "stopAlgorithmStack"', system_control_catalog)
         self.assertIn('id: "startCabinSubsystem"', system_control_catalog)
-        self.assertIn('steps: ["startCabinDriver", "startAlgorithmStack"]', system_control_catalog)
+        self.assertIn('steps: ["startCabinDriver"]', system_control_catalog)
+        self.assertIn('id: "restartCabinSubsystem"', system_control_catalog)
+        self.assertIn('steps: ["restartCabinDriver"]', system_control_catalog)
         self.assertIn('id: "stopCabinSubsystem"', system_control_catalog)
-        self.assertIn('steps: ["stopAlgorithmStack", "stopCabinDriver"]', system_control_catalog)
+        self.assertIn('steps: ["stopCabinDriver"]', system_control_catalog)
         self.assertIn('id: "startModuanSubsystem"', system_control_catalog)
-        self.assertIn('steps: ["startModuanDriver", "startAlgorithmStack"]', system_control_catalog)
+        self.assertIn('steps: ["startModuanDriver"]', system_control_catalog)
         self.assertIn('id: "stopModuanSubsystem"', system_control_catalog)
-        self.assertIn('steps: ["stopAlgorithmStack", "stopModuanDriver"]', system_control_catalog)
+        self.assertIn('steps: ["stopModuanDriver"]', system_control_catalog)
         self.assertIn('id: "startVisualSubsystem"', system_control_catalog)
         self.assertIn('steps: ["startCameraDriver", "startAlgorithmStack"]', system_control_catalog)
         self.assertIn('id: "stopVisualSubsystem"', system_control_catalog)
@@ -1837,6 +2108,286 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("/bind_map_builder", start_algorithm_script)
         self.assertIn("/bind_map_builder", restart_algorithm_script)
         self.assertIn("/bind_map_builder", stop_algorithm_script)
+
+    def test_demo_mode_uses_old_show_full_without_translation_layer(self):
+        demo_service = TIE_ROBOT_BRINGUP_DEMO_MODE_SERVICE.read_text(encoding="utf-8")
+        demo_rosbridge_service = TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_SERVICE.read_text(encoding="utf-8")
+        demo_rosbridge_launch = TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_LAUNCH.read_text(encoding="utf-8")
+        demo_installer = TIE_ROBOT_BRINGUP_DEMO_MODE_INSTALLER.read_text(encoding="utf-8")
+        legacy_frontend_service = (
+            TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-show-legacy-frontend.service.in"
+        ).read_text(encoding="utf-8")
+        frontend_installer = TIE_ROBOT_BRINGUP_FRONTEND_AUTOSTART_INSTALLER.read_text(
+            encoding="utf-8"
+        )
+        backend_sudoers = TIE_ROBOT_BRINGUP_BACKEND_SUDOERS.read_text(encoding="utf-8")
+        server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
+        system_control_catalog = SYSTEM_CONTROL_CATALOG.read_text(encoding="utf-8")
+        system_control_controller = (
+            FRONTEND_SRC_DIR / "controllers" / "SystemControlController.js"
+        ).read_text(encoding="utf-8")
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        app_logic = (
+            FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Description=Tie Robot legacy show_full demo mode", demo_service)
+        self.assertIn("WorkingDirectory=@LEGACY_WORKSPACE@", demo_service)
+        self.assertIn("ROS_MASTER_URI=http://127.0.0.1:11311", demo_service)
+        self.assertIn("tie-robot-demo-rosbridge.service", demo_service)
+        self.assertNotIn("tie-robot-rosbridge.service", demo_service)
+        self.assertIn("ScepterSDK/3rd-PartyPlugin/ROS", demo_service)
+        self.assertIn("roslaunch chassis_ctrl show_full.launch", demo_service)
+        self.assertIn("KillSignal=SIGINT", demo_service)
+        self.assertIn("TimeoutStopSec=15", demo_service)
+        self.assertNotIn("rosbridge_websocket.launch", demo_service)
+        self.assertNotIn("show_legacy_shared_driver_stack.launch", demo_service)
+        self.assertNotIn("show_legacy_driver_bridge", demo_service)
+
+        self.assertIn("Description=Tie Robot demo lightweight rosbridge", demo_rosbridge_service)
+        self.assertIn("roslaunch tie_robot_bringup demo_rosbridge_light.launch", demo_rosbridge_service)
+        self.assertIn('name="rosbridge_websocket"', demo_rosbridge_launch)
+        self.assertIn('name="rosapi"', demo_rosbridge_launch)
+        self.assertIn("/pointAI/result_image", demo_rosbridge_launch)
+        self.assertIn("/Scepter/ir/image_raw/compressed", demo_rosbridge_launch)
+        self.assertIn("/Scepter/depth/image_raw/compressed", demo_rosbridge_launch)
+        self.assertNotIn("/Scepter/ir/image_raw,", demo_rosbridge_launch)
+        self.assertNotIn("/Scepter/depth/image_raw,", demo_rosbridge_launch)
+        self.assertNotIn("tf_stack.launch", demo_rosbridge_launch)
+        self.assertNotIn("api.launch", demo_rosbridge_launch)
+        self.assertNotIn("robot_tf_broadcaster", demo_rosbridge_launch)
+        self.assertNotIn("web_action_bridge_node", demo_rosbridge_launch)
+
+        self.assertIn("tie-robot-demo-show-full.service", demo_installer)
+        self.assertIn("tie-robot-demo-rosbridge.service", demo_installer)
+        self.assertIn("systemctl disable tie-robot-demo-show-full.service", demo_installer)
+        self.assertIn("systemctl disable tie-robot-demo-rosbridge.service", demo_installer)
+        self.assertIn(
+            "systemctl disable --now tie-robot-show-legacy-shared-driver-stack.service",
+            demo_installer,
+        )
+        self.assertNotIn("systemctl enable tie-robot-demo-show-full.service", demo_installer)
+        self.assertIn("Wants=network-online.target", legacy_frontend_service)
+        self.assertNotIn("tie-robot-rosbridge.service", legacy_frontend_service)
+        self.assertIn("install_show_legacy_frontend_service.sh", frontend_installer)
+        self.assertIn("install_demo_mode_service.sh", frontend_installer)
+
+        self.assertIn("/usr/bin/systemctl start tie-robot-demo-show-full.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl stop tie-robot-demo-show-full.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl start tie-robot-demo-rosbridge.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl stop tie-robot-demo-rosbridge.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl start tie-robot-show-legacy-frontend.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl stop tie-robot-show-legacy-shared-driver-stack.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl reset-failed tie-robot-demo-show-full.service", backend_sudoers)
+        self.assertIn("/usr/bin/systemctl reset-failed tie-robot-demo-rosbridge.service", backend_sudoers)
+
+        self.assertIn('DEMO_MODE_SERVICE = "tie-robot-demo-show-full.service"', server_script)
+        self.assertIn('DEMO_ROSBRIDGE_SERVICE = "tie-robot-demo-rosbridge.service"', server_script)
+        self.assertIn('LEGACY_FRONTEND_SERVICE = "tie-robot-show-legacy-frontend.service"', server_script)
+        self.assertIn('LEGACY_SHARED_DRIVER_STACK_SERVICE = "tie-robot-show-legacy-shared-driver-stack.service"', server_script)
+        self.assertIn('"/api/system/demo_mode_status"', server_script)
+        self.assertIn('"/api/system/toggle_demo_mode"', server_script)
+        self.assertIn("DEMO_MODE_STOP_ORDER = (", server_script)
+        self.assertIn("DEMO_MODE_RESTORE_START_ORDER = (", server_script)
+        self.assertIn("DEMO_MODE_CLEANUP_PROCESS_PATTERNS", server_script)
+        self.assertIn("_cleanup_demo_mode_ros_artifacts", server_script)
+        self.assertIn("_run_demo_mode_enter", server_script)
+        self.assertIn("_run_demo_mode_exit", server_script)
+
+        self.assertIn('id: "toggleDemoMode"', system_control_catalog)
+        self.assertIn('httpEndpoint: "/api/system/toggle_demo_mode"', system_control_catalog)
+        self.assertIn('statusEndpoint: "/api/system/demo_mode_status"', system_control_catalog)
+        self.assertIn("refreshDemoModeStatus", system_control_controller)
+        self.assertIn("legacyFrontendUrl", system_control_controller)
+        self.assertIn("onOpenUrl", system_control_controller)
+        self.assertIn('data-status-id="demoMode"', ui_controller)
+        self.assertIn("setDemoModeState(active", ui_controller)
+        self.assertIn("startDemoModeStatusPolling", app_logic)
+        self.assertIn("refreshDemoModeStatus", app_logic)
+
+    def test_demo_mode_toggle_stops_current_services_and_restores_without_bridge(self):
+        handler = object.__new__(self.server_module.NoCacheStaticHandler)
+        calls = []
+
+        def fake_run_systemctl(action, *service_names, timeout=30):
+            calls.append((action, service_names, timeout))
+
+            class Completed:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return Completed()
+
+        def fake_query_systemd_status(service_name):
+            return {
+                "service": service_name,
+                "loadState": "loaded",
+                "activeState": "active",
+                "subState": "running",
+                "mainPid": 42,
+            }
+
+        handler._run_systemctl = fake_run_systemctl
+        handler._query_systemd_status = fake_query_systemd_status
+        handler._cleanup_demo_mode_ros_artifacts = lambda: self.server_module.subprocess.CompletedProcess(
+            ["cleanup-demo-mode-ros"],
+            0,
+            "清理完成",
+            "",
+        )
+        enter_results = handler._run_demo_mode_enter()
+        exit_results = handler._run_demo_mode_exit()
+
+        self.assertEqual(
+            calls,
+            [
+                ("start", (self.server_module.LEGACY_FRONTEND_SERVICE,), 30),
+                ("stop", (self.server_module.ROS_BACKEND_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("stop", (self.server_module.DRIVER_SYSTEMD_SERVICES["cabin"],), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("stop", (self.server_module.DRIVER_SYSTEMD_SERVICES["moduan"],), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("stop", (self.server_module.DRIVER_SYSTEMD_SERVICES["camera"],), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("stop", (self.server_module.ROSBRIDGE_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("stop", (self.server_module.LEGACY_SHARED_DRIVER_STACK_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("start", (self.server_module.DEMO_ROSBRIDGE_SERVICE,), 30),
+                ("start", (self.server_module.DEMO_MODE_SERVICE,), 30),
+                ("stop", (self.server_module.DEMO_MODE_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("stop", (self.server_module.DEMO_ROSBRIDGE_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
+                ("reset-failed", (self.server_module.DEMO_MODE_SERVICE,), 30),
+                ("reset-failed", (self.server_module.DEMO_ROSBRIDGE_SERVICE,), 30),
+                ("start", (self.server_module.ROSBRIDGE_SERVICE,), 30),
+                ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["cabin"],), 30),
+                ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["moduan"],), 30),
+                ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["camera"],), 30),
+                ("start", (self.server_module.ROS_BACKEND_SERVICE,), 30),
+            ],
+        )
+        self.assertEqual([item["action"] for item in enter_results], [
+            "start",
+            "stop",
+            "stop",
+            "stop",
+            "stop",
+            "stop",
+            "stop",
+            "start",
+            "cleanup_demo_mode_ros",
+            "start",
+        ])
+        self.assertEqual(exit_results[0]["services"], (self.server_module.DEMO_MODE_SERVICE,))
+        self.assertEqual(exit_results[1]["action"], "cleanup_demo_mode_ros")
+        self.assertEqual(exit_results[2]["services"], (self.server_module.DEMO_ROSBRIDGE_SERVICE,))
+        self.assertEqual(exit_results[3]["action"], "reset-failed")
+        self.assertEqual(exit_results[4]["services"], (self.server_module.DEMO_ROSBRIDGE_SERVICE,))
+
+    def test_restart_ros_stack_stops_everything_before_restarting_dependencies(self):
+        handler = object.__new__(self.server_module.NoCacheStaticHandler)
+        calls = []
+
+        def fake_run_systemctl(action, *service_names, timeout=30):
+            calls.append((action, service_names, timeout))
+
+            class Completed:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            return Completed()
+
+        handler._run_systemctl = fake_run_systemctl
+        handler._fast_kill_stale_ros_processes = lambda: self.server_module.subprocess.CompletedProcess(
+            ["fast-kill-stale-ros"],
+            0,
+            "清理完成",
+            "",
+        )
+        results = handler._run_full_ros_stack_restart()
+
+        self.assertEqual(
+            calls,
+            [
+                ("stop", self.server_module.FULL_ROS_STACK_STOP_ORDER, 8),
+                ("start", (self.server_module.ROSBRIDGE_SERVICE,), 30),
+                ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["cabin"],), 30),
+                ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["moduan"],), 30),
+                ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["camera"],), 30),
+                ("start", (self.server_module.ROS_BACKEND_SERVICE,), 30),
+            ],
+        )
+        self.assertEqual(
+            [item["phase"] for item in results],
+            ["stop", "cleanup", "start", "start", "start", "start", "start"],
+        )
+        self.assertEqual(results[0]["services"], self.server_module.FULL_ROS_STACK_STOP_ORDER)
+        self.assertEqual(results[1]["action"], "fast_kill_stale_ros")
+
+    def test_systemctl_timeout_returns_failed_completed_process(self):
+        handler = object.__new__(self.server_module.NoCacheStaticHandler)
+        original_run = self.server_module.subprocess.run
+
+        def fake_run(command, **_kwargs):
+            raise self.server_module.subprocess.TimeoutExpired(
+                cmd=command,
+                timeout=8,
+                output="",
+                stderr="slow stop",
+            )
+
+        self.server_module.subprocess.run = fake_run
+        try:
+            result = handler._run_systemctl("stop", "tie-robot-backend.service", timeout=8)
+        finally:
+            self.server_module.subprocess.run = original_run
+
+        self.assertEqual(result.returncode, 124)
+        self.assertIn("systemctl stop tie-robot-backend.service 超时", result.stderr)
+
+    def test_fast_ros_cleanup_terminates_then_kills_leftover_processes(self):
+        handler = object.__new__(self.server_module.NoCacheStaticHandler)
+        snapshots = [
+            [
+                (101, "python3 /opt/ros/noetic/bin/rosmaster --core -p 11311"),
+                (102, "/home/hyq-/simple_lashingrobot_ws/devel/lib/tie_robot_perception/scepter_camera"),
+            ],
+            [
+                (102, "/home/hyq-/simple_lashingrobot_ws/devel/lib/tie_robot_perception/scepter_camera"),
+            ],
+            [],
+        ]
+        signals = []
+        sleeps = []
+
+        def fake_find_processes():
+            return snapshots.pop(0) if snapshots else []
+
+        def fake_signal_processes(processes, signal_number):
+            signals.append((signal_number, tuple(pid for pid, _command in processes)))
+            return []
+
+        handler._find_stale_ros_processes = fake_find_processes
+        handler._signal_ros_processes = fake_signal_processes
+        handler._sleep = lambda seconds: sleeps.append(seconds)
+
+        result = handler._fast_kill_stale_ros_processes()
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            signals,
+            [
+                (self.server_module.signal.SIGTERM, (101, 102)),
+                (self.server_module.signal.SIGKILL, (102,)),
+            ],
+        )
+        self.assertEqual(
+            sleeps,
+            [
+                self.server_module.ROS_FAST_KILL_TERM_GRACE_SEC,
+                self.server_module.ROS_FAST_KILL_KILL_GRACE_SEC,
+            ],
+        )
+        self.assertIn("2 个旧 ROS 进程", result.stdout)
 
     def test_terminal_tool_uses_backend_session_api_and_multi_session_panel(self):
         server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
@@ -1873,7 +2424,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('this.refs.terminalTabStrip?.addEventListener("click"', ui_controller)
         self.assertIn("renderTerminalSessions(sessions, activeSessionId)", ui_controller)
 
-    def test_terminal_backend_uses_tmux_sessions_and_restores_existing_sessions(self):
+    def test_terminal_backend_uses_default_pty_sessions_without_tmux(self):
         server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
         terminal_controller = (
             FRONTEND_SRC_DIR / "controllers" / "TerminalController.js"
@@ -1882,30 +2433,31 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('TERMINAL_TMUX_PREFIX = "tie_robot_web_"', server_script)
-        self.assertIn('TERMINAL_TMUX_WINDOW_PREFIX = "terminal-"', server_script)
-        self.assertIn("GENERIC_TMUX_WINDOW_NAMES", server_script)
-        self.assertIn('shutil.which("tmux")', server_script)
-        self.assertIn("discover_existing_sessions", server_script)
-        self.assertIn('"new-session"', server_script)
-        self.assertIn('"-n",', server_script)
-        self.assertIn("self.label or self.session_id,", server_script)
-        self.assertIn('label = f"{TERMINAL_TMUX_WINDOW_PREFIX}{self.sequence}"', server_script)
-        self.assertIn("ensure_distinct_tmux_window_name", server_script)
-        self.assertIn('"rename-window"', server_script)
-        self.assertIn('"attach-session"', server_script)
-        self.assertIn('"kill-session"', server_script)
-        self.assertIn("close_attachment", server_script)
-        self.assertIn("refresh_label_from_tmux_window", server_script)
-        self.assertIn('"display-message"', server_script)
-        self.assertIn('"#{window_name}"', server_script)
-        self.assertIn("label = window_name or legacy_label or fallback_label or session_id", server_script)
+        self.assertIn('TERMINAL_SHELL_RC_DIR = Path("/tmp/tie_robot_web_terminal_rc")', server_script)
+        self.assertIn("def _spawn_shell_process(self):", server_script)
+        self.assertIn("pty.openpty()", server_script)
+        self.assertIn("build_terminal_shell_command(self.rcfile_path)", server_script)
+        self.assertIn('env["WORKSPACE_PICKER_TERMINAL_SESSION_ID"] = self.session_id', server_script)
+        self.assertIn("def is_alive(self):", server_script)
+        self.assertIn('label = self.build_session_label()', server_script)
+        self.assertIn("session.close(terminate_process=True)", server_script)
+        self.assertIn("创建终端失败", server_script)
+        self.assertNotIn("TERMINAL_TMUX_PREFIX", server_script)
+        self.assertNotIn("GENERIC_TMUX_WINDOW_NAMES", server_script)
+        self.assertNotIn('shutil.which("tmux")', server_script)
+        self.assertNotIn("discover_existing_sessions", server_script)
+        self.assertNotIn('"new-session"', server_script)
+        self.assertNotIn('"rename-window"', server_script)
+        self.assertNotIn('"attach-session"', server_script)
+        self.assertNotIn('"kill-session"', server_script)
+        self.assertNotIn("refresh_label_from_tmux_window", server_script)
+        self.assertNotIn('"display-message"', server_script)
+        self.assertNotIn("tmuxSessionName", server_script)
         self.assertNotIn('label = f"终端 {self.sequence}"', server_script)
         self.assertNotIn('f"终端 {len(self.sessions) + 1}"', server_script)
-        self.assertIn("label: session.label || session.tmuxSessionName || sessionId", terminal_controller)
+        self.assertIn("label: session.label || sessionId", terminal_controller)
+        self.assertNotIn("tmuxSessionName", terminal_controller)
         self.assertNotIn('label: session.label || `终端 ${this.sessions.size + 1}`', terminal_controller)
-        self.assertIn("kill_tmux=False", server_script)
-        self.assertIn('session.kill_tmux_session()', server_script)
         self.assertIn("hydrateExistingSessions", terminal_controller)
         self.assertIn("startSessionLabelSync", terminal_controller)
         self.assertIn("refreshSessionSummaries", terminal_controller)
@@ -2199,7 +2751,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertNotIn("ensureS2OverlayDisplayTopic()", app_logic)
         self.assertIn("scheduleS2ResultTimeout()", app_logic)
         self.assertIn("clearS2ResultTimeout()", app_logic)
-        self.assertIn("this.prFprgOverlayRequested = true;", app_logic)
+        self.assertIn("this.surfaceDpOverlayRequested = true;", app_logic)
         self.assertNotIn('this.ui.setSelectedImageTopic(DEFAULT_IMAGE_TOPIC);', app_logic)
         self.assertIn("视觉识别会叠加在当前图像图层，不切换图像话题。", app_logic)
         self.assertIn("后端视觉识别结果图已叠加在当前图像图层", app_logic)
@@ -2224,7 +2776,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("return pointsLength;", app_logic)
         self.assertLess(
             app_logic.index("this.cacheLatestVisualRecognitionPointsMessage(message);"),
-            app_logic.index("const requestActive = this.prFprgOverlayActive || this.prFprgOverlayRequested;"),
+            app_logic.index("const requestActive = this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested;"),
         )
 
     def test_visual_recognition_backend_overlay_can_be_cleared(self):
@@ -2248,8 +2800,8 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('if (taskAction === "clearVisualRecognition")', app_logic)
         self.assertIn("handleClearVisualRecognitionOverlay()", app_logic)
         self.assertIn("this.clearS2ResultTimeout();", app_logic)
-        self.assertIn("this.prFprgOverlayActive = false;", app_logic)
-        self.assertIn("this.prFprgOverlayRequested = false;", app_logic)
+        self.assertIn("this.surfaceDpOverlayActive = false;", app_logic)
+        self.assertIn("this.surfaceDpOverlayRequested = false;", app_logic)
         self.assertIn("this.visualRecognitionOverlayCleared = true;", app_logic)
         self.assertIn("this.visualRecognitionOverlayCompleted = false;", app_logic)
         self.assertIn("this.workspaceView.setS2OverlayMessage(null);", app_logic)
@@ -2288,11 +2840,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
             task_action_controller.index("\n  handleSavedWorkspacePayload", single_bind_start)
         ]
         self.assertIn("await this.rosConnection.callSinglePointBindService()", single_bind_body)
-        self.assertNotIn("triggerPrFprgRecognition({", single_bind_body)
+        self.assertNotIn("triggerSurfaceDpRecognition({", single_bind_body)
         self.assertNotIn("callLashingRecognizeOnceService", single_bind_body)
         trigger_only_body = task_action_controller[
             task_action_controller.index("\n  triggerSavedWorkspaceS2()"):
-            task_action_controller.index("\n  async triggerPrFprgRecognition")
+            task_action_controller.index("\n  async triggerSurfaceDpRecognition")
         ]
         self.assertNotIn("callSinglePointBindService", trigger_only_body)
 
@@ -2314,9 +2866,19 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('{ id: "cabinRemote", label: "索驱遥控" }', ui_controller)
         self.assertIn('data-settings-page="cabinRemote"', ui_controller)
         self.assertIn('id="cabinKeyboardRemoteToggle"', ui_controller)
+        self.assertIn('id="cabinRemoteMoveMode"', ui_controller)
+        self.assertIn('{ id: "absolute", label: "绝对点动" }', ui_controller)
+        self.assertIn('{ id: "relative", label: "相对点动" }', ui_controller)
+        self.assertIn('data-cabin-remote-move-mode="${mode.id}"', ui_controller)
+        self.assertIn("绝对点动", ui_controller)
+        self.assertIn("相对点动", ui_controller)
         self.assertIn('id="cabinRemoteStep"', ui_controller)
         self.assertIn('id="cabinRemoteSpeed"', ui_controller)
-        self.assertIn('id="cabinRemoteCurrentPosition"', ui_controller)
+        self.assertIn('id="cabinRemoteAbsoluteX"', ui_controller)
+        self.assertIn('id="cabinRemoteAbsoluteY"', ui_controller)
+        self.assertIn('id="cabinRemoteAbsoluteZ"', ui_controller)
+        self.assertIn('id="cabinRemoteAbsoluteMoveButton"', ui_controller)
+        self.assertNotIn('id="cabinRemoteCurrentPosition"', ui_controller)
         self.assertIn('id="cabinRemoteStatus"', ui_controller)
         self.assertIn('data-cabin-remote-stop="true"', ui_controller)
         self.assertIn('data-cabin-remote-direction="xNegative"', ui_controller)
@@ -2327,17 +2889,27 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('data-cabin-remote-direction="zNegative"', ui_controller)
         self.assertIn("索驱停止移动", ui_controller)
         self.assertIn("this.refs.cabinKeyboardRemoteToggle =", ui_controller)
+        self.assertIn("this.refs.cabinRemoteMoveMode =", ui_controller)
+        self.assertIn("this.refs.cabinRemoteMoveModeButtons =", ui_controller)
         self.assertIn("this.refs.cabinRemoteStep =", ui_controller)
         self.assertIn("this.refs.cabinRemoteSpeed =", ui_controller)
+        self.assertIn("this.refs.cabinRemoteAbsoluteX =", ui_controller)
+        self.assertIn("this.refs.cabinRemoteAbsoluteMoveButton =", ui_controller)
         self.assertIn("this.refs.bottomCabinPosition =", ui_controller)
         self.assertIn("this.refs.bottomCabinPositionAxes =", ui_controller)
         self.assertIn("this.refs.bottomLinearModulePosition =", ui_controller)
         self.assertIn("this.refs.bottomLinearModuleAxes =", ui_controller)
-        self.assertIn("this.refs.cabinRemoteCurrentPosition =", ui_controller)
+        self.assertIn("this.refs.cabinRemoteAbsoluteY =", ui_controller)
+        self.assertIn("this.refs.cabinRemoteAbsoluteZ =", ui_controller)
         self.assertIn("this.refs.cabinRemoteStatus =", ui_controller)
         self.assertIn("this.refs.cabinRemoteButtons =", ui_controller)
         self.assertIn("this.refs.cabinRemoteStopButton =", ui_controller)
         self.assertIn("getCabinRemoteSettings()", ui_controller)
+        self.assertIn("setCabinRemoteMoveMode(moveMode)", ui_controller)
+        self.assertIn("getCabinRemoteAbsoluteTarget()", ui_controller)
+        self.assertIn("setCabinRemoteAbsoluteTarget(position)", ui_controller)
+        self.assertIn("const isEditing = [", ui_controller)
+        self.assertIn("onCabinRemoteAbsoluteMoveAction(callback)", ui_controller)
         self.assertIn("onCabinRemoteAction(callback)", ui_controller)
         self.assertIn("setCabinRemoteCurrentPosition(position)", ui_controller)
         self.assertIn("this.refs.bottomCabinPosition.dataset.state = hasPosition ? \"live\" : \"waiting\";", ui_controller)
@@ -2354,10 +2926,13 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('"emptyLeft xNegative emptyRight"', app_css)
         self.assertIn(".cabin-remote-position-grid {", app_css)
         self.assertIn(".cabin-remote-position-value {", app_css)
+        self.assertIn(".cabin-remote-mode-group {", app_css)
+        self.assertIn(".cabin-remote-mode-button.is-active {", app_css)
         self.assertIn(".cabin-remote-pad {", app_css)
         self.assertIn(".cabin-remote-btn {", app_css)
         self.assertIn(".cabin-remote-btn.is-active {", app_css)
         self.assertIn(".cabin-remote-status-active {", app_css)
+        self.assertIn(".cabin-remote-absolute-actions {", app_css)
 
     def test_cabin_remote_step_and_speed_are_persisted(self):
         ui_controller = (
@@ -2375,10 +2950,12 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("saveCabinRemoteSettings(value)", storage)
         self.assertIn("step: normalizePositiveNumber(parsed?.step, defaults.step)", storage)
         self.assertIn("speed: normalizePositiveNumber(parsed?.speed, defaults.speed)", storage)
+        self.assertIn('moveMode: parsed?.moveMode === "relative" ? "relative" : defaults.moveMode', storage)
 
         self.assertIn("setCabinRemoteSettings(settings)", ui_controller)
         self.assertIn("this.refs.cabinRemoteStep.value = String(step);", ui_controller)
         self.assertIn("this.refs.cabinRemoteSpeed.value = String(speed);", ui_controller)
+        self.assertIn("this.setCabinRemoteMoveMode(settings?.moveMode);", ui_controller)
 
         self.assertIn("loadCabinRemoteSettings", app_logic)
         self.assertIn("saveCabinRemoteSettings", app_logic)
@@ -2402,6 +2979,12 @@ class WorkspacePickerWebTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         ros_connection = (
             FRONTEND_SRC_DIR / "controllers" / "RosConnectionController.js"
+        ).read_text(encoding="utf-8")
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        topic_registry = (
+            FRONTEND_SRC_DIR / "config" / "topicRegistry.js"
         ).read_text(encoding="utf-8")
         service_orchestration = (
             WORKSPACE_SRC / "tie_robot_process" / "src" / "suoqu" / "service_orchestration.cpp"
@@ -2427,26 +3010,23 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("handleCabinRemoteStopAction(source)", app_logic)
         self.assertIn('event.type === "stop"', app_logic)
         self.assertIn("await this.rosConnectionController.callCabinMotionStopService()", app_logic)
-        self.assertIn("this.stopCabinRemoteRepeat();", app_logic)
         self.assertIn("shouldIgnoreCabinRemoteKeyboardTarget(target, document.activeElement)", app_logic)
         self.assertIn("event.repeat", app_logic)
         self.assertIn("keyboardEnabled", app_logic)
         self.assertIn("this.cabinRemoteController.setLastKnownCabinPosition(payload);", app_logic)
         self.assertIn("this.ui.setCabinRemoteButtonsEnabled(", app_logic)
         self.assertIn("this.ui.setCabinRemoteCurrentPosition(currentCabinPosition);", app_logic)
+        self.assertIn("this.ui.setCabinRemoteAbsoluteTarget(currentCabinPosition);", app_logic)
         self.assertIn("refreshCabinRemoteCurrentPosition()", app_logic)
-        self.assertIn("startCabinRemoteRepeat(directionId)", app_logic)
-        self.assertIn("stopCabinRemoteRepeat()", app_logic)
-        self.assertIn("scheduleCabinRemoteRepeatTick()", app_logic)
-        self.assertIn("window.addEventListener(\"pointerup\", this.handleCabinRemoteGlobalPointerUp, true);", app_logic)
-        self.assertIn("window.addEventListener(\"blur\", this.handleCabinRemoteWindowBlur, true);", app_logic)
-        self.assertIn("document.addEventListener(\"visibilitychange\", this.handleCabinRemoteVisibilityChange, true);", app_logic)
-        self.assertIn("event.type === \"pressstart\"", app_logic)
-        self.assertIn("event.type === \"pressend\"", app_logic)
-        self.assertIn("this.ui.setCabinRemoteButtonActive(directionId);", app_logic)
-        self.assertIn("this.ui.clearCabinRemoteButtonActive();", app_logic)
-        self.assertIn("this.cabinRemoteRepeatTimerId = window.setTimeout(", app_logic)
-        self.assertIn("if (this.cabinRemoteMoveInFlight) {", app_logic)
+        self.assertIn('callback(button.dataset.cabinRemoteDirection, { type: "click" });', ui_controller)
+        self.assertNotIn("startCabinRemoteRepeat(directionId)", app_logic)
+        self.assertNotIn("stopCabinRemoteRepeat()", app_logic)
+        self.assertNotIn("scheduleCabinRemoteRepeatTick()", app_logic)
+        self.assertNotIn("event.type === \"pressstart\"", app_logic)
+        self.assertNotIn("event.type === \"pressend\"", app_logic)
+        self.assertNotIn("this.cabinRemoteRepeatTimerId = window.setTimeout(", app_logic)
+        self.assertIn("moveInFlight: this.cabinRemoteMoveInFlight,", app_logic)
+        self.assertIn("if (!operationState.canOperate) {", app_logic)
         self.assertIn("moveToPosition: ready && Boolean(resources?.cabinSingleMoveService),", app_logic)
         self.assertIn("getCurrentCabinPositionMm()", scene_view)
         self.assertIn("const poseTransform = this.getWorldTransform(BASE_LINK_FRAME) || this.getWorldTransform(SCEPTER_FRAME);", scene_view)
@@ -2459,8 +3039,10 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('zPositive: { axis: "z", delta: 1, label: "Z+" }', cabin_remote_controller)
         self.assertIn("this.sceneView.getCurrentCabinPositionMm()", cabin_remote_controller)
         self.assertIn("this.lastKnownCabinPositionMm", cabin_remote_controller)
-        self.assertIn("target[definition.axis] += definition.delta * sanitizedStep;", cabin_remote_controller)
+        self.assertIn("delta[definition.axis] = definition.delta * sanitizedStep;", cabin_remote_controller)
+        self.assertIn("normalizeMoveMode(moveMode)", cabin_remote_controller)
         self.assertIn("callCabinSingleMoveService(target)", cabin_remote_controller)
+        self.assertIn("callCabinIncrementalMoveService(target)", cabin_remote_controller)
         self.assertIn("syncGlobalCabinMoveSpeed({ suppressLog = false } = {})", app_logic)
         self.assertIn("this.rosConnectionController.publishCabinSpeed(speed)", app_logic)
         self.assertIn("TOPICS.process.setCabinSpeed", ros_connection)
@@ -2468,6 +3050,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("publishCabinSpeed(speed)", ros_connection)
         self.assertIn("this.resources.cabinSpeedPublisher.publish(", ros_connection)
         self.assertIn("SERVICES.cabin.motionStop", ros_connection)
+        self.assertIn("cabinIncrementalMoveService: new ROSLIB.Service({", ros_connection)
+        self.assertIn("callCabinIncrementalMoveService({ x, y, z, speed })", ros_connection)
+        self.assertIn('singleMove: "/cabin/driver/raw_move"', topic_registry)
+        self.assertIn('incrementalMove: "/cabin/driver/incremental_move"', topic_registry)
+        self.assertNotIn('singleMove: "/cabin/single_move"', topic_registry)
         self.assertIn("stopCabinMotionService: new ROSLIB.Service({", ros_connection)
         self.assertIn("callCabinMotionStopService()", ros_connection)
         self.assertIn("this.resources.stopCabinMotionService.callService(", ros_connection)

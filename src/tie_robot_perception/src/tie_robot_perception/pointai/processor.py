@@ -4,6 +4,7 @@ from . import world_coord
 from . import rendering
 from . import workspace_masks
 from . import manual_workspace_s2
+from . import execution_refine_hough
 from . import image_buffers
 from . import matrix_selection
 from . import process_image_service
@@ -55,33 +56,24 @@ def bind_image_processor_methods(cls):
     cls.is_point_in_matrix_selection_range = workspace_masks.is_point_in_matrix_selection_range
     cls.is_point_in_display_bind_range = workspace_masks.is_point_in_display_bind_range
     cls.prepare_manual_workspace_s2_inputs = manual_workspace_s2.prepare_manual_workspace_s2_inputs
-    cls.collect_stable_manual_workspace_s2_inputs = manual_workspace_s2.collect_stable_manual_workspace_s2_inputs
     cls.build_manual_workspace_s2_points_array = manual_workspace_s2.build_manual_workspace_s2_points_array
-    cls.apply_manual_workspace_s2_phase_lock = manual_workspace_s2.apply_manual_workspace_s2_phase_lock
+    cls.run_manual_workspace_surface_dp_pipeline = manual_workspace_s2.run_manual_workspace_surface_dp_pipeline
+    cls.run_manual_workspace_s2_depth_only_pipeline = manual_workspace_s2.run_manual_workspace_s2_depth_only_pipeline
     cls.run_manual_workspace_s2_pipeline = manual_workspace_s2.run_manual_workspace_s2_pipeline
     cls.run_manual_workspace_s2 = manual_workspace_s2.run_manual_workspace_s2
     cls.try_scan_only_manual_workspace_s2 = manual_workspace_s2.try_scan_only_manual_workspace_s2
     cls.manual_workspace_s2_callback = manual_workspace_s2.manual_workspace_s2_callback
     cls.handle_lashing_recognize_once = manual_workspace_s2.handle_lashing_recognize_once
+    cls.run_execution_refine_hough_pipeline = execution_refine_hough.run_execution_refine_hough_pipeline
     cls.smooth_workspace_s2_profile = staticmethod(manual_workspace_s2.smooth_workspace_s2_profile)
     cls.estimate_workspace_s2_period_and_phase = staticmethod(manual_workspace_s2.estimate_workspace_s2_period_and_phase)
     cls.build_workspace_s2_line_positions = staticmethod(manual_workspace_s2.build_workspace_s2_line_positions)
-    cls.refine_workspace_s2_line_positions_to_local_peaks = staticmethod(manual_workspace_s2.refine_workspace_s2_line_positions_to_local_peaks)
-    cls.select_workspace_s2_peak_supported_line_positions = staticmethod(manual_workspace_s2.select_workspace_s2_peak_supported_line_positions)
-    cls.select_workspace_s2_continuous_line_positions = staticmethod(manual_workspace_s2.select_workspace_s2_continuous_line_positions)
-    cls.prune_workspace_s2_line_positions_by_spacing = staticmethod(manual_workspace_s2.prune_workspace_s2_line_positions_by_spacing)
     cls.build_workspace_s2_bbox = staticmethod(manual_workspace_s2.build_workspace_s2_bbox)
     cls.build_workspace_s2_axis_profile = staticmethod(manual_workspace_s2.build_workspace_s2_axis_profile)
     cls.normalize_workspace_s2_response = staticmethod(manual_workspace_s2.normalize_workspace_s2_response)
     cls.build_workspace_s2_rectified_geometry = staticmethod(manual_workspace_s2.build_workspace_s2_rectified_geometry)
     cls.map_workspace_s2_rectified_points_to_image = staticmethod(manual_workspace_s2.map_workspace_s2_rectified_points_to_image)
-    cls.build_workspace_s2_structural_edge_suppression_mask = staticmethod(manual_workspace_s2.build_workspace_s2_structural_edge_suppression_mask)
     cls.build_workspace_s2_projective_line_segments = staticmethod(manual_workspace_s2.build_workspace_s2_projective_line_segments)
-    cls.build_workspace_s2_oriented_line_families = staticmethod(manual_workspace_s2.build_workspace_s2_oriented_line_families)
-    cls.score_workspace_s2_oriented_line_family_result = staticmethod(manual_workspace_s2.score_workspace_s2_oriented_line_family_result)
-    cls.intersect_workspace_s2_oriented_line_families = staticmethod(manual_workspace_s2.intersect_workspace_s2_oriented_line_families)
-    cls.filter_workspace_s2_rectified_points_outside_mask = staticmethod(manual_workspace_s2.filter_workspace_s2_rectified_points_outside_mask)
-    cls.build_workspace_s2_oriented_projective_line_segments = staticmethod(manual_workspace_s2.build_workspace_s2_oriented_projective_line_segments)
     cls.sort_polygon_points_clockwise = staticmethod(manual_workspace_s2.sort_polygon_points_clockwise)
     cls.sort_polygon_indices_clockwise = staticmethod(manual_workspace_s2.sort_polygon_indices_clockwise)
     cls.printsomething = image_buffers.printsomething

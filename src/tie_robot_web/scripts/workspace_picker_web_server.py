@@ -7,6 +7,7 @@ import errno
 import fcntl
 import html
 import http.client
+import ipaddress
 import json
 import logging
 import os
@@ -48,11 +49,7 @@ DEFAULT_PORT_SEARCH_COUNT = 20
 DEFAULT_TERMINAL_COLS = 120
 DEFAULT_TERMINAL_ROWS = 32
 TERMINAL_BACKLOG_MAX_CHUNKS = 256
-TERMINAL_TMUX_PREFIX = "tie_robot_web_"
-TERMINAL_TMUX_WINDOW_PREFIX = "terminal-"
-TERMINAL_TMUX_LABEL_OPTION = "@tie_robot_frontend_label"
-TERMINAL_TMUX_RC_DIR = Path("/tmp/tie_robot_web_tmux_rc")
-GENERIC_TMUX_WINDOW_NAMES = {"bash", "sh", "zsh", "fish", "shell"}
+TERMINAL_SHELL_RC_DIR = Path("/tmp/tie_robot_web_terminal_rc")
 DEFAULT_GUI_PORT = 6080
 DEFAULT_GUI_DISPLAY = 120
 GUI_PROXY_PREFIX = "/api/gui/proxy/"
@@ -66,23 +63,91 @@ GRAPHICAL_COMMAND_ALIASES = (
     "rqt_reconfigure",
 )
 WORKSPACE_ROOT = Path("/home/hyq-/simple_lashingrobot_ws")
+LEGACY_SHOW_WORKSPACE = Path(
+    "/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws"
+)
+SCEPTER_ROS_ROOT = Path("/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS")
 PLANNING_BIND_PATH_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_process" / "data" / "pseudo_slam_bind_path.json"
 )
 GB28181_CONFIG_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_gb28181" / "config" / "gb28181_device.yaml"
 )
+PING_BIN = shutil.which("ping") or "/bin/ping"
+PING_COUNT = 3
+PING_TIMEOUT_SECONDS = 1
+PING_COMMAND_TIMEOUT_SECONDS = 6
 SYSTEMCTL_BIN = shutil.which("systemctl") or "/usr/bin/systemctl"
 ROS_BACKEND_SERVICE = "tie-robot-backend.service"
+ROSBRIDGE_SERVICE = "tie-robot-rosbridge.service"
+DEMO_ROSBRIDGE_SERVICE = "tie-robot-demo-rosbridge.service"
+DEMO_MODE_SERVICE = "tie-robot-demo-show-full.service"
+LEGACY_FRONTEND_SERVICE = "tie-robot-show-legacy-frontend.service"
+LEGACY_SHARED_DRIVER_STACK_SERVICE = "tie-robot-show-legacy-shared-driver-stack.service"
+DEMO_MODE_FRONTEND_PORT = 5173
 DRIVER_SYSTEMD_SERVICES = {
     "cabin": "tie-robot-driver-suoqu.service",
     "moduan": "tie-robot-driver-moduan.service",
     "camera": "tie-robot-driver-camera.service",
 }
+FULL_ROS_STACK_RESTART_ACTION = "full_restart"
+FULL_ROS_STACK_STOP_ORDER = (
+    ROS_BACKEND_SERVICE,
+    DRIVER_SYSTEMD_SERVICES["cabin"],
+    DRIVER_SYSTEMD_SERVICES["moduan"],
+    DRIVER_SYSTEMD_SERVICES["camera"],
+    ROSBRIDGE_SERVICE,
+)
+FULL_ROS_STACK_START_ORDER = (
+    ROSBRIDGE_SERVICE,
+    DRIVER_SYSTEMD_SERVICES["cabin"],
+    DRIVER_SYSTEMD_SERVICES["moduan"],
+    DRIVER_SYSTEMD_SERVICES["camera"],
+    ROS_BACKEND_SERVICE,
+)
+FULL_ROS_STACK_STOP_TIMEOUT_SEC = 8
+DEMO_MODE_STOP_TIMEOUT_SEC = 20
+DEMO_MODE_STOP_ORDER = (
+    ROS_BACKEND_SERVICE,
+    DRIVER_SYSTEMD_SERVICES["cabin"],
+    DRIVER_SYSTEMD_SERVICES["moduan"],
+    DRIVER_SYSTEMD_SERVICES["camera"],
+    ROSBRIDGE_SERVICE,
+    LEGACY_SHARED_DRIVER_STACK_SERVICE,
+)
+DEMO_MODE_RESTORE_START_ORDER = (
+    ROSBRIDGE_SERVICE,
+    DRIVER_SYSTEMD_SERVICES["cabin"],
+    DRIVER_SYSTEMD_SERVICES["moduan"],
+    DRIVER_SYSTEMD_SERVICES["camera"],
+    ROS_BACKEND_SERVICE,
+)
+DEMO_MODE_OPTIONAL_STOP_SERVICES = (
+    LEGACY_SHARED_DRIVER_STACK_SERVICE,
+)
+DEMO_MODE_CLEANUP_PROCESS_PATTERNS = (
+    f"{LEGACY_SHOW_WORKSPACE}/devel/lib/chassis_ctrl/",
+    f"{LEGACY_SHOW_WORKSPACE}/src/chassis_ctrl/scripts/pointAI.py",
+    f"{SCEPTER_ROS_ROOT}/devel/lib/ScepterROS/",
+    "roslaunch chassis_ctrl show_full.launch",
+    "roslaunch chassis_ctrl api.launch",
+    "roslaunch chassis_ctrl run.launch",
+)
+ROS_FAST_KILL_TERM_GRACE_SEC = 0.8
+ROS_FAST_KILL_KILL_GRACE_SEC = 0.3
+ROS_FAST_KILL_PROCESS_PATTERNS = (
+    f"{WORKSPACE_ROOT}/devel/lib/tie_robot_",
+    "/opt/ros/noetic/bin/roslaunch tie_robot_bringup",
+    "/opt/ros/noetic/bin/rosmaster --core -p 11311",
+    "/opt/ros/noetic/lib/rosout/rosout",
+    "/opt/ros/noetic/lib/rosbridge_server/rosbridge_websocket",
+    "/opt/ros/noetic/lib/rosapi/rosapi_node",
+    "/opt/ros/noetic/lib/tf2_web_republisher/tf2_web_republisher",
+)
 SYSTEMD_ROS_BACKEND_ACTIONS = {
     "/api/system/start_ros_stack": "start",
     "/api/system/stop_ros_stack": "stop",
-    "/api/system/restart_ros_stack": "restart",
+    "/api/system/restart_ros_stack": FULL_ROS_STACK_RESTART_ACTION,
 }
 SYSTEMD_DRIVER_ACTIONS = {
     "/api/system/start_driver_stack": ("start", "all"),
@@ -103,10 +168,118 @@ SYSTEM_CONTROL_SCRIPTS = {
     "/api/system/stop_algorithm_stack": WORKSPACE_ROOT / "stop_algorithm_stack.sh",
     "/api/system/restart_algorithm_stack": WORKSPACE_ROOT / "restart_algorithm_stack.sh",
 }
+PING_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}$)(?!-)(?:[A-Za-z0-9-]{1,63}\.)*[A-Za-z0-9-]{1,63}\.?$"
+)
 
 
 def yaml_quote(value):
     return json.dumps(str(value), ensure_ascii=False)
+
+
+def normalize_ping_host(value):
+    host = str(value or "").strip()
+    if not host:
+        raise ValueError("请先填写要测试的 IP。")
+    if len(host) > 253 or any(character.isspace() for character in host):
+        raise ValueError("IP 或主机名格式无效。")
+
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+
+    if host.startswith("-") or not PING_HOSTNAME_RE.match(host):
+        raise ValueError("IP 或主机名格式无效。")
+    return host
+
+
+def extract_ping_summary(stdout, stderr=""):
+    summary_lines = []
+    for line in str(stdout or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if (
+            "packets transmitted" in stripped
+            or "packet loss" in stripped
+            or "已发送" in stripped
+            or "包丢失" in stripped
+            or stripped.startswith("rtt ")
+            or stripped.startswith("round-trip ")
+            or "min/avg/max" in stripped
+        ):
+            summary_lines.append(stripped)
+    if summary_lines:
+        return " | ".join(summary_lines[-2:])
+    fallback = str(stderr or "").strip() or str(stdout or "").strip()
+    return fallback.splitlines()[-1].strip() if fallback else ""
+
+
+def run_network_ping(host):
+    target = normalize_ping_host(host)
+    command = [
+        PING_BIN,
+        "-c",
+        str(PING_COUNT),
+        "-W",
+        str(PING_TIMEOUT_SECONDS),
+        target,
+    ]
+    start_time = time.monotonic()
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=PING_COMMAND_TIMEOUT_SECONDS,
+        )
+        duration_ms = round((time.monotonic() - start_time) * 1000)
+        summary = extract_ping_summary(completed.stdout, completed.stderr)
+        reachable = completed.returncode == 0
+        return {
+            "success": reachable,
+            "reachable": reachable,
+            "target": target,
+            "command": shlex.join(command),
+            "returnCode": completed.returncode,
+            "durationMs": duration_ms,
+            "summary": summary,
+            "stdout": completed.stdout.strip(),
+            "stderr": completed.stderr.strip(),
+        }
+    except subprocess.TimeoutExpired as exc:
+        duration_ms = round((time.monotonic() - start_time) * 1000)
+        stdout = exc.stdout.decode("utf-8", errors="ignore") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+        stderr = exc.stderr.decode("utf-8", errors="ignore") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+        return {
+            "success": False,
+            "reachable": False,
+            "target": target,
+            "command": shlex.join(command),
+            "returnCode": None,
+            "durationMs": duration_ms,
+            "summary": extract_ping_summary(stdout, stderr) or "Ping 超时。",
+            "stdout": stdout.strip(),
+            "stderr": stderr.strip(),
+            "message": "Ping 超时。",
+        }
+    except Exception as exc:
+        duration_ms = round((time.monotonic() - start_time) * 1000)
+        return {
+            "success": False,
+            "reachable": False,
+            "target": target,
+            "command": shlex.join(command),
+            "returnCode": None,
+            "durationMs": duration_ms,
+            "summary": str(exc),
+            "stdout": "",
+            "stderr": str(exc),
+            "message": f"Ping 执行失败：{exc}",
+        }
 
 
 def normalize_gb28181_port(value, label):
@@ -274,10 +447,6 @@ def build_terminal_shell_command(rcfile_path):
     return ["/bin/bash", "--rcfile", str(rcfile_path), "-i"]
 
 
-def is_generic_tmux_window_name(window_name):
-    return str(window_name or "").strip().lower() in GENERIC_TMUX_WINDOW_NAMES
-
-
 def build_terminal_rcfile(session_id, gui_api_url):
     alias_functions = "\n".join(
         f'{alias}() {{ __workspace_picker_launch_gui "{alias}" "$@"; }}'
@@ -419,8 +588,6 @@ class TerminalSession:
         cols=DEFAULT_TERMINAL_COLS,
         rows=DEFAULT_TERMINAL_ROWS,
         gui_api_url=None,
-        tmux_session_name=None,
-        existing=False,
     ):
         self.session_id = session_id
         self.label = label or ""
@@ -428,7 +595,6 @@ class TerminalSession:
         self.cols = max(40, int(cols or DEFAULT_TERMINAL_COLS))
         self.rows = max(12, int(rows or DEFAULT_TERMINAL_ROWS))
         self.gui_api_url = gui_api_url or f"http://127.0.0.1:{DEFAULT_WORKSPACE_PICKER_PORT}/api/gui/sessions"
-        self.tmux_session_name = tmux_session_name or f"{TERMINAL_TMUX_PREFIX}{session_id}"
         self.clients = set()
         self.buffer = collections.deque(maxlen=TERMINAL_BACKLOG_MAX_CHUNKS)
         self.buffer_chars = 0
@@ -439,171 +605,75 @@ class TerminalSession:
         self.process = None
         self.reader_thread = None
         self.rcfile_path = None
-        self.attachment_closing = False
-        if not existing:
-            self._spawn_tmux_session()
-        else:
-            self.refresh_label_from_tmux_window()
+        self.manager_closing = False
+        self._spawn_shell_process()
 
-    def _spawn_tmux_session(self):
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path:
-            raise RuntimeError("未找到 tmux，无法创建持久终端会话。")
-
-        TERMINAL_TMUX_RC_DIR.mkdir(parents=True, exist_ok=True)
-        self.rcfile_path = str(TERMINAL_TMUX_RC_DIR / f"{self.session_id}.bashrc")
+    def _spawn_shell_process(self):
+        TERMINAL_SHELL_RC_DIR.mkdir(parents=True, exist_ok=True)
+        self.rcfile_path = str(TERMINAL_SHELL_RC_DIR / f"{self.session_id}.bashrc")
         Path(self.rcfile_path).write_text(
             build_terminal_rcfile(self.session_id, self.gui_api_url),
             encoding="utf-8",
         )
-        shell_command = shlex.join(build_terminal_shell_command(self.rcfile_path))
-        subprocess.run(
-            [
-                tmux_path,
-                "new-session",
-                "-d",
-                "-s",
-                self.tmux_session_name,
-                "-n",
-                self.label or self.session_id,
-                "-c",
-                str(WORKSPACE_ROOT),
-                shell_command,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
+
+        master_fd = None
+        slave_fd = None
+        try:
+            master_fd, slave_fd = pty.openpty()
+            set_pty_window_size(master_fd, self.cols, self.rows)
+            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+            env = os.environ.copy()
+            env.setdefault("TERM", "xterm-256color")
+            env.setdefault("COLORTERM", "truecolor")
+            env["WORKSPACE_PICKER_GUI_API"] = self.gui_api_url
+            env["WORKSPACE_PICKER_TERMINAL_SESSION_ID"] = self.session_id
+
+            self.process = subprocess.Popen(
+                build_terminal_shell_command(self.rcfile_path),
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=str(WORKSPACE_ROOT),
+                env=env,
+                close_fds=True,
+                start_new_session=True,
+            )
+            os.close(slave_fd)
+            slave_fd = None
+            self.master_fd = master_fd
+            master_fd = None
+            self.reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+            self.reader_thread.start()
+        except Exception:
+            if slave_fd is not None:
+                try:
+                    os.close(slave_fd)
+                except OSError:
+                    pass
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except OSError:
+                    pass
+            self._cleanup_rcfile()
+            raise
+
+    def is_alive(self):
+        return bool(
+            not self.closed
+            and self.process is not None
+            and self.process.poll() is None
         )
-        self.disable_tmux_automatic_window_rename()
-        self.update_tmux_environment()
-        self.refresh_label_from_tmux_window()
-        self.persist_label_option()
-
-    def get_tmux_window_name(self):
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path:
-            return ""
-        completed = subprocess.run(
-            [tmux_path, "display-message", "-p", "-t", self.tmux_session_name, "#{window_name}"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode != 0:
-            return ""
-        return completed.stdout.strip()
-
-    def refresh_label_from_tmux_window(self):
-        window_name = self.get_tmux_window_name()
-        if window_name:
-            self.label = window_name
-        elif not self.label:
-            self.label = self.session_id
-        return self.label
-
-    def rename_tmux_window(self, window_name):
-        tmux_path = self.manager.get_tmux_path()
-        normalized_name = str(window_name or "").strip()
-        if not tmux_path or not normalized_name or not self.tmux_session_exists():
-            return False
-        completed = subprocess.run(
-            [tmux_path, "rename-window", "-t", self.tmux_session_name, normalized_name],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode != 0:
-            return False
-        self.label = normalized_name
-        self.disable_tmux_automatic_window_rename()
-        self.persist_label_option()
-        return True
-
-    def disable_tmux_automatic_window_rename(self):
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path or not self.tmux_session_exists():
-            return
-        subprocess.run(
-            [tmux_path, "set-window-option", "-t", self.tmux_session_name, "automatic-rename", "off"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-    def ensure_distinct_tmux_window_name(self, fallback_label):
-        window_name = self.get_tmux_window_name()
-        if is_generic_tmux_window_name(window_name):
-            return self.rename_tmux_window(fallback_label)
-        self.refresh_label_from_tmux_window()
-        return False
-
-    def persist_label_option(self):
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path or not self.label:
-            return
-        subprocess.run(
-            [
-                tmux_path,
-                "set-option",
-                "-t",
-                self.tmux_session_name,
-                TERMINAL_TMUX_LABEL_OPTION,
-                self.label,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-    def attach(self):
-        if self.closed:
-            return
-        if self.process and self.process.poll() is None:
-            return
-        if not self.tmux_session_exists():
-            self.closed = True
-            return
-
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path:
-            self.closed = True
-            return
-        master_fd, slave_fd = pty.openpty()
-        set_pty_window_size(master_fd, self.cols, self.rows)
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-        env = os.environ.copy()
-        env.setdefault("TERM", "xterm-256color")
-        env.setdefault("COLORTERM", "truecolor")
-        env["WORKSPACE_PICKER_GUI_API"] = self.gui_api_url
-        env["WORKSPACE_PICKER_TERMINAL_SESSION_ID"] = self.session_id
-        self.attachment_closing = False
-
-        self.process = subprocess.Popen(
-            [tmux_path, "-u", "attach-session", "-t", self.tmux_session_name],
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            cwd=str(WORKSPACE_ROOT),
-            env=env,
-            close_fds=True,
-            start_new_session=True,
-        )
-        os.close(slave_fd)
-        self.master_fd = master_fd
-        self.reader_thread = threading.Thread(target=self._read_loop, daemon=True)
-        self.reader_thread.start()
 
     def snapshot(self):
-        self.refresh_label_from_tmux_window()
         return {
             "session_id": self.session_id,
             "sessionId": self.session_id,
             "label": self.label,
             "cols": self.cols,
             "rows": self.rows,
-            "tmuxSessionName": self.tmux_session_name,
         }
 
     def get_history_text(self):
@@ -613,17 +683,13 @@ class TerminalSession:
     def attach_client(self, client):
         with self.lock:
             self.clients.add(client)
-        self.attach()
 
     def detach_client(self, client):
         with self.lock:
             self.clients.discard(client)
-            has_clients = bool(self.clients)
-        if not has_clients:
-            self.close_attachment()
 
     def write(self, data):
-        if self.closed or self.master_fd is None or self.process is None or not data:
+        if self.closed or self.master_fd is None or not self.is_alive() or not data:
             return
         if isinstance(data, str):
             data = data.encode("utf-8", errors="ignore")
@@ -642,66 +708,33 @@ class TerminalSession:
         except OSError as exc:
             rospy.logwarn("terminal session resize failed: %s (%s)", self.session_id, exc)
 
-    def close_attachment(self, silent=True):
-        self.attachment_closing = silent
+    def close(self, terminate_process=False):
+        self.closed = True
+        self.manager_closing = bool(terminate_process)
         process = self.process
-        if process and process.poll() is None:
+        if terminate_process and process and process.poll() is None:
             try:
                 os.killpg(os.getpgid(process.pid), signal.SIGTERM)
             except Exception:
                 pass
+            try:
+                process.wait(timeout=0.8)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                except Exception:
+                    pass
+                try:
+                    process.wait(timeout=0.5)
+                except Exception:
+                    pass
         try:
             if self.master_fd is not None:
                 os.close(self.master_fd)
         except OSError:
             pass
         self.master_fd = None
-
-    def kill_tmux_session(self):
-        tmux_path = self.manager.get_tmux_path()
-        if tmux_path:
-            subprocess.run(
-                [tmux_path, "kill-session", "-t", self.tmux_session_name],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        self.closed = True
-        self.close_attachment(silent=False)
         self._cleanup_rcfile()
-
-    def close(self, terminate_process=False):
-        if terminate_process:
-            self.kill_tmux_session()
-            return
-        self.close_attachment()
-
-    def tmux_session_exists(self):
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path:
-            return False
-        completed = subprocess.run(
-            [tmux_path, "has-session", "-t", self.tmux_session_name],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        return completed.returncode == 0
-
-    def update_tmux_environment(self):
-        tmux_path = self.manager.get_tmux_path()
-        if not tmux_path or not self.tmux_session_exists():
-            return
-        for name, value in (
-            ("WORKSPACE_PICKER_GUI_API", self.gui_api_url),
-            ("WORKSPACE_PICKER_TERMINAL_SESSION_ID", self.session_id),
-        ):
-            subprocess.run(
-                [tmux_path, "set-environment", "-t", self.tmux_session_name, name, value],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
 
     def _cleanup_rcfile(self):
         if self.rcfile_path:
@@ -755,19 +788,23 @@ class TerminalSession:
                 self.exit_code = process.wait(timeout=0.5)
             except Exception:
                 self.exit_code = -1
+        try:
+            if self.master_fd is not None:
+                os.close(self.master_fd)
+        except OSError:
+            pass
         self.process = None
         self.master_fd = None
-        closed_by_manager = self.attachment_closing
-        self.attachment_closing = False
+        closed_by_manager = self.manager_closing
+        self.manager_closing = False
+        self.closed = True
+        self._cleanup_rcfile()
         if closed_by_manager:
             return
-        if not self.tmux_session_exists():
-            self.closed = True
-            self._cleanup_rcfile()
-            self.manager.broadcast(self.session_id, {
-                "type": "exit",
-                "code": int(self.exit_code or 0),
-            })
+        self.manager.broadcast(self.session_id, {
+            "type": "exit",
+            "code": int(self.exit_code or 0),
+        })
 
 
 class TerminalSessionManager:
@@ -777,8 +814,6 @@ class TerminalSessionManager:
         self.io_loop = None
         self.sequence = 0
         self.gui_api_url = f"http://127.0.0.1:{DEFAULT_WORKSPACE_PICKER_PORT}/api/gui/sessions"
-        self.tmux_path = shutil.which("tmux")
-        self.discover_existing_sessions()
 
     def set_io_loop(self, io_loop):
         self.io_loop = io_loop
@@ -789,76 +824,22 @@ class TerminalSessionManager:
             sessions = list(self.sessions.values())
         for session in sessions:
             session.gui_api_url = gui_api_url
-            session.update_tmux_environment()
 
-    def get_tmux_path(self):
-        if self.tmux_path:
-            return self.tmux_path
-        self.tmux_path = shutil.which("tmux")
-        return self.tmux_path
-
-    def discover_existing_sessions(self):
-        tmux_path = self.get_tmux_path()
-        if not tmux_path:
-            return []
-        completed = subprocess.run(
-            [
-                tmux_path,
-                "list-sessions",
-                "-F",
-                f"#{{session_name}}\t#{{window_name}}\t#{{{TERMINAL_TMUX_LABEL_OPTION}}}\t#{{session_created}}",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode != 0:
-            return []
-
-        discovered = []
-        with self.lock:
-            for line in completed.stdout.splitlines():
-                parts = line.split("\t")
-                session_name = parts[0] if parts else ""
-                if not session_name.startswith(TERMINAL_TMUX_PREFIX):
-                    continue
-                session_id = session_name[len(TERMINAL_TMUX_PREFIX):]
-                if not session_id:
-                    continue
-                window_name = parts[1] if len(parts) > 1 else ""
-                legacy_label = parts[2] if len(parts) > 2 else ""
-                fallback_label = (
-                    legacy_label
-                    if legacy_label and not is_generic_tmux_window_name(legacy_label)
-                    else f"{TERMINAL_TMUX_WINDOW_PREFIX}{len(discovered) + 1}"
-                )
-                label = window_name or legacy_label or fallback_label or session_id
-                session = self.sessions.get(session_id)
-                if session is None:
-                    session = TerminalSession(
-                        session_id,
-                        label,
-                        self,
-                        gui_api_url=self.gui_api_url,
-                        tmux_session_name=session_name,
-                        existing=True,
-                    )
-                    self.sessions[session_id] = session
-                else:
-                    session.label = label
-                    session.refresh_label_from_tmux_window()
-                session.ensure_distinct_tmux_window_name(fallback_label)
-                discovered.append(session)
-            self.sequence = max(self.sequence, len(self.sessions))
-        return discovered
+    def build_session_label(self):
+        shell_name = Path(build_terminal_shell_command("/tmp/tie_robot_empty_rc")[0]).name or "shell"
+        existing_labels = {session.label for session in self.sessions.values()}
+        if shell_name not in existing_labels:
+            return shell_name
+        suffix = 2
+        while f"{shell_name} {suffix}" in existing_labels:
+            suffix += 1
+        return f"{shell_name} {suffix}"
 
     def create_session(self, cols=DEFAULT_TERMINAL_COLS, rows=DEFAULT_TERMINAL_ROWS):
-        if not self.get_tmux_path():
-            raise RuntimeError("未找到 tmux，无法创建持久终端会话。")
         with self.lock:
             self.sequence += 1
             session_id = uuid.uuid4().hex[:10]
-            label = f"{TERMINAL_TMUX_WINDOW_PREFIX}{self.sequence}"
+            label = self.build_session_label()
             session = TerminalSession(
                 session_id,
                 label,
@@ -871,19 +852,17 @@ class TerminalSessionManager:
             return session
 
     def list_sessions(self):
-        self.discover_existing_sessions()
         with self.lock:
             stale_session_ids = [
                 session_id
                 for session_id, session in self.sessions.items()
-                if not session.tmux_session_exists()
+                if session.closed
             ]
             for session_id in stale_session_ids:
                 self.sessions.pop(session_id, None)
             return [session.snapshot() for session in self.sessions.values()]
 
     def get_session(self, session_id):
-        self.discover_existing_sessions()
         with self.lock:
             return self.sessions.get(session_id)
 
@@ -899,7 +878,7 @@ class TerminalSessionManager:
         if not session:
             return
         session.detach_client(client)
-        if session.closed and not session.clients:
+        if session.closed:
             with self.lock:
                 self.sessions.pop(session_id, None)
 
@@ -918,18 +897,16 @@ class TerminalSessionManager:
         with self.lock:
             session = self.sessions.pop(session_id, None)
         if session:
-            session.refresh_label_from_tmux_window()
-            session.kill_tmux_session()
+            session.close(terminate_process=True)
             self.broadcast(session_id, {"type": "closed"})
         return session
 
-    def shutdown(self, kill_tmux=False):
+    def shutdown(self):
         with self.lock:
             sessions = list(self.sessions.values())
-            if kill_tmux:
-                self.sessions.clear()
+            self.sessions.clear()
         for session in sessions:
-            session.close(terminate_process=kill_tmux)
+            session.close(terminate_process=True)
 
     def _broadcast_on_loop(self, session_id, payload):
         session = self.get_session(session_id)
@@ -1484,7 +1461,7 @@ class TerminalServerThread:
         return self.actual_port
 
     def stop(self):
-        self.manager.shutdown(kill_tmux=False)
+        self.manager.shutdown()
         if self.io_loop is not None:
             self.io_loop.add_callback(self._stop_on_loop)
         if self.thread is not None:
@@ -1538,6 +1515,9 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/system/ros_stack_status":
             self.handle_ros_backend_status_get()
+            return
+        if parsed.path == "/api/system/demo_mode_status":
+            self.handle_demo_mode_status_get()
             return
         if parsed.path == "/api/planning/bind-path":
             self.handle_planning_bind_path_get()
@@ -1950,6 +1930,18 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/gb28181/config":
             self.handle_gb28181_config_post()
             return
+        if parsed.path == "/api/network/ping":
+            self.handle_network_ping_post()
+            return
+        if parsed.path == "/api/system/toggle_demo_mode":
+            self.handle_demo_mode_toggle(parsed.path)
+            return
+        if parsed.path == "/api/system/enter_demo_mode":
+            self.handle_demo_mode_enter(parsed.path)
+            return
+        if parsed.path == "/api/system/exit_demo_mode":
+            self.handle_demo_mode_exit(parsed.path)
+            return
         systemd_action = SYSTEMD_ROS_BACKEND_ACTIONS.get(parsed.path)
         if systemd_action is not None:
             self.handle_ros_backend_systemd_action(systemd_action, parsed.path)
@@ -1988,7 +1980,382 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             "status": status_payload,
         })
 
+    def handle_demo_mode_status_get(self):
+        payload = self._build_demo_mode_status_payload()
+        self.send_json({
+            "success": True,
+            **payload,
+        })
+
+    def handle_demo_mode_toggle(self, api_path):
+        demo_status = self._query_systemd_status(DEMO_MODE_SERVICE)
+        if self._systemd_status_is_active(demo_status):
+            self.handle_demo_mode_exit(api_path)
+            return
+        self.handle_demo_mode_enter(api_path)
+
+    def handle_demo_mode_enter(self, api_path):
+        completed_results = self._run_demo_mode_enter()
+        self._send_demo_mode_transition_response(
+            api_path,
+            "enter",
+            completed_results,
+            "已进入演示模式：5173 旧前端、轻量 rosbridge 与 chassis_ctrl show_full.launch 已启动，当前后端、驱动、完整 rosbridge 和旧转义层已停止。",
+        )
+
+    def handle_demo_mode_exit(self, api_path):
+        completed_results = self._run_demo_mode_exit()
+        self._send_demo_mode_transition_response(
+            api_path,
+            "exit",
+            completed_results,
+            "已退出演示模式：show_full.launch 与轻量 rosbridge 已停止，本程序完整 rosbridge、驱动层和 ROS 后端已恢复。",
+        )
+
+    def _send_demo_mode_transition_response(self, api_path, action, completed_results, success_message):
+        success = all(
+            item["result"].returncode == 0
+            for item in completed_results
+        )
+        if success:
+            message = success_message
+        else:
+            failure_texts = [
+                item["result"].stderr.strip() or item["result"].stdout.strip()
+                for item in completed_results
+                if item["result"].returncode != 0
+            ]
+            message = failure_texts[0] if failure_texts else "演示模式切换失败"
+
+        status_payload = self._build_demo_mode_status_payload()
+        self._log_demo_mode_control_result(api_path, action, completed_results, success)
+        self.send_json({
+            "success": success,
+            "message": message,
+            "action": action,
+            "steps": [
+                {
+                    "phase": item["phase"],
+                    "action": item["action"],
+                    "services": list(item["services"]),
+                    "returnCode": item["result"].returncode,
+                }
+                for item in completed_results
+            ],
+            **status_payload,
+        }, status_code=200 if success else 503)
+
+    def _build_demo_mode_status_payload(self):
+        demo_status = self._query_systemd_status(DEMO_MODE_SERVICE)
+        related_services = {
+            service_name: self._query_systemd_status(service_name)
+            for service_name in (
+                DEMO_MODE_SERVICE,
+                DEMO_ROSBRIDGE_SERVICE,
+                LEGACY_FRONTEND_SERVICE,
+                ROSBRIDGE_SERVICE,
+                ROS_BACKEND_SERVICE,
+                DRIVER_SYSTEMD_SERVICES["cabin"],
+                DRIVER_SYSTEMD_SERVICES["moduan"],
+                DRIVER_SYSTEMD_SERVICES["camera"],
+                LEGACY_SHARED_DRIVER_STACK_SERVICE,
+            )
+        }
+        active = self._systemd_status_is_active(demo_status)
+        return {
+            "active": active,
+            "demoModeActive": active,
+            "service": DEMO_MODE_SERVICE,
+            "legacyFrontendUrl": self._build_legacy_frontend_url(),
+            "status": demo_status,
+            "services": related_services,
+        }
+
+    def _build_legacy_frontend_url(self):
+        host = self._request_browser_host()
+        return f"http://{host}:{DEMO_MODE_FRONTEND_PORT}/"
+
+    def _request_browser_host(self):
+        host_header = str(self.headers.get("Host") or "").strip()
+        if not host_header:
+            return DEFAULT_BROWSER_HOST
+        if host_header.startswith("["):
+            host = host_header[1:].split("]", 1)[0]
+        else:
+            host = host_header.split(":", 1)[0]
+        host = host.strip()
+        if not host or host == "0.0.0.0":
+            return DEFAULT_BROWSER_HOST
+        return host
+
+    def _systemd_status_is_active(self, status_payload):
+        return str((status_payload or {}).get("activeState") or "").lower() == "active"
+
+    def _run_demo_mode_enter(self):
+        results = []
+        for service_name in (LEGACY_FRONTEND_SERVICE,):
+            start_result = self._run_systemctl("start", service_name)
+            results.append({
+                "phase": "prepare",
+                "action": "start",
+                "services": (service_name,),
+                "result": start_result,
+            })
+            if start_result.returncode != 0:
+                return results
+
+        for service_name in DEMO_MODE_STOP_ORDER:
+            stop_result = self._run_demo_mode_stop_service(service_name)
+            results.append({
+                "phase": "stop-current",
+                "action": "stop",
+                "services": (service_name,),
+                "result": stop_result,
+            })
+            if stop_result.returncode != 0:
+                return results
+
+        start_demo_bridge_result = self._run_systemctl("start", DEMO_ROSBRIDGE_SERVICE)
+        results.append({
+            "phase": "start-demo-rosbridge",
+            "action": "start",
+            "services": (DEMO_ROSBRIDGE_SERVICE,),
+            "result": start_demo_bridge_result,
+        })
+        if start_demo_bridge_result.returncode != 0:
+            return results
+
+        cleanup_result = self._cleanup_demo_mode_ros_artifacts()
+        results.append({
+            "phase": "cleanup-demo",
+            "action": "cleanup_demo_mode_ros",
+            "services": (),
+            "result": cleanup_result,
+        })
+        if cleanup_result.returncode != 0:
+            return results
+
+        start_result = self._run_systemctl("start", DEMO_MODE_SERVICE)
+        results.append({
+            "phase": "start-demo",
+            "action": "start",
+            "services": (DEMO_MODE_SERVICE,),
+            "result": start_result,
+        })
+        return results
+
+    def _run_demo_mode_exit(self):
+        results = []
+        stop_result = self._run_systemctl(
+            "stop",
+            DEMO_MODE_SERVICE,
+            timeout=DEMO_MODE_STOP_TIMEOUT_SEC,
+        )
+        results.append({
+            "phase": "stop-demo",
+            "action": "stop",
+            "services": (DEMO_MODE_SERVICE,),
+            "result": stop_result,
+        })
+        if stop_result.returncode != 0:
+            return results
+
+        cleanup_result = self._cleanup_demo_mode_ros_artifacts()
+        results.append({
+            "phase": "cleanup-demo",
+            "action": "cleanup_demo_mode_ros",
+            "services": (),
+            "result": cleanup_result,
+        })
+        if cleanup_result.returncode != 0:
+            return results
+
+        stop_demo_bridge_result = self._run_systemctl(
+            "stop",
+            DEMO_ROSBRIDGE_SERVICE,
+            timeout=DEMO_MODE_STOP_TIMEOUT_SEC,
+        )
+        results.append({
+            "phase": "stop-demo-rosbridge",
+            "action": "stop",
+            "services": (DEMO_ROSBRIDGE_SERVICE,),
+            "result": stop_demo_bridge_result,
+        })
+        if stop_demo_bridge_result.returncode != 0:
+            return results
+
+        reset_result = self._run_demo_mode_reset_failed()
+        results.append({
+            "phase": "reset-demo",
+            "action": "reset-failed",
+            "services": (DEMO_MODE_SERVICE,),
+            "result": reset_result,
+        })
+        if reset_result.returncode != 0:
+            return results
+
+        reset_demo_bridge_result = self._run_demo_mode_reset_failed(DEMO_ROSBRIDGE_SERVICE)
+        results.append({
+            "phase": "reset-demo-rosbridge",
+            "action": "reset-failed",
+            "services": (DEMO_ROSBRIDGE_SERVICE,),
+            "result": reset_demo_bridge_result,
+        })
+        if reset_demo_bridge_result.returncode != 0:
+            return results
+
+        for service_name in DEMO_MODE_RESTORE_START_ORDER:
+            start_result = self._run_systemctl("start", service_name)
+            results.append({
+                "phase": "restore-current",
+                "action": "start",
+                "services": (service_name,),
+                "result": start_result,
+            })
+            if start_result.returncode != 0:
+                break
+        return results
+
+    def _run_demo_mode_stop_service(self, service_name):
+        if service_name in DEMO_MODE_OPTIONAL_STOP_SERVICES:
+            status_payload = self._query_systemd_status(service_name)
+            if str(status_payload.get("loadState") or "").lower() == "not-found":
+                return subprocess.CompletedProcess(
+                    ["systemctl", "stop", service_name],
+                    0,
+                    f"{service_name} 未安装，已跳过。",
+                    "",
+                )
+        return self._run_systemctl(
+            "stop",
+            service_name,
+            timeout=DEMO_MODE_STOP_TIMEOUT_SEC,
+        )
+
+    def _run_demo_mode_reset_failed(self, service_name=DEMO_MODE_SERVICE):
+        reset_result = self._run_systemctl("reset-failed", service_name)
+        if reset_result.returncode == 0:
+            return reset_result
+        status_payload = self._query_systemd_status(service_name)
+        if (
+            not self._systemd_status_is_active(status_payload)
+            and str(status_payload.get("result") or "").lower() == "success"
+        ):
+            return subprocess.CompletedProcess(
+                ["systemctl", "reset-failed", service_name],
+                0,
+                reset_result.stdout,
+                reset_result.stderr,
+            )
+        return reset_result
+
+    def _cleanup_demo_mode_ros_artifacts(self):
+        initial_processes = self._find_demo_mode_processes()
+        failures = []
+        if initial_processes:
+            failures.extend(self._signal_ros_processes(initial_processes, signal.SIGTERM))
+            self._sleep(ROS_FAST_KILL_TERM_GRACE_SEC)
+            remaining_processes = self._find_demo_mode_processes()
+            if remaining_processes:
+                failures.extend(self._signal_ros_processes(remaining_processes, signal.SIGKILL))
+                self._sleep(ROS_FAST_KILL_KILL_GRACE_SEC)
+
+        stubborn_processes = self._find_demo_mode_processes()
+        cleanup_completed = self._run_rosnode_cleanup()
+        if failures or stubborn_processes or cleanup_completed.returncode != 0:
+            details = []
+            details.extend(failures)
+            if stubborn_processes:
+                details.append(
+                    "仍有演示模式残留进程: "
+                    + ", ".join(f"{pid}:{command[:120]}" for pid, command in stubborn_processes)
+                )
+            if cleanup_completed.returncode != 0:
+                details.append(cleanup_completed.stderr.strip() or cleanup_completed.stdout.strip())
+            return subprocess.CompletedProcess(
+                ["cleanup-demo-mode-ros"],
+                1,
+                cleanup_completed.stdout,
+                "\n".join(text for text in details if text),
+            )
+
+        stdout_parts = []
+        if initial_processes:
+            stdout_parts.append(f"已清理 {len(initial_processes)} 个演示模式残留进程。")
+        if cleanup_completed.stdout.strip():
+            stdout_parts.append(cleanup_completed.stdout.strip())
+        return subprocess.CompletedProcess(
+            ["cleanup-demo-mode-ros"],
+            0,
+            "\n".join(stdout_parts) or "演示模式 ROS 残留清理完成。",
+            "",
+        )
+
+    def _find_demo_mode_processes(self):
+        try:
+            completed = subprocess.run(
+                ["ps", "-eo", "pid=,args="],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except Exception as exc:
+            FRONTEND_LOGGER.warning("failed to list demo mode ROS processes: %s", exc)
+            return []
+
+        if completed.returncode != 0:
+            return []
+
+        current_pid = os.getpid()
+        candidates = []
+        for line in completed.stdout.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                pid_text, command = stripped.split(None, 1)
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            if pid == current_pid or "workspace_picker_web_server.py" in command:
+                continue
+            if any(pattern in command for pattern in DEMO_MODE_CLEANUP_PROCESS_PATTERNS):
+                candidates.append((pid, command))
+        return candidates
+
+    def _run_rosnode_cleanup(self):
+        try:
+            return subprocess.run(
+                ["rosnode", "cleanup"],
+                input="y\n",
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+            stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+            return subprocess.CompletedProcess(
+                ["rosnode", "cleanup"],
+                124,
+                stdout,
+                "\n".join(text for text in ("rosnode cleanup 超时。", stderr.strip()) if text),
+            )
+        except Exception as exc:
+            return subprocess.CompletedProcess(
+                ["rosnode", "cleanup"],
+                1,
+                "",
+                str(exc),
+            )
+
     def handle_ros_backend_systemd_action(self, action, api_path):
+        if action == FULL_ROS_STACK_RESTART_ACTION:
+            self.handle_full_ros_stack_restart(api_path)
+            return
+
         completed = self._run_ros_backend_systemctl(action)
         status_payload = self._query_ros_backend_status()
         success = completed.returncode == 0
@@ -2014,14 +2381,172 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         }, status_code=200 if success else 503)
 
     def _run_ros_backend_systemctl(self, action):
-        command = ["sudo", "-n", SYSTEMCTL_BIN, action, ROS_BACKEND_SERVICE]
-        return subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
+        return self._run_systemctl(action, ROS_BACKEND_SERVICE)
+
+    def handle_full_ros_stack_restart(self, api_path):
+        completed_results = self._run_full_ros_stack_restart()
+        success = all(
+            item["result"].returncode == 0
+            for item in completed_results
         )
+        status_payload = {
+            service_name: self._query_systemd_status(service_name)
+            for service_name in FULL_ROS_STACK_START_ORDER
+        }
+        if success:
+            message = "已快速停止并重启 ROS 全栈：rosbridge、驱动层、ROS 后端。"
+        else:
+            failure_texts = [
+                item["result"].stderr.strip() or item["result"].stdout.strip()
+                for item in completed_results
+                if item["result"].returncode != 0
+            ]
+            message = failure_texts[0] if failure_texts else "systemctl 重启 ROS 全栈失败"
+
+        self._log_full_ros_stack_restart_result(api_path, completed_results, success)
+        self.send_json({
+            "success": success,
+            "message": message,
+            "services": list(FULL_ROS_STACK_START_ORDER),
+            "action": FULL_ROS_STACK_RESTART_ACTION,
+            "steps": [
+                {
+                    "phase": item["phase"],
+                    "action": item["action"],
+                    "services": list(item["services"]),
+                    "returnCode": item["result"].returncode,
+                }
+                for item in completed_results
+            ],
+            "status": status_payload,
+        }, status_code=200 if success else 503)
+
+    def _run_full_ros_stack_restart(self):
+        results = []
+        stop_result = self._run_systemctl(
+            "stop",
+            *FULL_ROS_STACK_STOP_ORDER,
+            timeout=FULL_ROS_STACK_STOP_TIMEOUT_SEC,
+        )
+        results.append({
+            "phase": "stop",
+            "action": "stop",
+            "services": FULL_ROS_STACK_STOP_ORDER,
+            "result": stop_result,
+        })
+
+        cleanup_result = self._fast_kill_stale_ros_processes()
+        results.append({
+            "phase": "cleanup",
+            "action": "fast_kill_stale_ros",
+            "services": (),
+            "result": cleanup_result,
+        })
+        if stop_result.returncode != 0 or cleanup_result.returncode != 0:
+            return results
+
+        for service_name in FULL_ROS_STACK_START_ORDER:
+            start_result = self._run_systemctl("start", service_name)
+            results.append({
+                "phase": "start",
+                "action": "start",
+                "services": (service_name,),
+                "result": start_result,
+            })
+            if start_result.returncode != 0:
+                break
+        return results
+
+    def _fast_kill_stale_ros_processes(self):
+        initial_processes = self._find_stale_ros_processes()
+        if not initial_processes:
+            return subprocess.CompletedProcess(
+                ["fast-kill-stale-ros"],
+                0,
+                "未发现残留 ROS 进程。",
+                "",
+            )
+
+        failures = self._signal_ros_processes(initial_processes, signal.SIGTERM)
+        self._sleep(ROS_FAST_KILL_TERM_GRACE_SEC)
+        remaining_processes = self._find_stale_ros_processes()
+        if remaining_processes:
+            failures.extend(self._signal_ros_processes(remaining_processes, signal.SIGKILL))
+            self._sleep(ROS_FAST_KILL_KILL_GRACE_SEC)
+
+        stubborn_processes = self._find_stale_ros_processes()
+        if failures or stubborn_processes:
+            details = []
+            if failures:
+                details.extend(failures)
+            if stubborn_processes:
+                details.append(
+                    "仍有残留 ROS 进程: "
+                    + ", ".join(f"{pid}:{command[:120]}" for pid, command in stubborn_processes)
+                )
+            return subprocess.CompletedProcess(
+                ["fast-kill-stale-ros"],
+                1,
+                "",
+                "\n".join(details),
+            )
+
+        return subprocess.CompletedProcess(
+            ["fast-kill-stale-ros"],
+            0,
+            f"已清理 {len(initial_processes)} 个旧 ROS 进程。",
+            "",
+        )
+
+    def _find_stale_ros_processes(self):
+        try:
+            completed = subprocess.run(
+                ["ps", "-eo", "pid=,args="],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except Exception as exc:
+            FRONTEND_LOGGER.warning("failed to list ROS processes before restart: %s", exc)
+            return []
+
+        if completed.returncode != 0:
+            return []
+
+        current_pid = os.getpid()
+        candidates = []
+        for line in completed.stdout.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                pid_text, command = stripped.split(None, 1)
+                pid = int(pid_text)
+            except ValueError:
+                continue
+            if pid == current_pid or "workspace_picker_web_server.py" in command:
+                continue
+            if any(pattern in command for pattern in ROS_FAST_KILL_PROCESS_PATTERNS):
+                candidates.append((pid, command))
+        return candidates
+
+    def _signal_ros_processes(self, processes, signal_number):
+        failures = []
+        for pid, command in processes:
+            try:
+                os.kill(pid, signal_number)
+            except ProcessLookupError:
+                continue
+            except PermissionError as exc:
+                failures.append(f"无法终止 ROS 进程 {pid}: {exc} ({command[:120]})")
+            except OSError as exc:
+                if exc.errno != errno.ESRCH:
+                    failures.append(f"终止 ROS 进程 {pid} 失败: {exc} ({command[:120]})")
+        return failures
+
+    def _sleep(self, seconds):
+        time.sleep(seconds)
 
     def handle_driver_systemd_action(self, action, target, api_path):
         service_names = self._driver_service_names_for_target(target)
@@ -2075,14 +2600,28 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         return [service_name] if service_name else []
 
     def _run_driver_systemctl(self, action, service_name):
-        command = ["sudo", "-n", SYSTEMCTL_BIN, action, service_name]
-        return subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        return self._run_systemctl(action, service_name)
+
+    def _run_systemctl(self, action, *service_names, timeout=30):
+        command = ["sudo", "-n", SYSTEMCTL_BIN, action, *service_names]
+        try:
+            return subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else str(exc.stdout or "")
+            stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else str(exc.stderr or "")
+            timeout_message = f"systemctl {action} {' '.join(service_names)} 超时（>{timeout}s）。"
+            return subprocess.CompletedProcess(
+                command,
+                124,
+                stdout,
+                "\n".join(text for text in (timeout_message, stderr.strip()) if text),
+            )
 
     def _query_ros_backend_status(self):
         return self._query_systemd_status(ROS_BACKEND_SERVICE)
@@ -2109,6 +2648,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             )
         except Exception as exc:
             return {
+                "service": service_name,
                 "loadState": "unknown",
                 "activeState": "unknown",
                 "subState": "unknown",
@@ -2125,6 +2665,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             key, value = line.split("=", 1)
             parsed[key] = value
         return {
+            "service": service_name,
             "loadState": parsed.get("LoadState", "not-found" if completed.returncode else "unknown"),
             "activeState": parsed.get("ActiveState", "unknown"),
             "subState": parsed.get("SubState", "unknown"),
@@ -2153,6 +2694,31 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             completed.stderr.strip(),
         )
 
+    def _log_full_ros_stack_restart_result(self, api_path, completed_results, success):
+        configure_standalone_logging()
+        step_text = " -> ".join(
+            f"{item['action']}:{','.join(item['services'])}"
+            for item in completed_results
+        )
+        if success:
+            FRONTEND_LOGGER.info(
+                "workspace picker full ROS restart succeeded: %s -> %s",
+                api_path,
+                step_text,
+            )
+            return
+        errors = [
+            item["result"].stderr.strip() or item["result"].stdout.strip()
+            for item in completed_results
+            if item["result"].returncode != 0
+        ]
+        FRONTEND_LOGGER.error(
+            "workspace picker full ROS restart failed: %s -> %s (errors=%s)",
+            api_path,
+            step_text,
+            " | ".join(errors),
+        )
+
     def _log_driver_control_result(self, api_path, action, service_names, completed_results, success):
         configure_standalone_logging()
         service_text = ",".join(service_names)
@@ -2174,6 +2740,33 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             api_path,
             action,
             service_text,
+            " | ".join(errors),
+        )
+
+    def _log_demo_mode_control_result(self, api_path, action, completed_results, success):
+        configure_standalone_logging()
+        step_text = " -> ".join(
+            f"{item['action']}:{','.join(item['services'])}"
+            for item in completed_results
+        )
+        if success:
+            FRONTEND_LOGGER.info(
+                "workspace picker demo mode control succeeded: %s -> %s:%s",
+                api_path,
+                action,
+                step_text,
+            )
+            return
+        errors = [
+            item["result"].stderr.strip() or item["result"].stdout.strip()
+            for item in completed_results
+            if item["result"].returncode != 0
+        ]
+        FRONTEND_LOGGER.error(
+            "workspace picker demo mode control failed: %s -> %s:%s (errors=%s)",
+            api_path,
+            action,
+            step_text,
             " | ".join(errors),
         )
 
@@ -2243,7 +2836,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         except Exception as exc:
             self.send_json({
                 "success": False,
-                "message": f"创建 tmux 终端失败：{exc}",
+                "message": f"创建终端失败：{exc}",
             }, status_code=503)
             return
         self.send_json({
@@ -2393,6 +2986,27 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             "message": "已写入本机 GB28181 接入配置。",
             "config_path": str(GB28181_CONFIG_FILE),
         })
+
+    def handle_network_ping_post(self):
+        payload = self.read_json_body()
+        raw_host = payload.get("host") or payload.get("ip") or payload.get("target")
+        try:
+            result = run_network_ping(raw_host)
+        except ValueError as exc:
+            self.send_json({
+                "success": False,
+                "reachable": False,
+                "message": str(exc),
+                "target": str(raw_host or "").strip(),
+            }, status_code=400)
+            return
+
+        target_label = str(payload.get("label") or payload.get("targetId") or "").strip()
+        result["label"] = target_label
+        if not result.get("message"):
+            state_text = "可达" if result.get("reachable") else "不可达"
+            result["message"] = f"{result['target']} {state_text}。"
+        self.send_json(result)
 
     def read_json_body(self):
         try:

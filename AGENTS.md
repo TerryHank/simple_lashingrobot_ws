@@ -42,8 +42,9 @@
 - 默认读取摘要和相关片段，优先用 `docs/agent_memory/current.md`、`rg`、定向 `sed -n`、限定路径的状态检查，不把整仓状态、大段日志、构建产物或无关历史全文塞入上下文。
 - 查看 Git 状态时优先限定相关路径；确需全仓状态时只提炼关键摘要，避免把超长 `git status --short` 输出带进会话。
 - 读取文档、日志或代码前先定位目标；超过当前任务需要的内容，先摘要再按需继续展开。
-- 如果 Codex 历史会话打不开或恢复器长时间卡住，先运行 `python3 scripts/codex_session_guard.py scan --threshold-mb 50`；确认后用 `archive --apply` 把超大 JSONL 移出 `~/.codex/sessions` 活跃目录。
-- 本机可用 `scripts/install_codex_session_guard_timer.sh` 安装用户级 systemd 定时器，周期性归档超过 50MB、闲置至少 60 分钟且未被打开的 Codex JSONL。
+- 当 Codex 会话 JSONL 超过 100MB 时，使用 `python3 scripts/codex_session_guard.py summarize --threshold-mb 100 --skip-open --apply` 压缩活跃会话：把原始完整 JSONL 内容复制到 `~/.codex/archived_sessions/oversized/`，不要把 `~/.codex/sessions` 里的会话文件移动出原路径；原路径内容改写为可打开的摘要替身 JSONL，并同步写 `~/.codex/session_summaries/oversized/` Markdown 摘要。
+- 摘要替身必须保留原始 `session_meta` 关键字段和首条真实用户请求作为标题锚点；不要让历史会话标题变成“summary/compacted”之类的摘要说明。
+- 不要重新启用旧的 `tie-codex-session-guard.timer` 做纯归档清空活跃入口；自动化只使用 `tie-codex-session-summary.timer` 这种“原文归档 + 活跃摘要替身”的压缩流程。
 - 会话开始明显变慢、工具输出过大或需要长期暂停时，先写 `python3 scripts/agent_memory.py checkpoint ...`，再建议用新 Codex 会话从轻启动三件套和 checkpoint 续接。
 
 额外约定：

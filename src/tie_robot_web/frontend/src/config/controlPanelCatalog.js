@@ -1,5 +1,5 @@
 export const CONTROL_PANEL_TASKS = [
-  { id: "submitQuad", label: "提交\n四边形", tone: "green" },
+  { id: "submitQuad", label: "确认\n工作区域", tone: "green" },
   { id: "runSavedS2", label: "触发\n视觉识别", tone: "green" },
   { id: "clearVisualRecognition", label: "清除\n识别结果", tone: "blue" },
   { id: "triggerSingleBind", label: "触发单点\n绑扎", tone: "red" },

@@ -8,6 +8,13 @@ TIMER_NAME="tie-codex-session-guard.timer"
 THRESHOLD_MB="${THRESHOLD_MB:-50}"
 MIN_AGE_MINUTES="${MIN_AGE_MINUTES:-60}"
 
+if [[ "${ALLOW_CODEX_SESSION_ARCHIVE_TIMER:-0}" != "1" ]]; then
+  echo "archive-only Codex session moving is disabled by project preference."
+  echo "Use scripts/install_codex_session_summary_timer.sh to copy original content into archive and leave compact summary JSONL in active sessions."
+  echo "Only set ALLOW_CODEX_SESSION_ARCHIVE_TIMER=1 if the user explicitly asks to restore archive-only behavior."
+  exit 0
+fi
+
 mkdir -p "$USER_SYSTEMD_DIR"
 
 cat > "$USER_SYSTEMD_DIR/$SERVICE_NAME" <<EOF

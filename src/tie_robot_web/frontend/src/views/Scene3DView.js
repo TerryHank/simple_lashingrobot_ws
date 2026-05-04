@@ -1,6 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { decodeFloat32XYZImage } from "../utils/irImageUtils.js";
+import {
+  buildTcpWorkspaceBoundaryPointsMm,
+  normalizeCameraProjection,
+  projectCameraPointMetersToImagePixel,
+} from "../utils/tcpWorkspaceOverlay.js";
 
 const MAP_FRAME = "map";
 const BASE_LINK_FRAME = "base_link";
@@ -12,12 +17,16 @@ const TCP_TOOL_SIZE_METERS = {
   y: 0.1,
   z: 0.2,
 };
-const INITIAL_CAMERA_POSITION = new THREE.Vector3(2.6, -3.0, 2.0);
-const INITIAL_CAMERA_TARGET = new THREE.Vector3(0, 0, 0.15);
-const CAMERA_VIEW_OFFSET = new THREE.Vector3(-0.85, -1.25, 0.55);
-const CAMERA_VIEW_TARGET_OFFSET = new THREE.Vector3(0.18, 0, 0.04);
-const GLOBAL_VIEW_POSITION = new THREE.Vector3(3.6, -4.1, 2.8);
-const GLOBAL_VIEW_TARGET = new THREE.Vector3(0, 0, 0.1);
+const FREE_VIEW_POSITION = new THREE.Vector3(2.6, -3.0, 2.0);
+const FREE_VIEW_TARGET = new THREE.Vector3(0, 0, 0.15);
+const WORLD_UP_AXIS = new THREE.Vector3(0, 0, 1);
+const CAMERA_VIEW_FORWARD_AXIS = new THREE.Vector3(0, 0, 1);
+const CAMERA_VIEW_UP_AXIS = new THREE.Vector3(0, -1, 0);
+const CAMERA_VIEW_TARGET_DISTANCE_METERS = 1.0;
+const TOP_VIEW_FORWARD_AXIS = new THREE.Vector3(0, 0, -1);
+const TOP_VIEW_UP_AXIS = new THREE.Vector3(0, 1, 0);
+const TOP_VIEW_HEIGHT_METERS = 6.5;
+const MAP_VIEW_ORIGIN = new THREE.Vector3(0, 0, 0);
 const MARKER_TYPE_SPHERE_LIST = 7;
 const MARKER_TYPE_POINTS = 8;
 
@@ -300,7 +309,7 @@ export class Scene3DView {
 
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.01, 200);
     this.camera.up.set(0, 0, 1);
-    this.camera.position.copy(INITIAL_CAMERA_POSITION);
+    this.camera.position.copy(FREE_VIEW_POSITION);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -308,7 +317,7 @@ export class Scene3DView {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.target.copy(INITIAL_CAMERA_TARGET);
+    this.controls.target.copy(FREE_VIEW_TARGET);
     this.controls.minDistance = 0.25;
     this.controls.maxDistance = 24;
     this.controls.minPolarAngle = 0.08;
@@ -351,6 +360,7 @@ export class Scene3DView {
       new THREE.BoxGeometry(ROBOT_BODY_SIZE_METERS, ROBOT_BODY_SIZE_METERS, ROBOT_BODY_SIZE_METERS),
       robotMaterial,
     );
+    robotMesh.position.z = ROBOT_BODY_SIZE_METERS / 2.0;
     this.robotGroup.add(robotMesh);
     this.scene.add(this.robotGroup);
 
@@ -367,6 +377,7 @@ export class Scene3DView {
       new THREE.BoxGeometry(TCP_TOOL_SIZE_METERS.x, TCP_TOOL_SIZE_METERS.y, TCP_TOOL_SIZE_METERS.z),
       tcpToolMaterial,
     );
+    tcpToolMesh.position.z = -TCP_TOOL_SIZE_METERS.z / 2.0;
     this.tcpToolGroup.add(tcpToolMesh);
     this.scene.add(this.tcpToolGroup);
     this.robotMaterial = robotMaterial;
@@ -402,8 +413,9 @@ export class Scene3DView {
     this.planningAreaPath.renderOrder = 2;
     this.planningAreaOutlines.renderOrder = 2;
 
-    this.viewMode = "camera";
-    this.followCamera = false;
+    this.viewMode = "free";
+    this.followOrigin = false;
+    this.lastFollowOrigin = null;
     this.needsViewReset = true;
     this.theme = "dark";
 
@@ -416,14 +428,15 @@ export class Scene3DView {
 
   startRenderLoop() {
     const render = () => {
-      this.controls.update();
-      if (this.followCamera) {
-        this.resetView(this.viewMode);
-      }
       if (this.needsViewReset) {
         this.resetView(this.viewMode);
         this.needsViewReset = false;
+      } else if (this.viewMode !== "free" && this.followOrigin) {
+        this.resetView(this.viewMode);
+      } else if (this.viewMode === "free" && this.followOrigin) {
+        this.followCurrentViewOrigin();
       }
+      this.controls.update();
       this.renderer.render(this.scene, this.camera);
       this.rafId = window.requestAnimationFrame(render);
     };
@@ -470,27 +483,108 @@ export class Scene3DView {
   }
 
   setViewMode(viewMode) {
-    this.viewMode = viewMode;
+    this.viewMode = ["free", "camera", "top"].includes(viewMode) ? viewMode : "free";
+    this.syncControlsForViewMode();
+    this.lastFollowOrigin = this.resolveSceneViewOrigin();
     this.needsViewReset = true;
   }
 
-  setFollowCamera(enabled) {
-    this.followCamera = Boolean(enabled);
-    this.needsViewReset = true;
+  setFollowOrigin(enabled) {
+    this.followOrigin = Boolean(enabled);
+    this.lastFollowOrigin = this.resolveSceneViewOrigin();
+    if (this.viewMode !== "free") {
+      this.needsViewReset = true;
+    }
+  }
+
+  syncControlsForViewMode() {
+    this.controls.enabled = this.viewMode === "free";
   }
 
   resetView(viewMode = this.viewMode) {
-    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
-    if (viewMode === "camera" && scepterTransform) {
-      const nextPosition = scepterTransform.position.clone().add(CAMERA_VIEW_OFFSET);
-      const nextTarget = scepterTransform.position.clone().add(CAMERA_VIEW_TARGET_OFFSET);
-      this.camera.position.lerp(nextPosition, 0.28);
-      this.controls.target.lerp(nextTarget, 0.28);
+    const normalizedViewMode = ["free", "camera", "top"].includes(viewMode) ? viewMode : "free";
+    this.viewMode = normalizedViewMode;
+    this.syncControlsForViewMode();
+    if (normalizedViewMode === "camera") {
+      const cameraPose = this.resolveCameraViewPose();
+      if (cameraPose) {
+        this.applyViewPose(cameraPose);
+        this.lastFollowOrigin = cameraPose.position.clone();
+        return;
+      }
+    }
+    if (normalizedViewMode === "top") {
+      const topPose = this.resolveTopViewPose();
+      this.applyViewPose(topPose);
+      this.lastFollowOrigin = topPose.target.clone();
       return;
     }
 
-    this.camera.position.lerp(GLOBAL_VIEW_POSITION, 0.28);
-    this.controls.target.lerp(GLOBAL_VIEW_TARGET, 0.28);
+    this.applyViewPose({
+      position: FREE_VIEW_POSITION,
+      target: FREE_VIEW_TARGET,
+      up: WORLD_UP_AXIS,
+    });
+    this.lastFollowOrigin = this.resolveSceneViewOrigin();
+  }
+
+  resolveCameraViewPose() {
+    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
+    if (!scepterTransform) {
+      return null;
+    }
+    const position = scepterTransform.position.clone();
+    const forward = CAMERA_VIEW_FORWARD_AXIS.clone().applyQuaternion(scepterTransform.quaternion).normalize();
+    const up = CAMERA_VIEW_UP_AXIS.clone().applyQuaternion(scepterTransform.quaternion).normalize();
+    return {
+      position,
+      target: position.clone().add(forward.multiplyScalar(CAMERA_VIEW_TARGET_DISTANCE_METERS)),
+      up,
+    };
+  }
+
+  resolveTopViewPose() {
+    const target = this.resolveSceneViewOrigin("top") || MAP_VIEW_ORIGIN.clone();
+    const forward = TOP_VIEW_FORWARD_AXIS.clone().normalize();
+    return {
+      position: target.clone().sub(forward.multiplyScalar(TOP_VIEW_HEIGHT_METERS)),
+      target,
+      up: TOP_VIEW_UP_AXIS,
+    };
+  }
+
+  resolveSceneViewOrigin(viewMode = this.viewMode) {
+    if (viewMode === "camera") {
+      return this.getWorldTransform(SCEPTER_FRAME)?.position.clone() || null;
+    }
+    if (viewMode === "top") {
+      return MAP_VIEW_ORIGIN.clone();
+    }
+    const baseLinkTransform = this.getWorldTransform(BASE_LINK_FRAME);
+    const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
+    return (baseLinkTransform || scepterTransform)?.position.clone() || MAP_VIEW_ORIGIN.clone();
+  }
+
+  followCurrentViewOrigin() {
+    const origin = this.resolveSceneViewOrigin();
+    if (!origin) {
+      this.lastFollowOrigin = null;
+      return;
+    }
+    if (this.lastFollowOrigin) {
+      const delta = origin.clone().sub(this.lastFollowOrigin);
+      if (delta.lengthSq() > 0) {
+        this.camera.position.add(delta);
+        this.controls.target.add(delta);
+      }
+    }
+    this.lastFollowOrigin = origin.clone();
+  }
+
+  applyViewPose({ position, target, up }) {
+    this.camera.up.copy(up || WORLD_UP_AXIS).normalize();
+    this.camera.position.copy(position);
+    this.controls.target.copy(target);
   }
 
   handleTfMessage(message) {
@@ -524,11 +618,11 @@ export class Scene3DView {
 
   applyFrameTransforms() {
     const baseLinkTransform = this.getWorldTransform(BASE_LINK_FRAME);
-    this.applyGroupWorldAlignedTransform(this.baseLinkFrame, baseLinkTransform, BASE_LINK_FRAME);
+    this.applyGroupTfTransform(this.baseLinkFrame, baseLinkTransform, BASE_LINK_FRAME);
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
-    this.applyGroupTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);
+    this.applyGroupTfTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);
     const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
-    this.applyGroupTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);
+    this.applyGroupTfTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);
     const robotTransform = baseLinkTransform || scepterTransform;
     if (robotTransform) {
       this.robotGroup.visible = this.layerState.showRobot !== false;
@@ -553,22 +647,19 @@ export class Scene3DView {
     return tfAxisFrameVisibility[frameId] !== false;
   }
 
-  applyGroupTransform(group, transform, frameId) {
+  applyGroupTfTransform(group, transform, frameId) {
     if (!transform) {
       group.visible = false;
       return;
     }
     group.visible = this.isTfAxisFrameVisible(frameId);
-    this.applyCustomDisplayPose(group, transform.position);
+    this.applyTfFramePose(group, transform);
   }
 
-  applyGroupWorldAlignedTransform(group, transform, frameId) {
-    if (!transform) {
-      group.visible = false;
-      return;
-    }
-    group.visible = this.isTfAxisFrameVisible(frameId);
-    this.applyWorldAlignedDisplayPose(group, transform.position);
+  applyTfFramePose(group, transform) {
+    group.position.copy(transform.position);
+    group.quaternion.copy(transform.quaternion);
+    group.scale.set(1, 1, 1);
   }
 
   applyWorldAlignedDisplayPose(group, position) {
@@ -583,8 +674,79 @@ export class Scene3DView {
     group.scale.set(1, 1, -1);
   }
 
+  applyCameraToTcpCalibration(calibration) {
+    const translationMm = calibration?.translationMm || {};
+    const xMm = Number(translationMm.x);
+    const yMm = Number(translationMm.y);
+    const zMm = Number(translationMm.z);
+    if (![xMm, yMm, zMm].every(Number.isFinite)) {
+      return null;
+    }
+
+    const currentRecord = this.transformMap.get(GRIPPER_FRAME);
+    const quaternion = currentRecord?.quaternion?.clone()
+      || new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI));
+    this.transformMap.set(GRIPPER_FRAME, {
+      parentFrame: SCEPTER_FRAME,
+      position: new THREE.Vector3(
+        xMm / 1000.0,
+        yMm / 1000.0,
+        zMm / 1000.0,
+      ),
+      quaternion,
+    });
+    this.cachedWorldTransforms.clear();
+    this.applyFrameTransforms();
+    return this.getCameraToTcpCalibration();
+  }
+
   getWorldTransform(frameId) {
     return composeWorldTransform(frameId, this.transformMap, this.cachedWorldTransforms);
+  }
+
+  resolveProjectionFrameTransform(frameId) {
+    return this.getWorldTransform(frameId) || this.getWorldTransform(SCEPTER_FRAME);
+  }
+
+  projectFramePointToImagePixel(pointMm, sourceFrame, cameraInfo) {
+    const sourceTransform = this.getWorldTransform(sourceFrame);
+    const projection = normalizeCameraProjection(cameraInfo);
+    const cameraFrame = cameraInfo?.header?.frame_id || SCEPTER_FRAME;
+    const cameraTransform = this.resolveProjectionFrameTransform(cameraFrame);
+    if (!sourceTransform || !cameraTransform || !projection) {
+      return null;
+    }
+
+    const localPoint = new THREE.Vector3(
+      Number(pointMm?.x || 0) / 1000.0,
+      Number(pointMm?.y || 0) / 1000.0,
+      Number(pointMm?.z || 0) / 1000.0,
+    ).applyQuaternion(sourceTransform.quaternion);
+    const mapPoint = sourceTransform.position.clone().add(localPoint);
+    const cameraPoint = mapPoint
+      .sub(cameraTransform.position)
+      .applyQuaternion(cameraTransform.quaternion.clone().invert());
+    return projectCameraPointMetersToImagePixel(cameraPoint, cameraInfo);
+  }
+
+  projectTcpWorkspaceBoundaryToImage(cameraInfo) {
+    const projection = normalizeCameraProjection(cameraInfo);
+    if (!projection || !this.getWorldTransform(GRIPPER_FRAME)) {
+      return null;
+    }
+    const points = buildTcpWorkspaceBoundaryPointsMm()
+      .map((point) => this.projectFramePointToImagePixel(point, GRIPPER_FRAME, cameraInfo));
+    if (points.length !== 4 || points.some((point) => !point)) {
+      return null;
+    }
+    return {
+      points,
+      sourceSize: {
+        width: projection.width,
+        height: projection.height,
+      },
+      frameId: GRIPPER_FRAME,
+    };
   }
 
   setTheme(theme) {

@@ -1,0 +1,40 @@
+{
+  "generated_at": "2026-05-04 23:27:30",
+  "frame_source": "live_raw_world_current_capture",
+  "used_depth_fallback_raw_world": false,
+  "rectified_size": [
+    496,
+    517
+  ],
+  "success": true,
+  "line_counts": [
+    16,
+    16
+  ],
+  "point_count": 256,
+  "mean_completed_surface_score": 0.9705105143366382,
+  "diagnostics": {
+    "binary_threshold": 0.7264444231987,
+    "binary_candidate_pixels": 38476,
+    "completed_surface_pixels": 130106,
+    "instance_graph_endpoint_count": 716,
+    "instance_graph_junction_count": 842,
+    "physical_prior_modes": [
+      "full_workspace",
+      "full_workspace"
+    ],
+    "physical_spacing_mm_range": [
+      120.0,
+      160.0
+    ],
+    "physical_spacing_px_range": [
+      24.0,
+      32.0
+    ],
+    "physical_resolution_mm_per_px": 5.0,
+    "full_workspace_line_count_range": [
+      15,
+      18
+    ]
+  }
+}

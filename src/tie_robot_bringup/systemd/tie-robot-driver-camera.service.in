@@ -2,6 +2,7 @@
 Description=Tie Robot tie-robot-driver-camera.service
 Wants=network-online.target tie-robot-rosbridge.service
 After=network-online.target tie-robot-rosbridge.service
+PartOf=tie-robot-rosbridge.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -18,7 +19,7 @@ Restart=always
 RestartSec=3
 KillSignal=SIGINT
 KillMode=control-group
-TimeoutStopSec=30
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target

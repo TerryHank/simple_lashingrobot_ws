@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-04-29 14:01:54，当前 HEAD：`368c31e`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-05 00:07:09，当前 HEAD：`04a5dc1`。
 
 ## Bootstrap Files
 
@@ -28,30 +28,31 @@
 - 轻启动原则：新会话默认先读 `README.md`、`CHANGELOG.md`、`docs/agent_memory/current.md`；其他记忆文档按需扩展读取，避免长上下文卡顿。
 - 示例泛化原则：用户说“比如”“例如”“类似”时，示例不是需求边界；先识别真实目标和工程约束，再举一反三，避免机械照搬。
 - 长上下文瘦身原则：优先读摘要和相关片段，不把整仓状态、大段日志、构建产物、`.debug_frames` 或无关历史全文塞入上下文；卡顿时写 checkpoint 并开新会话续接。
-- Codex 历史会话打不开时，运行 `python3 scripts/codex_session_guard.py scan --threshold-mb 50`；确认后用 `archive --apply` 将超大 JSONL 移到 `~/.codex/archived_sessions/oversized`。本机可用 `scripts/install_codex_session_guard_timer.sh` 安装自动守卫。
+- Codex 会话超过 100MB 时使用 `python3 scripts/codex_session_guard.py summarize --threshold-mb 100 --skip-open --apply` 压缩活跃会话：原始完整 JSONL 内容复制到 `~/.codex/archived_sessions/oversized/`，`~/.codex/sessions` 里的会话文件不移动出原路径，只把原路径内容改写为摘要替身 JSONL；本机启用 `tie-codex-session-summary.timer` 自动执行该流程。
+- Codex 摘要替身必须保留原始 `session_meta` 关键字段和首条真实用户请求作为标题锚点；已有摘要替身可用 `python3 scripts/codex_session_guard.py repair-summaries --apply` 从 archive 原文修复标题锚点。
 - 长任务或高风险修改前后运行 `python3 scripts/agent_memory.py checkpoint ...`，断电后用 `python3 scripts/agent_memory.py recover` 读取恢复报告。
 - 当前认可的手动工作区 S2 是 `PR-FPRG 透视展开频相回归网格方案`；不要退回原图 bbox 估周期、像素尺度 rectified 或 `pre_img()` 前置门控。
 - 涉及 TF、点云或 3D Scene 时，先读 `CHANGELOG.md` 中关于相机、TCP 和前端显示坐标系的约定。
 
 ## Latest CHANGELOG Signals
 
-- 新增 `docs/releases/slam_v30/`，作为 `slam/v30` 的交接、发布清单、校验文件和视觉模态样例目录。
-- 新增 `src/tie_robot_perception/tools/export_visual_modalities_snapshot.py`，可从当前 ROS 运行态导出相机、世界坐标、TF、前端状态和 `pointAI/PR-FPRG` 结果到小型 bag、PNG、NPY 与 metadata。
-- 新增 `src/tie_robot_bringup/launch/slam_v30_offline_visual_replay.launch`，用于在无机器环境下通过 `rosbag play --clock --loop` 复现当前视觉测试场景。
-- `slam/v30` 样例 bag 已捕获 `/Scepter/*` 核心图像、`/Scepter/worldCoord/*`、`/pointAI/result_image_raw`、`/perception/lashing/result_image`、`/perception/lashing/points_camera`、`/perception/lashing/workspace/quad_pixels`、`/tf`、`/tf_static` 和吊篮/末端状态。
-- 修复 `pointAINode` 运行态 `PR-FPRG` 方法绑定缺口，确保 `/perception/lashing/recognize_once` 可以真实跑通 `manual workspace S2`，而不是在服务调用时才暴露缺失属性。
-- `suoquNode` 调用末端绑扎执行改为 `/moduan/execute_bind_points` action 客户端，取代旧 `/moduan/sg_precomputed*` service 调用路径，并补齐 `tie_robot_process` 的 `actionlib` 依赖。
-- `pointAI` 的主视觉链路统一切到方向自适应 `PR-FPRG`：手动工作区透视展开后，不再假设钢筋一定与画面水平/垂直，而是在 rectified 平面内扫描两组 `theta/rho` 周期线族，再做峰值支撑、连续钢筋条验证、主间距兜底和线族求交。
-- `PROCESS_IMAGE_MODE_SCAN_ONLY`、执行微调和绑扎检查等 `process_image` 入口都先运行 `run_manual_workspace_s2_pipeline(publish=True)`；旧 `pre_img()` 不再作为运行门控或回退路径。
+- 用户明确现场钢筋间距为 12-16 cm，钢筋网规格约为 `(15-18) * (15-18)`；扫描层全场识别不再以旧 8x8/64 点作为默认目标。
+- `scan_surface_dp` 的运行态主链新增物理先验选线：根据 `rectified_geometry.resolution_mm_per_px` 将 12-16 cm 换算成像素间距，当前 5 mm/px 下为 24-32 px；当 rectified 视野足以容纳全场网格时，每轴优先选择 15-18 根线，当前现场帧输出 16x16=256 个候选绑扎点。
+- 小视野不会被强行套全场线数：当画面尺度或工作区只容纳少量可见钢筋时，主链切换到 `visible_local`，按当前可见 2-18 根线输出局部交点；它只能识别当前画面里的可见交点，不能从 2-3 根钢筋直接推断完整全场网格。
+- 修复全场服务触发仍返回 64 点的问题：运行态不再把旧 8x8 线族作为全场最终输出兜底；当 `fused_instance_response` 单轴响应不足时，会在物理先验下从 `Frangi / Hessian / depth_gradient / IR / combined` 等底图中选择能恢复 15-18 根线的线族。
+- 清理旧版本残留：扫描主链 Surface-DP 失败时不再自动回退到 2026-04-22 depth-only S2；`workspace_s2` 的 8 根线/64 点偏置改为显式 `LEGACY_*` 命名，Surface-DP 不再调用 legacy axis-aligned 线族作为补全面支撑；前端视觉触发、内部 overlay 命名和项目关系图文案改为 Surface-DP 物理先验，相机原始绑扎点 TF child 前缀改为 `surface_dp_bind_point_*`，并清理旧 hash 静态资源。
+- 新增 `test_scan_surface_dp_runtime.py` 覆盖全场物理先验 16x16 和小视野 2x3 两种行为；现场运行态报告挂载到 `/reports/live_surface_dp_physical_runtime_20260504_232729/`。
+- 用户最新口径：扫描层继续推进 `combined / fused_instance_response -> Hessian + Frangi 脊线增强 -> binary candidate + skeleton -> completed_surface_mask -> DP 曲线沿局部 ridge 收束 -> 曲线交点输出 -> instance_graph junction 只做验证 / 补召回`。
+- `MODE_SCAN_ONLY` 的触发链路仍保持 `/pointAI/process_image request_mode=3`、现有发布话题和 `PointsArray` 输出结构；算法本体从 2026-05-03 的 depth-only S2 主链切到 Surface-DP 主链。
 
 ## Recent Session Memory
 
-- `2026-04-29 14:01 - PR-FPRG 3-6曲线避梁筋/地板缝探究报告`：按用户要求独立探究方案3/4/5/6避开梁筋和地板缝，不改运行时方案1主链。新增/增强 pr_fprg_scheme_comparison.py 的独立报告诊断：梁筋只做最终点级过滤，报告 beam_filtered_point_count；曲线抗地板缝以 curve_metrics 量化，包括 coverage_mean、score_mean、abs_offset_mean、abs_offset_p95、wiggle_mean。当前尺度报告 .debug_frames/pr_fprg_curve_3456_beam_floor_probe_20260429_135902，已发布到 /reports/pr_fprg_curve_3456。当前结果：3/4/5/6 均为 6x6 线族、31-32 点、beam_filtered=0；03 greedy 覆盖高但 wiggle_mean=1.148，容易追地板纹理；04 DP wiggle_mean=0.061 但偏移均值较大；05 DP+ridge wiggle_mean=0.067 且 abs_offset_mean=3.699，作为下一步主候选；06 IR-assisted wiggle_mean=0.067、score_mean较高但可能被红外地板缝牵引，作为辅助验证候选。
-- `2026-04-29 13:59 - Xpra 主窗口无边框全屏从代理层 patch`：2026-04-29 验证：rviz/rqt 等图形卡片应通过 workspace_picker_web_server.py 的 _patch_xpra_html5_resource 修补 Xpra HTML5 /js/Window.js 与 /css/client.css，使主窗口标记 tie-robot-embedded-main-window、隐藏内部 windowhead、初始 maximized 铺满 iframe；不要在 UIController 中直接改 frame.contentWindow.client/id_to_window/canvas，否则容易导致蓝屏或刷新。
-- `2026-04-29 13:55 - 图形应用嵌入窗口去边框补丁`：workspace_picker_web_server.py 会在代理 xpra HTML/JS 资源时 patch /js/Window.js 和 /css/client.css：普通 NORMAL 主窗口在前端图形应用卡片内强制最大化、隐藏 windowhead、去边框，DIALOG/UTILITY/TOOLTIP 等窗口不套用。
-- `2026-04-29 13:55 - 线性模组执行抽象为状态Topic+Action`：用户已确认当前工程采用 ROS 风格分层但不强行引入 ros_control/MoveIt：moduan_driver_node 负责读 PLC 并发布 /moduan/state；moduan_motion_controller_node 提供 /moduan/execute_bind_points Action，内部写点位、发执行信号并等待 FINISHALL；/moduan/sg、/moduan/sg_precomputed、/moduan/single_move 继续作为兼容 wrapper；tie_robot_process 预计算绑扎点执行链现在通过 /moduan/execute_bind_points Action 调度，不再直接调用 /moduan/sg_precomputed* 或感知 PLC 完成位。FINISHALL 仍是 PLC 完成的权威信号，但只属于控制层实现细节。
-- `2026-04-29 13:55 - suoquNode 改走 execute_bind_points action`：slam/v30 最终提交中，suoquNode 到线性模组绑扎执行的调度路径改为 actionlib SimpleActionClient 调用 /moduan/execute_bind_points，旧 /moduan/sg_precomputed 与 /moduan/sg_precomputed_fast service 调用不再作为流程编排主路径。
-- `2026-04-29 13:47 - PR-FPRG 方案1恢复连续/ridge主链`：用户指出当前尺度效果奇差，根因定位为此前为追求方案1 only 和点数，把运行主链改成 enable_continuous_validation=False，退化为只靠一维 peak/spacing，导致地板缝和边缘细峰在当前尺度下爆出密集假线。已恢复方案1主链口径：depth_background_minus_filled 优先，use_orientation_prior_angle_pool=True，enable_local_peak_refine=True，enable_continuous_validation=True，enable_spacing_prune=True；梁筋仍只做最终点级排除，不删除整条 rho/线族。新增规则 lattice 收束用于 dense floor-seam 候选，避免 peak 候选过密。最新当前尺度报告 .debug_frames/pr_fprg_scheme1_restored_mainline_current_scale_20260429_134514，已发布到 /reports/pr_fprg_scheme1_current_scale、/reports/pr_fprg_scheme1、/reports/pr_fprg_live_full。注意：效果从 54 点密集假线收敛到 36 点，但耗时约 1.28s，仍需后续继续优化质量与速度，不能宣称最终完成。
+- `2026-05-05 00:05 - 补清扫描层旧命名与TF残留`：2026-05-05：继续清理扫描层旧版本残留。运行态 TF child prefix 从 pr_fprg_bind_point 改为 surface_dp_bind_point；前端源码内部 prFprgOverlay/triggerPrFprg 命名改为 surfaceDpOverlay/triggerSurfaceDp；重新 npm run build 并删除未引用旧 hash app 资产。残留扫描限定 active pointai、workspace_s2、frontend src/test 和 web app 产物，未再命中 PR-FPRG/prFprg/pr_fprg_bind_point。重启 pointAINode 后 /pointAI/process_image request_mode=3 返回 count=256，tf_echo 可查 surface_dp_bind_point_1，旧 pr_fprg_bind_point_1 不存在。
+- `2026-05-04 23:59 - 清理扫描层旧版本残留`：2026-05-04：用户确认清理旧版本残留。扫描主链 run_manual_workspace_s2_pipeline 现在只调用 Surface-DP，失败时直接返回失败并标记 legacy_depth_only_fallback=False，不再自动回退 run_manual_workspace_s2_depth_only_pipeline；scan_surface_dp 删除 legacy axis-aligned 线族兜底，物理先验无法解析时不再用旧 8x8 线族补 completed_surface；workspace_s2 的 8 根线/64 点评分偏置改为 LEGACY_* 常量，只保留给旧工具/测试；前端视觉触发和 project graph 文案改为 Surface-DP 物理先验，并清理未引用的旧 hash 静态资源。重启 pointAINode 后 /pointAI/process_image request_mode=3 返回 count=256，日志 lines=[16,16], points=256。
+- `2026-05-04 23:47 - 前端 header 长按重启动画`：2026-05-04：新前端 header 中索驱、末端、视觉三个状态胶囊长按重启时会先进入 is-long-press-charging 充能态，持续约 0.8 秒；按钮内部使用当前状态色做横向填充和扫光动画，计时满后移除充能态并触发对应 restart*Subsystem。松手、滑出或取消 pointer 会清除充能态并保留短按动作。
+- `2026-05-04 23:45 - 修复视觉触发回退 64 点`：2026-05-04 23:45：用户反馈点击前端触发视觉识别仍只有 64 点。系统化排查确认前端按钮调用 /pointAI/process_image request_mode=3，服务稳定返回 count=64，pointAINode 日志为 Surface-DP lines=[8,8]；独立复刻同一工作区和实时帧可输出 256。根因是运行态 Surface-DP 只用 fused/completed 响应做最终物理选线，当 fused 纵向响应不足时物理选线失败，代码又把旧 workspace_s2 8x8 线族作为最终兜底。已改为多底图物理选线：completed/fused/Frangi/Hessian/depth_gradient/IR/combined/depth 中选择能满足 12-16 cm、15-18 根线的物理线族；全场模式不再允许旧 8x8 作为最终输出。重启 pointAINode 后 /pointAI/process_image request_mode=3 返回 count=256，日志 lines=[16,16], points=256, mean_surface=0.974。
+- `2026-05-04 23:41 - 前端 header 子系统短按/长按口径`：2026-05-04：新前端 header 中索驱、末端、视觉三个状态胶囊采用短按/长按双语义。状态只决定在线/离线颜色和短按动作：在线 success 短按关闭对应子系统，离线或非 success 短按启动对应子系统；长按约 0.8 秒统一重启对应子系统。索驱/末端的 start/stop/restart 只控制各自驱动守护，不联动视觉算法；视觉 start 为 startCameraDriver + startAlgorithmStack，stop 为 stopAlgorithmStack + stopCameraDriver，restart 为 restartCameraDriver + restartAlgorithmStack。
+- `2026-05-04 23:28 - 扫描层主链接入物理间距先验`：2026-05-04：按用户要求将 12-16 cm 钢筋间距、(15-18)*(15-18) 规格接入运行态 scan_surface_dp 主链，替代旧 8x8 目标偏置。scan_surface_dp 现在按 rectified_geometry.resolution_mm_per_px 将 120-160 mm 转为像素间距；全场视野足够时使用 full_workspace 模式选择 15-18 根线，当前现场帧输出 16x16=256 点；视野只容纳少量钢筋时切到 visible_local，支持 2-18 根可见线并只输出当前可见局部交点，不从 2-3 根钢筋推断完整全场。效果页：http://192.168.6.99:8080/reports/live_surface_dp_physical_runtime_20260504_232729/index.html。
 
 ## Handoff Documents
 

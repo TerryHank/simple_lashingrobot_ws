@@ -24,6 +24,7 @@ for import_path in (PERCEPTION_SRC, TOOL_DIR):
         sys.path.insert(0, str(import_path))
 
 from pr_fprg_peak_supported_probe import (  # noqa: E402
+    build_normalized_depth_ir_combined_response,
     capture_depth_ir_frame,
     capture_synced_frame,
     load_manual_workspace_quad,
@@ -33,9 +34,10 @@ from pr_fprg_peak_supported_probe import (  # noqa: E402
 )
 from pr_fprg_scheme_comparison import points_from_rectified_intersections  # noqa: E402
 from tie_robot_perception.perception.workspace_s2 import (  # noqa: E402
-    build_workspace_s2_oriented_line_families,
+    build_workspace_s2_axis_aligned_line_families,
     build_workspace_s2_rectified_geometry,
     build_workspace_s2_structural_edge_suppression_mask,
+    expand_workspace_s2_exclusion_mask_by_metric_margin,
     filter_workspace_s2_rectified_points_outside_mask,
     intersect_workspace_s2_oriented_line_families,
     normalize_workspace_s2_response,
@@ -75,16 +77,27 @@ def prepare_frame_inputs(frame):
     background_depth = cv2.GaussianBlur(filled_depth, (0, 0), sigmaX=11.0, sigmaY=11.0)
     infrared_background = cv2.GaussianBlur(rectified_ir, (0, 0), sigmaX=7.0, sigmaY=7.0)
     infrared_dark_line_response = infrared_background - rectified_ir
+    depth_dark_line_response = background_depth - filled_depth
+    combined_depth_ir_response = build_normalized_depth_ir_combined_response(
+        depth_dark_line_response,
+        infrared_dark_line_response,
+        rectified_valid,
+    )
     structural_edge_response = normalize_workspace_s2_response(
-        infrared_dark_line_response.astype(np.float32),
+        combined_depth_ir_response.astype(np.float32),
         rectified_valid,
     )
 
     response_variants = [
         {
+            "source": "depth_ir",
+            "name": "combined_depth_ir_darkline",
+            "image": combined_depth_ir_response,
+        },
+        {
             "source": "depth",
             "name": "depth_background_minus_filled",
-            "image": background_depth - filled_depth,
+            "image": depth_dark_line_response,
         },
         {
             "source": "depth",
@@ -128,8 +141,12 @@ def run_line_family_variant(prepared, variant, response_name_filter=None):
     ]
     if response_name_filter is None:
         candidate_groups = [
+            [candidate for candidate in response_candidates if candidate["source"] == "depth_ir"],
             [candidate for candidate in response_candidates if candidate["source"] == "depth"],
-            [candidate for candidate in response_candidates if candidate["source"] != "depth"],
+            [
+                candidate for candidate in response_candidates
+                if candidate["source"] not in ("depth_ir", "depth")
+            ],
         ]
     else:
         candidate_groups = [response_candidates]
@@ -142,15 +159,14 @@ def run_line_family_variant(prepared, variant, response_name_filter=None):
                 rectified_valid,
             )
             started = time.perf_counter()
-            line_families = build_workspace_s2_oriented_line_families(
+            line_families = build_workspace_s2_axis_aligned_line_families(
                 response,
                 rectified_mask,
                 min_period=10,
                 max_period=30,
-                use_orientation_prior_angle_pool=variant.get("use_orientation_prior_angle_pool", True),
-                enable_local_peak_refine=variant.get("enable_local_peak_refine", True),
+                enable_local_peak_refine=variant.get("enable_local_peak_refine", False),
                 enable_peak_support=variant.get("enable_peak_support", True),
-                enable_continuous_validation=variant.get("enable_continuous_validation", True),
+                enable_continuous_validation=variant.get("enable_continuous_validation", False),
                 enable_spacing_prune=variant.get("enable_spacing_prune", True),
             )
             elapsed_ms = (time.perf_counter() - started) * 1000.0
@@ -184,10 +200,14 @@ def run_line_family_variant(prepared, variant, response_name_filter=None):
         prepared.get("structural_edge_response", best_result["response"]),
         rectified_mask,
     )
+    beam_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
+        beam_mask,
+        prepared["rectified_geometry"],
+        margin_mm=130.0,
+    )
     rectified_intersections = filter_workspace_s2_rectified_points_outside_mask(
         rectified_intersections,
         beam_mask,
-        margin_px=2,
     )
     result_like = {
         "workspace_mask": prepared["workspace_mask"],
@@ -263,22 +283,21 @@ def main():
     variants = [
         {
             "id": "full",
-            "label": "全流程：08:21 连续/ridge 主链 + 梁筋点级过滤",
-            "enable_local_peak_refine": True,
-            "use_orientation_prior_angle_pool": True,
-            "enable_continuous_validation": True,
+            "label": "全流程：组合响应 + 行/列峰值 + 梁筋±13cm排除",
+            "enable_local_peak_refine": False,
+            "enable_continuous_validation": False,
             "enable_spacing_prune": True,
         },
         {
             "id": "skip_continuous",
-            "label": "关闭连续/ridge 验证",
+            "label": "保持关闭连续/ridge 验证",
             "enable_continuous_validation": False,
             "enable_spacing_prune": True,
         },
         {
             "id": "skip_spacing",
             "label": "关闭 spacing prune",
-            "enable_continuous_validation": True,
+            "enable_continuous_validation": False,
             "enable_spacing_prune": False,
         },
         {
@@ -301,11 +320,6 @@ def main():
             "enable_peak_support": False,
             "enable_continuous_validation": False,
             "enable_spacing_prune": False,
-        },
-        {
-            "id": "full_angle_sweep",
-            "label": "全角度候选池对照",
-            "use_orientation_prior_angle_pool": False,
         },
     ]
 

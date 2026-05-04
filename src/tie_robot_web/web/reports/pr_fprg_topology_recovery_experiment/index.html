@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 频相主拓扑恢复实验报告</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #17211d;
+      background: #f5f1e8;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+    header { padding: 22px clamp(16px, 4vw, 42px); background: #fbf7ee; border-bottom: 1px solid #d9d0c2; }
+    h1 { margin: 0 0 6px; font-size: clamp(22px, 3vw, 34px); letter-spacing: 0; }
+    .subline { margin: 0; color: #5b655d; }
+    main { max-width: 1560px; margin: 0 auto; padding: 16px clamp(12px, 3vw, 34px) 42px; }
+    .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; margin: 16px 0 18px; }
+    .fact { border: 1px solid #d8d0c0; border-radius: 8px; padding: 10px 12px; background: #fffdf7; min-width: 0; }
+    .fact span { display: block; color: #607067; font-size: 12px; }
+    .fact b { display: block; font-size: 19px; overflow-wrap: anywhere; }
+    section { margin-top: 18px; padding-top: 18px; border-top: 1px solid #d8d0c0; }
+    h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: 0; }
+    .note { border-left: 4px solid #c4672d; background: #fff8e8; padding: 10px 12px; border-radius: 0 8px 8px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr)); gap: 14px; align-items: start; }
+    .image-card { margin: 0; border: 1px solid #d8d0c0; border-radius: 8px; background: #fffdf7; overflow: hidden; min-width: 0; }
+    .image-card img { display: block; width: 100%; max-height: min(78vh, 980px); object-fit: contain; background: #10140f; }
+    figcaption { padding: 9px 10px; color: #384239; border-top: 1px solid #e6dfd1; }
+    code { background: #ece3d2; border-radius: 4px; padding: 1px 4px; }
+    table { width: 100%; border-collapse: collapse; background: #fffdf7; border: 1px solid #d8d0c0; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid #e4dccd; vertical-align: top; text-align: left; }
+    th { background: #eee6d5; }
+    @media (max-width: 720px) { header { padding: 16px; } main { padding: 12px; } .image-card img { max-height: 72vh; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG 频相主拓扑恢复实验报告</h1>
+    <p class="subline">当前帧真实跑实验：组合响应为底图，FFT / phase 生成完整网格，再做梁筋 ±13 cm 点级过滤，并与当前 peak-supported 主链对照。</p>
+  </header>
+  <main>
+    <div class="facts">
+      <div class="fact"><span>响应</span><b>combined_depth_ir_darkline</b></div>
+      <div class="fact"><span>当前主链</span><b>[9, 8] / 72 点</b></div>
+      <div class="fact"><span>频相网格</span><b>[17, 16] / 272 点</b></div>
+      <div class="fact"><span>梁筋过滤后</span><b>170 点</b></div>
+      <div class="fact"><span>beam mask 像素</span><b>43036</b></div>
+      <div class="fact"><span>总耗时</span><b>16685.3 ms</b></div>
+    </div>
+    <section>
+      <h2>实验结论</h2>
+      <p class="note">这份报告不是只画流程，而是对当前画面逐步跑出中间结果。重点看第 4/5 步的 FFT 周期驼峰、第 6 步的完整频相网格，以及第 8/9 步过滤前后的原图点位。</p>
+    </section>
+    <section>
+      <h2>关键数值</h2>
+      <table>
+        <thead><tr><th>项目</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>当前 peak-supported 线族</td><td><code>[9, 8]</code></td></tr>
+          <tr><td>恢复频相网格线族</td><td><code>[17, 16]</code></td></tr>
+          <tr><td>纵向 FFT estimate</td><td><code>{&#x27;period&#x27;: 21, &#x27;phase&#x27;: 11, &#x27;score&#x27;: 0.3792588940536422, &#x27;fft_score&#x27;: 0.5579007900809173, &#x27;correlation_score&#x27;: -0.01008162833750248, &#x27;phase_score&#x27;: 0.4367424249649048, &#x27;frequency_bin&#x27;: 16, &#x27;method&#x27;: &#x27;fft&#x27;}</code></td></tr>
+          <tr><td>横向 FFT estimate</td><td><code>{&#x27;period&#x27;: 22, &#x27;phase&#x27;: 16, &#x27;score&#x27;: 0.6440492428958197, &#x27;fft_score&#x27;: 1.0, &#x27;correlation_score&#x27;: -0.09697944670915604, &#x27;phase_score&#x27;: 0.4521884620189667, &#x27;frequency_bin&#x27;: 17, &#x27;method&#x27;: &#x27;fft&#x27;}</code></td></tr>
+          <tr><td>beam_candidate bands</td><td><code>[{&#x27;axis&#x27;: &#x27;x&#x27;, &#x27;start&#x27;: 46, &#x27;end&#x27;: 57, &#x27;width&#x27;: 12, &#x27;peak&#x27;: 1.8298779726028442, &#x27;coverage&#x27;: 0.497529200359389, &#x27;type&#x27;: &#x27;beam_candidate&#x27;}, {&#x27;axis&#x27;: &#x27;x&#x27;, &#x27;start&#x27;: 303, &#x27;end&#x27;: 313, &#x27;width&#x27;: 11, &#x27;peak&#x27;: 1.8416237831115723, &#x27;coverage&#x27;: 0.5363881401617251, &#x27;type&#x27;: &#x27;beam_candidate&#x27;}]</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>3/4/5/6：以频相主线为基底</h2>
+      <table>
+        <thead><tr><th>算法</th><th>过滤后点数</th><th>均值响应</th><th>是否兜底直线交点</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>03_recovered_greedy_curve</code></td>
+            <td>170</td>
+            <td>0.785</td>
+            <td>否</td>
+          </tr>
+        
+
+          <tr>
+            <td><code>04_recovered_dp_curve</code></td>
+            <td>170</td>
+            <td>0.803</td>
+            <td>否</td>
+          </tr>
+        
+
+          <tr>
+            <td><code>05_recovered_ridge_curve</code></td>
+            <td>170</td>
+            <td>0.736</td>
+            <td>否</td>
+          </tr>
+        
+
+          <tr>
+            <td><code>06_recovered_ir_assisted_curve</code></td>
+            <td>170</td>
+            <td>0.761</td>
+            <td>否</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>每一步效果图</h2>
+      <div class="grid">
+        <figure class="image-card">
+          <img src="images/01_input_workspace.png" alt="1. 当前输入工作区（高伽马 IR + 工作区框）">
+          <figcaption>1. 当前输入工作区（高伽马 IR + 工作区框）</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/02_rectified_ir.png" alt="2. 透视展开后的 IR 平面">
+          <figcaption>2. 透视展开后的 IR 平面</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/03_combined_response.png" alt="3. 组合响应底图（深度暗线 + IR 暗线）">
+          <figcaption>3. 组合响应底图（深度暗线 + IR 暗线）</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/04_vertical_profile_fft.png" alt="4. 列方向 profile + FFT 周期驼峰">
+          <figcaption>4. 列方向 profile + FFT 周期驼峰</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/05_horizontal_profile_fft.png" alt="5. 行方向 profile + FFT 周期驼峰">
+          <figcaption>5. 行方向 profile + FFT 周期驼峰</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/06_frequency_phase_lattice_rectified.png" alt="6. period + phase 生成的完整 rectified 网格">
+          <figcaption>6. period + phase 生成的完整 rectified 网格</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/07_beam_candidate_13cm_mask.png" alt="7. 梁筋 beam_candidate ±13 cm mask">
+          <figcaption>7. 梁筋 beam_candidate ±13 cm mask</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/08_before_filter_original.png" alt="8. 过滤前：完整频相网格候选点">
+          <figcaption>8. 过滤前：完整频相网格候选点</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/09_after_filter_original.png" alt="9. 过滤后：梁筋 ±13 cm 点级过滤">
+          <figcaption>9. 过滤后：梁筋 ±13 cm 点级过滤</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/10_current_peak_supported_original.png" alt="10. 当前 peak-supported 主链对照">
+          <figcaption>10. 当前 peak-supported 主链对照</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/12_03_recovered_greedy_curve_original.png" alt="12. 以频相主线为基底：03 greedy 曲线">
+          <figcaption>12. 以频相主线为基底：03 greedy 曲线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/13_04_recovered_dp_curve_original.png" alt="13. 以频相主线为基底：04 DP 曲线">
+          <figcaption>13. 以频相主线为基底：04 DP 曲线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/14_05_recovered_ridge_curve_original.png" alt="14. 以频相主线为基底：05 ridge 约束曲线">
+          <figcaption>14. 以频相主线为基底：05 ridge 约束曲线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/15_06_recovered_ir_assisted_curve_original.png" alt="15. 以频相主线为基底：06 红外/多模态辅助曲线">
+          <figcaption>15. 以频相主线为基底：06 红外/多模态辅助曲线</figcaption>
+        </figure>
+        </div>
+    </section>
+  </main>
+</body>
+</html>

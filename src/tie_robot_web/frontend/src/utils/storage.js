@@ -1,9 +1,12 @@
+import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
+
 export const DISPLAY_PREFERENCES_KEY = "tie_robot_frontend_display_preferences";
 export const VIEWER_LAYOUT_PREFIX = "tie_robot_frontend_layout_";
 export const THEME_PREFERENCE_KEY = "tie_robot_frontend_theme";
 export const SETTINGS_HOME_PAGE_KEY = "tie_robot_frontend_settings_home_page";
 export const SETTINGS_PAGE_ORDER_KEY = "tie_robot_frontend_settings_page_order";
 export const CABIN_REMOTE_SETTINGS_KEY = "tie_robot_frontend_cabin_remote_settings";
+export const NETWORK_PING_SETTINGS_KEY = "tie_robot_frontend_network_ping_settings";
 export const RECOGNITION_POSE_KEY = "tie_robot_frontend_recognition_pose";
 export const VISUAL_DEBUG_SETTINGS_KEY = "tie_robot_frontend_visual_debug_settings";
 
@@ -123,7 +126,7 @@ export function saveSettingsPageOrderPreference(pageIds) {
 }
 
 export function loadCabinRemoteSettings() {
-  const defaults = { step: 50, speed: 300 };
+  const defaults = { step: 50, speed: 300, moveMode: "absolute" };
   try {
     const raw = localStorage.getItem(CABIN_REMOTE_SETTINGS_KEY);
     if (!raw) {
@@ -133,6 +136,7 @@ export function loadCabinRemoteSettings() {
     return {
       step: normalizePositiveNumber(parsed?.step, defaults.step),
       speed: normalizePositiveNumber(parsed?.speed, defaults.speed),
+      moveMode: parsed?.moveMode === "relative" ? "relative" : defaults.moveMode,
     };
   } catch {
     return defaults;
@@ -140,13 +144,49 @@ export function loadCabinRemoteSettings() {
 }
 
 export function saveCabinRemoteSettings(value) {
-  const defaults = { step: 50, speed: 300 };
+  const defaults = { step: 50, speed: 300, moveMode: "absolute" };
   const payload = {
     step: normalizePositiveNumber(value?.step, defaults.step),
     speed: normalizePositiveNumber(value?.speed, defaults.speed),
+    moveMode: value?.moveMode === "relative" ? "relative" : defaults.moveMode,
   };
   try {
     localStorage.setItem(CABIN_REMOTE_SETTINGS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function normalizePingHost(value, fallback) {
+  const normalized = String(value ?? "").trim();
+  return normalized || fallback;
+}
+
+export function loadNetworkPingSettings() {
+  const defaults = { cabinHost: "192.168.6.62", moduanHost: "192.168.6.167" };
+  try {
+    const raw = localStorage.getItem(NETWORK_PING_SETTINGS_KEY);
+    if (!raw) {
+      return defaults;
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      cabinHost: normalizePingHost(parsed?.cabinHost, defaults.cabinHost),
+      moduanHost: normalizePingHost(parsed?.moduanHost, defaults.moduanHost),
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveNetworkPingSettings(value) {
+  const defaults = { cabinHost: "192.168.6.62", moduanHost: "192.168.6.167" };
+  const payload = {
+    cabinHost: normalizePingHost(value?.cabinHost, defaults.cabinHost),
+    moduanHost: normalizePingHost(value?.moduanHost, defaults.moduanHost),
+  };
+  try {
+    localStorage.setItem(NETWORK_PING_SETTINGS_KEY, JSON.stringify(payload));
   } catch {
     // ignore storage failures
   }
@@ -177,7 +217,7 @@ export function saveRecognitionPose(value) {
 }
 
 export function loadVisualDebugSettings() {
-  const defaults = { stableFrameCount: 3, requestMode: 1 };
+  const defaults = { stableFrameCount: 3, requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE };
   try {
     const raw = localStorage.getItem(VISUAL_DEBUG_SETTINGS_KEY);
     if (!raw) {
@@ -186,9 +226,7 @@ export function loadVisualDebugSettings() {
     const parsed = JSON.parse(raw);
     return {
       stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(parsed?.stableFrameCount, defaults.stableFrameCount))),
-      requestMode: [0, 1, 2, 3, 4].includes(Number(parsed?.requestMode))
-        ? Number(parsed.requestMode)
-        : defaults.requestMode,
+      requestMode: defaults.requestMode,
     };
   } catch {
     return defaults;
@@ -198,9 +236,7 @@ export function loadVisualDebugSettings() {
 export function saveVisualDebugSettings(value) {
   const payload = {
     stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(value?.stableFrameCount, 3))),
-    requestMode: [0, 1, 2, 3, 4].includes(Number(value?.requestMode))
-      ? Number(value.requestMode)
-      : 1,
+    requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
   };
   try {
     localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify(payload));

@@ -107,9 +107,6 @@ def image_callback(self, msg):
         self.image_infrared_copy = np.zeros((480, 640), dtype=np.uint8)
 
     result_image = np.array(self.image_infrared_copy, copy=True)
-    if self.load_manual_workspace_quad() is None:
-        cv2.rectangle(result_image, self.point1, self.point2, 255, 2)
-    self.draw_scan_workspace_overlay(result_image)
 
     occupied_label_bboxes = []
     sorted_display_points = sorted(
@@ -199,9 +196,7 @@ def camera_info_callback(self,msg):
 
     # self.camera_matrix = np.array(msg.K).reshape(3, 3)
     self.camera_matrix = np.array([[640, 0, 320], [0, 640, 240], [0, 0, 1]])
-    # 提取畸变系数
-    # self.dist_coeffs = np.array(msg.D)
-    # self.dist_coeffs = np.zeros_like(np.array(msg.D))
+    # 相机底层已经完成畸变处理，视觉层不读取 CameraInfo 的畸变系数。
     self.dist_coeffs = np.zeros((4, 1)) 
     self.mark_visual_input("camera_info")
 

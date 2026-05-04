@@ -14,8 +14,9 @@ export const POINT_CLOUD_SOURCES = [
 ];
 
 export const SCENE_VIEW_MODES = [
+  { id: "free", label: "自由视角" },
   { id: "camera", label: "相机视角" },
-  { id: "global", label: "全局视角" },
+  { id: "top", label: "俯视视角" },
 ];
 
 export const TF_AXIS_FRAMES = [
@@ -83,8 +84,8 @@ export const DEFAULT_TOPIC_LAYER_STATE = {
   tfAxisFrameVisibility: DEFAULT_TF_AXIS_FRAME_VISIBILITY,
   pointSize: 0.035,
   pointOpacity: 0.78,
-  viewMode: "camera",
-  followCamera: false,
+  viewMode: "free",
+  followOrigin: false,
 };
 
 export function applyModePreset(mode, currentState) {

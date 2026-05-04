@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>钢筋面分割与绑扎点检测对比</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #17211d;
+      background: #f5f1e8;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 22px clamp(16px, 4vw, 42px);
+      background: #fbf7ee;
+      border-bottom: 1px solid #d9d0c2;
+    }
+    h1 { margin: 0 0 6px; font-size: clamp(22px, 3vw, 34px); letter-spacing: 0; }
+    .subline { margin: 0; color: #5b655d; }
+    main { max-width: 1520px; margin: 0 auto; padding: 16px clamp(12px, 3vw, 34px) 42px; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+      gap: 10px;
+      margin: 16px 0 18px;
+    }
+    .fact {
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fffdf7;
+      min-width: 0;
+    }
+    .fact b { display: block; font-size: 18px; }
+    section { margin-top: 18px; padding-top: 18px; border-top: 1px solid #d8d0c0; }
+    h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: 0; }
+    table { width: 100%; border-collapse: collapse; background: #fffdf7; border: 1px solid #d8d0c0; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid #e4dccd; vertical-align: top; text-align: left; }
+    th { background: #eee6d5; }
+    code { background: #ece3d2; border-radius: 4px; padding: 1px 4px; }
+    .note { border-left: 4px solid #c4672d; background: #fff8e8; padding: 10px 12px; border-radius: 0 8px 8px 0; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+    .image-card {
+      margin: 0;
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      background: #fffdf7;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .image-card img {
+      display: block;
+      width: 100%;
+      max-height: min(74vh, 940px);
+      object-fit: contain;
+      background: #10140f;
+    }
+    figcaption { padding: 9px 10px; color: #384239; border-top: 1px solid #e6dfd1; }
+    @media (max-width: 720px) {
+      header { padding: 16px; }
+      main { padding: 12px; }
+      table { font-size: 13px; }
+      .image-card img { max-height: 70vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>钢筋面分割与绑扎点检测对比</h1>
+    <p class="subline">用组合响应 + 深度响应 + beam_candidate 做分割，再比较不同绑扎点过滤口径。</p>
+  </header>
+  <main>
+    <div class="facts">
+      <div class="fact"><span>帧来源</span><b>raw_world</b></div>
+      <div class="fact"><span>响应</span><b>combined_depth_ir_darkline</b></div>
+      <div class="fact"><span>线族</span><b>[8, 8]</b></div>
+      <div class="fact"><span>推荐方案</span><b>completed_surface_intersections</b></div>
+      <div class="fact"><span>推荐点数</span><b>64</b></div>
+      <div class="fact"><span>全流程耗时</span><b>1763.7 ms</b></div>
+    </div>
+    <section>
+      <h2>结论</h2>
+      <p class="note">本轮优先走“补全钢筋面后直接检测交点”的技术路径；梁筋本体点仍用 beam_candidate 排除。</p>
+      <p>展示图的 IR 底图已提高伽马：<code>ir_display_gamma=1.95</code>。红色是 beam_candidate 梁筋本体，黄色是梁筋 ±13cm 排除带，绿色/白色是普通钢筋候选和骨架。</p>
+      <p>补全面路径：原始 surface_segmentation 可能缺线，所以先用 line support 补成 <code>completed_surface_mask</code>，再从补全面重建行列线族并直接求交点。</p>
+    </section>
+    <section>
+      <h2>绑扎点方案对比</h2>
+      <table>
+        <thead><tr><th>方案</th><th>名称</th><th>点数</th><th>均值响应</th><th>说明</th></tr></thead>
+        <tbody>
+        <tr>
+          <td><code>pr_fprg_all</code></td>
+          <td>PR-FPRG 全部交点</td>
+          <td>64</td>
+          <td>0.553</td>
+          <td>不做梁筋过滤，用作当前方案 1 对照。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>legacy_edge_band_13cm</code></td>
+          <td>旧 edge-band ±13cm</td>
+          <td>48</td>
+          <td>0.628</td>
+          <td>旧梁筋 edge-band mask 的保守排除；本帧只抓到左侧梁筋。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>beam_candidate_direct</code></td>
+          <td>新 beam_candidate 本体</td>
+          <td>64</td>
+          <td>0.553</td>
+          <td>只去掉落在梁筋本体膨胀 mask 上的绑扎点，保留梁筋附近普通钢筋交点。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>beam_candidate_13cm</code></td>
+          <td>新 beam_candidate ±13cm</td>
+          <td>64</td>
+          <td>0.553</td>
+          <td>按梁筋左右 ±13cm 做图谱排除，更保守，但会少保留梁筋附近交点。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>completed_surface_intersections</code></td>
+          <td>补全钢筋面交点</td>
+          <td>64</td>
+          <td>0.668</td>
+          <td>先补全钢筋面，再从补全面重建行/列线族并直接求交点；这是本轮推荐技术路径。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>instance_graph_junctions</code></td>
+          <td>instance_graph 骨架交叉点</td>
+          <td>85</td>
+          <td>0.960</td>
+          <td>不依赖理论网格交点，直接从骨架 junction 聚类取点；当前作为探索对照。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>03_surface_greedy_curve</code></td>
+          <td>03 补全面 greedy 曲线</td>
+          <td>64</td>
+          <td>0.901</td>
+          <td>以补全钢筋面作为底图，沿补全后的线族拓扑做局部 ridge 贪心曲线，再求曲线交点。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>04_surface_dp_curve</code></td>
+          <td>04 补全面 DP 曲线</td>
+          <td>64</td>
+          <td>0.947</td>
+          <td>以补全钢筋面作为底图，动态规划约束相邻采样点偏移连续。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>05_surface_ridge_curve</code></td>
+          <td>05 补全面 ridge 曲线</td>
+          <td>64</td>
+          <td>0.964</td>
+          <td>以补全钢筋面作为底图，动态规划分数加入中间强、两侧弱的 ridge 判断。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>06_surface_ir_assisted_curve</code></td>
+          <td>06 组合响应辅助曲线</td>
+          <td>64</td>
+          <td>0.959</td>
+          <td>以组合响应、Frangi-like、补全面共同形成的多模态底图做曲线收束。</td>
+        </tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>效果图</h2>
+      <div class="grid">
+        <figure class="image-card">
+          <img src="images/ir_high_gamma_workspace.png" alt="高伽马 IR 原图：展示用，便于看清原图钢筋">
+          <figcaption>高伽马 IR 原图：展示用，便于看清原图钢筋</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/surface_segmentation_overlay.png" alt="钢筋面分割：普通钢筋 / 梁筋 / 梁筋 ±13cm">
+          <figcaption>钢筋面分割：普通钢筋 / 梁筋 / 梁筋 ±13cm</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/surface_completion_overlay.png" alt="补全钢筋面：completed_surface_mask">
+          <figcaption>补全钢筋面：completed_surface_mask</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/completed_surface_response.png" alt="补全面响应：多模态 + 线族补全">
+          <figcaption>补全面响应：多模态 + 线族补全</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/completed_surface_mask.png" alt="补全面二值 mask">
+          <figcaption>补全面二值 mask</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/beam_candidate_overlay.png" alt="新梁筋候选 beam_candidate">
+          <figcaption>新梁筋候选 beam_candidate</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/beam_candidate_body_mask.png" alt="梁筋本体膨胀 mask：direct 过滤实际使用">
+          <figcaption>梁筋本体膨胀 mask：direct 过滤实际使用</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/legacy_edge_band_overlay.png" alt="旧 edge-band mask 对照">
+          <figcaption>旧 edge-band mask 对照</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/instance_graph_overlay.png" alt="instance_graph 骨架实例图">
+          <figcaption>instance_graph 骨架实例图</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/bindpoint_comparison_matrix.png" alt="绑扎点检测方案矩阵">
+          <figcaption>绑扎点检测方案矩阵</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/pr_fprg_all_original.png" alt="PR-FPRG 全部交点 原图点位">
+          <figcaption>PR-FPRG 全部交点 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/pr_fprg_all_rectified.png" alt="PR-FPRG 全部交点 rectified 点位">
+          <figcaption>PR-FPRG 全部交点 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/legacy_edge_band_13cm_original.png" alt="旧 edge-band ±13cm 原图点位">
+          <figcaption>旧 edge-band ±13cm 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/legacy_edge_band_13cm_rectified.png" alt="旧 edge-band ±13cm rectified 点位">
+          <figcaption>旧 edge-band ±13cm rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/beam_candidate_direct_original.png" alt="新 beam_candidate 本体 原图点位">
+          <figcaption>新 beam_candidate 本体 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/beam_candidate_direct_rectified.png" alt="新 beam_candidate 本体 rectified 点位">
+          <figcaption>新 beam_candidate 本体 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/beam_candidate_13cm_original.png" alt="新 beam_candidate ±13cm 原图点位">
+          <figcaption>新 beam_candidate ±13cm 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/beam_candidate_13cm_rectified.png" alt="新 beam_candidate ±13cm rectified 点位">
+          <figcaption>新 beam_candidate ±13cm rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/completed_surface_intersections_original.png" alt="补全钢筋面交点 原图点位">
+          <figcaption>补全钢筋面交点 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/completed_surface_intersections_rectified.png" alt="补全钢筋面交点 rectified 点位">
+          <figcaption>补全钢筋面交点 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/instance_graph_junctions_original.png" alt="instance_graph 骨架交叉点 原图点位">
+          <figcaption>instance_graph 骨架交叉点 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/instance_graph_junctions_rectified.png" alt="instance_graph 骨架交叉点 rectified 点位">
+          <figcaption>instance_graph 骨架交叉点 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/03_surface_greedy_curve_original.png" alt="03 补全面 greedy 曲线 原图点位">
+          <figcaption>03 补全面 greedy 曲线 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/03_surface_greedy_curve_rectified.png" alt="03 补全面 greedy 曲线 rectified 点位">
+          <figcaption>03 补全面 greedy 曲线 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/04_surface_dp_curve_original.png" alt="04 补全面 DP 曲线 原图点位">
+          <figcaption>04 补全面 DP 曲线 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/04_surface_dp_curve_rectified.png" alt="04 补全面 DP 曲线 rectified 点位">
+          <figcaption>04 补全面 DP 曲线 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/05_surface_ridge_curve_original.png" alt="05 补全面 ridge 曲线 原图点位">
+          <figcaption>05 补全面 ridge 曲线 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/05_surface_ridge_curve_rectified.png" alt="05 补全面 ridge 曲线 rectified 点位">
+          <figcaption>05 补全面 ridge 曲线 rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/06_surface_ir_assisted_curve_original.png" alt="06 组合响应辅助曲线 原图点位">
+          <figcaption>06 组合响应辅助曲线 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/06_surface_ir_assisted_curve_rectified.png" alt="06 组合响应辅助曲线 rectified 点位">
+          <figcaption>06 组合响应辅助曲线 rectified 点位</figcaption>
+        </figure>
+        </div>
+    </section>
+  </main>
+</body>
+</html>

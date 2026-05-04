@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>钢筋实例图响应衍生探针</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #18211d;
+      background: #f4f1ea;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 22px clamp(16px, 4vw, 44px);
+      border-bottom: 1px solid #d8d0c0;
+      background: #fffaf0;
+    }
+    h1 { margin: 0 0 6px; font-size: clamp(22px, 3vw, 36px); letter-spacing: 0; }
+    .subline { margin: 0; color: #5f675f; }
+    main { max-width: 1480px; margin: 0 auto; padding: 18px clamp(12px, 3vw, 34px) 42px; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+      gap: 10px;
+      margin: 16px 0 18px;
+    }
+    .fact {
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fffdf7;
+      min-width: 0;
+    }
+    .fact b { display: block; font-size: 18px; }
+    section {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid #d8d0c0;
+    }
+    h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: 0; }
+    .note {
+      border-left: 4px solid #c4672d;
+      background: #fff7e7;
+      padding: 10px 12px;
+      border-radius: 0 8px 8px 0;
+      margin: 10px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+    .image-card {
+      margin: 0;
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      background: #fffdf7;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .image-card img {
+      display: block;
+      width: 100%;
+      max-height: min(72vh, 900px);
+      object-fit: contain;
+      background: #10140f;
+    }
+    figcaption {
+      padding: 9px 10px;
+      font-size: 14px;
+      color: #384239;
+      border-top: 1px solid #e6dfd1;
+    }
+    code {
+      background: #ebe3d3;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    @media (max-width: 720px) {
+      header { padding: 16px; }
+      main { padding: 12px; }
+      .image-card img { max-height: 70vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>钢筋实例图响应衍生探针</h1>
+    <p class="subline">组合响应和深度响应继续往下衍射：Hessian、Frangi-like、骨架、实例图、梁筋候选。</p>
+  </header>
+  <main>
+    <div class="facts">
+      <div class="fact"><span>帧来源</span><b>live_raw_world_current_capture</b></div>
+      <div class="fact"><span>响应</span><b>combined_depth_ir_darkline</b></div>
+      <div class="fact"><span>当前点数</span><b>64</b></div>
+      <div class="fact"><span>线族数</span><b>[8, 8]</b></div>
+      <div class="fact"><span>骨架组件</span><b>107</b></div>
+      <div class="fact"><span>梁筋候选</span><b>0</b></div>
+    </div>
+    <section>
+      <h2>判断</h2>
+      <p class="note">这不是替换主链的结果图。它是实例分割前的多模态探针：看哪些派生图能稳定把普通钢筋、梁筋、地板缝和 TCP 侵入拆开。</p>
+      <p>新 beam_candidate：本帧未形成稳定 beam_candidate。</p>
+      <p>旧梁筋 edge-band mask 对照：x:8..21 side=min，x:43..56 side=min，x:74..86 side=min，x:402..416 side=max。注意：旧方法不是实例分割，只能作为本报告的对照层。</p>
+    </section>
+    <section>
+      <h2>图像</h2>
+      <div class="grid">
+        
+        <figure class="image-card">
+          <img src="images/00_source_workspace.png" alt="当前帧工作区">
+          <figcaption>当前帧工作区</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/01_pr_fprg_result.png" alt="方案 1 PR-FPRG 当前输出">
+          <figcaption>方案 1 PR-FPRG 当前输出</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/02_selected_response.png" alt="主链选中的底层响应">
+          <figcaption>主链选中的底层响应</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/03_combined_response.png" alt="组合响应：深度 + 红外">
+          <figcaption>组合响应：深度 + 红外</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/04_depth_response.png" alt="深度响应">
+          <figcaption>深度响应</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/05_worldcoord_height_response.png" alt="worldCoord / 深度高度响应">
+          <figcaption>worldCoord / 深度高度响应</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/06_depth_gradient.png" alt="深度梯度">
+          <figcaption>深度梯度</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/07_hessian_ridge.png" alt="Hessian ridge">
+          <figcaption>Hessian ridge</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/08_frangi_like.png" alt="多尺度 Frangi-like 脊线">
+          <figcaption>多尺度 Frangi-like 脊线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/09_fused_instance_response.png" alt="实例候选融合响应">
+          <figcaption>实例候选融合响应</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/10_binary_candidate.png" alt="二值候选">
+          <figcaption>二值候选</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/11_skeleton.png" alt="骨架 skeleton">
+          <figcaption>骨架 skeleton</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/12_instance_graph_overlay.png" alt="instance_graph 叠加">
+          <figcaption>instance_graph 叠加</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/13_beam_candidate_overlay.png" alt="新梁筋候选 beam_candidate">
+          <figcaption>新梁筋候选 beam_candidate</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/16_beam_candidate_13cm.png" alt="新梁筋候选 ±13 cm 排除区">
+          <figcaption>新梁筋候选 ±13 cm 排除区</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/14_legacy_edge_band_overlay.png" alt="旧梁筋 edge-band mask 对照">
+          <figcaption>旧梁筋 edge-band mask 对照</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/15_legacy_edge_band_13cm.png" alt="旧梁筋 ±13 cm 排除区">
+          <figcaption>旧梁筋 ±13 cm 排除区</figcaption>
+        </figure>
+        
+      </div>
+    </section>
+  </main>
+</body>
+</html>

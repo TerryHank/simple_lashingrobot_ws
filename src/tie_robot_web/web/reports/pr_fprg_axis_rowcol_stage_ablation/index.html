@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 工序消融报告</title>
+  <style>
+    :root {
+      --bg: #eef2f6;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5d6b7a;
+      --line: #d8e0e8;
+      --green: #15803d;
+      --amber: #b45309;
+      --red: #b91c1c;
+      --blue: #0f5f9f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+    }
+    header {
+      padding: 24px 28px 18px;
+      background: #15202b;
+      color: #f8fafc;
+      border-bottom: 4px solid #26a269;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+    header p {
+      margin: 0;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    main {
+      padding: 18px 28px 36px;
+      display: grid;
+      gap: 18px;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 12px;
+    }
+    .stat, .table-panel, .variant-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+    .stat {
+      padding: 14px 16px;
+    }
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .stat strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 23px;
+      letter-spacing: 0;
+    }
+    .table-panel {
+      padding: 14px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 920px;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 9px;
+      border-bottom: 1px solid #e5ebf2;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #334155;
+      background: #f8fafc;
+      font-weight: 700;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .pill.baseline { color: #075985; background: #e0f2fe; }
+    .pill.ok { color: #166534; background: #dcfce7; }
+    .pill.warn { color: #92400e; background: #fef3c7; }
+    .pill.danger { color: #991b1b; background: #fee2e2; }
+    .variant-card {
+      padding: 16px;
+    }
+    .source-strip {
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 14px;
+      margin-bottom: 18px;
+    }
+    .source-strip h2 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .stage {
+      margin: 0 0 4px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    .variant-card p {
+      margin: 9px 0 0;
+      line-height: 1.55;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .conclusion {
+      color: var(--ink) !important;
+      font-weight: 700;
+    }
+    .failure {
+      color: var(--red) !important;
+    }
+    .metrics {
+      margin: 12px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .metrics span {
+      border: 1px solid #d9e2ec;
+      border-radius: 6px;
+      padding: 5px 8px;
+      background: #f8fafc;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .images {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 12px;
+    }
+    figure {
+      margin: 0;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    figcaption {
+      padding: 8px 10px;
+      background: #f8fafc;
+      color: #334155;
+      border-top: 1px solid #d9e2ec;
+      font-size: 13px;
+    }
+    details {
+      margin-top: 12px;
+    }
+    summary {
+      cursor: pointer;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    pre {
+      overflow-x: auto;
+      padding: 10px;
+      border: 1px solid #d9e2ec;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    @media (max-width: 720px) {
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .images { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG 工序消融报告</h1>
+    <p>同一帧输入，锁定同一响应图，逐个关闭工序后对比识别效果、速度和相对全流程点位漂移。</p>
+  </header>
+  <main>
+    <section class="summary-grid">
+      <div class="stat"><span>生成时间</span><strong>2026-04-29 16:35:46</strong></div>
+      <div class="stat"><span>帧源</span><strong>raw_world</strong></div>
+      <div class="stat"><span>重复次数</span><strong>1</strong></div>
+      <div class="stat"><span>锁定响应图</span><strong>combined_depth_ir_darkline</strong></div>
+    </section>
+    <section class="source-strip">
+      <h2>峰值诊断图</h2>
+      <div class="images">
+        <figure><img src="images/00_ir_input.png" alt="ir input"><figcaption>红外输入</figcaption></figure>
+        <figure><img src="images/00_response.png" alt="response"><figcaption>锁定组合响应</figcaption></figure>
+        <figure><img src="images/00_peak_supported_lines.png" alt="peak supported lines"><figcaption>峰值图：peak-supported 候选线</figcaption></figure>
+        <figure><img src="images/00_peak_spacing_pruned_lines.png" alt="peak spacing pruned lines"><figcaption>峰值图：绿色保留 / 红色剔除</figcaption></figure>
+      </div>
+    </section>
+    <section class="table-panel">
+      <table>
+        <thead>
+          <tr>
+            <th>工序</th>
+            <th>消融项</th>
+            <th>均值 ms</th>
+            <th>中位 ms</th>
+            <th>点数</th>
+            <th>平均漂移 px</th>
+            <th>最大漂移 px</th>
+            <th>点数变化</th>
+            <th>结论</th>
+          </tr>
+        </thead>
+        <tbody>
+            <tr class="baseline">
+              <td>基准</td>
+              <td>全流程</td>
+              <td>800.71</td>
+              <td>800.71</td>
+              <td>56</td>
+              <td>0.00</td>
+              <td>0.00</td>
+              <td>0</td>
+              <td><span class="pill baseline">基准</span></td>
+            </tr>
+            
+            <tr class="ok">
+              <td>连续验证</td>
+              <td>保持关闭连续钢筋条验证</td>
+              <td>824.58</td>
+              <td>824.58</td>
+              <td>56</td>
+              <td>0.00</td>
+              <td>0.00</td>
+              <td>0</td>
+              <td><span class="pill ok">可跳过</span></td>
+            </tr>
+            
+            <tr class="warn">
+              <td>间距筛选</td>
+              <td>去掉 spacing prune</td>
+              <td>52.05</td>
+              <td>52.05</td>
+              <td>1218</td>
+              <td>227.05</td>
+              <td>378.70</td>
+              <td>1162</td>
+              <td><span class="pill warn">不能删</span></td>
+            </tr>
+            
+            <tr class="danger">
+              <td>peak 支撑</td>
+              <td>去掉 peak 支撑过滤</td>
+              <td>88.81</td>
+              <td>88.81</td>
+              <td>56</td>
+              <td>21.66</td>
+              <td>24.70</td>
+              <td>0</td>
+              <td><span class="pill danger">不能删</span></td>
+            </tr>
+            
+            <tr class="ok">
+              <td>局部 refine</td>
+              <td>去掉局部峰值 refine</td>
+              <td>784.69</td>
+              <td>784.69</td>
+              <td>56</td>
+              <td>0.00</td>
+              <td>0.00</td>
+              <td>0</td>
+              <td><span class="pill ok">可跳过</span></td>
+            </tr>
+            
+            <tr class="danger">
+              <td>profile-only</td>
+              <td>只保留 profile 周期 + spacing</td>
+              <td>84.45</td>
+              <td>84.45</td>
+              <td>56</td>
+              <td>21.66</td>
+              <td>24.70</td>
+              <td>0</td>
+              <td><span class="pill danger">不能删</span></td>
+            </tr>
+            
+            <tr class="danger">
+              <td>profile-only</td>
+              <td>只保留 profile 周期原始线</td>
+              <td>44.29</td>
+              <td>44.29</td>
+              <td>999</td>
+              <td>232.47</td>
+              <td>466.62</td>
+              <td>943</td>
+              <td><span class="pill danger">不能删</span></td>
+            </tr>
+            </tbody>
+      </table>
+    </section>
+    
+            <section class="variant-card baseline">
+              <div class="card-head">
+                <div>
+                  <p class="stage">基准</p>
+                  <h2>全流程</h2>
+                </div>
+                <span class="pill baseline">基准</span>
+              </div>
+              <p>当前主链：组合响应、固定行/列 profile 峰值、spacing 收束；梁筋±10cm范围只在最终点级过滤。</p>
+              <p class="conclusion">基准</p>
+              
+              <div class="metrics">
+                <span>mean 800.71 ms</span>
+                <span>median 800.71 ms</span>
+                <span>56 points</span>
+                <span>drift 0.00 / 0.00 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/full_original.png" alt="全流程 original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/full_rectified.png" alt="全流程 rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [22.0, 73.0, 120.0, 171.0, 223.0, 274.0, 322.0, 368.0], &quot;peak_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0], &quot;continuous_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [26.0, 68.0, 106.0, 154.0, 190.0, 237.0, 284.0, 326.0], &quot;peak_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0], &quot;continuous_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0]}]</pre>
+              </details>
+            </section>
+            
+            <section class="variant-card ok">
+              <div class="card-head">
+                <div>
+                  <p class="stage">连续验证</p>
+                  <h2>保持关闭连续钢筋条验证</h2>
+                </div>
+                <span class="pill ok">可跳过</span>
+              </div>
+              <p>行/列峰值主链本身不再依赖连续 ridge 验证，本项保留作历史对照。</p>
+              <p class="conclusion">当前主链默认关闭。</p>
+              
+              <div class="metrics">
+                <span>mean 824.58 ms</span>
+                <span>median 824.58 ms</span>
+                <span>56 points</span>
+                <span>drift 0.00 / 0.00 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/skip_continuous_original.png" alt="保持关闭连续钢筋条验证 original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/skip_continuous_rectified.png" alt="保持关闭连续钢筋条验证 rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [22.0, 73.0, 120.0, 171.0, 223.0, 274.0, 322.0, 368.0], &quot;peak_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0], &quot;continuous_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [26.0, 68.0, 106.0, 154.0, 190.0, 237.0, 284.0, 326.0], &quot;peak_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0], &quot;continuous_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0]}]</pre>
+              </details>
+            </section>
+            
+            <section class="variant-card warn">
+              <div class="card-head">
+                <div>
+                  <p class="stage">间距筛选</p>
+                  <h2>去掉 spacing prune</h2>
+                </div>
+                <span class="pill warn">不能删</span>
+              </div>
+              <p>保留行/列 profile 峰值，不再删除与主间距过近的边缘候选线。</p>
+              <p class="conclusion">不建议删除：本帧不省时，且可能多线。</p>
+              
+              <div class="metrics">
+                <span>mean 52.05 ms</span>
+                <span>median 52.05 ms</span>
+                <span>1218 points</span>
+                <span>drift 227.05 / 378.70 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/skip_spacing_original.png" alt="去掉 spacing prune original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/skip_spacing_rectified.png" alt="去掉 spacing prune rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0], &quot;peak_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0], &quot;continuous_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0], &quot;peak_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0], &quot;continuous_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0]}]</pre>
+              </details>
+            </section>
+            
+            <section class="variant-card danger">
+              <div class="card-head">
+                <div>
+                  <p class="stage">peak 支撑</p>
+                  <h2>去掉 peak 支撑过滤</h2>
+                </div>
+                <span class="pill danger">不能删</span>
+              </div>
+              <p>周期相位给出的候选线不再要求 profile 局部峰值支撑。</p>
+              <p class="conclusion">不能删除：可能无法稳定产出两组线族。</p>
+              
+              <div class="metrics">
+                <span>mean 88.81 ms</span>
+                <span>median 88.81 ms</span>
+                <span>56 points</span>
+                <span>drift 21.66 / 24.70 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/skip_peak_support_original.png" alt="去掉 peak 支撑过滤 original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/skip_peak_support_rectified.png" alt="去掉 peak 支撑过滤 rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [2.0, 52.0, 102.0, 152.0, 202.0, 252.0, 302.0, 352.0], &quot;peak_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0], &quot;continuous_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [39.0, 79.0, 119.0, 159.0, 199.0, 239.0, 279.0, 319.0], &quot;peak_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0], &quot;continuous_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0]}]</pre>
+              </details>
+            </section>
+            
+            <section class="variant-card ok">
+              <div class="card-head">
+                <div>
+                  <p class="stage">局部 refine</p>
+                  <h2>去掉局部峰值 refine</h2>
+                </div>
+                <span class="pill ok">可跳过</span>
+              </div>
+              <p>不把周期线整体平移到附近局部峰值；当前主链默认已跳过此阶段。</p>
+              <p class="conclusion">可跳过：现场消融 0 漂移，节省少量耗时。</p>
+              
+              <div class="metrics">
+                <span>mean 784.69 ms</span>
+                <span>median 784.69 ms</span>
+                <span>56 points</span>
+                <span>drift 0.00 / 0.00 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/skip_local_refine_original.png" alt="去掉局部峰值 refine original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/skip_local_refine_rectified.png" alt="去掉局部峰值 refine rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [22.0, 73.0, 120.0, 171.0, 223.0, 274.0, 322.0, 368.0], &quot;peak_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0], &quot;continuous_rhos&quot;: [2.0, 15.0, 22.0, 31.0, 35.0, 39.0, 57.0, 69.0, 73.0, 92.0, 104.0, 108.0, 120.0, 124.0, 128.0, 132.0, 156.0, 160.0, 171.0, 185.0, 189.0, 193.0, 197.0, 219.0, 223.0, 227.0, 240.0, 257.0, 261.0, 266.0, 274.0, 286.0, 290.0, 294.0, 299.0, 303.0, 318.0, 322.0, 333.0, 350.0, 354.0, 368.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [26.0, 68.0, 106.0, 154.0, 190.0, 237.0, 284.0, 326.0], &quot;peak_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0], &quot;continuous_rhos&quot;: [6.0, 10.0, 26.0, 30.0, 39.0, 43.0, 59.0, 64.0, 68.0, 79.0, 93.0, 106.0, 123.0, 127.0, 142.0, 146.0, 150.0, 154.0, 158.0, 166.0, 170.0, 186.0, 190.0, 207.0, 212.0, 220.0, 237.0, 248.0, 259.0, 280.0, 284.0, 290.0, 294.0, 298.0, 314.0, 326.0]}]</pre>
+              </details>
+            </section>
+            
+            <section class="variant-card danger">
+              <div class="card-head">
+                <div>
+                  <p class="stage">profile-only</p>
+                  <h2>只保留 profile 周期 + spacing</h2>
+                </div>
+                <span class="pill danger">不能删</span>
+              </div>
+              <p>关闭局部 refine、peak 支撑和连续验证，只保留周期线与 spacing prune。</p>
+              <p class="conclusion">不能用：速度快，但会产生大量假点。</p>
+              
+              <div class="metrics">
+                <span>mean 84.45 ms</span>
+                <span>median 84.45 ms</span>
+                <span>56 points</span>
+                <span>drift 21.66 / 24.70 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/profile_only_spacing_original.png" alt="只保留 profile 周期 + spacing original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/profile_only_spacing_rectified.png" alt="只保留 profile 周期 + spacing rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [2.0, 52.0, 102.0, 152.0, 202.0, 252.0, 302.0, 352.0], &quot;peak_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0], &quot;continuous_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [39.0, 79.0, 119.0, 159.0, 199.0, 239.0, 279.0, 319.0], &quot;peak_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0], &quot;continuous_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0]}]</pre>
+              </details>
+            </section>
+            
+            <section class="variant-card danger">
+              <div class="card-head">
+                <div>
+                  <p class="stage">profile-only</p>
+                  <h2>只保留 profile 周期原始线</h2>
+                </div>
+                <span class="pill danger">不能删</span>
+              </div>
+              <p>只根据固定行/列 profile 周期相位生成线，所有后续筛选都关闭。</p>
+              <p class="conclusion">不能用：最快但假点最多。</p>
+              
+              <div class="metrics">
+                <span>mean 44.29 ms</span>
+                <span>median 44.29 ms</span>
+                <span>999 points</span>
+                <span>drift 232.47 / 466.62 px</span>
+              </div>
+              <div class="images">
+                <figure>
+                  <img src="images/profile_only_raw_original.png" alt="只保留 profile 周期原始线 original overlay">
+                  <figcaption>原图识别效果</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/profile_only_raw_rectified.png" alt="只保留 profile 周期原始线 rectified overlay">
+                  <figcaption>透视展开识别效果</figcaption>
+                </figure>
+              </div>
+              <details>
+                <summary>线族明细</summary>
+                <pre>[{&quot;angle_deg&quot;: 0.0, &quot;line_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0], &quot;peak_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0], &quot;continuous_rhos&quot;: [2.0, 12.0, 22.0, 32.0, 42.0, 52.0, 62.0, 72.0, 82.0, 92.0, 102.0, 112.0, 122.0, 132.0, 142.0, 152.0, 162.0, 172.0, 182.0, 192.0, 202.0, 212.0, 222.0, 232.0, 242.0, 252.0, 262.0, 272.0, 282.0, 292.0, 302.0, 312.0, 322.0, 332.0, 342.0, 352.0, 362.0]}, {&quot;angle_deg&quot;: 90.0, &quot;line_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0], &quot;peak_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0], &quot;continuous_rhos&quot;: [9.0, 19.0, 29.0, 39.0, 49.0, 59.0, 69.0, 79.0, 89.0, 99.0, 109.0, 119.0, 129.0, 139.0, 149.0, 159.0, 169.0, 179.0, 189.0, 199.0, 209.0, 219.0, 229.0, 239.0, 249.0, 259.0, 269.0, 279.0, 289.0, 299.0, 309.0, 319.0]}]</pre>
+              </details>
+            </section>
+            
+  </main>
+</body>
+</html>

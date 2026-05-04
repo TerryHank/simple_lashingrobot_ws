@@ -110,14 +110,15 @@ const frameCountResult = controller.publishStableFrameCount(2);
 assert.equal(frameCountResult.success, true);
 assert.equal(controller.resources.stableFrameCountPublisher.published.at(-1).data, 2);
 
-const serviceResult = await controller.callProcessImageService({ requestMode: 1 });
+const serviceResult = await controller.callProcessImageService();
 assert.equal(serviceResult.success, true);
 assert.equal(serviceResult.count, 8);
 assert.equal(serviceResult.serviceElapsedMs, 123.4);
-assert.equal(controller.resources.processImageService.calls.at(-1).request_mode, 1);
+assert.equal(controller.resources.processImageService.calls.at(-1).request_mode, 3);
 
 const uiControllerText = readFileSync(resolve(frontendRoot, "src/ui/UIController.js"), "utf-8");
 assert.match(uiControllerText, /id: "visualDebug", label: "视觉调试"/);
 assert.match(uiControllerText, /id="visualDebugTrigger"/);
 assert.match(uiControllerText, /id="visualDebugStableFrameCount"/);
 assert.match(uiControllerText, /id="visualDebugTimingSummary"/);
+assert.doesNotMatch(uiControllerText, /id="visualDebugRequestMode"/);

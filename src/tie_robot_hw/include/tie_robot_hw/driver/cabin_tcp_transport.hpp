@@ -27,6 +27,7 @@ public:
         std::vector<uint8_t>* response,
         DriverError* error,
         int expected_response_bytes = 0);
+    void markExternalIoSuccess();
 
     ConnectionState connectionState() const;
     std::string lastErrorText() const;
@@ -35,6 +36,13 @@ public:
 private:
     bool connectLocked(DriverError* error);
     void disconnectLocked();
+    std::size_t drainPendingInputLocked();
+    bool receiveExactLocked(
+        std::size_t expected_bytes,
+        std::vector<uint8_t>* response,
+        const std::vector<uint8_t>& request,
+        const std::string& phase,
+        DriverError* error);
     bool setError(
         const std::string& code,
         const std::string& message,

@@ -199,6 +199,42 @@ sudo src/tie_robot_bringup/scripts/install_driver_services.sh
 systemctl status tie-robot-driver-suoqu.service tie-robot-driver-moduan.service tie-robot-driver-camera.service
 ```
 
+### 演示模式
+
+旧 `20260403` 展示链不再通过转义层适配当前驱动。新前端 header 的“演示模式”按钮负责在两套运行态之间切换，演示态会改用轻量 rosbridge，避免当前工作目录 TF/API 栈继续占用旧前端链路：
+
+```text
+普通模式：
+新前端 8080
+-> 当前工作目录 tie-robot-rosbridge.service:9090
+-> 当前工作目录三个 driver service
+-> 当前工作目录 tie-robot-backend.service
+
+演示模式：
+旧前端 5173 / 新前端 8080 的按钮保持可见
+-> 停止当前工作目录 tie-robot-rosbridge.service、backend、三个 driver service 和旧转义层服务
+-> 启动 tie-robot-demo-rosbridge.service，只包含 rosbridge_websocket + rosapi
+-> 启动旧工作目录 roslaunch chassis_ctrl show_full.launch
+```
+
+`tie-robot-demo-rosbridge.service` 使用 `demo_rosbridge_light.launch`，不包含当前工作目录的 `tf_stack.launch` / `api.launch`。它只对白名单话题开放旧前端需要的图像和状态，其中 Scepter 相机图像只放行 `/Scepter/*/image_raw/compressed`，绑扎点结果保留 `/pointAI/result_image`。
+
+安装演示模式按需服务：
+
+```bash
+sudo src/tie_robot_bringup/scripts/install_demo_mode_service.sh
+systemctl status tie-robot-demo-rosbridge.service tie-robot-demo-show-full.service
+```
+
+旧前端静态页面仍由独立服务管理：
+
+```bash
+sudo src/tie_robot_bringup/scripts/install_show_legacy_frontend_service.sh
+systemctl status tie-robot-show-legacy-frontend.service
+```
+
+不要同时启用旧工作区直连 rosbridge 守护 `show-legacy-rosbridge.service`，它会抢占 `9090` 和 `/rosbridge_websocket` 节点名。演示模式也不会启动 `tie-robot-show-legacy-shared-driver-stack.service`；如果该旧转义层服务存在，进入演示模式前会停止它。
+
 如果端口 `8080` 被占用，静态服务会自动顺延到更高端口。
 
 ```bash

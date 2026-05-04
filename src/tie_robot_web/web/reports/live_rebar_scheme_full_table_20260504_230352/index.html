@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>扫描层响应底图全量实验</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #17211d;
+      background: #f5f1e8;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.55;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 22px clamp(16px, 4vw, 42px);
+      background: #fbf7ee;
+      border-bottom: 1px solid #d9d0c2;
+    }
+    h1 { margin: 0 0 6px; font-size: clamp(22px, 3vw, 34px); letter-spacing: 0; }
+    .subline { margin: 0; color: #5b655d; }
+    main { max-width: 1640px; margin: 0 auto; padding: 16px clamp(12px, 3vw, 34px) 42px; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+      gap: 10px;
+      margin: 16px 0 18px;
+    }
+    .fact {
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fffdf7;
+      min-width: 0;
+    }
+    .fact span { display: block; color: #607067; font-size: 12px; }
+    .fact b { display: block; font-size: 18px; overflow-wrap: anywhere; }
+    section { margin-top: 18px; padding-top: 18px; border-top: 1px solid #d8d0c0; }
+    h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: 0; }
+    table { width: 100%; border-collapse: collapse; background: #fffdf7; border: 1px solid #d8d0c0; border-radius: 8px; overflow: hidden; font-size: 13px; }
+    th, td { padding: 8px 9px; border-bottom: 1px solid #e4dccd; vertical-align: top; text-align: left; }
+    th { background: #eee6d5; }
+    code { background: #ece3d2; border-radius: 4px; padding: 1px 4px; }
+    .note { border-left: 4px solid #c4672d; background: #fff8e8; padding: 10px 12px; border-radius: 0 8px 8px 0; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+    .image-card {
+      margin: 0;
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      background: #fffdf7;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .image-card img {
+      display: block;
+      width: 100%;
+      max-height: min(78vh, 980px);
+      object-fit: contain;
+      background: #10140f;
+    }
+    figcaption { padding: 9px 10px; color: #384239; border-top: 1px solid #e6dfd1; }
+    @media (max-width: 720px) {
+      header { padding: 16px; }
+      main { padding: 12px; }
+      table { font-size: 12px; }
+      .image-card img { max-height: 72vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>扫描层响应底图全量实验</h1>
+    <p class="subline">固定 snapshot：live_raw_world_current_capture。该报告只评估离线候选，不修改运行主链。</p>
+  </header>
+  <main>
+    <div class="facts">
+      <div class="fact"><span>当前 depth-only 点数</span><b>493</b></div>
+      <div class="fact"><span>当前 depth-only 周期</span><b>17 / 30 px</b></div>
+      <div class="fact"><span>组合响应参考点数</span><b>64</b></div>
+      <div class="fact"><span>实例骨架 junction</span><b>931</b></div>
+      <div class="fact"><span>推荐方案</span><b>06_surface_ir_assisted_curve</b></div>
+      <div class="fact"><span>总耗时</span><b>5813.9 ms</b></div>
+    </div>
+    <section>
+      <h2>结论</h2>
+      <p class="note">推荐：<code>06_surface_ir_assisted_curve</code>。离线代理指标下响应支撑强、点数不膨胀、重复近邻少；运行建议作为几何主候选，实例骨架只做验证/补召回。</p>
+      <p>注意：本 snapshot 没有人工标注真值，因此表格分数是代理指标，不等同于真实精度。它适合判断哪条路线更稳、更少过检，以及是否值得进入现场标注验证。</p>
+    </section>
+    <section>
+      <h2>全量对比</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>方案</th><th>名称</th><th>点数</th><th>线数</th><th>融合响应</th><th>Hessian</th><th>补全面</th><th>二值支撑</th><th>近重复</th><th>代理分</th><th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <td><code>06_surface_ir_assisted_curve</code></td>
+          <td>06 组合响应辅助曲线</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.981</td>
+          <td>0.762</td>
+          <td>0.997</td>
+          <td>0.95</td>
+          <td>0</td>
+          <td>0.933</td>
+          <td>以组合响应、Frangi-like、补全面共同形成的多模态底图做曲线收束。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>05_surface_ridge_curve</code></td>
+          <td>05 补全面 ridge 曲线</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.971</td>
+          <td>0.746</td>
+          <td>0.993</td>
+          <td>0.95</td>
+          <td>0</td>
+          <td>0.923</td>
+          <td>以补全钢筋面作为底图，动态规划分数加入中间强、两侧弱的 ridge 判断。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>04_surface_dp_curve</code></td>
+          <td>04 补全面 DP 曲线</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.970</td>
+          <td>0.744</td>
+          <td>0.992</td>
+          <td>0.95</td>
+          <td>0</td>
+          <td>0.922</td>
+          <td>以补全钢筋面作为底图，动态规划约束相邻采样点偏移连续。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>fused_instance_axis_family</code></td>
+          <td>融合实例响应线族</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.921</td>
+          <td>0.695</td>
+          <td>0.957</td>
+          <td>0.86</td>
+          <td>0</td>
+          <td>0.871</td>
+          <td>直接在组合响应 + 深度 + Frangi 融合底图上估行列线族。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>completed_surface_intersections</code></td>
+          <td>补全钢筋面交点</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.921</td>
+          <td>0.695</td>
+          <td>0.957</td>
+          <td>0.86</td>
+          <td>0</td>
+          <td>0.871</td>
+          <td>先做实例候选分割，再用线族支撑补全钢筋面后求交点。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>depth_pr_fprg_peak_supported</code></td>
+          <td>深度响应 PR-FPRG 线族</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.869</td>
+          <td>0.700</td>
+          <td>0.933</td>
+          <td>0.84</td>
+          <td>0</td>
+          <td>0.852</td>
+          <td>以 depth_background_minus_filled 作为底图的峰值支撑线族。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>hessian_axis_family</code></td>
+          <td>Hessian ridge 线族</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.889</td>
+          <td>0.677</td>
+          <td>0.947</td>
+          <td>0.78</td>
+          <td>0</td>
+          <td>0.850</td>
+          <td>直接在 Hessian ridge 底图上估行列线族。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>frangi_axis_family</code></td>
+          <td>Frangi-like 线族</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.889</td>
+          <td>0.677</td>
+          <td>0.947</td>
+          <td>0.78</td>
+          <td>0</td>
+          <td>0.850</td>
+          <td>直接在多尺度 Frangi-like 脊线底图上估行列线族。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>combined_pr_fprg_peak_supported</code></td>
+          <td>组合响应 PR-FPRG 线族</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.851</td>
+          <td>0.666</td>
+          <td>0.913</td>
+          <td>0.80</td>
+          <td>0</td>
+          <td>0.824</td>
+          <td>以 combined_depth_ir_darkline 作为底图的峰值支撑线族。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>03_surface_greedy_curve</code></td>
+          <td>03 补全面 greedy 曲线</td>
+          <td>64</td>
+          <td>[8, 8]</td>
+          <td>0.859</td>
+          <td>0.632</td>
+          <td>0.926</td>
+          <td>0.83</td>
+          <td>0</td>
+          <td>0.821</td>
+          <td>以补全钢筋面作为底图，沿补全后的线族拓扑做局部 ridge 贪心曲线，再求曲线交点。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>instance_graph_junctions_raw</code></td>
+          <td>实例骨架 junction 原始聚类</td>
+          <td>217</td>
+          <td>[]</td>
+          <td>0.975</td>
+          <td>0.698</td>
+          <td>0.954</td>
+          <td>1.00</td>
+          <td>0</td>
+          <td>0.722</td>
+          <td>直接聚类骨架 junction；召回强但容易过检，建议只作为候选源。</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>current_depth_only_runtime</code></td>
+          <td>当前扫描 depth-only 运行逻辑</td>
+          <td>493</td>
+          <td>[29, 17]</td>
+          <td>0.716</td>
+          <td>0.507</td>
+          <td>0.742</td>
+          <td>0.52</td>
+          <td>0</td>
+          <td>0.472</td>
+          <td>复刻 MODE_SCAN_ONLY 当前 depth-only 周期/相位铺网格逻辑。</td>
+        </tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>图像证据</h2>
+      <div class="grid">
+        <figure class="image-card">
+          <img src="images/00_input_high_gamma_workspace.png" alt="输入帧：高伽马 IR + 工作区">
+          <figcaption>输入帧：高伽马 IR + 工作区</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/01_current_depth_only_reference.png" alt="当前扫描 depth-only 参考">
+          <figcaption>当前扫描 depth-only 参考</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/02_combined_pr_fprg_reference.png" alt="组合响应 PR-FPRG 参考">
+          <figcaption>组合响应 PR-FPRG 参考</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/03_combined_response.png" alt="组合响应底图">
+          <figcaption>组合响应底图</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/04_hessian_ridge.png" alt="Hessian ridge 底图">
+          <figcaption>Hessian ridge 底图</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/05_frangi_like.png" alt="Frangi-like 底图">
+          <figcaption>Frangi-like 底图</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/06_fused_instance_response.png" alt="融合实例响应底图">
+          <figcaption>融合实例响应底图</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/08_instance_graph_overlay.png" alt="实例骨架图谱">
+          <figcaption>实例骨架图谱</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/10_surface_completion_overlay.png" alt="补全钢筋面">
+          <figcaption>补全钢筋面</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/90_top_variant_matrix.png" alt="Top 候选原图矩阵">
+          <figcaption>Top 候选原图矩阵</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_06_surface_ir_assisted_curve_original.png" alt="06_surface_ir_assisted_curve 原图点位">
+          <figcaption>06_surface_ir_assisted_curve 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_06_surface_ir_assisted_curve_rectified.png" alt="06_surface_ir_assisted_curve rectified 点位">
+          <figcaption>06_surface_ir_assisted_curve rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_05_surface_ridge_curve_original.png" alt="05_surface_ridge_curve 原图点位">
+          <figcaption>05_surface_ridge_curve 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_05_surface_ridge_curve_rectified.png" alt="05_surface_ridge_curve rectified 点位">
+          <figcaption>05_surface_ridge_curve rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_04_surface_dp_curve_original.png" alt="04_surface_dp_curve 原图点位">
+          <figcaption>04_surface_dp_curve 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_04_surface_dp_curve_rectified.png" alt="04_surface_dp_curve rectified 点位">
+          <figcaption>04_surface_dp_curve rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_fused_instance_axis_family_original.png" alt="fused_instance_axis_family 原图点位">
+          <figcaption>fused_instance_axis_family 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_fused_instance_axis_family_rectified.png" alt="fused_instance_axis_family rectified 点位">
+          <figcaption>fused_instance_axis_family rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_completed_surface_intersections_original.png" alt="completed_surface_intersections 原图点位">
+          <figcaption>completed_surface_intersections 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_completed_surface_intersections_rectified.png" alt="completed_surface_intersections rectified 点位">
+          <figcaption>completed_surface_intersections rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_depth_pr_fprg_peak_supported_original.png" alt="depth_pr_fprg_peak_supported 原图点位">
+          <figcaption>depth_pr_fprg_peak_supported 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_depth_pr_fprg_peak_supported_rectified.png" alt="depth_pr_fprg_peak_supported rectified 点位">
+          <figcaption>depth_pr_fprg_peak_supported rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_hessian_axis_family_original.png" alt="hessian_axis_family 原图点位">
+          <figcaption>hessian_axis_family 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_hessian_axis_family_rectified.png" alt="hessian_axis_family rectified 点位">
+          <figcaption>hessian_axis_family rectified 点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_frangi_axis_family_original.png" alt="frangi_axis_family 原图点位">
+          <figcaption>frangi_axis_family 原图点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/variant_frangi_axis_family_rectified.png" alt="frangi_axis_family rectified 点位">
+          <figcaption>frangi_axis_family rectified 点位</figcaption>
+        </figure>
+        </div>
+    </section>
+  </main>
+</body>
+</html>

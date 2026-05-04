@@ -128,7 +128,9 @@
 
 - `PR-FPRG`
 - 即 `PR-FPRG 透视展开频相回归网格方案`
-- 2026-04-29 起，运行主链为方向自适应版本：透视展开后在 `theta/rho` 空间估计两组钢筋线族，不再默认钢筋与画面水平/垂直。
+- 2026-05-03 用户明确要求扫描视觉算法完全复刻 2026-04-22 版本：透视展开后只使用深度背景差分响应，对 rectified 图的纵向、横向 profile 做周期和相位估计，生成纵横直线网格，再通过 projective line segments 与 inverse mapping 投回原图。
+- 行/列峰值 line-family、depth+IR 组合响应、梁筋 ±13 cm 扩张过滤、稳定采样择优、phase lock、方向自适应 `theta/rho` 版本和曲线版本只作为报告/研究参考，不进入当前扫描运行路径。
+- 2026-04-30 最新执行口径：移动到固定识别位姿后触发扫描时，继续使用 2026-04-22 `PR-FPRG` 拓扑恢复方案；进入执行层、逐区到达 `areas[].cabin_pose` 后，`MODE_EXECUTION_REFINE` 改走平面分割 + Hough 局部视觉。
 
 ### 6.2 明确不再认可的旧方案
 
@@ -138,13 +140,13 @@
 2. 用像素边长直接当 rectified 尺度
 3. 在原图里直接铺横竖线
 4. 只调参数、不修几何主链
-5. 把 `pre_img()`、旧 RANSAC+Hough 线段检测或 `matrix_preprocess.py` 重新接回 pointAI 运行主链
+5. 把 `pre_img()`、旧 RANSAC+Hough 线段检测或 `matrix_preprocess.py` 重新接回扫描建图主链
 
 旧 `RANSAC + Hough + pre_img` 绑扎点识别代码已经归档到：
 
 - `docs/archive/legacy_ransac_hough_pointai/`
 
-该归档目录只用于追溯，不参与 ROS 节点运行。
+该归档目录只用于追溯和局部执行层实现参考，不直接参与 ROS 节点运行。执行层平面分割 + Hough 使用独立的 `execution_refine_hough.py`，只在 `MODE_EXECUTION_REFINE` 生效。
 
 ---
 
@@ -192,14 +194,14 @@
 2. 把 `corner_world_map` 和 `corner_pixels` 排序解绑
 3. 把运行时输入退回到未经 rectified 的原图 profile
 4. 修改显示结果时忘记 inverse mapping
-5. 在 `process_image` 入口重新接回 `pre_img()` 或旧 RANSAC+Hough 回退路径
-6. 把线族估计退回固定 X/Y 方向，导致地面上本身斜摆的钢筋网识别漂移
+5. 在 `MODE_SCAN_ONLY` 或 `manual workspace S2` 入口重新接回 `pre_img()` 或旧 RANSAC+Hough 回退路径
+6. 把扫描运行路径重新接回行/列峰值 line-family、depth+IR 组合响应或梁筋 ±13 cm 扩张过滤，导致效果偏离 2026-04-22 基准
 
 如果后续结果再次出现“线像图像格子、不像真实钢筋网格”，优先检查：
 
 1. 是否仍然先做了 rectified
 2. rectified 尺度是否仍优先来自世界角点
-3. 周期估计是否仍基于 `theta/rho` 线族扫描、频域/自相关与相位回归
-4. 候选线是否仍经过二维连续钢筋条 ridge 验证，而不是只靠一维峰值
+3. 扫描 S2 是否仍按 2026-04-22 的 depth-only 纵横 profile 周期相位估计生成网格
+4. 运行路径是否避开了后续实验性的 line-family、组合响应和梁筋扩张过滤
 5. 线和点是否经过 inverse mapping 投回原图
-6. `process_image` 是否仍然直接走方向自适应 `PR-FPRG`，而没有被旧 `pre_img()` 链路重新卡住
+6. 固定识别位姿扫描是否仍然走 `PR-FPRG`，而没有被执行层 Hough 链路重新卡住

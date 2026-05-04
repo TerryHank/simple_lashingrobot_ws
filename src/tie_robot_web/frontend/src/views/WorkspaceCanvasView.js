@@ -41,6 +41,7 @@ export class WorkspaceCanvasView {
     this.lastExecutionResultMessage = null;
     this.lastVisualRecognitionPointsMessage = null;
     this.visualRecognitionPointSourceSize = null;
+    this.tcpWorkspaceBoundary = null;
     this.savedWorkspacePoints = [];
     this.selectedPoints = [];
     this.displaySettings = { mode: "raw", gamma: 1.0, overlayOpacity: 0.88 };
@@ -101,6 +102,12 @@ export class WorkspaceCanvasView {
       normalizeImageSize(sourceSize)
       || this.visualRecognitionPointSourceSize
       || this.getCurrentImageSize();
+    this.drawOverlay();
+  }
+
+  setTcpWorkspaceBoundary(boundary) {
+    void boundary;
+    this.tcpWorkspaceBoundary = null;
     this.drawOverlay();
   }
 

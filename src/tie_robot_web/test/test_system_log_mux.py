@@ -107,6 +107,59 @@ class SystemLogMuxTest(unittest.TestCase):
             self.assertEqual(second_lines, ["prefix line", "next"])
             self.assertEqual(second_partial, "")
 
+    def test_extract_recent_failure_reason_prefers_latest_error_or_disconnect_line(self):
+        lines = [
+            "\x1b[0m[INFO] [1.0]: TCP连接成功。\x1b[0m",
+            "[WARN] [2.0]: PLC未连接",
+            "Error in XmlRpcClient::writeRequest: write error (拒绝连接).",
+        ]
+
+        reason = system_log_mux.extract_recent_failure_reason(lines)
+
+        self.assertEqual(
+            reason,
+            "Error in XmlRpcClient::writeRequest: write error (拒绝连接).",
+        )
+
+    def test_build_driver_link_status_reports_missing_publisher_node_and_reason(self):
+        monitor = {
+            "label": "索驱",
+            "node_name": "suoqu_driver_node",
+            "status_topic": "/cabin/cabin_data_upload",
+        }
+
+        status = system_log_mux.build_driver_link_status(
+            monitor,
+            topic_publishers={},
+            registered_nodes={"/rosbridge_websocket"},
+            recent_reason="索驱TCP驱动连接失败，detail=拒绝连接",
+        )
+
+        self.assertFalse(status["connected"])
+        self.assertEqual(status["level"], system_log_mux.Log.ERROR)
+        self.assertIn("索驱断链", status["message"])
+        self.assertIn("/cabin/cabin_data_upload 无发布者", status["message"])
+        self.assertIn("/suoqu_driver_node 未注册到当前 ROS master", status["message"])
+        self.assertIn("最近错误：索驱TCP驱动连接失败，detail=拒绝连接", status["message"])
+
+    def test_build_driver_link_status_reports_recovery_when_topic_and_node_are_registered(self):
+        monitor = {
+            "label": "末端",
+            "node_name": "moduan_driver_node",
+            "status_topic": "/moduan/moduan_gesture_data",
+        }
+
+        status = system_log_mux.build_driver_link_status(
+            monitor,
+            topic_publishers={"/moduan/moduan_gesture_data": {"/moduan_driver_node"}},
+            registered_nodes={"/moduan_driver_node"},
+            recent_reason=None,
+        )
+
+        self.assertTrue(status["connected"])
+        self.assertEqual(status["level"], system_log_mux.Log.INFO)
+        self.assertIn("末端链路恢复", status["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

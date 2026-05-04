@@ -10,6 +10,8 @@ SERVICE_TARGET="/etc/systemd/system/${SERVICE_NAME}"
 ROSBRIDGE_INSTALLER="${SCRIPT_DIR}/install_rosbridge_service.sh"
 DRIVER_INSTALLER="${SCRIPT_DIR}/install_driver_services.sh"
 BACKEND_INSTALLER="${SCRIPT_DIR}/install_backend_service.sh"
+LEGACY_FRONTEND_INSTALLER="${SCRIPT_DIR}/install_show_legacy_frontend_service.sh"
+DEMO_MODE_INSTALLER="${SCRIPT_DIR}/install_demo_mode_service.sh"
 TMP_SERVICE="$(mktemp)"
 
 cleanup() {
@@ -25,6 +27,8 @@ sed \
 "${ROSBRIDGE_INSTALLER}" "${WORKSPACE}" "${SERVICE_USER}"
 "${DRIVER_INSTALLER}" "${WORKSPACE}" "${SERVICE_USER}"
 "${BACKEND_INSTALLER}" "${WORKSPACE}" "${SERVICE_USER}"
+"${LEGACY_FRONTEND_INSTALLER}"
+"${DEMO_MODE_INSTALLER}" "${WORKSPACE}" "${SERVICE_USER}"
 sudo install -m 0644 "${TMP_SERVICE}" "${SERVICE_TARGET}"
 sudo systemctl daemon-reload
 sudo systemctl enable tie-robot-frontend.service

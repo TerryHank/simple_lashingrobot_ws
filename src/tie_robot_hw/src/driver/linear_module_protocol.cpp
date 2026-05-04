@@ -7,16 +7,28 @@ namespace driver {
 
 namespace {
 
-uint16_t lowerWord(float value)
+uint16_t lowerScaledWord(float value)
 {
     int32_t scaled = static_cast<int32_t>(value * 100.0f);
     return static_cast<uint16_t>(scaled & 0xFFFF);
 }
 
-uint16_t upperWord(float value)
+uint16_t upperScaledWord(float value)
 {
     int32_t scaled = static_cast<int32_t>(value * 100.0f);
     return static_cast<uint16_t>((scaled >> 16) & 0xFFFF);
+}
+
+uint16_t lowerRawWord(float value)
+{
+    int32_t raw = static_cast<int32_t>(value);
+    return static_cast<uint16_t>(raw & 0xFFFF);
+}
+
+uint16_t upperRawWord(float value)
+{
+    int32_t raw = static_cast<int32_t>(value);
+    return static_cast<uint16_t>((raw >> 16) & 0xFFFF);
 }
 
 }  // namespace
@@ -34,10 +46,10 @@ int LinearModuleProtocol::pointAngleRegister(int slot_index)
 std::vector<uint16_t> LinearModuleProtocol::buildPointRegisterPayload(const LinearModulePoint& point)
 {
     return {
-        lowerWord(point.x_mm), upperWord(point.x_mm),
-        lowerWord(point.y_mm), upperWord(point.y_mm),
-        lowerWord(point.z_mm), upperWord(point.z_mm),
-        lowerWord(point.angle_deg), upperWord(point.angle_deg),
+        lowerScaledWord(point.x_mm), upperScaledWord(point.x_mm),
+        lowerScaledWord(point.y_mm), upperScaledWord(point.y_mm),
+        lowerScaledWord(point.z_mm), upperScaledWord(point.z_mm),
+        lowerRawWord(point.angle_deg), upperRawWord(point.angle_deg),
     };
 }
 

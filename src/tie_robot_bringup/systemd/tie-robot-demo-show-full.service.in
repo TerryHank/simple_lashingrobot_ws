@@ -1,0 +1,28 @@
+[Unit]
+Description=Tie Robot legacy show_full demo mode
+Wants=network-online.target tie-robot-demo-rosbridge.service
+After=network-online.target tie-robot-demo-rosbridge.service
+PartOf=tie-robot-demo-rosbridge.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@LEGACY_WORKSPACE@
+Environment=ROS_HOME=@WORKSPACE@/.ros
+Environment=ROS_LOG_DIR=@WORKSPACE@/.ros/log
+Environment=ROS_MASTER_URI=http://127.0.0.1:11311
+Environment=ROS_HOSTNAME=127.0.0.1
+Environment=SCEPTER_ROS_ROOT=@SCEPTER_ROS@
+# 默认 ScepterSDK ROS 插件路径：/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS
+ExecStartPre=/bin/mkdir -p @WORKSPACE@/.ros/log
+ExecStartPre=/bin/bash -lc '@WORKSPACE@/src/tie_robot_bringup/tools/wait_for_ros_master.py --timeout-sec 30'
+ExecStart=/bin/bash -lc 'source /opt/ros/noetic/setup.bash && source @SCEPTER_ROS@/devel/setup.bash && source @LEGACY_WORKSPACE@/devel/setup.bash && export ROS_PACKAGE_PATH=@LEGACY_WORKSPACE@/src:@SCEPTER_ROS@/src:/opt/ros/noetic/share && export CMAKE_PREFIX_PATH=@LEGACY_WORKSPACE@/devel:@SCEPTER_ROS@/devel:/opt/ros/noetic && export LD_LIBRARY_PATH=@LEGACY_WORKSPACE@/devel/lib:@SCEPTER_ROS@/devel/lib:@SCEPTER_ROS@/src/ScepterROS/dependencies/Lib:/opt/ros/noetic/lib:/opt/ros/noetic/lib/x86_64-linux-gnu:$${LD_LIBRARY_PATH:-} && export PYTHONPATH=@LEGACY_WORKSPACE@/devel/lib/python3/dist-packages:@SCEPTER_ROS@/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:$${PYTHONPATH:-} && exec roslaunch chassis_ctrl show_full.launch'
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

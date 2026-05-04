@@ -1,0 +1,23 @@
+[Unit]
+Description=Tie Robot demo lightweight rosbridge
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKSPACE@
+Environment=ROS_HOME=@WORKSPACE@/.ros
+Environment=ROS_LOG_DIR=@WORKSPACE@/.ros/log
+Environment=ROS_MASTER_URI=http://127.0.0.1:11311
+ExecStartPre=/bin/mkdir -p @WORKSPACE@/.ros/log
+ExecStart=/bin/bash -lc 'source /opt/ros/noetic/setup.bash && source @WORKSPACE@/devel/setup.bash && exec roslaunch tie_robot_bringup demo_rosbridge_light.launch'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+KillMode=control-group
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>现场图像：底图模态与扫描方案全量测试 20260504_230352</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f1e8;color:#17211d;font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif;line-height:1.55}header{padding:22px clamp(16px,4vw,42px);background:#fffaf0;border-bottom:1px solid #d8cfbf}main{max-width:1660px;margin:0 auto;padding:18px clamp(12px,3vw,34px) 42px}h1{margin:0 0 8px;font-size:clamp(22px,3vw,34px);letter-spacing:0}.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:10px;margin:14px 0 18px}.fact{background:#fffdf7;border:1px solid #d8cfbf;border-radius:8px;padding:10px 12px}.fact span{display:block;color:#657064;font-size:12px}.fact b{display:block;font-size:18px;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse;background:#fffdf7;border:1px solid #d8cfbf;border-radius:8px;overflow:hidden}th,td{padding:9px 10px;border-bottom:1px solid #e4dccd;text-align:left}th{background:#eee6d5}code{background:#ece3d2;border-radius:4px;padding:1px 4px}.pipeline{background:#fff8e8;border-left:4px solid #b55d2d;border-radius:0 8px 8px 0;padding:10px 12px;margin:16px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,410px),1fr));gap:14px;align-items:start}figure{margin:0;background:#fffdf7;border:1px solid #d8cfbf;border-radius:8px;overflow:hidden}img{display:block;width:100%;max-height:min(82vh,980px);object-fit:contain;background:#10140f}figcaption{padding:9px 10px;border-top:1px solid #e4dccd;color:#3d453f}section{margin-top:20px}
+</style>
+</head>
+<body>
+<header>
+<h1>现场图像：底图模态与扫描方案全量测试</h1>
+<div>参考模态：<code>rebar_instance_graph_probe_20260430_130933</code></div>
+<div>采集时间：<code>2026-05-04 23:03:52</code>；数据源：<code>live_raw_world_current_capture</code></div>
+</header>
+<main>
+<div class="facts">
+<div class="fact"><span>基础响应</span><b>combined_depth_ir_darkline</b></div>
+<div class="fact"><span>基础线族</span><b>[8, 8]</b></div>
+<div class="fact"><span>全量推荐</span><b>06_surface_ir_assisted_curve</b></div>
+<div class="fact"><span>旧 depth-only</span><b>493 点</b></div>
+<div class="fact"><span>instance graph junction</span><b>931</b></div>
+<div class="fact"><span>新方案点数</span><b>64</b></div>
+</div>
+<p class="pipeline"><code>combined / fused_instance_response -> Hessian + Frangi 脊线增强 -> binary candidate + skeleton -> completed_surface_mask -> DP 曲线沿局部 ridge 收束 -> 曲线交点输出 -> instance_graph junction 只做验证 / 补召回</code></p>
+<section><h2>方案对比</h2><table><thead><tr><th>方案</th><th>点数</th><th>线数</th><th>代理分</th></tr></thead><tbody><tr><td><code>06_surface_ir_assisted_curve</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.933</td></tr><tr><td><code>05_surface_ridge_curve</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.923</td></tr><tr><td><code>04_surface_dp_curve</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.922</td></tr><tr><td><code>depth_gradient_hessian_frangi_dp</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.919</td></tr><tr><td><code>fused_instance_axis_family</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.871</td></tr><tr><td><code>completed_surface_intersections</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.871</td></tr><tr><td><code>depth_pr_fprg_peak_supported</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.852</td></tr><tr><td><code>hessian_axis_family</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.850</td></tr><tr><td><code>frangi_axis_family</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.850</td></tr><tr><td><code>combined_pr_fprg_peak_supported</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.824</td></tr><tr><td><code>03_surface_greedy_curve</code></td><td>64</td><td><code>[8, 8]</code></td><td>0.821</td></tr><tr><td><code>instance_graph_junctions_raw</code></td><td>217</td><td><code>[]</code></td><td>0.722</td></tr><tr><td><code>current_depth_only_runtime</code></td><td>493</td><td><code>[29, 17]</code></td><td>0.472</td></tr></tbody></table></section>
+<section><h2>每一步效果图</h2><div class="grid"><figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/00_source_workspace.png" alt="现场输入工作区"><figcaption>现场输入工作区</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/01_pr_fprg_result.png" alt="PR-FPRG 参考输出"><figcaption>PR-FPRG 参考输出</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/02_selected_response.png" alt="selected response"><figcaption>selected response</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/03_combined_response.png" alt="combined response"><figcaption>combined response</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/04_depth_response.png" alt="depth response"><figcaption>depth response</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/05_worldcoord_height_response.png" alt="worldCoord height response"><figcaption>worldCoord height response</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/06_depth_gradient.png" alt="depth gradient"><figcaption>depth gradient</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/07_hessian_ridge.png" alt="Hessian ridge"><figcaption>Hessian ridge</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/08_frangi_like.png" alt="Frangi-like"><figcaption>Frangi-like</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/09_fused_instance_response.png" alt="fused instance response"><figcaption>fused instance response</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/10_binary_candidate.png" alt="binary candidate"><figcaption>binary candidate</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/11_skeleton.png" alt="skeleton"><figcaption>skeleton</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/12_instance_graph_overlay.png" alt="instance graph overlay"><figcaption>instance graph overlay</figcaption></figure>
+<figure><img src="../live_rebar_instance_graph_modalities_20260504_230352/images/16_beam_candidate_13cm.png" alt="beam candidate +/-13 cm"><figcaption>beam candidate +/-13 cm</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/10_surface_completion_overlay.png" alt="completed_surface_mask 补全钢筋面"><figcaption>completed_surface_mask 补全钢筋面</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/11_completed_surface_response.png" alt="completed_surface_response"><figcaption>completed_surface_response</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/variant_04_surface_dp_curve_rectified.png" alt="04_surface_dp_curve rectified"><figcaption>04_surface_dp_curve rectified</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/variant_04_surface_dp_curve_original.png" alt="04_surface_dp_curve 原图"><figcaption>04_surface_dp_curve 原图</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/variant_06_surface_ir_assisted_curve_rectified.png" alt="06_surface_ir_assisted_curve rectified"><figcaption>06_surface_ir_assisted_curve rectified</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/variant_06_surface_ir_assisted_curve_original.png" alt="06_surface_ir_assisted_curve 原图"><figcaption>06_surface_ir_assisted_curve 原图</figcaption></figure>
+<figure><img src="../live_rebar_scheme_full_table_20260504_230352/images/variant_instance_graph_junctions_raw_original.png" alt="instance_graph junction 只做验证 / 补召回"><figcaption>instance_graph junction 只做验证 / 补召回</figcaption></figure>
+<figure><img src="../live_rebar_gradient_hessian_frangi_20260504_230352/images/05_gradient_hessian_frangi_fusion.png" alt="新方案融合响应：depth_gradient + Hessian + Frangi"><figcaption>新方案融合响应：depth_gradient + Hessian + Frangi</figcaption></figure>
+<figure><img src="../live_rebar_gradient_hessian_frangi_20260504_230352/images/09_dp_curve_rectified_points.png" alt="新方案 DP 曲线 rectified"><figcaption>新方案 DP 曲线 rectified</figcaption></figure>
+<figure><img src="../live_rebar_gradient_hessian_frangi_20260504_230352/images/10_dp_curve_original_points.png" alt="新方案 DP 曲线原图"><figcaption>新方案 DP 曲线原图</figcaption></figure></div></section>
+</main>
+</body>
+</html>

@@ -181,7 +181,7 @@ export class TerminalController {
       }
     } catch (error) {
       if (!suppressLog) {
-        this.report(`同步 tmux 窗口名称失败：${error?.message || String(error)}`, "warn");
+        this.report(`同步终端会话失败：${error?.message || String(error)}`, "warn");
       }
     }
   }
@@ -197,7 +197,7 @@ export class TerminalController {
     return {
       ...session,
       sessionId,
-      label: session.label || session.tmuxSessionName || sessionId,
+      label: session.label || sessionId,
       terminalPort: session.terminalPort || config?.terminal_port || this.terminalConfig?.terminal_port || 8081,
       wsPath: session.wsPath || `/ws/terminal/${sessionId}`,
       state: session.state || "connecting",

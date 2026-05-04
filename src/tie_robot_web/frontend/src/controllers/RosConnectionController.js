@@ -13,9 +13,11 @@ import {
   getTopicRegistryEntry,
   getTopicRegistryEntryByKey,
 } from "../config/topicRegistry.js";
+import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
 
 const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
 const AUTO_RECONNECT_DELAY_MS = 1500;
+const GRIPPER_TF_SERVICE_TIMEOUT_MS = 1500;
 
 export class RosConnectionController {
   constructor(callbacks = {}) {
@@ -181,15 +183,20 @@ export class RosConnectionController {
         name: SERVICES.tf.setGripperTfCalibration,
         serviceType: SERVICE_TYPES.tf.setGripperTfCalibration,
       }),
+      setCameraTcpExtrinsicPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.tf.setCameraTcpExtrinsic,
+        messageType: MESSAGE_TYPES.pose,
+      }),
+      robotHomeCalibrationService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.tf.robotHomeCalibration,
+        serviceType: SERVICE_TYPES.tf.robotHomeCalibration,
+      }),
       stableFrameCountPublisher: new ROSLIB.Topic({
         ros,
         name: TOPICS.algorithm.setStableFrameCount,
         messageType: MESSAGE_TYPES.int32,
-      }),
-      lashingRecognizeOnceService: new ROSLIB.Service({
-        ros,
-        name: SERVICES.algorithm.recognizeOnce,
-        serviceType: SERVICE_TYPES.trigger,
       }),
       processImageService: new ROSLIB.Service({
         ros,
@@ -271,6 +278,11 @@ export class RosConnectionController {
         name: SERVICES.cabin.singleMove,
         serviceType: SERVICE_TYPES.cabin.singleMove,
       }),
+      cabinIncrementalMoveService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.cabin.incrementalMove,
+        serviceType: SERVICE_TYPES.cabin.singleMove,
+      }),
       linearModuleSingleMoveService: new ROSLIB.Service({
         ros,
         name: SERVICES.moduan.singleMove,
@@ -349,25 +361,149 @@ export class RosConnectionController {
   }
 
   callGripperTfCalibrationService({ x, y, z }) {
-    if (!this.ros?.isConnected || !this.resources?.setGripperTfCalibrationService) {
+    if (!this.ros?.isConnected) {
       return Promise.resolve({ success: false, message: "ROS 未连接，无法调用相机-TCP外参热更新服务。" });
     }
 
+    const requestPayload = this.normalizeGripperTfCalibrationPayload({ x, y, z });
+    if (!this.resources?.setGripperTfCalibrationService) {
+      return Promise.resolve(this.publishCameraTcpExtrinsicFallback(requestPayload, "service 资源不可用"));
+    }
+
     return new Promise((resolve) => {
+      let settled = false;
+      const finish = (result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeoutId);
+        resolve(result);
+      };
+      const timeoutId = window.setTimeout(() => {
+        finish(this.publishCameraTcpExtrinsicFallback(requestPayload, "service 调用超时"));
+      }, GRIPPER_TF_SERVICE_TIMEOUT_MS);
+
       this.resources.setGripperTfCalibrationService.callService(
         new ROSLIB.ServiceRequest({
-          x_mm: Number.isFinite(x) ? x : 0,
-          y_mm: Number.isFinite(y) ? y : 0,
-          z_mm: Number.isFinite(z) ? z : 0,
+          x_mm: requestPayload.x,
+          y_mm: requestPayload.y,
+          z_mm: requestPayload.z,
         }),
         (response) => {
-          resolve({
+          finish({
             success: Boolean(response?.success),
             message: response?.message || "",
             applied: {
               x: Number(response?.applied_x_mm || 0),
               y: Number(response?.applied_y_mm || 0),
               z: Number(response?.applied_z_mm || 0),
+            },
+            fallback: false,
+          });
+        },
+        (error) => {
+          finish(this.publishCameraTcpExtrinsicFallback(requestPayload, error?.message || String(error)));
+        },
+      );
+    });
+  }
+
+  normalizeGripperTfCalibrationPayload({ x, y, z }) {
+    const toFiniteNumber = (value) => {
+      const numericValue = Number(value);
+      return Number.isFinite(numericValue) ? numericValue : 0;
+    };
+    return {
+      x: toFiniteNumber(x),
+      y: toFiniteNumber(y),
+      z: toFiniteNumber(z),
+    };
+  }
+
+  publishCameraTcpExtrinsicFallback(payload, reason = "") {
+    const publisher = this.resources?.setCameraTcpExtrinsicPublisher;
+    if (!this.ros?.isConnected || !publisher) {
+      return {
+        success: false,
+        message: "ROS 未连接，无法发布相机-TCP外参热更新 topic。",
+        applied: { ...payload },
+        fallback: false,
+      };
+    }
+
+    publisher.advertise?.();
+    publisher.publish(new ROSLIB.Message({
+      position: {
+        x: payload.x,
+        y: payload.y,
+        z: payload.z,
+      },
+      orientation: {
+        x: 0,
+        y: 0,
+        z: 0,
+        w: 1,
+      },
+    }));
+
+    const reasonText = reason ? `（${reason}）` : "";
+    return {
+      success: true,
+      message: `相机-TCP外参热更新 service 未完成${reasonText}，已改用 /web/tf/set_camera_tcp_extrinsic topic 发布。`,
+      applied: { ...payload },
+      fallback: "topic",
+    };
+  }
+
+  callRobotHomeCalibrationService({ command = "get", home = {} } = {}) {
+    if (!this.ros?.isConnected || !this.resources?.robotHomeCalibrationService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法调用 Home 点位标定服务。" });
+    }
+
+    return new Promise((resolve) => {
+      this.resources.robotHomeCalibrationService.callService(
+        new ROSLIB.ServiceRequest({
+          command,
+          home_x_mm: Number.isFinite(home.x) ? home.x : 0,
+          home_y_mm: Number.isFinite(home.y) ? home.y : 0,
+          home_z_mm: Number.isFinite(home.z) ? home.z : 0,
+        }),
+        (response) => {
+          resolve({
+            success: Boolean(response?.success),
+            message: response?.message || "",
+            hasCurrentPose: Boolean(response?.has_current_pose),
+            current: {
+              x: Number(response?.current_x_mm || 0),
+              y: Number(response?.current_y_mm || 0),
+              z: Number(response?.current_z_mm || 0),
+            },
+            home: {
+              x: Number(response?.home_x_mm || 0),
+              y: Number(response?.home_y_mm || 0),
+              z: Number(response?.home_z_mm || 0),
+            },
+            baseToCamera: {
+              x: Number(response?.base_to_camera_x_mm || 0),
+              y: Number(response?.base_to_camera_y_mm || 0),
+              z: Number(response?.base_to_camera_z_mm || 0),
+              roll: Number(response?.base_to_camera_roll_rad || 0),
+              pitch: Number(response?.base_to_camera_pitch_rad || 0),
+              yaw: Number(response?.base_to_camera_yaw_rad || 0),
+            },
+            hasCameraPose: Boolean(response?.has_camera_pose),
+            camera: {
+              x: Number(response?.camera_x_mm || 0),
+              y: Number(response?.camera_y_mm || 0),
+              z: Number(response?.camera_z_mm || 0),
+            },
+            hasGroundProbe: Boolean(response?.has_ground_probe),
+            groundProbe: {
+              distance: Number(response?.camera_ground_distance_mm || 0),
+              x: Number(response?.ground_x_mm || 0),
+              y: Number(response?.ground_y_mm || 0),
+              z: Number(response?.ground_z_mm || 0),
             },
           });
         },
@@ -429,6 +565,36 @@ export class RosConnectionController {
           resolve({
             success: false,
             message: error?.message || String(error) || "索驱停止运动服务调用失败。",
+          });
+        },
+      );
+    });
+  }
+
+  callCabinIncrementalMoveService({ x, y, z, speed }) {
+    if (!this.ros?.isConnected || !this.resources?.cabinIncrementalMoveService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法执行索驱增量运动。" });
+    }
+
+    return new Promise((resolve) => {
+      this.resources.cabinIncrementalMoveService.callService(
+        new ROSLIB.ServiceRequest({
+          command: "增量运动请求",
+          x: Number.isFinite(x) ? x : 0,
+          y: Number.isFinite(y) ? y : 0,
+          z: Number.isFinite(z) ? z : 0,
+          speed: Number.isFinite(speed) ? speed : 0,
+        }),
+        (response) => {
+          resolve({
+            success: Boolean(response?.success),
+            message: response?.message || "",
+          });
+        },
+        (error) => {
+          resolve({
+            success: false,
+            message: error?.message || String(error) || "索驱增量运动服务调用失败。",
           });
         },
       );
@@ -497,31 +663,7 @@ export class RosConnectionController {
   }
 
   triggerWorkspaceS2Refresh() {
-    return this.callLashingRecognizeOnceService();
-  }
-
-  callLashingRecognizeOnceService() {
-    if (!this.ros?.isConnected || !this.resources?.lashingRecognizeOnceService) {
-      return Promise.resolve({ success: false, message: "ROS 未连接，无法触发视觉识别刷新。" });
-    }
-
-    return new Promise((resolve) => {
-      this.resources.lashingRecognizeOnceService.callService(
-        new ROSLIB.ServiceRequest({}),
-        (response) => {
-          resolve({
-            success: Boolean(response?.success),
-            message: response?.message || (response?.success ? "视觉识别完成。" : "视觉识别失败。"),
-          });
-        },
-        (error) => {
-          resolve({
-            success: false,
-            message: error?.message || String(error) || "视觉识别服务调用失败。",
-          });
-        },
-      );
-    });
+    return this.callProcessImageService({ requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE });
   }
 
   publishStableFrameCount(frameCount) {
@@ -537,13 +679,16 @@ export class RosConnectionController {
     };
   }
 
-  callProcessImageService({ requestMode = 1 } = {}) {
+  callProcessImageService({ requestMode = FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } = {}) {
     if (!this.ros?.isConnected || !this.resources?.processImageService) {
       return Promise.resolve({ success: false, message: "ROS 未连接，无法调用视觉服务。", serviceElapsedMs: null });
     }
 
     const startedAt = performance.now();
-    const sanitizedRequestMode = Math.max(0, Math.round(Number(requestMode) || 0));
+    const numericRequestMode = Number(requestMode);
+    const sanitizedRequestMode = Number.isFinite(numericRequestMode)
+      ? Math.max(0, Math.round(numericRequestMode))
+      : FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE;
     return new Promise((resolve) => {
       this.resources.processImageService.callService(
         new ROSLIB.ServiceRequest({ request_mode: sanitizedRequestMode }),
@@ -602,9 +747,11 @@ export class RosConnectionController {
       this.buildTopicFromRegistry("algorithm.coordinatePoint"),
       this.buildTopicFromRegistry("process.pseudoSlamMarkers"),
       this.buildTopicFromRegistry("process.diagnostics"),
+      this.buildTopicFromRegistry("process.cabinState"),
       this.buildTopicFromRegistry("tf.live"),
       this.buildTopicFromRegistry("tf.static"),
       this.buildTopicFromRegistry("control.linearModuleState"),
+      this.buildTopicFromRegistry("camera.irCameraInfo"),
     ];
 
     subscriptions[0].subscribe((message) => this.callbacks.onSavedWorkspacePayload?.(Array.from(message.data || [])));
@@ -614,9 +761,11 @@ export class RosConnectionController {
     subscriptions[4].subscribe((message) => this.callbacks.onTiePoints?.(message));
     subscriptions[5].subscribe((message) => this.callbacks.onPlanningMarkers?.(message));
     subscriptions[6].subscribe((message) => this.callbacks.onDiagnostics?.(message));
-    subscriptions[7].subscribe((message) => this.callbacks.onTfMessage?.(message));
+    subscriptions[7].subscribe((message) => this.callbacks.onCabinState?.(message));
     subscriptions[8].subscribe((message) => this.callbacks.onTfMessage?.(message));
-    subscriptions[9].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
+    subscriptions[9].subscribe((message) => this.callbacks.onTfMessage?.(message));
+    subscriptions[10].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
+    subscriptions[11].subscribe((message) => this.callbacks.onIrCameraInfo?.(message));
     this.fixedTopicSubscribers = subscriptions;
   }
 

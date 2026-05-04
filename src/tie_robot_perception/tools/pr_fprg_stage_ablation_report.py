@@ -28,6 +28,8 @@ from pr_fprg_peak_supported_probe import (  # noqa: E402
     capture_depth_ir_frame,
     capture_synced_frame,
     render_response_heatmap,
+    render_rectified_lines,
+    render_removed_lines,
     to_bgr,
     to_u8,
 )
@@ -49,24 +51,27 @@ VARIANTS = [
         "id": "full",
         "label": "全流程",
         "stage": "基准",
-        "description": "保留 peak 支撑、连续钢筋条验证和 spacing prune，是当前直线 PR-FPRG 主链。",
+        "description": "当前主链：组合响应、固定行/列 profile 峰值、spacing 收束；梁筋±13cm范围只在最终点级过滤。",
         "conclusion": "基准",
         "tone": "baseline",
+        "enable_local_peak_refine": False,
+        "enable_continuous_validation": False,
+        "enable_spacing_prune": True,
     },
     {
         "id": "skip_continuous",
-        "label": "去掉连续钢筋条验证",
+        "label": "保持关闭连续钢筋条验证",
         "stage": "连续验证",
-        "description": "rho profile 出线后，不再沿钢筋方向采样检查是否是一整条连续 ridge。",
-        "conclusion": "不能删除：速度提升明显，但会多出假线/假点。",
-        "tone": "danger",
+        "description": "行/列峰值主链本身不再依赖连续 ridge 验证，本项保留作历史对照。",
+        "conclusion": "当前主链默认关闭。",
+        "tone": "ok",
         "enable_continuous_validation": False,
     },
     {
         "id": "skip_spacing",
         "label": "去掉 spacing prune",
         "stage": "间距筛选",
-        "description": "保留连续验证结果，不再删除与主间距过近的边缘候选线。",
+        "description": "保留行/列 profile 峰值，不再删除与主间距过近的边缘候选线。",
         "conclusion": "不建议删除：本帧不省时，且可能多线。",
         "tone": "warn",
         "enable_spacing_prune": False,
@@ -105,22 +110,13 @@ VARIANTS = [
         "id": "profile_only_raw",
         "label": "只保留 profile 周期原始线",
         "stage": "profile-only",
-        "description": "只根据 theta/rho profile 周期相位生成线，所有后续筛选都关闭。",
+        "description": "只根据固定行/列 profile 周期相位生成线，所有后续筛选都关闭。",
         "conclusion": "不能用：最快但假点最多。",
         "tone": "danger",
         "enable_local_peak_refine": False,
         "enable_peak_support": False,
         "enable_continuous_validation": False,
         "enable_spacing_prune": False,
-    },
-    {
-        "id": "full_angle_sweep",
-        "label": "全角度扫描全流程",
-        "stage": "theta 候选池",
-        "description": "不用梯度方向先验收窄 theta 候选，而是回到全角度扫描。",
-        "conclusion": "不建议恢复：更慢，且现场可能不更稳。",
-        "tone": "warn",
-        "use_orientation_prior_angle_pool": False,
     },
 ]
 
@@ -260,12 +256,21 @@ def write_report(output_dir, frame, prepared, results, metadata):
     cv2.imwrite(str(image_dir / "00_ir_input.png"), to_bgr(frame["ir"]))
     cv2.imwrite(str(image_dir / "00_rectified_ir.png"), to_bgr(prepared["rectified_ir"]))
     baseline_response = None
+    baseline_full_result = None
     for result in results:
         if result["id"] == "full" and result.get("response") is not None:
             baseline_response = result["response"]
+            baseline_full_result = result
             break
     if baseline_response is not None:
         cv2.imwrite(str(image_dir / "00_response.png"), render_response_heatmap(baseline_response))
+    if baseline_full_result is not None:
+        peak_result = {
+            "rectified_ir": prepared["rectified_ir"],
+            "line_families": baseline_full_result.get("line_families", []),
+        }
+        cv2.imwrite(str(image_dir / "00_peak_supported_lines.png"), render_rectified_lines(peak_result, "peak_supported"))
+        cv2.imwrite(str(image_dir / "00_peak_spacing_pruned_lines.png"), render_removed_lines(peak_result))
 
     for result in results:
         color = COLORS.get(result.get("tone", "warn"), (0, 255, 0))
@@ -505,6 +510,18 @@ def write_report(output_dir, frame, prepared, results, metadata):
     .variant-card {{
       padding: 16px;
     }}
+    .source-strip {{
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 14px;
+      margin-bottom: 18px;
+    }}
+    .source-strip h2 {{
+      margin: 0 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }}
     .card-head {{
       display: flex;
       justify-content: space-between;
@@ -609,6 +626,15 @@ def write_report(output_dir, frame, prepared, results, metadata):
       <div class="stat"><span>帧源</span><strong>{html.escape(str(metadata['frame_source']))}</strong></div>
       <div class="stat"><span>重复次数</span><strong>{metadata['repeat']}</strong></div>
       <div class="stat"><span>锁定响应图</span><strong>{html.escape(str(metadata['locked_response_name']))}</strong></div>
+    </section>
+    <section class="source-strip">
+      <h2>峰值诊断图</h2>
+      <div class="images">
+        <figure><img src="images/00_ir_input.png" alt="ir input"><figcaption>红外输入</figcaption></figure>
+        <figure><img src="images/00_response.png" alt="response"><figcaption>锁定组合响应</figcaption></figure>
+        <figure><img src="images/00_peak_supported_lines.png" alt="peak supported lines"><figcaption>峰值图：peak-supported 候选线</figcaption></figure>
+        <figure><img src="images/00_peak_spacing_pruned_lines.png" alt="peak spacing pruned lines"><figcaption>峰值图：绿色保留 / 红色剔除</figcaption></figure>
+      </div>
     </section>
     <section class="table-panel">
       <table>

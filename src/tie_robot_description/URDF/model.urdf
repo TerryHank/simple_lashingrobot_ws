@@ -2,6 +2,7 @@
 <robot name="vehicle">
   <link name="base_link">
     <visual>
+      <origin xyz="0 0 0.25" rpy="0 0 0"/>
       <geometry>
         <box size="2 1 0.5"/>
       </geometry>

@@ -374,14 +374,14 @@
 
 - 扫描层执行 `S2`
 - 执行层 **不执行 `S2`**
-- 执行层保留原来的局部视觉微调策略
+- 执行层保留原来的局部视觉微调策略；2026-04-30 起明确为平面分割 + Hough
 - 微调参考扫描层给出的全局点
 
 当前代码已经按这个方向收口：
 
 - `MODE_EXECUTION_REFINE = 4`
 - `run_live_visual_global_work(...)` 改为使用执行微调模式
-- `pointAI.py` 已按 `request_mode` 直接分流扫描层 `S2` 和执行层局部视觉
+- `pointAI` 已按 `request_mode` 直接分流扫描层 `S2 / PR-FPRG` 和执行层平面分割 + Hough 局部视觉
 - 已移除执行层借 `scan_only` 显示/参数开关复用的兼容路径
 
 但这里要特别提醒：

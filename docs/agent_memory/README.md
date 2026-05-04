@@ -111,26 +111,33 @@ python3 scripts/agent_memory.py recover
 - 如果当前会话已经因为上下文过长变慢，先写 checkpoint，再开新会话用轻启动三件套续接。
 - 共享记忆只记录高信号结论，不记录大段原始输出。
 
-## Codex 会话归档
+## Codex 会话压缩
 
-如果 Codex/VSCode 历史会话打不开，先检查是否有超大活跃 JSONL：
-
-```bash
-python3 scripts/codex_session_guard.py scan --threshold-mb 50
-```
-
-确认后将超大会话移出活跃历史目录：
+用户最新要求：超大 Codex 会话的原始内容要归档，但 `~/.codex/sessions` 里的会话文件不要移动；存活会话列表下保留自动总结后的上下文。
+当活跃会话超过 100MB 时，运行：
 
 ```bash
-python3 scripts/codex_session_guard.py archive --threshold-mb 50 --apply
+python3 scripts/codex_session_guard.py summarize --threshold-mb 100 --skip-open --apply
 ```
 
-该命令不删除原始内容，只把文件从 `~/.codex/sessions` 移到 `~/.codex/archived_sessions/oversized`，并写入 `INDEX.md` 索引。这样 Codex 历史列表不再尝试直接加载超大文件，仍可手工查找归档内容。
+该命令会先把原始完整 JSONL 内容复制到 `~/.codex/archived_sessions/oversized/`，不把 `~/.codex/sessions` 里的会话文件移动出原路径；随后在原路径写入小型摘要 JSONL，让历史会话列表仍能快速打开并看到上下文重点；同时写一份便于人读的 Markdown 到 `~/.codex/session_summaries/oversized/`。
 
-本机可安装自动守卫：
+摘要替身必须保留原始 `session_meta` 关键字段和首条真实用户请求作为标题锚点，避免历史会话标题变成摘要说明。若已有摘要替身缺少标题锚点，可从 archive 原文修复：
+
+```bash
+python3 scripts/codex_session_guard.py repair-summaries --apply
+```
+
+本机可安装自动总结定时器：
+
+```bash
+scripts/install_codex_session_summary_timer.sh
+```
+
+它会启用用户级 `tie-codex-session-summary.timer`，开机后 5 分钟运行一次，之后每 15 分钟运行一次；默认压缩超过 100MB、闲置至少 10 分钟且未被打开的 JSONL。
+
+`archive` 子命令只保留为手工救急工具。不要安装或启用旧的纯归档 timer，因为它只移走活跃入口、不留下摘要替身。旧安装脚本默认拒绝启用：
 
 ```bash
 scripts/install_codex_session_guard_timer.sh
 ```
-
-它会启用用户级 `tie-codex-session-guard.timer`，开机后 5 分钟运行一次，之后每 15 分钟运行一次；默认只处理超过 50MB、闲置至少 60 分钟且未被任何进程打开的 JSONL，避免影响正在运行的 Codex 会话。

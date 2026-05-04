@@ -1,0 +1,1835 @@
+{
+  "generated_at": "2026-05-04 23:03:59",
+  "snapshot_frame_source": "live_raw_world_current_capture",
+  "snapshot_uses_depth_fallback_raw_world": false,
+  "threshold_percentile": 0.7427239382266995,
+  "current_depth_runtime": {
+    "response_name": "current_depth_background_minus_filled",
+    "line_counts": [
+      29,
+      17
+    ],
+    "point_count": 493,
+    "vertical_period_px": 17,
+    "horizontal_period_px": 30
+  },
+  "combined_reference": {
+    "response_name": "combined_depth_ir_darkline",
+    "line_counts": [
+      8,
+      8
+    ],
+    "point_count": 64
+  },
+  "surface_segmentation": {
+    "ordinary_rebar_pixels": 39456,
+    "ordinary_completed_rebar_pixels": 76345,
+    "completed_surface_pixels": 76345,
+    "line_support_pixels": 53131,
+    "completed_line_counts": [
+      8,
+      8
+    ],
+    "beam_candidate_pixels": 0,
+    "beam_candidate_body_pixels": 0,
+    "beam_candidate_13cm_pixels": 0,
+    "surface_candidate_pixels": 39456
+  },
+  "instance_graph": {
+    "component_count": 107,
+    "endpoint_count": 751,
+    "junction_count": 931,
+    "components": [
+      {
+        "label": 1,
+        "area_px": 140,
+        "bbox": [
+          0,
+          0,
+          84,
+          37
+        ],
+        "centroid": [
+          42.17857142857143,
+          17.492857142857144
+        ]
+      },
+      {
+        "label": 6,
+        "area_px": 421,
+        "bbox": [
+          149,
+          0,
+          15,
+          351
+        ],
+        "centroid": [
+          154.51781472684087,
+          168.3729216152019
+        ]
+      },
+      {
+        "label": 8,
+        "area_px": 65,
+        "bbox": [
+          172,
+          0,
+          38,
+          25
+        ],
+        "centroid": [
+          195.06153846153848,
+          14.323076923076924
+        ]
+      },
+      {
+        "label": 9,
+        "area_px": 154,
+        "bbox": [
+          217,
+          0,
+          91,
+          39
+        ],
+        "centroid": [
+          262.26623376623377,
+          18.33116883116883
+        ]
+      },
+      {
+        "label": 13,
+        "area_px": 725,
+        "bbox": [
+          181,
+          0,
+          162,
+          316
+        ],
+        "centroid": [
+          299.1737931034483,
+          214.79310344827587
+        ]
+      },
+      {
+        "label": 20,
+        "area_px": 85,
+        "bbox": [
+          352,
+          14,
+          75,
+          7
+        ],
+        "centroid": [
+          389.49411764705883,
+          18.694117647058825
+        ]
+      },
+      {
+        "label": 21,
+        "area_px": 53,
+        "bbox": [
+          90,
+          17,
+          44,
+          10
+        ],
+        "centroid": [
+          110.77358490566037,
+          18.150943396226417
+        ]
+      },
+      {
+        "label": 24,
+        "area_px": 39,
+        "bbox": [
+          435,
+          19,
+          20,
+          21
+        ],
+        "centroid": [
+          444.5128205128205,
+          24.846153846153847
+        ]
+      },
+      {
+        "label": 25,
+        "area_px": 40,
+        "bbox": [
+          462,
+          18,
+          34,
+          6
+        ],
+        "centroid": [
+          480.025,
+          20.725
+        ]
+      },
+      {
+        "label": 27,
+        "area_px": 34,
+        "bbox": [
+          48,
+          32,
+          17,
+          20
+        ],
+        "centroid": [
+          52.23529411764706,
+          45.029411764705884
+        ]
+      },
+      {
+        "label": 29,
+        "area_px": 105,
+        "bbox": [
+          187,
+          34,
+          81,
+          19
+        ],
+        "centroid": [
+          225.0095238095238,
+          48.304761904761904
+        ]
+      },
+      {
+        "label": 31,
+        "area_px": 53,
+        "bbox": [
+          357,
+          39,
+          39,
+          16
+        ],
+        "centroid": [
+          373.0188679245283,
+          48.886792452830186
+        ]
+      },
+      {
+        "label": 33,
+        "area_px": 33,
+        "bbox": [
+          77,
+          43,
+          21,
+          13
+        ],
+        "centroid": [
+          84.21212121212122,
+          49.666666666666664
+        ]
+      },
+      {
+        "label": 34,
+        "area_px": 80,
+        "bbox": [
+          275,
+          44,
+          50,
+          33
+        ],
+        "centroid": [
+          297.65,
+          54.0625
+        ]
+      },
+      {
+        "label": 36,
+        "area_px": 22,
+        "bbox": [
+          119,
+          49,
+          22,
+          3
+        ],
+        "centroid": [
+          129.5,
+          50.0
+        ]
+      },
+      {
+        "label": 38,
+        "area_px": 20,
+        "bbox": [
+          427,
+          48,
+          18,
+          4
+        ],
+        "centroid": [
+          436.2,
+          50.45
+        ]
+      },
+      {
+        "label": 43,
+        "area_px": 45,
+        "bbox": [
+          455,
+          50,
+          41,
+          5
+        ],
+        "centroid": [
+          476.77777777777777,
+          50.888888888888886
+        ]
+      },
+      {
+        "label": 44,
+        "area_px": 66,
+        "bbox": [
+          96,
+          59,
+          35,
+          31
+        ],
+        "centroid": [
+          110.81818181818181,
+          78.0909090909091
+        ]
+      },
+      {
+        "label": 56,
+        "area_px": 144,
+        "bbox": [
+          172,
+          69,
+          91,
+          28
+        ],
+        "centroid": [
+          220.0,
+          82.77083333333333
+        ]
+      },
+      {
+        "label": 58,
+        "area_px": 78,
+        "bbox": [
+          367,
+          72,
+          53,
+          15
+        ],
+        "centroid": [
+          394.8076923076923,
+          83.01282051282051
+        ]
+      },
+      {
+        "label": 59,
+        "area_px": 66,
+        "bbox": [
+          38,
+          75,
+          52,
+          13
+        ],
+        "centroid": [
+          64.15151515151516,
+          82.04545454545455
+        ]
+      },
+      {
+        "label": 60,
+        "area_px": 20,
+        "bbox": [
+          5,
+          80,
+          17,
+          4
+        ],
+        "centroid": [
+          13.05,
+          82.2
+        ]
+      },
+      {
+        "label": 63,
+        "area_px": 30,
+        "bbox": [
+          442,
+          83,
+          26,
+          5
+        ],
+        "centroid": [
+          453.5,
+          86.0
+        ]
+      },
+      {
+        "label": 65,
+        "area_px": 33,
+        "bbox": [
+          280,
+          84,
+          24,
+          10
+        ],
+        "centroid": [
+          292.45454545454544,
+          85.51515151515152
+        ]
+      },
+      {
+        "label": 76,
+        "area_px": 472,
+        "bbox": [
+          172,
+          99,
+          150,
+          77
+        ],
+        "centroid": [
+          243.510593220339,
+          136.0572033898305
+        ]
+      },
+      {
+        "label": 81,
+        "area_px": 118,
+        "bbox": [
+          31,
+          109,
+          83,
+          25
+        ],
+        "centroid": [
+          77.87288135593221,
+          115.03389830508475
+        ]
+      },
+      {
+        "label": 82,
+        "area_px": 155,
+        "bbox": [
+          371,
+          109,
+          125,
+          22
+        ],
+        "centroid": [
+          432.59354838709675,
+          112.41935483870968
+        ]
+      },
+      {
+        "label": 96,
+        "area_px": 34,
+        "bbox": [
+          107,
+          134,
+          12,
+          24
+        ],
+        "centroid": [
+          109.5,
+          144.6764705882353
+        ]
+      },
+      {
+        "label": 102,
+        "area_px": 51,
+        "bbox": [
+          371,
+          140,
+          48,
+          6
+        ],
+        "centroid": [
+          393.7647058823529,
+          140.88235294117646
+        ]
+      },
+      {
+        "label": 103,
+        "area_px": 22,
+        "bbox": [
+          425,
+          141,
+          18,
+          6
+        ],
+        "centroid": [
+          434.8636363636364,
+          141.72727272727272
+        ]
+      },
+      {
+        "label": 104,
+        "area_px": 47,
+        "bbox": [
+          453,
+          140,
+          43,
+          5
+        ],
+        "centroid": [
+          475.3191489361702,
+          141.74468085106383
+        ]
+      },
+      {
+        "label": 107,
+        "area_px": 33,
+        "bbox": [
+          65,
+          142,
+          33,
+          3
+        ],
+        "centroid": [
+          81.0,
+          142.75757575757575
+        ]
+      },
+      {
+        "label": 109,
+        "area_px": 18,
+        "bbox": [
+          0,
+          144,
+          14,
+          4
+        ],
+        "centroid": [
+          6.388888888888889,
+          145.11111111111111
+        ]
+      },
+      {
+        "label": 118,
+        "area_px": 91,
+        "bbox": [
+          253,
+          161,
+          41,
+          32
+        ],
+        "centroid": [
+          272.74725274725273,
+          175.24175824175825
+        ]
+      },
+      {
+        "label": 120,
+        "area_px": 83,
+        "bbox": [
+          23,
+          162,
+          58,
+          23
+        ],
+        "centroid": [
+          58.57831325301205,
+          174.04819277108433
+        ]
+      },
+      {
+        "label": 122,
+        "area_px": 30,
+        "bbox": [
+          91,
+          169,
+          18,
+          13
+        ],
+        "centroid": [
+          102.9,
+          173.86666666666667
+        ]
+      },
+      {
+        "label": 123,
+        "area_px": 59,
+        "bbox": [
+          356,
+          169,
+          46,
+          15
+        ],
+        "centroid": [
+          379.271186440678,
+          172.03389830508473
+        ]
+      },
+      {
+        "label": 124,
+        "area_px": 56,
+        "bbox": [
+          426,
+          168,
+          47,
+          8
+        ],
+        "centroid": [
+          451.01785714285717,
+          171.35714285714286
+        ]
+      },
+      {
+        "label": 128,
+        "area_px": 20,
+        "bbox": [
+          478,
+          171,
+          18,
+          3
+        ],
+        "centroid": [
+          487.35,
+          171.4
+        ]
+      },
+      {
+        "label": 135,
+        "area_px": 173,
+        "bbox": [
+          183,
+          183,
+          138,
+          32
+        ],
+        "centroid": [
+          243.4450867052023,
+          204.6878612716763
+        ]
+      },
+      {
+        "label": 142,
+        "area_px": 52,
+        "bbox": [
+          366,
+          191,
+          35,
+          18
+        ],
+        "centroid": [
+          382.7692307692308,
+          202.30769230769232
+        ]
+      },
+      {
+        "label": 143,
+        "area_px": 36,
+        "bbox": [
+          467,
+          191,
+          24,
+          13
+        ],
+        "centroid": [
+          476.6111111111111,
+          200.55555555555554
+        ]
+      },
+      {
+        "label": 145,
+        "area_px": 153,
+        "bbox": [
+          25,
+          200,
+          118,
+          21
+        ],
+        "centroid": [
+          80.79738562091504,
+          206.73856209150327
+        ]
+      },
+      {
+        "label": 148,
+        "area_px": 19,
+        "bbox": [
+          422,
+          203,
+          19,
+          1
+        ],
+        "centroid": [
+          431.0,
+          203.0
+        ]
+      },
+      {
+        "label": 160,
+        "area_px": 174,
+        "bbox": [
+          173,
+          220,
+          121,
+          37
+        ],
+        "centroid": [
+          236.02298850574712,
+          236.05747126436782
+        ]
+      },
+      {
+        "label": 163,
+        "area_px": 41,
+        "bbox": [
+          424,
+          227,
+          36,
+          6
+        ],
+        "centroid": [
+          441.2682926829268,
+          231.58536585365854
+        ]
+      },
+      {
+        "label": 166,
+        "area_px": 66,
+        "bbox": [
+          354,
+          232,
+          62,
+          6
+        ],
+        "centroid": [
+          385.9848484848485,
+          233.12121212121212
+        ]
+      },
+      {
+        "label": 170,
+        "area_px": 88,
+        "bbox": [
+          41,
+          236,
+          81,
+          6
+        ],
+        "centroid": [
+          81.35227272727273,
+          236.95454545454547
+        ]
+      },
+      {
+        "label": 178,
+        "area_px": 20,
+        "bbox": [
+          42,
+          255,
+          15,
+          6
+        ],
+        "centroid": [
+          49.0,
+          259.25
+        ]
+      },
+      {
+        "label": 182,
+        "area_px": 23,
+        "bbox": [
+          430,
+          258,
+          14,
+          10
+        ],
+        "centroid": [
+          436.9130434782609,
+          262.7391304347826
+        ]
+      },
+      {
+        "label": 192,
+        "area_px": 26,
+        "bbox": [
+          364,
+          263,
+          26,
+          1
+        ],
+        "centroid": [
+          376.5,
+          263.0
+        ]
+      },
+      {
+        "label": 193,
+        "area_px": 32,
+        "bbox": [
+          395,
+          262,
+          29,
+          5
+        ],
+        "centroid": [
+          408.90625,
+          262.78125
+        ]
+      },
+      {
+        "label": 198,
+        "area_px": 98,
+        "bbox": [
+          45,
+          285,
+          68,
+          24
+        ],
+        "centroid": [
+          79.96938775510205,
+          291.4591836734694
+        ]
+      },
+      {
+        "label": 199,
+        "area_px": 26,
+        "bbox": [
+          0,
+          287,
+          21,
+          5
+        ],
+        "centroid": [
+          8.538461538461538,
+          289.34615384615387
+        ]
+      },
+      {
+        "label": 200,
+        "area_px": 26,
+        "bbox": [
+          393,
+          286,
+          17,
+          11
+        ],
+        "centroid": [
+          403.46153846153845,
+          291.0
+        ]
+      },
+      {
+        "label": 206,
+        "area_px": 18,
+        "bbox": [
+          304,
+          291,
+          18,
+          2
+        ],
+        "centroid": [
+          312.5,
+          291.3333333333333
+        ]
+      },
+      {
+        "label": 207,
+        "area_px": 25,
+        "bbox": [
+          367,
+          291,
+          19,
+          7
+        ],
+        "centroid": [
+          377.28,
+          292.44
+        ]
+      },
+      {
+        "label": 218,
+        "area_px": 43,
+        "bbox": [
+          31,
+          306,
+          27,
+          17
+        ],
+        "centroid": [
+          45.906976744186046,
+          318.69767441860466
+        ]
+      },
+      {
+        "label": 221,
+        "area_px": 56,
+        "bbox": [
+          182,
+          309,
+          42,
+          15
+        ],
+        "centroid": [
+          201.55357142857142,
+          321.125
+        ]
+      },
+      {
+        "label": 224,
+        "area_px": 72,
+        "bbox": [
+          231,
+          316,
+          62,
+          12
+        ],
+        "centroid": [
+          259.80555555555554,
+          323.2083333333333
+        ]
+      },
+      {
+        "label": 227,
+        "area_px": 46,
+        "bbox": [
+          73,
+          318,
+          37,
+          10
+        ],
+        "centroid": [
+          88.80434782608695,
+          322.19565217391306
+        ]
+      },
+      {
+        "label": 228,
+        "area_px": 61,
+        "bbox": [
+          362,
+          318,
+          47,
+          15
+        ],
+        "centroid": [
+          386.0,
+          323.5409836065574
+        ]
+      },
+      {
+        "label": 242,
+        "area_px": 26,
+        "bbox": [
+          334,
+          333,
+          5,
+          21
+        ],
+        "centroid": [
+          336.8076923076923,
+          342.2307692307692
+        ]
+      },
+      {
+        "label": 249,
+        "area_px": 67,
+        "bbox": [
+          74,
+          342,
+          52,
+          17
+        ],
+        "centroid": [
+          95.0,
+          349.7014925373134
+        ]
+      },
+      {
+        "label": 250,
+        "area_px": 36,
+        "bbox": [
+          254,
+          343,
+          19,
+          17
+        ],
+        "centroid": [
+          261.77777777777777,
+          350.47222222222223
+        ]
+      },
+      {
+        "label": 251,
+        "area_px": 69,
+        "bbox": [
+          363,
+          342,
+          52,
+          14
+        ],
+        "centroid": [
+          388.4347826086956,
+          350.57971014492756
+        ]
+      },
+      {
+        "label": 252,
+        "area_px": 21,
+        "bbox": [
+          49,
+          349,
+          11,
+          12
+        ],
+        "centroid": [
+          51.666666666666664,
+          352.2857142857143
+        ]
+      },
+      {
+        "label": 254,
+        "area_px": 50,
+        "bbox": [
+          179,
+          349,
+          42,
+          9
+        ],
+        "centroid": [
+          199.48,
+          349.96
+        ]
+      },
+      {
+        "label": 255,
+        "area_px": 21,
+        "bbox": [
+          0,
+          350,
+          18,
+          4
+        ],
+        "centroid": [
+          7.285714285714286,
+          350.3333333333333
+        ]
+      },
+      {
+        "label": 259,
+        "area_px": 25,
+        "bbox": [
+          227,
+          350,
+          9,
+          17
+        ],
+        "centroid": [
+          231.64,
+          355.44
+        ]
+      },
+      {
+        "label": 261,
+        "area_px": 35,
+        "bbox": [
+          278,
+          350,
+          26,
+          10
+        ],
+        "centroid": [
+          290.9142857142857,
+          351.65714285714284
+        ]
+      },
+      {
+        "label": 263,
+        "area_px": 19,
+        "bbox": [
+          429,
+          351,
+          19,
+          2
+        ],
+        "centroid": [
+          438.0,
+          351.57894736842104
+        ]
+      },
+      {
+        "label": 264,
+        "area_px": 18,
+        "bbox": [
+          453,
+          351,
+          18,
+          2
+        ],
+        "centroid": [
+          461.5,
+          351.6666666666667
+        ]
+      },
+      {
+        "label": 273,
+        "area_px": 135,
+        "bbox": [
+          152,
+          368,
+          3,
+          135
+        ],
+        "centroid": [
+          153.37777777777777,
+          435.0
+        ]
+      },
+      {
+        "label": 274,
+        "area_px": 22,
+        "bbox": [
+          277,
+          370,
+          16,
+          9
+        ],
+        "centroid": [
+          286.54545454545456,
+          376.3181818181818
+        ]
+      },
+      {
+        "label": 275,
+        "area_px": 43,
+        "bbox": [
+          463,
+          373,
+          33,
+          9
+        ],
+        "centroid": [
+          478.6511627906977,
+          378.7674418604651
+        ]
+      },
+      {
+        "label": 276,
+        "area_px": 70,
+        "bbox": [
+          333,
+          374,
+          10,
+          60
+        ],
+        "centroid": [
+          337.8857142857143,
+          402.6
+        ]
+      },
+      {
+        "label": 278,
+        "area_px": 74,
+        "bbox": [
+          196,
+          377,
+          66,
+          7
+        ],
+        "centroid": [
+          230.27027027027026,
+          378.63513513513516
+        ]
+      },
+      {
+        "label": 281,
+        "area_px": 24,
+        "bbox": [
+          380,
+          376,
+          22,
+          5
+        ],
+        "centroid": [
+          389.6666666666667,
+          378.6666666666667
+        ]
+      },
+      {
+        "label": 283,
+        "area_px": 19,
+        "bbox": [
+          75,
+          379,
+          16,
+          4
+        ],
+        "centroid": [
+          82.10526315789474,
+          379.63157894736844
+        ]
+      },
+      {
+        "label": 284,
+        "area_px": 25,
+        "bbox": [
+          99,
+          378,
+          13,
+          13
+        ],
+        "centroid": [
+          106.24,
+          382.28
+        ]
+      },
+      {
+        "label": 289,
+        "area_px": 61,
+        "bbox": [
+          29,
+          380,
+          42,
+          19
+        ],
+        "centroid": [
+          49.60655737704918,
+          383.1475409836066
+        ]
+      },
+      {
+        "label": 295,
+        "area_px": 52,
+        "bbox": [
+          423,
+          395,
+          18,
+          36
+        ],
+        "centroid": [
+          435.5,
+          411.71153846153845
+        ]
+      },
+      {
+        "label": 300,
+        "area_px": 68,
+        "bbox": [
+          275,
+          404,
+          45,
+          24
+        ],
+        "centroid": [
+          295.20588235294116,
+          412.70588235294116
+        ]
+      },
+      {
+        "label": 301,
+        "area_px": 56,
+        "bbox": [
+          449,
+          405,
+          47,
+          8
+        ],
+        "centroid": [
+          473.25,
+          409.51785714285717
+        ]
+      },
+      {
+        "label": 303,
+        "area_px": 55,
+        "bbox": [
+          63,
+          407,
+          48,
+          7
+        ],
+        "centroid": [
+          87.2,
+          411.1272727272727
+        ]
+      },
+      {
+        "label": 304,
+        "area_px": 19,
+        "bbox": [
+          398,
+          408,
+          11,
+          9
+        ],
+        "centroid": [
+          404.94736842105266,
+          411.4736842105263
+        ]
+      },
+      {
+        "label": 305,
+        "area_px": 25,
+        "bbox": [
+          0,
+          411,
+          17,
+          8
+        ],
+        "centroid": [
+          9.2,
+          412.8
+        ]
+      },
+      {
+        "label": 311,
+        "area_px": 26,
+        "bbox": [
+          192,
+          411,
+          26,
+          2
+        ],
+        "centroid": [
+          204.5,
+          411.1923076923077
+        ]
+      },
+      {
+        "label": 312,
+        "area_px": 48,
+        "bbox": [
+          222,
+          411,
+          45,
+          4
+        ],
+        "centroid": [
+          244.3125,
+          411.8333333333333
+        ]
+      },
+      {
+        "label": 315,
+        "area_px": 56,
+        "bbox": [
+          469,
+          417,
+          27,
+          27
+        ],
+        "centroid": [
+          478.48214285714283,
+          434.94642857142856
+        ]
+      },
+      {
+        "label": 322,
+        "area_px": 54,
+        "bbox": [
+          3,
+          433,
+          32,
+          23
+        ],
+        "centroid": [
+          17.09259259259259,
+          443.6111111111111
+        ]
+      },
+      {
+        "label": 324,
+        "area_px": 78,
+        "bbox": [
+          373,
+          437,
+          71,
+          8
+        ],
+        "centroid": [
+          409.52564102564105,
+          441.0
+        ]
+      },
+      {
+        "label": 328,
+        "area_px": 86,
+        "bbox": [
+          48,
+          443,
+          77,
+          8
+        ],
+        "centroid": [
+          83.29069767441861,
+          443.6162790697674
+        ]
+      },
+      {
+        "label": 331,
+        "area_px": 21,
+        "bbox": [
+          194,
+          442,
+          20,
+          2
+        ],
+        "centroid": [
+          203.38095238095238,
+          442.6190476190476
+        ]
+      },
+      {
+        "label": 332,
+        "area_px": 18,
+        "bbox": [
+          225,
+          443,
+          18,
+          2
+        ],
+        "centroid": [
+          233.5,
+          443.1666666666667
+        ]
+      },
+      {
+        "label": 334,
+        "area_px": 23,
+        "bbox": [
+          281,
+          442,
+          21,
+          2
+        ],
+        "centroid": [
+          290.82608695652175,
+          442.39130434782606
+        ]
+      },
+      {
+        "label": 340,
+        "area_px": 18,
+        "bbox": [
+          338,
+          456,
+          1,
+          18
+        ],
+        "centroid": [
+          338.0,
+          464.5
+        ]
+      },
+      {
+        "label": 341,
+        "area_px": 112,
+        "bbox": [
+          32,
+          459,
+          88,
+          17
+        ],
+        "centroid": [
+          72.50892857142857,
+          471.58035714285717
+        ]
+      },
+      {
+        "label": 342,
+        "area_px": 82,
+        "bbox": [
+          362,
+          461,
+          76,
+          8
+        ],
+        "centroid": [
+          398.1341463414634,
+          466.6707317073171
+        ]
+      },
+      {
+        "label": 343,
+        "area_px": 19,
+        "bbox": [
+          484,
+          460,
+          12,
+          8
+        ],
+        "centroid": [
+          491.5263157894737,
+          463.94736842105266
+        ]
+      },
+      {
+        "label": 344,
+        "area_px": 27,
+        "bbox": [
+          450,
+          465,
+          26,
+          2
+        ],
+        "centroid": [
+          462.74074074074076,
+          465.7037037037037
+        ]
+      },
+      {
+        "label": 350,
+        "area_px": 28,
+        "bbox": [
+          3,
+          472,
+          24,
+          7
+        ],
+        "centroid": [
+          14.892857142857142,
+          473.42857142857144
+        ]
+      },
+      {
+        "label": 362,
+        "area_px": 24,
+        "bbox": [
+          16,
+          492,
+          14,
+          13
+        ],
+        "centroid": [
+          20.208333333333332,
+          500.2083333333333
+        ]
+      },
+      {
+        "label": 367,
+        "area_px": 18,
+        "bbox": [
+          485,
+          494,
+          11,
+          8
+        ],
+        "centroid": [
+          491.94444444444446,
+          498.0
+        ]
+      },
+      {
+        "label": 371,
+        "area_px": 23,
+        "bbox": [
+          437,
+          499,
+          19,
+          6
+        ],
+        "centroid": [
+          444.95652173913044,
+          500.17391304347825
+        ]
+      },
+      {
+        "label": 378,
+        "area_px": 48,
+        "bbox": [
+          60,
+          503,
+          39,
+          10
+        ],
+        "centroid": [
+          79.20833333333333,
+          504.1666666666667
+        ]
+      }
+    ]
+  },
+  "beam_candidate_bands": [],
+  "recommended_variant": {
+    "id": "06_surface_ir_assisted_curve",
+    "title": "06 组合响应辅助曲线",
+    "point_count": 64,
+    "quality_score": 0.9326989558897911,
+    "reason": "离线代理指标下响应支撑强、点数不膨胀、重复近邻少；运行建议作为几何主候选，实例骨架只做验证/补召回。"
+  },
+  "variant_rows": [
+    {
+      "id": "06_surface_ir_assisted_curve",
+      "title": "06 组合响应辅助曲线",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.9876827271655202,
+      "mean_hessian": 0.7618959969840944,
+      "mean_frangi": 0.9440092518925667,
+      "mean_fused": 0.9812961332499981,
+      "mean_completed_surface": 0.9973558513447642,
+      "binary_support_ratio": 0.953125,
+      "nearest_median_px": 58.070125579833984,
+      "nearest_min_px": 53.0003776550293,
+      "close_pairs_lt_8px": 0,
+      "note": "以组合响应、Frangi-like、补全面共同形成的多模态底图做曲线收束。",
+      "quality_score": 0.9326989558897911
+    },
+    {
+      "id": "05_surface_ridge_curve",
+      "title": "05 补全面 ridge 曲线",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.9781342297792435,
+      "mean_hessian": 0.7462374772876501,
+      "mean_frangi": 0.928695984184742,
+      "mean_fused": 0.9708225522190332,
+      "mean_completed_surface": 0.9932917859405279,
+      "binary_support_ratio": 0.953125,
+      "nearest_median_px": 58.059038162231445,
+      "nearest_min_px": 53.0,
+      "close_pairs_lt_8px": 0,
+      "note": "以补全钢筋面作为底图，动态规划分数加入中间强、两侧弱的 ridge 判断。",
+      "quality_score": 0.9233248043432831
+    },
+    {
+      "id": "04_surface_dp_curve",
+      "title": "04 补全面 DP 曲线",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.9764681337401271,
+      "mean_hessian": 0.7441455656662583,
+      "mean_frangi": 0.9248623000457883,
+      "mean_fused": 0.9699608702212572,
+      "mean_completed_surface": 0.9924306562170386,
+      "binary_support_ratio": 0.953125,
+      "nearest_median_px": 58.00389099121094,
+      "nearest_min_px": 53.0003776550293,
+      "close_pairs_lt_8px": 0,
+      "note": "以补全钢筋面作为底图，动态规划约束相邻采样点偏移连续。",
+      "quality_score": 0.9218967472016811
+    },
+    {
+      "id": "fused_instance_axis_family",
+      "title": "融合实例响应线族",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.9251211159862578,
+      "mean_hessian": 0.6952004137274344,
+      "mean_frangi": 0.8543667879421264,
+      "mean_fused": 0.9208255553385243,
+      "mean_completed_surface": 0.9565134742297232,
+      "binary_support_ratio": 0.859375,
+      "nearest_median_px": 59.0,
+      "nearest_min_px": 53.0,
+      "close_pairs_lt_8px": 0,
+      "note": "直接在组合响应 + 深度 + Frangi 融合底图上估行列线族。",
+      "quality_score": 0.8709660912945401
+    },
+    {
+      "id": "completed_surface_intersections",
+      "title": "补全钢筋面交点",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.9251211159862578,
+      "mean_hessian": 0.6952004137274344,
+      "mean_frangi": 0.8543667879421264,
+      "mean_fused": 0.9208255553385243,
+      "mean_completed_surface": 0.9565134742297232,
+      "binary_support_ratio": 0.859375,
+      "nearest_median_px": 59.0,
+      "nearest_min_px": 53.0,
+      "close_pairs_lt_8px": 0,
+      "note": "先做实例候选分割，再用线族支撑补全钢筋面后求交点。",
+      "quality_score": 0.8709660912945401
+    },
+    {
+      "id": "depth_pr_fprg_peak_supported",
+      "title": "深度响应 PR-FPRG 线族",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.864495622459799,
+      "mean_hessian": 0.7001104242663132,
+      "mean_frangi": 0.8635065641719848,
+      "mean_fused": 0.8686293638311327,
+      "mean_completed_surface": 0.9326719674281776,
+      "binary_support_ratio": 0.84375,
+      "nearest_median_px": 58.0,
+      "nearest_min_px": 56.0,
+      "close_pairs_lt_8px": 0,
+      "note": "以 depth_background_minus_filled 作为底图的峰值支撑线族。",
+      "quality_score": 0.8523744590586284
+    },
+    {
+      "id": "hessian_axis_family",
+      "title": "Hessian ridge 线族",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.8997573910746723,
+      "mean_hessian": 0.6768956347368658,
+      "mean_frangi": 0.8643656375352293,
+      "mean_fused": 0.8893391453893855,
+      "mean_completed_surface": 0.9465651223435998,
+      "binary_support_ratio": 0.78125,
+      "nearest_median_px": 59.0,
+      "nearest_min_px": 57.0,
+      "close_pairs_lt_8px": 0,
+      "note": "直接在 Hessian ridge 底图上估行列线族。",
+      "quality_score": 0.8500547921448015
+    },
+    {
+      "id": "frangi_axis_family",
+      "title": "Frangi-like 线族",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.8997573910746723,
+      "mean_hessian": 0.6768956347368658,
+      "mean_frangi": 0.8643656375352293,
+      "mean_fused": 0.8893391453893855,
+      "mean_completed_surface": 0.9465651223435998,
+      "binary_support_ratio": 0.78125,
+      "nearest_median_px": 59.0,
+      "nearest_min_px": 57.0,
+      "close_pairs_lt_8px": 0,
+      "note": "直接在多尺度 Frangi-like 脊线底图上估行列线族。",
+      "quality_score": 0.8500547921448015
+    },
+    {
+      "id": "combined_pr_fprg_peak_supported",
+      "title": "组合响应 PR-FPRG 线族",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.8563558291643858,
+      "mean_hessian": 0.666407575859921,
+      "mean_frangi": 0.8076895198610146,
+      "mean_fused": 0.8512383670313284,
+      "mean_completed_surface": 0.913151079788804,
+      "binary_support_ratio": 0.796875,
+      "nearest_median_px": 60.0,
+      "nearest_min_px": 57.0,
+      "close_pairs_lt_8px": 0,
+      "note": "以 combined_depth_ir_darkline 作为底图的峰值支撑线族。",
+      "quality_score": 0.8236750212253537
+    },
+    {
+      "id": "03_surface_greedy_curve",
+      "title": "03 补全面 greedy 曲线",
+      "point_count": 64,
+      "line_counts": [
+        8,
+        8
+      ],
+      "mean_combined": 0.8663312061689794,
+      "mean_hessian": 0.6323236353928223,
+      "mean_frangi": 0.7862828418146819,
+      "mean_fused": 0.8594820038415492,
+      "mean_completed_surface": 0.9255290948785841,
+      "binary_support_ratio": 0.828125,
+      "nearest_median_px": 57.64140319824219,
+      "nearest_min_px": 50.00001525878906,
+      "close_pairs_lt_8px": 0,
+      "note": "以补全钢筋面作为底图，沿补全后的线族拓扑做局部 ridge 贪心曲线，再求曲线交点。",
+      "quality_score": 0.8210117381019516
+    },
+    {
+      "id": "instance_graph_junctions_raw",
+      "title": "实例骨架 junction 原始聚类",
+      "point_count": 217,
+      "line_counts": [],
+      "mean_combined": 0.9769019814130897,
+      "mean_hessian": 0.6984081382300996,
+      "mean_frangi": 0.9437873984262142,
+      "mean_fused": 0.9750317810317888,
+      "mean_completed_surface": 0.9541598278256606,
+      "binary_support_ratio": 1.0,
+      "nearest_median_px": 26.621170043945312,
+      "nearest_min_px": 10.014410018920898,
+      "close_pairs_lt_8px": 0,
+      "note": "直接聚类骨架 junction；召回强但容易过检，建议只作为候选源。",
+      "quality_score": 0.7224252181558565
+    },
+    {
+      "id": "current_depth_only_runtime",
+      "title": "当前扫描 depth-only 运行逻辑",
+      "point_count": 493,
+      "line_counts": [
+        29,
+        17
+      ],
+      "mean_combined": 0.721928894746497,
+      "mean_hessian": 0.5072373310653178,
+      "mean_frangi": 0.6541453349594363,
+      "mean_fused": 0.7155923404812088,
+      "mean_completed_surface": 0.7415399178869656,
+      "binary_support_ratio": 0.5233265720081136,
+      "nearest_median_px": 17.0,
+      "nearest_min_px": 17.0,
+      "close_pairs_lt_8px": 0,
+      "note": "复刻 MODE_SCAN_ONLY 当前 depth-only 周期/相位铺网格逻辑。",
+      "quality_score": 0.47176746601366193
+    }
+  ],
+  "timings_ms": {
+    "capture_and_modalities": 921.0264809998989,
+    "full_evaluation": 4892.919857999914,
+    "total": 5813.946657999622
+  },
+  "images": {
+    "00_input_high_gamma_workspace.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/00_input_high_gamma_workspace.png",
+    "01_current_depth_only_reference.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/01_current_depth_only_reference.png",
+    "02_combined_pr_fprg_reference.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/02_combined_pr_fprg_reference.png",
+    "03_combined_response.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/03_combined_response.png",
+    "04_hessian_ridge.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/04_hessian_ridge.png",
+    "05_frangi_like.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/05_frangi_like.png",
+    "06_fused_instance_response.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/06_fused_instance_response.png",
+    "07_binary_candidate.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/07_binary_candidate.png",
+    "08_instance_graph_overlay.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/08_instance_graph_overlay.png",
+    "09_surface_segmentation_overlay.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/09_surface_segmentation_overlay.png",
+    "10_surface_completion_overlay.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/10_surface_completion_overlay.png",
+    "11_completed_surface_response.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/11_completed_surface_response.png",
+    "variant_current_depth_only_runtime_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_current_depth_only_runtime_original.png",
+    "variant_current_depth_only_runtime_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_current_depth_only_runtime_rectified.png",
+    "variant_combined_pr_fprg_peak_supported_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_combined_pr_fprg_peak_supported_original.png",
+    "variant_combined_pr_fprg_peak_supported_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_combined_pr_fprg_peak_supported_rectified.png",
+    "variant_depth_pr_fprg_peak_supported_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_depth_pr_fprg_peak_supported_original.png",
+    "variant_depth_pr_fprg_peak_supported_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_depth_pr_fprg_peak_supported_rectified.png",
+    "variant_hessian_axis_family_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_hessian_axis_family_original.png",
+    "variant_hessian_axis_family_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_hessian_axis_family_rectified.png",
+    "variant_frangi_axis_family_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_frangi_axis_family_original.png",
+    "variant_frangi_axis_family_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_frangi_axis_family_rectified.png",
+    "variant_fused_instance_axis_family_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_fused_instance_axis_family_original.png",
+    "variant_fused_instance_axis_family_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_fused_instance_axis_family_rectified.png",
+    "variant_completed_surface_intersections_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_completed_surface_intersections_original.png",
+    "variant_completed_surface_intersections_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_completed_surface_intersections_rectified.png",
+    "variant_instance_graph_junctions_raw_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_instance_graph_junctions_raw_original.png",
+    "variant_instance_graph_junctions_raw_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_instance_graph_junctions_raw_rectified.png",
+    "variant_03_surface_greedy_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_03_surface_greedy_curve_original.png",
+    "variant_03_surface_greedy_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_03_surface_greedy_curve_rectified.png",
+    "variant_04_surface_dp_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_04_surface_dp_curve_original.png",
+    "variant_04_surface_dp_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_04_surface_dp_curve_rectified.png",
+    "variant_05_surface_ridge_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_05_surface_ridge_curve_original.png",
+    "variant_05_surface_ridge_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_05_surface_ridge_curve_rectified.png",
+    "variant_06_surface_ir_assisted_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_06_surface_ir_assisted_curve_original.png",
+    "variant_06_surface_ir_assisted_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/variant_06_surface_ir_assisted_curve_rectified.png",
+    "90_top_variant_matrix.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_rebar_scheme_full_table_20260504_230352/images/90_top_variant_matrix.png"
+  },
+  "metric_note": "No manual ground truth labels are available in this snapshot. Scores are proxy metrics using response support, skeleton support, count stability and close-duplicate penalty."
+}

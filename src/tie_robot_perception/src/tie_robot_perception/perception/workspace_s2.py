@@ -3,6 +3,8 @@ import numpy as np
 
 
 MIN_WORKSPACE_S2_SUPPORTED_LINE_COUNT = 3
+LEGACY_WORKSPACE_S2_PREFERRED_LATTICE_LINE_COUNT = 8
+LEGACY_WORKSPACE_S2_SCORE_TARGET_MIN_POINTS = 42
 
 
 def sort_polygon_points_clockwise(points):
@@ -120,6 +122,110 @@ def estimate_workspace_s2_period_and_phase(profile, min_period=10, max_period=30
         "phase_score": float(best_phase_score if best_phase_score is not None else 0.0),
         "profile": smoothed_profile,
     }
+
+
+def estimate_workspace_s2_fft_period_and_phase(profile, min_period=10, max_period=30):
+    profile = np.asarray(profile, dtype=np.float32).reshape(-1)
+    if profile.size == 0:
+        return None
+
+    finite_mask = np.isfinite(profile)
+    if not np.any(finite_mask):
+        return None
+
+    if not np.all(finite_mask):
+        fill_value = float(np.median(profile[finite_mask]))
+        profile = np.where(finite_mask, profile, fill_value)
+
+    smoothed_profile = smooth_workspace_s2_profile(profile)
+    centered_profile = smoothed_profile - np.mean(smoothed_profile)
+    if np.linalg.norm(centered_profile) <= 1e-6:
+        return None
+
+    lower_bound = max(2, int(min_period))
+    upper_bound = min(int(max_period), max(profile.size // 2, lower_bound))
+    if upper_bound < lower_bound:
+        return None
+
+    window = np.hanning(profile.size).astype(np.float32)
+    if not np.any(window > 0.0):
+        window = np.ones_like(centered_profile, dtype=np.float32)
+    spectrum = np.abs(np.fft.rfft(centered_profile * window)) ** 2
+    if spectrum.size <= 1 or float(np.max(spectrum[1:])) <= 1e-9:
+        return None
+
+    baseline = float(np.median(smoothed_profile))
+    response_scale = max(
+        1e-6,
+        float(np.percentile(smoothed_profile, 95.0) - np.percentile(smoothed_profile, 5.0)),
+    )
+    peak_power = float(np.max(spectrum[1:]))
+
+    best = None
+    for candidate_period in range(lower_bound, upper_bound + 1):
+        frequency_bin_float = float(profile.size) / float(candidate_period)
+        frequency_bin = int(round(frequency_bin_float))
+        if frequency_bin <= 0 or frequency_bin >= spectrum.size:
+            continue
+
+        band_start = max(1, frequency_bin - 1)
+        band_end = min(spectrum.size - 1, frequency_bin + 1)
+        fft_score = float(np.max(spectrum[band_start:band_end + 1]) / max(peak_power, 1e-9))
+
+        base_segment = centered_profile[:-candidate_period]
+        shifted_segment = centered_profile[candidate_period:]
+        denominator = np.linalg.norm(base_segment) * np.linalg.norm(shifted_segment)
+        correlation_score = (
+            float(np.dot(base_segment, shifted_segment) / denominator)
+            if denominator > 1e-6
+            else 0.0
+        )
+
+        best_phase = 0
+        best_phase_score = None
+        for candidate_phase in range(candidate_period):
+            phase_samples = smoothed_profile[candidate_phase::candidate_period]
+            if phase_samples.size == 0:
+                continue
+
+            phase_score = float(np.mean(phase_samples))
+            if best_phase_score is None or phase_score > best_phase_score:
+                best_phase = candidate_phase
+                best_phase_score = phase_score
+
+        phase_contrast = (
+            (float(best_phase_score) - baseline) / response_scale
+            if best_phase_score is not None
+            else 0.0
+        )
+        candidate_score = (
+            (0.55 * fft_score)
+            + (0.35 * phase_contrast)
+            + (0.10 * max(0.0, correlation_score))
+        )
+        if (
+            best is None
+            or candidate_score > best["score"]
+            or (
+                abs(candidate_score - best["score"]) <= 1e-6
+                and candidate_period > best["period"]
+            )
+        ):
+            best = {
+                "period": int(candidate_period),
+                "phase": int(best_phase),
+                "score": float(candidate_score),
+                "fft_score": float(fft_score),
+                "correlation_score": float(correlation_score),
+                "phase_score": float(best_phase_score if best_phase_score is not None else 0.0),
+                "frequency_bin": int(frequency_bin),
+                "frequency_bin_float": float(frequency_bin_float),
+                "method": "fft",
+                "profile": smoothed_profile,
+                "spectrum": spectrum.astype(np.float32),
+            }
+
+    return best
 
 
 def build_workspace_s2_line_positions(start_pixel, end_pixel, period_px, phase_px):
@@ -368,9 +474,9 @@ def detect_workspace_s2_structural_edge_bands(
     workspace_mask=None,
     edge_margin_ratio=0.18,
     min_band_width_px=8,
-    high_response_ratio=0.45,
-    abnormal_peak_ratio=1.05,
-    abnormal_width_ratio=1.35,
+    high_response_ratio=0.40,
+    abnormal_peak_ratio=1.0,
+    abnormal_width_ratio=1.1,
     allowed_axes=("x",),
 ):
     response_map = np.asarray(response_map, dtype=np.float32)
@@ -482,9 +588,9 @@ def build_workspace_s2_structural_edge_suppression_mask(
     workspace_mask=None,
     edge_margin_ratio=0.18,
     min_band_width_px=8,
-    high_response_ratio=0.45,
-    abnormal_peak_ratio=1.05,
-    abnormal_width_ratio=1.35,
+    high_response_ratio=0.40,
+    abnormal_peak_ratio=1.0,
+    abnormal_width_ratio=1.1,
     allowed_axes=("x",),
 ):
     response_map = np.asarray(response_map, dtype=np.float32)
@@ -566,6 +672,51 @@ def filter_workspace_s2_rectified_points_outside_mask(rectified_points, exclusio
         filtered_points.append((x_value, y_value))
 
     return filtered_points
+
+
+def workspace_s2_metric_margin_to_pixels(
+    rectified_geometry=None,
+    margin_mm=0.0,
+    fallback_resolution_mm_per_px=5.0,
+):
+    margin_mm = max(0.0, float(margin_mm))
+    if margin_mm <= 0.0:
+        return 0
+
+    resolution_mm_per_px = fallback_resolution_mm_per_px
+    if rectified_geometry is not None:
+        try:
+            resolution_mm_per_px = float(rectified_geometry.get("resolution_mm_per_px", fallback_resolution_mm_per_px))
+        except (AttributeError, TypeError, ValueError):
+            resolution_mm_per_px = fallback_resolution_mm_per_px
+    resolution_mm_per_px = max(1e-6, float(resolution_mm_per_px))
+    return int(round(margin_mm / resolution_mm_per_px))
+
+
+def expand_workspace_s2_exclusion_mask_by_metric_margin(
+    exclusion_mask,
+    rectified_geometry=None,
+    margin_mm=0.0,
+    fallback_resolution_mm_per_px=5.0,
+):
+    exclusion_mask = np.asarray(exclusion_mask).astype(bool)
+    if exclusion_mask.ndim != 2 or exclusion_mask.size == 0:
+        return exclusion_mask
+    if not np.any(exclusion_mask):
+        return exclusion_mask.copy()
+
+    margin_px = workspace_s2_metric_margin_to_pixels(
+        rectified_geometry,
+        margin_mm=margin_mm,
+        fallback_resolution_mm_per_px=fallback_resolution_mm_per_px,
+    )
+    if margin_px <= 0:
+        return exclusion_mask.copy()
+
+    kernel_size = (margin_px * 2) + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    expanded_mask = cv2.dilate(exclusion_mask.astype(np.uint8), kernel, iterations=1)
+    return expanded_mask.astype(bool)
 
 
 def filter_workspace_s2_line_rhos_by_mask_overlap(
@@ -1670,7 +1821,7 @@ def select_workspace_s2_regular_lattice_line_rhos(
     line_rhos,
     line_scores=None,
     min_line_count=3,
-    max_line_count=8,
+    max_line_count=10,
 ):
     rhos = sorted(float(rho) for rho in line_rhos)
     if len(rhos) <= max_line_count:
@@ -1683,6 +1834,23 @@ def select_workspace_s2_regular_lattice_line_rhos(
         return None
 
     scores = {float(key): float(value) for key, value in (line_scores or {}).items()}
+    rho_array = np.asarray(rhos, dtype=np.float32)
+
+    def nearest_candidate_rho(expected_rho):
+        insert_index = int(np.searchsorted(rho_array, float(expected_rho)))
+        candidate_indices = []
+        if insert_index < rho_array.size:
+            candidate_indices.append(insert_index)
+        if insert_index > 0:
+            candidate_indices.append(insert_index - 1)
+        if not candidate_indices:
+            return None
+        best_index = min(
+            candidate_indices,
+            key=lambda index: (abs(float(rho_array[index]) - float(expected_rho)), float(rho_array[index])),
+        )
+        return float(rho_array[best_index])
+
     min_spacing = max(24.0, rho_span / float(max_line_count))
     max_spacing = max(min_spacing + 1.0, rho_span / float(max(1, min_line_count - 1)))
     candidate_spacings = set()
@@ -1710,7 +1878,9 @@ def select_workspace_s2_regular_lattice_line_rhos(
             total_score = 0.0
             for step_index in range(min_k, max_k + 1):
                 expected_rho = float(anchor_rho) + (float(step_index) * spacing)
-                nearest_rho = min(rhos, key=lambda rho: abs(float(rho) - expected_rho))
+                nearest_rho = nearest_candidate_rho(expected_rho)
+                if nearest_rho is None:
+                    continue
                 error = abs(float(nearest_rho) - expected_rho)
                 if error > match_tolerance:
                     continue
@@ -1732,7 +1902,14 @@ def select_workspace_s2_regular_lattice_line_rhos(
             mean_error_ratio = float(np.mean(errors)) / max(spacing, 1.0) if errors else 0.0
             span_coverage = float(selected[-1] - selected[0]) / max(rho_span, 1.0)
             line_count = len(selected)
-            count_score = (min(float(line_count), 6.0) * 1.2) - (max(0.0, float(line_count) - 6.0) * 1.5)
+            preferred_line_count = max(
+                float(min_line_count),
+                min(float(max_line_count), float(LEGACY_WORKSPACE_S2_PREFERRED_LATTICE_LINE_COUNT)),
+            )
+            count_score = (
+                min(float(line_count), preferred_line_count) * 1.2
+                - max(0.0, float(line_count) - preferred_line_count) * 1.35
+            )
             candidate_score = (
                 count_score
                 + (mean_score * 3.0)
@@ -1767,13 +1944,43 @@ def score_workspace_s2_family_profile_rhos(family, line_rhos):
     return scores
 
 
+def _workspace_s2_mean_selected_line_support_score(family):
+    line_rhos = [float(rho) for rho in family.get("line_rhos", [])]
+    line_scores = {
+        float(key): float(value)
+        for key, value in (family.get("continuous_scores") or {}).items()
+    }
+    if not line_rhos or not line_scores:
+        return 0.0
+
+    selected_scores = []
+    score_keys = list(line_scores.keys())
+    for line_rho in line_rhos:
+        if line_rho in line_scores:
+            selected_scores.append(line_scores[line_rho])
+            continue
+        nearest_key = min(score_keys, key=lambda key: abs(float(key) - line_rho))
+        if abs(float(nearest_key) - line_rho) <= 2.0:
+            selected_scores.append(line_scores[nearest_key])
+
+    if not selected_scores:
+        return 0.0
+    return float(np.mean(selected_scores))
+
+
 def _workspace_s2_supported_family_score(family):
     line_count = len(family.get("line_rhos", []))
-    capped_line_count = min(float(line_count), 7.0)
+    capped_line_count = min(float(line_count), float(LEGACY_WORKSPACE_S2_PREFERRED_LATTICE_LINE_COUNT))
+    extra_line_penalty = max(
+        0.0,
+        float(line_count) - float(LEGACY_WORKSPACE_S2_PREFERRED_LATTICE_LINE_COUNT),
+    ) * 1.1
     too_many_penalty = max(0.0, float(line_count) - 8.0) * 0.9
     return (
         capped_line_count
+        - extra_line_penalty
         - too_many_penalty
+        + (3.0 * _workspace_s2_mean_selected_line_support_score(family))
         + (0.1 * float(family.get("periodic_score", 0.0)))
         + (1.2 * float(family.get("orientation_score", 0.0)))
     )
@@ -1786,8 +1993,8 @@ def _workspace_s2_oriented_family_pair_score(left_family, right_family):
     orthogonal_penalty = abs(angle_delta - 90.0) * 0.15
     balance_penalty = abs(float(left_count) - float(right_count)) * 0.35
     point_count = left_count * right_count
-    density_score = min(float(point_count), 56.0) * 0.12
-    sparse_penalty = max(0.0, 40.0 - float(point_count)) * 0.18
+    density_score = min(float(point_count), 16.0) * 0.06
+    sparse_penalty = max(0.0, float(LEGACY_WORKSPACE_S2_SCORE_TARGET_MIN_POINTS) - float(point_count)) * 0.12
     explosion_penalty = max(0.0, float(point_count) - 64.0) * 0.25
     return (
         _workspace_s2_supported_family_score(left_family)
@@ -1800,7 +2007,10 @@ def _workspace_s2_oriented_family_pair_score(left_family, right_family):
     )
 
 
-def score_workspace_s2_oriented_line_family_result(line_families, target_min_points=40):
+def score_workspace_s2_oriented_line_family_result(
+    line_families,
+    target_min_points=LEGACY_WORKSPACE_S2_SCORE_TARGET_MIN_POINTS,
+):
     line_families = list(line_families or [])
     if len(line_families) < 2:
         return -float("inf")
@@ -1820,8 +2030,8 @@ def score_workspace_s2_oriented_line_family_result(line_families, target_min_poi
         _workspace_s2_supported_family_score(left_family)
         + _workspace_s2_supported_family_score(right_family)
     )
-    density_score = min(float(point_count), 56.0) * 0.18
-    sparse_penalty = max(0.0, float(target_min_points) - float(point_count)) * 0.35
+    density_score = min(float(point_count), 16.0) * 0.06
+    sparse_penalty = max(0.0, float(target_min_points) - float(point_count)) * 0.20
     explosion_penalty = (
         max(0.0, float(point_count) - 64.0) * 0.35
         + max(0.0, float(left_count) - 8.0) * 0.75
@@ -2002,6 +2212,222 @@ def build_workspace_s2_oriented_line_families(
     for family_index, family in enumerate(selected_families):
         family["family_index"] = family_index
     return selected_families
+
+
+def _workspace_s2_axis_family_line_positions(
+    profile,
+    min_period=10,
+    max_period=30,
+    enable_local_peak_refine=False,
+    enable_peak_support=True,
+    peak_min_ratio=0.35,
+    period_estimator="profile",
+):
+    profile = np.asarray(profile, dtype=np.float32).reshape(-1)
+    if profile.size == 0:
+        return [], [], None
+
+    if str(period_estimator).lower() in ("fft", "rfft", "frequency"):
+        estimate = estimate_workspace_s2_fft_period_and_phase(
+            profile,
+            min_period=min_period,
+            max_period=max_period,
+        )
+    else:
+        estimate = estimate_workspace_s2_period_and_phase(
+            profile,
+            min_period=min_period,
+            max_period=max_period,
+        )
+    initial_positions = []
+    if estimate is not None:
+        initial_positions = build_workspace_s2_line_positions(
+            0,
+            profile.size - 1,
+            estimate.get("period", 0),
+            estimate.get("phase", 0),
+        )
+
+    period = int(round(float(estimate.get("period", min_period)))) if estimate else int(round(min_period))
+    period = max(1, period)
+    search_radius_px = max(2, min(14, int(round(period * 0.55))))
+    min_spacing_px = max(2, int(round(period * 0.55)))
+    duplicate_spacing_px = max(4, min(8, int(round(period * 0.35))))
+
+    if enable_peak_support:
+        candidate_positions = list(range(profile.size))
+    elif enable_local_peak_refine and initial_positions:
+        candidate_positions = refine_workspace_s2_line_positions_to_local_peaks(
+            profile,
+            initial_positions,
+            search_radius_px=search_radius_px,
+            min_spacing_px=min_spacing_px,
+            target_edge_margin_ratio=0.55,
+            edge_anchor_weight=0.25,
+        )
+    else:
+        candidate_positions = [int(round(position)) for position in initial_positions]
+
+    if enable_peak_support:
+        selected_positions = select_workspace_s2_peak_supported_line_positions(
+            profile,
+            candidate_positions,
+            search_radius_px=search_radius_px,
+            min_spacing_px=min_spacing_px,
+            min_peak_ratio=peak_min_ratio,
+            duplicate_spacing_px=duplicate_spacing_px,
+        )
+    else:
+        selected_positions = candidate_positions
+
+    return initial_positions, selected_positions, estimate
+
+
+def _workspace_s2_build_axis_aligned_family(
+    response_map,
+    workspace_mask,
+    axis,
+    line_angle_deg,
+    normal,
+    axis_orientation,
+    min_period=10,
+    max_period=30,
+    enable_local_peak_refine=False,
+    enable_peak_support=True,
+    enable_continuous_validation=False,
+    enable_spacing_prune=True,
+    peak_min_ratio=0.35,
+    period_estimator="profile",
+):
+    profile = build_workspace_s2_axis_profile(response_map, workspace_mask, axis=axis)
+    initial_positions, peak_positions, estimate = _workspace_s2_axis_family_line_positions(
+        profile,
+        min_period=min_period,
+        max_period=max_period,
+        enable_local_peak_refine=enable_local_peak_refine,
+        enable_peak_support=enable_peak_support,
+        peak_min_ratio=peak_min_ratio,
+        period_estimator=period_estimator,
+    )
+    period = int(round(float(estimate.get("period", min_period)))) if estimate else int(round(min_period))
+    period = max(1, period)
+    min_spacing_px = max(2, int(round(period * 0.55)))
+    duplicate_spacing_px = max(4, min(8, int(round(period * 0.35))))
+    peak_scores = {
+        float(position): float(score)
+        for position, score in score_workspace_s2_family_profile_rhos(
+            {"profile": profile, "rho_min": 0.0},
+            [float(position) for position in peak_positions],
+        ).items()
+    }
+
+    if enable_continuous_validation:
+        continuous_positions = select_workspace_s2_continuous_line_positions(
+            response_map,
+            workspace_mask,
+            peak_positions,
+            axis_orientation,
+            search_radius_px=max(2, min(14, int(round(period * 0.55)))),
+            min_spacing_px=min_spacing_px,
+            duplicate_spacing_px=duplicate_spacing_px,
+        )
+        continuous_scores = {
+            float(position): peak_scores.get(float(position), 0.0)
+            for position in continuous_positions
+        }
+    else:
+        continuous_positions = list(peak_positions)
+        continuous_scores = dict(peak_scores)
+
+    if enable_spacing_prune:
+        line_positions = prune_workspace_s2_line_rhos_by_scored_spacing(
+            continuous_positions,
+            line_scores=continuous_scores,
+            min_spacing_ratio=0.60,
+        )
+    else:
+        line_positions = [float(position) for position in continuous_positions]
+
+    return {
+        "axis_orientation": axis_orientation,
+        "line_angle_deg": normalize_workspace_s2_angle_deg(line_angle_deg),
+        "normal": [float(normal[0]), float(normal[1])],
+        "direction": workspace_s2_line_direction_from_angle(line_angle_deg).tolist(),
+        "rho_min": 0.0,
+        "profile": np.asarray(profile, dtype=np.float32),
+        "estimate": estimate or {},
+        "period_estimator": str(period_estimator),
+        "periodic_score": float((estimate or {}).get("score", 0.0)),
+        "orientation_score": 1.0,
+        "initial_positions": [int(round(position)) for position in initial_positions],
+        "peak_positions": [int(round(position)) for position in peak_positions],
+        "continuous_positions": [int(round(position)) for position in continuous_positions],
+        "line_positions": [int(round(position)) for position in line_positions],
+        "initial_rhos": [float(position) for position in initial_positions],
+        "peak_rhos": [float(position) for position in peak_positions],
+        "continuous_rhos": [float(position) for position in continuous_positions],
+        "continuous_scores": continuous_scores,
+        "line_rhos": [float(position) for position in line_positions],
+    }
+
+
+def build_workspace_s2_axis_aligned_line_families(
+    response_map,
+    workspace_mask,
+    min_period=10,
+    max_period=30,
+    enable_local_peak_refine=False,
+    enable_peak_support=True,
+    enable_continuous_validation=False,
+    enable_spacing_prune=True,
+    enable_structural_edge_suppression=True,
+    peak_min_ratio=0.35,
+    period_estimator="profile",
+):
+    line_response_map = (
+        suppress_workspace_s2_structural_edge_response(response_map, workspace_mask)
+        if enable_structural_edge_suppression
+        else np.asarray(response_map, dtype=np.float32)
+    )
+    family_specs = (
+        {
+            "axis": 1,
+            "line_angle_deg": 0.0,
+            "normal": (0.0, 1.0),
+            "axis_orientation": "horizontal",
+        },
+        {
+            "axis": 0,
+            "line_angle_deg": 90.0,
+            "normal": (1.0, 0.0),
+            "axis_orientation": "vertical",
+        },
+    )
+
+    families = [
+        _workspace_s2_build_axis_aligned_family(
+            line_response_map,
+            workspace_mask,
+            min_period=min_period,
+            max_period=max_period,
+            enable_local_peak_refine=enable_local_peak_refine,
+            enable_peak_support=enable_peak_support,
+            enable_continuous_validation=enable_continuous_validation,
+            enable_spacing_prune=enable_spacing_prune,
+            peak_min_ratio=peak_min_ratio,
+            period_estimator=period_estimator,
+            **family_spec,
+        )
+        for family_spec in family_specs
+    ]
+    supported_families = [
+        family
+        for family in families
+        if len(family.get("line_rhos", [])) >= MIN_WORKSPACE_S2_SUPPORTED_LINE_COUNT
+    ]
+    for family_index, family in enumerate(supported_families):
+        family["family_index"] = family_index
+    return supported_families
 
 
 def intersect_workspace_s2_oriented_line_families(

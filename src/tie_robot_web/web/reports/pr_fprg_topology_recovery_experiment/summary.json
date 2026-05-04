@@ -1,0 +1,134 @@
+{
+  "generated_at": "2026-04-30 14:18:07",
+  "frame_source": "snapshot:rebar_instance_segmentation_modalities_20260430_112028",
+  "response_name": "combined_depth_ir_darkline",
+  "current_peak_supported": {
+    "line_counts": [
+      9,
+      8
+    ],
+    "point_count": 72
+  },
+  "recovered_topology_before_filter": {
+    "line_counts": [
+      17,
+      16
+    ],
+    "point_count": 272,
+    "vertical_fft_estimate": {
+      "period": 21,
+      "phase": 11,
+      "score": 0.3792588940536422,
+      "fft_score": 0.5579007900809173,
+      "correlation_score": -0.01008162833750248,
+      "phase_score": 0.4367424249649048,
+      "frequency_bin": 16,
+      "method": "fft"
+    },
+    "horizontal_fft_estimate": {
+      "period": 22,
+      "phase": 16,
+      "score": 0.6440492428958197,
+      "fft_score": 1.0,
+      "correlation_score": -0.09697944670915604,
+      "phase_score": 0.4521884620189667,
+      "frequency_bin": 17,
+      "method": "fft"
+    }
+  },
+  "recovered_topology_after_beam_filter": {
+    "point_count": 170,
+    "beam_candidate_13cm_pixels": 43036
+  },
+  "recovered_curve3456": [
+    {
+      "id": "03_recovered_greedy_curve",
+      "title": "03 频相主线 + greedy 曲线",
+      "point_count": 170,
+      "mean_score": 0.7852856540504624,
+      "fallback_to_recovered_grid": false
+    },
+    {
+      "id": "04_recovered_dp_curve",
+      "title": "04 频相主线 + DP 曲线",
+      "point_count": 170,
+      "mean_score": 0.8034964592141264,
+      "fallback_to_recovered_grid": false
+    },
+    {
+      "id": "05_recovered_ridge_curve",
+      "title": "05 频相主线 + ridge 约束曲线",
+      "point_count": 170,
+      "mean_score": 0.7361250754664926,
+      "fallback_to_recovered_grid": false
+    },
+    {
+      "id": "06_recovered_ir_assisted_curve",
+      "title": "06 频相主线 + 红外/多模态辅助曲线",
+      "point_count": 170,
+      "mean_score": 0.7605010724023861,
+      "fallback_to_recovered_grid": false
+    }
+  ],
+  "beam_candidate_bands": [
+    {
+      "axis": "x",
+      "start": 46,
+      "end": 57,
+      "width": 12,
+      "peak": 1.8298779726028442,
+      "coverage": 0.497529200359389,
+      "type": "beam_candidate"
+    },
+    {
+      "axis": "x",
+      "start": 303,
+      "end": 313,
+      "width": 11,
+      "peak": 1.8416237831115723,
+      "coverage": 0.5363881401617251,
+      "type": "beam_candidate"
+    }
+  ],
+  "legacy_edge_bands": [],
+  "surface_segmentation": {
+    "ordinary_rebar_pixels": 12835,
+    "ordinary_completed_rebar_pixels": 35853,
+    "completed_surface_pixels": 44832,
+    "line_support_pixels": 37975,
+    "completed_line_counts": [
+      9,
+      8
+    ],
+    "beam_candidate_pixels": 8533,
+    "beam_candidate_body_pixels": 21838,
+    "beam_candidate_13cm_pixels": 43036,
+    "surface_candidate_pixels": 18356
+  },
+  "timings_ms": {
+    "capture": 16012.800412998331,
+    "experiment": 672.4657420018048,
+    "total": 16685.267516997556
+  },
+  "images": {
+    "01_input_workspace.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/01_input_workspace.png",
+    "02_rectified_ir.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/02_rectified_ir.png",
+    "03_combined_response.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/03_combined_response.png",
+    "04_vertical_profile_fft.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/04_vertical_profile_fft.png",
+    "05_horizontal_profile_fft.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/05_horizontal_profile_fft.png",
+    "06_frequency_phase_lattice_rectified.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/06_frequency_phase_lattice_rectified.png",
+    "07_beam_candidate_13cm_mask.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/07_beam_candidate_13cm_mask.png",
+    "08_before_filter_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/08_before_filter_original.png",
+    "09_after_filter_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/09_after_filter_original.png",
+    "10_current_peak_supported_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/10_current_peak_supported_original.png",
+    "11_current_peak_supported_result.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/11_current_peak_supported_result.png",
+    "12_03_recovered_greedy_curve_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/12_03_recovered_greedy_curve_original.png",
+    "12r_03_recovered_greedy_curve_rectified.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/12r_03_recovered_greedy_curve_rectified.png",
+    "13_04_recovered_dp_curve_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/13_04_recovered_dp_curve_original.png",
+    "13r_04_recovered_dp_curve_rectified.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/13r_04_recovered_dp_curve_rectified.png",
+    "14_05_recovered_ridge_curve_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/14_05_recovered_ridge_curve_original.png",
+    "14r_05_recovered_ridge_curve_rectified.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/14r_05_recovered_ridge_curve_rectified.png",
+    "15_06_recovered_ir_assisted_curve_original.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/15_06_recovered_ir_assisted_curve_original.png",
+    "15r_06_recovered_ir_assisted_curve_rectified.png": ".debug_frames/pr_fprg_topology_recovery_experiment_20260430_141750/images/15r_06_recovered_ir_assisted_curve_rectified.png"
+  }
+}

@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1540" width="1240" height="1540" role="img" aria-labelledby="title desc">
+  <title id="title">PR-FPRG 高召回主拓扑恢复算法流程图</title>
+  <desc id="desc">将 2026-04-22 频相回归完整网格方案作为主拓扑生成器，并把组合响应、梁筋过滤和曲线收束作为辅助层。</desc>
+  <style>
+    text {
+      font-family: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      fill: #111827;
+    }
+    .title { font-size: 30px; font-weight: 700; }
+    .subtitle { font-size: 15px; fill: #4b5563; }
+    .lane-title { font-size: 17px; font-weight: 700; fill: #111827; }
+    .node-title { font-size: 15px; font-weight: 700; }
+    .node-sub { font-size: 12px; fill: #4b5563; }
+    .small { font-size: 12px; fill: #6b7280; }
+    .badge { font-size: 12px; font-weight: 700; fill: #374151; }
+    .main { fill: #eff6ff; stroke: #93c5fd; }
+    .assist { fill: #f0fdfa; stroke: #5eead4; }
+    .filter { fill: #fff7ed; stroke: #fdba74; }
+    .output { fill: #f0fdf4; stroke: #86efac; }
+    .risk { fill: #fef2f2; stroke: #fca5a5; }
+    .neutral { fill: #ffffff; stroke: #d1d5db; }
+    .lane { fill: #ffffff; stroke: #e5e7eb; stroke-dasharray: 7 7; }
+    .arrow-main { stroke: #2563eb; stroke-width: 2.2; fill: none; marker-end: url(#arrow-blue); }
+    .arrow-assist { stroke: #0f766e; stroke-width: 2; fill: none; marker-end: url(#arrow-teal); }
+    .arrow-filter { stroke: #c2410c; stroke-width: 2; fill: none; marker-end: url(#arrow-orange); }
+    .arrow-weak { stroke: #6b7280; stroke-width: 1.7; fill: none; stroke-dasharray: 6 5; marker-end: url(#arrow-gray); }
+    .shadow { filter: url(#soft-shadow); }
+  </style>
+  <defs>
+    <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow-blue" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-teal" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#0f766e"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#c2410c"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto">
+      <polygon points="0 0, 12 4, 0 8" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <rect width="1240" height="1540" fill="#f8fafc"/>
+
+  <text x="60" y="58" class="title">PR-FPRG 高召回主拓扑恢复算法</text>
+  <text x="60" y="88" class="subtitle">核心口径：4 月 22 日频相回归负责生成完整网格；当前组合响应、钢筋面、梁筋 mask 和 3/4/5/6 只负责验证、过滤和局部收束。</text>
+
+  <rect x="50" y="122" width="540" height="1268" rx="16" class="lane"/>
+  <rect x="650" y="122" width="540" height="1268" rx="16" class="lane"/>
+  <text x="72" y="156" class="lane-title">主拓扑生成链路：恢复 4 月 22 日的高召回逻辑</text>
+  <text x="672" y="156" class="lane-title">辅助证据链路：只做底图增强、过滤和收束</text>
+
+  <!-- Inputs -->
+  <rect x="135" y="198" width="370" height="92" rx="10" class="neutral shadow"/>
+  <text x="320" y="224" text-anchor="middle" class="node-title">输入采集</text>
+  <text x="320" y="249" text-anchor="middle" class="node-sub">IR 图像、raw_world_coord、手动工作区四边形</text>
+  <text x="320" y="271" text-anchor="middle" class="node-sub">corner_pixels + corner_world_camera_frame</text>
+
+  <rect x="735" y="198" width="370" height="92" rx="10" class="neutral shadow"/>
+  <text x="920" y="224" text-anchor="middle" class="node-title">底图响应输入</text>
+  <text x="920" y="249" text-anchor="middle" class="node-sub">深度暗线、IR 暗线、worldCoord 高度</text>
+  <text x="920" y="271" text-anchor="middle" class="node-sub">深度梯度、Frangi-like、Hessian ridge</text>
+
+  <!-- Main chain -->
+  <rect x="135" y="340" width="370" height="98" rx="10" class="main shadow"/>
+  <text x="320" y="366" text-anchor="middle" class="node-title">透视展开工作区</text>
+  <text x="320" y="391" text-anchor="middle" class="node-sub">按四边形构建 projective rectified geometry</text>
+  <text x="320" y="413" text-anchor="middle" class="node-sub">尺度优先来自世界角点，不退回原图 bbox</text>
+
+  <rect x="135" y="488" width="370" height="108" rx="10" class="main shadow"/>
+  <text x="320" y="516" text-anchor="middle" class="node-title">全局 profile</text>
+  <text x="320" y="541" text-anchor="middle" class="node-sub">在 rectified 平面分别统计行、列响应</text>
+  <text x="320" y="563" text-anchor="middle" class="node-sub">这里不按局部线段逐条投票</text>
+  <text x="320" y="585" text-anchor="middle" class="node-sub">而是看整幅工作区的周期结构</text>
+
+  <rect x="135" y="646" width="370" height="114" rx="10" class="main shadow"/>
+  <text x="320" y="674" text-anchor="middle" class="node-title">FFT / 自相关估周期</text>
+  <text x="320" y="699" text-anchor="middle" class="node-sub">估计行、列主间距 period</text>
+  <text x="320" y="721" text-anchor="middle" class="node-sub">对弱线、断线不敏感</text>
+  <text x="320" y="743" text-anchor="middle" class="node-sub">这是 4 月 22 日尺度鲁棒的关键</text>
+
+  <rect x="135" y="810" width="370" height="108" rx="10" class="main shadow"/>
+  <text x="320" y="838" text-anchor="middle" class="node-title">相位回归</text>
+  <text x="320" y="863" text-anchor="middle" class="node-sub">在 period 上搜索最佳 phase</text>
+  <text x="320" y="885" text-anchor="middle" class="node-sub">让整张网格与全局响应最大一致</text>
+  <text x="320" y="907" text-anchor="middle" class="node-sub">不是只保留局部强峰</text>
+
+  <rect x="135" y="968" width="370" height="118" rx="10" class="main shadow"/>
+  <text x="320" y="996" text-anchor="middle" class="node-title">生成完整规则网格</text>
+  <text x="320" y="1021" text-anchor="middle" class="node-sub">按 period + phase 铺满行、列 line_rhos</text>
+  <text x="320" y="1043" text-anchor="middle" class="node-sub">召回弱响应线、缺失线、远尺度细线</text>
+  <text x="320" y="1065" text-anchor="middle" class="node-sub">主目标：恢复 272 点级别的候选拓扑</text>
+
+  <rect x="135" y="1136" width="370" height="94" rx="10" class="main shadow"/>
+  <text x="320" y="1162" text-anchor="middle" class="node-title">求交并逆透视</text>
+  <text x="320" y="1187" text-anchor="middle" class="node-sub">两组 line_rhos 求 rectified 交点</text>
+  <text x="320" y="1209" text-anchor="middle" class="node-sub">通过 inverse homography 投回原图和相机点</text>
+
+  <rect x="135" y="1280" width="370" height="86" rx="10" class="output shadow"/>
+  <text x="320" y="1308" text-anchor="middle" class="node-title">高召回候选绑扎点</text>
+  <text x="320" y="1333" text-anchor="middle" class="node-sub">候选点先完整生成，后续只做点级过滤</text>
+
+  <!-- Assist chain -->
+  <rect x="735" y="340" width="370" height="98" rx="10" class="assist shadow"/>
+  <text x="920" y="366" text-anchor="middle" class="node-title">组合响应底图</text>
+  <text x="920" y="391" text-anchor="middle" class="node-sub">combined_response = depth darkline + IR darkline</text>
+  <text x="920" y="413" text-anchor="middle" class="node-sub">作为主 profile 的响应底图</text>
+
+  <rect x="735" y="488" width="370" height="108" rx="10" class="assist shadow"/>
+  <text x="920" y="516" text-anchor="middle" class="node-title">钢筋面增强</text>
+  <text x="920" y="541" text-anchor="middle" class="node-sub">fused_instance_response、Frangi-like、骨架</text>
+  <text x="920" y="563" text-anchor="middle" class="node-sub">用于验证候选点附近是否有钢筋面证据</text>
+  <text x="920" y="585" text-anchor="middle" class="node-sub">不再单独决定主拓扑点数</text>
+
+  <rect x="735" y="646" width="370" height="114" rx="10" class="filter shadow"/>
+  <text x="920" y="674" text-anchor="middle" class="node-title">梁筋候选检测</text>
+  <text x="920" y="699" text-anchor="middle" class="node-sub">beam_candidate 从融合响应找宽强纵向梁筋</text>
+  <text x="920" y="721" text-anchor="middle" class="node-sub">生成梁筋本体 mask 和物理外扩 mask</text>
+  <text x="920" y="743" text-anchor="middle" class="node-sub">当前口径：最终点级 ±13 cm 排除</text>
+
+  <rect x="735" y="810" width="370" height="108" rx="10" class="filter shadow"/>
+  <text x="920" y="838" text-anchor="middle" class="node-title">地板缝与伪线抑制</text>
+  <text x="920" y="863" text-anchor="middle" class="node-sub">结构边缘、响应宽度、钢筋面证据联合判断</text>
+  <text x="920" y="885" text-anchor="middle" class="node-sub">只影响候选点保留与置信度</text>
+  <text x="920" y="907" text-anchor="middle" class="node-sub">不删除整条真实钢筋线</text>
+
+  <rect x="735" y="968" width="370" height="118" rx="10" class="assist shadow"/>
+  <text x="920" y="996" text-anchor="middle" class="node-title">3/4/5/6 局部收束</text>
+  <text x="920" y="1021" text-anchor="middle" class="node-sub">贪心曲线、DP 曲线、ridge 约束、IR 辅助</text>
+  <text x="920" y="1043" text-anchor="middle" class="node-sub">只微调线贴合和候选点位置</text>
+  <text x="920" y="1065" text-anchor="middle" class="node-sub">不能替代完整网格生成器</text>
+
+  <rect x="735" y="1136" width="370" height="94" rx="10" class="filter shadow"/>
+  <text x="920" y="1162" text-anchor="middle" class="node-title">候选点评分与过滤</text>
+  <text x="920" y="1187" text-anchor="middle" class="node-sub">梁筋 ±13 cm、钢筋面证据、响应分数</text>
+  <text x="920" y="1209" text-anchor="middle" class="node-sub">只过滤点，不破坏主网格拓扑</text>
+
+  <rect x="735" y="1280" width="370" height="86" rx="10" class="output shadow"/>
+  <text x="920" y="1308" text-anchor="middle" class="node-title">最终输出</text>
+  <text x="920" y="1333" text-anchor="middle" class="node-sub">/coordinate_point、result_image、规划绑扎点</text>
+
+  <!-- Current failure box -->
+  <rect x="420" y="1430" width="400" height="70" rx="10" class="risk shadow"/>
+  <text x="620" y="1456" text-anchor="middle" class="node-title">当前尺度失败模式</text>
+  <text x="620" y="1481" text-anchor="middle" class="node-sub">如果主拓扑靠局部峰值/曲线寻找，只找到 8 x 8，点数会掉到 64</text>
+
+  <!-- Arrows main -->
+  <path d="M 320 290 L 320 338" class="arrow-main"/>
+  <path d="M 320 438 L 320 486" class="arrow-main"/>
+  <path d="M 320 596 L 320 644" class="arrow-main"/>
+  <path d="M 320 760 L 320 808" class="arrow-main"/>
+  <path d="M 320 918 L 320 966" class="arrow-main"/>
+  <path d="M 320 1086 L 320 1134" class="arrow-main"/>
+  <path d="M 320 1230 L 320 1278" class="arrow-main"/>
+
+  <!-- Arrows assist -->
+  <path d="M 920 290 L 920 338" class="arrow-assist"/>
+  <path d="M 920 438 L 920 486" class="arrow-assist"/>
+  <path d="M 920 596 L 920 644" class="arrow-assist"/>
+  <path d="M 920 760 L 920 808" class="arrow-filter"/>
+  <path d="M 920 918 L 920 966" class="arrow-assist"/>
+  <path d="M 920 1086 L 920 1134" class="arrow-filter"/>
+  <path d="M 920 1230 L 920 1278" class="arrow-filter"/>
+
+  <!-- Cross links -->
+  <path d="M 735 389 C 642 389, 612 389, 506 389" class="arrow-assist"/>
+  <text x="620" y="374" text-anchor="middle" class="small">底图给主 profile</text>
+  <path d="M 735 702 C 620 702, 604 1178, 506 1178" class="arrow-filter"/>
+  <text x="631" y="924" text-anchor="middle" class="small">梁筋 mask 只过滤交点</text>
+  <path d="M 735 1028 C 620 1028, 604 1028, 506 1028" class="arrow-weak"/>
+  <text x="620" y="1013" text-anchor="middle" class="small">曲线只做局部收束</text>
+  <path d="M 505 1323 C 612 1323, 628 1184, 735 1184" class="arrow-filter"/>
+  <path d="M 920 1230 L 920 1278" class="arrow-filter"/>
+
+  <!-- Legend -->
+  <g transform="translate(68, 1418)">
+    <rect x="0" y="0" width="294" height="92" rx="10" fill="#ffffff" stroke="#e5e7eb"/>
+    <text x="18" y="26" class="badge">图例</text>
+    <line x1="18" y1="45" x2="68" y2="45" class="arrow-main"/>
+    <text x="84" y="49" class="small">主拓扑数据流</text>
+    <line x1="18" y1="66" x2="68" y2="66" class="arrow-assist"/>
+    <text x="84" y="70" class="small">辅助证据流</text>
+    <line x1="170" y1="45" x2="220" y2="45" class="arrow-filter"/>
+    <text x="236" y="49" class="small">过滤流</text>
+    <line x1="170" y1="66" x2="220" y2="66" class="arrow-weak"/>
+    <text x="236" y="70" class="small">弱耦合</text>
+  </g>
+</svg>

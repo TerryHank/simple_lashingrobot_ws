@@ -1,0 +1,39 @@
+# slam/v30 视觉实验总结
+
+生成时间：2026-04-29 16:50
+
+## 主结论
+
+- 当前 `pointAI` 手动工作区 S2 主链固定为方案 1：`combined_depth_ir_darkline` 组合响应 + 透视展开后的行/列 profile 峰值识别。
+- 方案 1 不再估计 `theta`，不再把方向自适应 `theta/rho` 斜线族作为运行主链；输出线族固定为 rectified 平面的 `0° / 90°` 正交网格。
+- 方案 2 已废弃，不再进入当前对比报告和消融报告。
+- 方案 3/4/5/6 保留为曲线收束与后续改进对照，不进入现场默认主链。
+- 底层视觉调试图统一使用深度 + 红外组合响应表示；后续 PR-FPRG 报告必须包含 `00_peak_supported_lines.png` 和 `00_peak_spacing_pruned_lines.png` 两张峰值诊断图。
+
+## 梁筋与地板缝口径
+
+- 钢筋可以穿过梁筋，不能因为梁筋存在而删除整条钢筋线族。
+- 梁筋只在最终绑扎点级别做排除，排除范围为梁筋 mask 按真实尺度扩张约 `±100 mm`。
+- 当前模态下梁筋主要按纵向强结构识别；横向强条可能来自 TCP 或画面侵入，不作为真实横向梁筋。
+- 地板缝仍是主要假阳性来源，后续可继续研究非均匀间距、局部曲线收束和梁筋结构先验，但不得恢复方案 2。
+
+## 本轮关键报告
+
+- 正交行/列方案报告：`/reports/pr_fprg_axis_rowcol_scheme_comparison/index.html`
+- 本地目录：`.debug_frames/pr_fprg_axis_rowcol_scheme_comparison_20260429_163344/`
+- 该报告中方案 1 使用组合响应，保留 `7` 条横向线和 `8` 条纵向线，梁筋点级过滤后得到 `49` 个绑扎点。
+- 阶段消融临时报告：
+  - `.debug_frames/pr_fprg_axis_rowcol_stage_ablation_20260429_163542/`
+  - `.debug_frames/pr_fprg_axis_rowcol_stage_ablation_20260429_163746/`
+  - `.debug_frames/pr_fprg_axis_rowcol_stage_ablation_20260429_163936/`
+
+## 验证记录
+
+- `python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`：`79` 个测试通过。
+- `python3 -m py_compile` 覆盖 PR-FPRG 主链、报告工具和服务入口。
+- `git diff --check` 通过。
+- `http://192.168.6.99:8080/reports/pr_fprg_axis_rowcol_scheme_comparison/index.html` 返回 HTTP 200。
+
+## 离线 bag 说明
+
+本文件内容同时写入 `slam_v30_visual_modalities.bag` 的 `/release/slam_v30/experiment_summary` 话题，类型为 `std_msgs/String`。bag 中原始相机、TF 和 `/perception/lashing/points_camera` 仍保持录制时的现场快照；summary 话题用于补充记录本轮后续实验与最终决策。

@@ -32,6 +32,8 @@ def register_ros_interfaces(self):
     self.cropped_ir_image_pub = rospy.Publisher('/pointAI/cropped_ir_image', Image, queue_size=10)
     self.cropped_color_image_pub = rospy.Publisher('/pointAI/cropped_color_image', Image, queue_size=10)
     self.cropped_depth_image_pub = rospy.Publisher('/pointAI/cropped_depth_image', Image, queue_size=10)
+    self.depth_binary_image_pub = rospy.Publisher('/pointAI/depth_binary_image', Image, queue_size=10)
+    self.line_image_pub = rospy.Publisher('/pointAI/line_image', Image, queue_size=10)
     self.image_pub = rospy.Publisher('/pointAI/result_image', CompressedImage, queue_size=10)
     self.lashing_result_image_compressed_pub = rospy.Publisher(
         '/perception/lashing/result_image_compressed',
@@ -72,7 +74,7 @@ def register_ros_interfaces(self):
     )
     self.raw_bind_point_tf_broadcaster = tf2_ros.TransformBroadcaster()
     self.raw_bind_point_tf_source_frame = "Scepter_depth_frame"
-    self.raw_bind_point_tf_child_prefix = "pr_fprg_bind_point"
+    self.raw_bind_point_tf_child_prefix = "surface_dp_bind_point"
     self.latest_raw_bind_point_transforms = []
     self.raw_bind_point_tf_publish_rate_hz = max(
         0.1,

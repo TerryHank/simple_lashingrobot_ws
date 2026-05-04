@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 方案效果对比</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6f8;
+      color: #17202a;
+    }
+    html {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    body {
+      margin: 0;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 24px 28px 18px;
+      background: #ffffff;
+      border-bottom: 1px solid #d8dee6;
+      max-width: 100vw;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+      color: #52606d;
+    }
+    .meta span {
+      padding: 4px 8px;
+      border: 1px solid #d8dee6;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+    main {
+      padding: 20px 28px 36px;
+      display: grid;
+      gap: 18px;
+      width: 100%;
+      max-width: 100vw;
+      min-width: 0;
+    }
+    .source-strip,
+    .diagnostics,
+    .variant {
+      background: #ffffff;
+      border: 1px solid #d8dee6;
+      border-radius: 8px;
+      padding: 16px;
+      max-width: 100%;
+      min-width: 0;
+    }
+    .source-strip h2,
+    .diagnostics h2,
+    .variant h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    .diagnostic-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .finding {
+      border: 1px solid #dbe4ee;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfe;
+      min-width: 0;
+    }
+    .finding h3 {
+      margin: 6px 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eef6ff;
+      border: 1px solid #bfd7ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .roadmap,
+    .history-list {
+      margin: 12px 0 0;
+      padding-left: 22px;
+      color: #334155;
+      line-height: 1.62;
+      font-size: 14px;
+    }
+    .variant-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .variant-header span {
+      font-size: 13px;
+      color: #0f766e;
+      background: #e6fffb;
+      border: 1px solid #99f6e4;
+      border-radius: 6px;
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+    p {
+      margin: 8px 0 12px;
+      color: #52606d;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+    code {
+      display: inline-block;
+      max-width: 100%;
+      overflow-x: auto;
+      vertical-align: bottom;
+      white-space: nowrap;
+    }
+    .images {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+      gap: 14px;
+      width: 100%;
+      min-width: 0;
+    }
+    figure {
+      margin: 0;
+      border: 1px solid #e1e7ef;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+      max-width: 100%;
+      min-width: 0;
+    }
+    img {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      max-height: min(76vh, 920px);
+      object-fit: contain;
+      background: #020617;
+      image-rendering: auto;
+    }
+    figcaption {
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #334155;
+      background: #f8fafc;
+      border-top: 1px solid #e1e7ef;
+    }
+    pre {
+      margin: 12px 0 0;
+      padding: 10px;
+      max-width: 100%;
+      overflow-x: auto;
+      border: 1px solid #e1e7ef;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    @media (max-width: 720px) {
+      header,
+      main {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+      .images {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG 方案效果对比</h1>
+    <div class="meta">
+      <span>生成时间：2026-04-30 11:06:01</span>
+      <span>帧源：raw_world</span>
+      <span>响应图：combined_depth_ir_darkline</span>
+      <span>主链单帧：94.3 ms</span>
+      <span>display_gamma：1.8</span>
+    </div>
+  </header>
+  <main>
+    <section class="source-strip">
+      <h2>输入与响应图</h2>
+      <p>红色叠加区域是梁筋±10cm图谱排除掩膜，只用于最终绑扎点排除，不删除整条钢筋线。</p>
+      <p>当前帧梁筋检测 beam_bands：<code>[]</code>；为空时说明本帧未触发梁筋过滤，mask 图会显示 NO BEAM MASK DETECTED。</p>
+      <p>方案3/4/5/6 当前使用主链行/列峰值线族作为曲线拓扑骨架，不使用 FFT 线族；方案3F/4F/5F/6F 是同算法换 FFT 线族拓扑骨架的对照。</p>
+      <div class="images">
+        <figure><img src="images/00_source_workspace.png" alt="source"><figcaption>红外输入</figcaption></figure>
+        <figure><img src="images/00_selected_response.png" alt="selected response"><figcaption>底层组合响应</figcaption></figure>
+        <figure><img src="images/00_source_workspace_gamma.png" alt="source high gamma"><figcaption>高伽马红外输入 display_gamma=1.8</figcaption></figure>
+        <figure><img src="images/00_selected_response_gamma.png" alt="selected response high gamma"><figcaption>高伽马底层响应 display_gamma=1.8</figcaption></figure>
+        <figure><img src="images/00_combined_response_gamma.png" alt="combined response high gamma"><figcaption>高伽马组合响应 display_gamma=1.8</figcaption></figure>
+        <figure><img src="images/00_peak_supported_lines.png" alt="peak supported lines"><figcaption>峰值图：peak-supported 候选线</figcaption></figure>
+        <figure><img src="images/00_peak_spacing_pruned_lines.png" alt="peak spacing pruned lines"><figcaption>峰值图：绿色保留 / 红色剔除</figcaption></figure>
+        <figure><img src="images/00_fft_peak_supported_lines.png" alt="fft peak supported lines"><figcaption>FFT 峰值图：peak-supported 候选线</figcaption></figure>
+        <figure><img src="images/00_fft_peak_spacing_pruned_lines.png" alt="fft peak spacing pruned lines"><figcaption>FFT 峰值图：绿色保留 / 红色剔除</figcaption></figure>
+        <figure><img src="images/00_fft_frequency_spectrum.png" alt="fft frequency spectrum"><figcaption>FFT 频域谱图：直角坐标系驼峰峰值图</figcaption></figure>
+        <figure><img src="images/00_infrared_response.png" alt="infrared response"><figcaption>红外暗线响应</figcaption></figure>
+        <figure><img src="images/00_combined_response.png" alt="combined response"><figcaption>组合响应</figcaption></figure>
+        <figure><img src="images/00_combined_response_beam_mask_overlay.png" alt="combined response beam mask"><figcaption>组合响应 + 梁筋±10cm过滤叠加</figcaption></figure>
+        <figure><img src="images/00_beam_mask_binary.png" alt="beam mask binary"><figcaption>梁筋mask二值图</figcaption></figure>
+        <figure><img src="images/00_beam_mask_overlay.png" alt="beam mask"><figcaption>梁筋±10cm图谱排除 mask</figcaption></figure>
+      </div>
+    </section>
+    
+    <section class="diagnostics">
+      <h2>诊断结论</h2>
+      <div class="diagnostic-grid">
+        <article class="finding">
+          <span class="tag">mask</span>
+          <h3>梁筋 mask 当前状态</h3>
+          <p>当前帧没有检测到梁筋，beam_bands=[]；因此 mask 二值图显示 NO BEAM MASK DETECTED，本帧没有发生梁筋过滤。</p>
+          <p>当前梁筋排除半径为 100.0 mm。钢筋线允许穿过梁筋；只有落入 mask 的最终绑扎点会被过滤。</p>
+        </article>
+        <article class="finding">
+          <span class="tag">curve</span>
+          <h3>曲线为什么没有完全贴钢筋</h3>
+          <p>方案3/4/5/6 的曲线不是先语义分割“钢筋实体”，而是在已有行/列峰值线族骨架上沿响应图追局部 ridge。当地板缝、梁筋边缘、TCP 入侵或纹理在响应图上比真实钢筋更强时，贪心或动态规划会被更强响应牵引，曲线就会贴到假 ridge 上。</p>
+          <p>因此曲线方案现在只作为收束对照，不直接替代主链；报告中的 3F/4F/5F/6F 是把拓扑骨架换成 FFT 峰值后的对照。</p>
+        </article>
+        <article class="finding">
+          <span class="tag">scale</span>
+          <h3>尺度变化为什么影响精度</h3>
+          <p>离钢筋近时，单根钢筋宽度、交点凸起和线间距占更多像素，profile 峰值分离清楚，深度/红外信噪比也更高。离钢筋远时，钢筋宽度接近少量像素，透视展开插值会把 ridge 变窄或断裂，深度噪声和地板缝强度占比上升，多个峰更容易合并或被假峰替代。</p>
+          <p>当前帧各方案点数范围为 72 - 72，单帧主链耗时 94.3 ms。</p>
+        </article>
+      </div>
+    </section>
+    <section class="diagnostics">
+      <h2>全尺度鲁棒方案</h2>
+      <ol class="roadmap">
+        <li>先按相机标定和工作区透视，把 rectified 图重采样到固定物理分辨率，例如每像素固定毫米数，而不是让同一算法直接吃任意像素尺度。</li>
+        <li>用多尺度 ridge 响应生成钢筋概率图：小尺度保细钢筋，大尺度抗远距噪声；FFT/profile 只估周期和相位，不再单独决定最终线。</li>
+        <li>梁筋、TCP、地板缝作为独立 mask/负样本通道进入评分，梁筋只过滤点，不切断普通钢筋；地板缝通过宽度、连续方向、深度突变和时序稳定性降权。</li>
+        <li>线族用全局网格优化：周期、相位、局部曲率、交点置信度一起求解；曲线只能在全局拓扑约束范围内微调，不能被单条强假纹理带跑。</li>
+        <li>对远距画面增加时序多帧中值/投票，必要时引导相机进入“识别尺度窗口”；如果钢筋在图上已经低于可分辨像素宽度，单帧算法无法物理保证恢复。</li>
+        <li>最终工程化时把响应、FFT/profile、多尺度 ridge 和图优化热点下沉到 C++/SIMD 或二进制程序，目标保持 100ms 以内。</li>
+      </ol>
+    </section>
+    <section class="diagnostics">
+      <h2>历史技术路径</h2>
+      <ul class="history-list">
+        <li>旧链路：RANSAC + Hough + pre_img，已归档，不再作为运行门控。</li>
+        <li>PR-FPRG 初始链：透视展开工作区，基于深度响应做周期/相位回归和峰值找线。</li>
+        <li>方向自适应 theta/rho 链：估两组真实方向、沿法线 profile 找 rho 峰、连续钢筋条验证、ridge 判断、斜线求交；后来发现现场希望行列正交输出，转为对照。</li>
+        <li>红外最终 rho 微调：尝试用红外 ridge 覆盖最终 rho，但现场对齐不如早期方案，已归档为后续参考。</li>
+        <li>方案3/4/5/6 曲线链：局部 ridge 贪心、动态规划、ridge 约束、红外辅助，用于解决钢筋非直线问题，但目前容易被地板缝/强边缘牵引。</li>
+        <li>当前主链：组合响应 combined_depth_ir_darkline + rectified 行/列峰值正交网格；方案2废弃，曲线只做报告对照。</li>
+        <li>最新对照：01B 和 3F/4F/5F/6F 使用 FFT 频域线族拓扑，并固定输出直角坐标系驼峰峰值图。</li>
+      </ul>
+    </section>
+    
+    <section class="variant">
+              <div class="variant-header">
+                <h2>01 当前主链：行/列峰值正交网格</h2>
+                <span>72 points / 5.24 ms</span>
+              </div>
+              <p>当前 active PR-FPRG 输出，固定透视展开图行/列 profile 峰值，保持 spacing_pruned 后的两组正交直线族。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/01_current_theta_rho_original.png" alt="01 当前主链：行/列峰值正交网格 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/01_current_theta_rho_rectified.png" alt="01 当前主链：行/列峰值正交网格 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 5.24, &quot;topology_source&quot;: &quot;main_axis_rowcol&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: null}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 27, &quot;phase&quot;: 13, &quot;rhos&quot;: [29.0, 68.0, 122.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: null}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>01B FFT 行/列峰值正交网格</h2>
+                <span>72 points / 5.13 ms</span>
+              </div>
+              <p>在同一组合响应图上先用 FFT 频域主峰估计当前尺度行/列周期，再做 phase/peak support/spacing 收束；它是方案1的频域对照，不是已废弃的方案2。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/01b_fft_axis_peaks_original.png" alt="01B FFT 行/列峰值正交网格 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/01b_fft_axis_peaks_rectified.png" alt="01B FFT 行/列峰值正交网格 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 5.13, &quot;topology_source&quot;: &quot;fft_axis_peaks&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: null}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 21, &quot;phase&quot;: 11, &quot;rhos&quot;: [29.0, 68.0, 115.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: null}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>03 局部 ridge 贪心曲线</h2>
+                <span>72 points / 25.82 ms</span>
+              </div>
+              <p>以当前行/列峰值正交网格为拓扑骨架，每个采样点沿法线独立找局部响应中心；方案3/4/5/6 当前使用主链行/列峰值线族作为曲线拓扑骨架，不使用 FFT 线族。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/03_greedy_depth_curve_original.png" alt="03 局部 ridge 贪心曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/03_greedy_depth_curve_rectified.png" alt="03 局部 ridge 贪心曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 25.82, &quot;topology_source&quot;: &quot;main_axis_rowcol&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.999, &quot;score_mean&quot;: 0.899, &quot;abs_offset_mean&quot;: 2.783, &quot;abs_offset_p95&quot;: 7.4, &quot;wiggle_mean&quot;: 0.39}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.997}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 27, &quot;phase&quot;: 13, &quot;rhos&quot;: [29.0, 68.0, 122.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 1.0}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>04 最小代价路径曲线</h2>
+                <span>72 points / 35.6 ms</span>
+              </div>
+              <p>仍沿法线找 ridge，但用动态规划约束相邻采样点偏移连续；方案3/4/5/6 当前使用主链行/列峰值线族作为曲线拓扑骨架，不使用 FFT 线族。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/04_dp_depth_curve_original.png" alt="04 最小代价路径曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/04_dp_depth_curve_rectified.png" alt="04 最小代价路径曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 35.6, &quot;topology_source&quot;: &quot;main_axis_rowcol&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.994, &quot;score_mean&quot;: 0.89, &quot;abs_offset_mean&quot;: 2.751, &quot;abs_offset_p95&quot;: 7.6, &quot;wiggle_mean&quot;: 0.051}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.992}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 27, &quot;phase&quot;: 13, &quot;rhos&quot;: [29.0, 68.0, 122.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 0.997}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>05 ridge 约束曲线</h2>
+                <span>72 points / 45.44 ms</span>
+              </div>
+              <p>动态规划分数加入“中间强、两侧弱”的局部 ridge 判断；方案3/4/5/6 当前使用主链行/列峰值线族作为曲线拓扑骨架，不使用 FFT 线族。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/05_dp_ridge_curve_original.png" alt="05 ridge 约束曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/05_dp_ridge_curve_rectified.png" alt="05 ridge 约束曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 45.44, &quot;topology_source&quot;: &quot;main_axis_rowcol&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.992, &quot;score_mean&quot;: 0.881, &quot;abs_offset_mean&quot;: 2.611, &quot;abs_offset_p95&quot;: 6.6, &quot;wiggle_mean&quot;: 0.049}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.992}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 27, &quot;phase&quot;: 13, &quot;rhos&quot;: [29.0, 68.0, 122.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 0.992}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>06 红外辅助曲线</h2>
+                <span>72 points / 58.88 ms</span>
+              </div>
+              <p>沿当前底层组合响应做同拓扑曲线收束，保留为对照候选；方案3/4/5/6 当前使用主链行/列峰值线族作为曲线拓扑骨架，不使用 FFT 线族。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/06_ir_assisted_curve_original.png" alt="06 红外辅助曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/06_ir_assisted_curve_rectified.png" alt="06 红外辅助曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 58.88, &quot;topology_source&quot;: &quot;main_axis_rowcol&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.992, &quot;score_mean&quot;: 0.881, &quot;abs_offset_mean&quot;: 2.611, &quot;abs_offset_p95&quot;: 6.6, &quot;wiggle_mean&quot;: 0.049}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.992}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;profile&quot;, &quot;estimate_method&quot;: null, &quot;period&quot;: 27, &quot;phase&quot;: 13, &quot;rhos&quot;: [29.0, 68.0, 122.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 0.992}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>03F FFT拓扑：局部 ridge 贪心曲线</h2>
+                <span>72 points / 25.92 ms</span>
+              </div>
+              <p>以 FFT 行/列峰值正交网格为拓扑骨架，每个采样点沿法线独立找局部响应中心；本卡使用 FFT 线族拓扑骨架。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/03f_fft_greedy_depth_curve_original.png" alt="03F FFT拓扑：局部 ridge 贪心曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/03f_fft_greedy_depth_curve_rectified.png" alt="03F FFT拓扑：局部 ridge 贪心曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 25.92, &quot;topology_source&quot;: &quot;fft_axis_peaks&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.999, &quot;score_mean&quot;: 0.898, &quot;abs_offset_mean&quot;: 2.888, &quot;abs_offset_p95&quot;: 7.8, &quot;wiggle_mean&quot;: 0.402}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.997}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 21, &quot;phase&quot;: 11, &quot;rhos&quot;: [29.0, 68.0, 115.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 1.0}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>04F FFT拓扑：最小代价路径曲线</h2>
+                <span>72 points / 36.06 ms</span>
+              </div>
+              <p>以 FFT 行/列峰值正交网格为拓扑骨架，沿法线找 ridge 并用动态规划约束相邻采样点偏移连续；本卡使用 FFT 线族拓扑骨架。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/04f_fft_dp_depth_curve_original.png" alt="04F FFT拓扑：最小代价路径曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/04f_fft_dp_depth_curve_rectified.png" alt="04F FFT拓扑：最小代价路径曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 36.06, &quot;topology_source&quot;: &quot;fft_axis_peaks&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.994, &quot;score_mean&quot;: 0.889, &quot;abs_offset_mean&quot;: 2.882, &quot;abs_offset_p95&quot;: 8.0, &quot;wiggle_mean&quot;: 0.051}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.992}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 21, &quot;phase&quot;: 11, &quot;rhos&quot;: [29.0, 68.0, 115.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 0.997}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>05F FFT拓扑：ridge 约束曲线</h2>
+                <span>72 points / 44.81 ms</span>
+              </div>
+              <p>以 FFT 行/列峰值正交网格为拓扑骨架，动态规划分数加入“中间强、两侧弱”的局部 ridge 判断；本卡使用 FFT 线族拓扑骨架。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/05f_fft_dp_ridge_curve_original.png" alt="05F FFT拓扑：ridge 约束曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/05f_fft_dp_ridge_curve_rectified.png" alt="05F FFT拓扑：ridge 约束曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 44.81, &quot;topology_source&quot;: &quot;fft_axis_peaks&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.992, &quot;score_mean&quot;: 0.881, &quot;abs_offset_mean&quot;: 2.749, &quot;abs_offset_p95&quot;: 8.0, &quot;wiggle_mean&quot;: 0.049}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.992}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 21, &quot;phase&quot;: 11, &quot;rhos&quot;: [29.0, 68.0, 115.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 0.992}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>06F FFT拓扑：红外辅助曲线</h2>
+                <span>72 points / 47.06 ms</span>
+              </div>
+              <p>以 FFT 行/列峰值正交网格为拓扑骨架，沿当前底层组合响应做同拓扑曲线收束；本卡使用 FFT 线族拓扑骨架。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/06f_fft_ir_assisted_curve_original.png" alt="06F FFT拓扑：红外辅助曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/06f_fft_ir_assisted_curve_rectified.png" alt="06F FFT拓扑：红外辅助曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;elapsed_ms&quot;: 47.06, &quot;topology_source&quot;: &quot;fft_axis_peaks&quot;, &quot;beam_bands&quot;: [], &quot;beam_exclusion_margin_mm&quot;: 100.0, &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.992, &quot;score_mean&quot;: 0.881, &quot;abs_offset_mean&quot;: 2.751, &quot;abs_offset_p95&quot;: 8.0, &quot;wiggle_mean&quot;: 0.05}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 0.0, &quot;axis_orientation&quot;: &quot;horizontal&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 22, &quot;phase&quot;: 16, &quot;rhos&quot;: [5.0, 42.0, 83.0, 128.0, 176.0, 213.0, 254.0, 300.0, 348.0], &quot;line_count&quot;: 9, &quot;curve_coverage&quot;: 0.992}, {&quot;angle_deg&quot;: 90.0, &quot;axis_orientation&quot;: &quot;vertical&quot;, &quot;period_estimator&quot;: &quot;fft&quot;, &quot;estimate_method&quot;: &quot;fft&quot;, &quot;period&quot;: 21, &quot;phase&quot;: 11, &quot;rhos&quot;: [29.0, 68.0, 115.0, 157.0, 201.0, 240.0, 284.0, 325.0], &quot;line_count&quot;: 8, &quot;curve_coverage&quot;: 0.992}]</pre>
+            </section>
+  </main>
+</body>
+</html>

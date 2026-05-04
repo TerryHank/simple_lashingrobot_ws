@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 方案效果对比</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f4f6f8;
+      color: #17202a;
+    }
+    body {
+      margin: 0;
+    }
+    header {
+      padding: 24px 28px 18px;
+      background: #ffffff;
+      border-bottom: 1px solid #d8dee6;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 13px;
+      color: #52606d;
+    }
+    .meta span {
+      padding: 4px 8px;
+      border: 1px solid #d8dee6;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+    main {
+      padding: 20px 28px 36px;
+      display: grid;
+      gap: 18px;
+    }
+    .source-strip,
+    .variant {
+      background: #ffffff;
+      border: 1px solid #d8dee6;
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .source-strip h2,
+    .variant h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    .variant-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .variant-header span {
+      font-size: 13px;
+      color: #0f766e;
+      background: #e6fffb;
+      border: 1px solid #99f6e4;
+      border-radius: 6px;
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+    p {
+      margin: 8px 0 12px;
+      color: #52606d;
+      line-height: 1.5;
+      font-size: 14px;
+    }
+    .images {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+    figure {
+      margin: 0;
+      border: 1px solid #e1e7ef;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      image-rendering: auto;
+    }
+    figcaption {
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #334155;
+      background: #f8fafc;
+      border-top: 1px solid #e1e7ef;
+    }
+    pre {
+      margin: 12px 0 0;
+      padding: 10px;
+      overflow-x: auto;
+      border: 1px solid #e1e7ef;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    @media (max-width: 720px) {
+      header,
+      main {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+      .images {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG 方案效果对比</h1>
+    <div class="meta">
+      <span>生成时间：2026-04-29 15:00:27</span>
+      <span>帧源：raw_world</span>
+      <span>响应图：depth_background_minus_filled</span>
+    </div>
+  </header>
+  <main>
+    <section class="source-strip">
+      <h2>输入与响应图</h2>
+      <p>红色叠加区域是梁筋/宽强结构掩膜，只用于最终绑扎点排除，不删除整条钢筋线。</p>
+      <div class="images">
+        <figure><img src="images/00_source_workspace.png" alt="source"><figcaption>红外输入</figcaption></figure>
+        <figure><img src="images/00_selected_response.png" alt="selected response"><figcaption>底层深度响应</figcaption></figure>
+        <figure><img src="images/00_infrared_response.png" alt="infrared response"><figcaption>红外暗线响应</figcaption></figure>
+        <figure><img src="images/00_combined_response.png" alt="combined response"><figcaption>组合响应</figcaption></figure>
+        <figure><img src="images/00_beam_mask_overlay.png" alt="beam mask"><figcaption>梁筋点级排除 mask</figcaption></figure>
+      </div>
+    </section>
+    <section class="variant">
+              <div class="variant-header">
+                <h2>01 当前主链：theta/rho 直线族</h2>
+                <span>16 points</span>
+              </div>
+              <p>当前 active PR-FPRG 输出，保持 spacing_pruned 后的两组直线族。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/01_current_theta_rho_original.png" alt="01 当前主链：theta/rho 直线族 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/01_current_theta_rho_rectified.png" alt="01 当前主链：theta/rho 直线族 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;beam_bands&quot;: [{&quot;axis&quot;: &quot;x&quot;, &quot;side&quot;: &quot;min&quot;, &quot;start&quot;: 17, &quot;end&quot;: 29, &quot;width&quot;: 13, &quot;peak&quot;: 1.8094651699066162, &quot;component_start&quot;: 19, &quot;component_end&quot;: 27}], &quot;beam_filtered_point_count&quot;: 0, &quot;curve_metrics&quot;: {}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 84.0, &quot;rhos&quot;: [-246.0, -169.9, -93.2, -24.39], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: null}, {&quot;angle_deg&quot;: 174.0, &quot;rhos&quot;: [-361.03, -267.75, -167.87, -74.85], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: null}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>02 归档方案：红外最终 rho 微调</h2>
+                <span>15 points</span>
+              </div>
+              <p>只做每条线的全局 rho 平移，复现已归档的红外贴线思路，便于对比。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/02_archived_ir_rho_original.png" alt="02 归档方案：红外最终 rho 微调 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/02_archived_ir_rho_rectified.png" alt="02 归档方案：红外最终 rho 微调 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;beam_bands&quot;: [{&quot;axis&quot;: &quot;x&quot;, &quot;side&quot;: &quot;min&quot;, &quot;start&quot;: 17, &quot;end&quot;: 29, &quot;width&quot;: 13, &quot;peak&quot;: 1.8094651699066162, &quot;component_start&quot;: 19, &quot;component_end&quot;: 27}], &quot;beam_filtered_point_count&quot;: 1, &quot;curve_metrics&quot;: {}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 84.0, &quot;rhos&quot;: [-245.0, -162.0, -95.0, -16.0], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: null}, {&quot;angle_deg&quot;: 174.0, &quot;rhos&quot;: [-360.0, -260.0, -164.0, -67.0], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: null}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>03 局部 ridge 贪心曲线</h2>
+                <span>15 points</span>
+              </div>
+              <p>以当前 theta/rho 为拓扑骨架，每个采样点沿法线独立找局部响应中心。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/03_greedy_depth_curve_original.png" alt="03 局部 ridge 贪心曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/03_greedy_depth_curve_rectified.png" alt="03 局部 ridge 贪心曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;beam_bands&quot;: [{&quot;axis&quot;: &quot;x&quot;, &quot;side&quot;: &quot;min&quot;, &quot;start&quot;: 17, &quot;end&quot;: 29, &quot;width&quot;: 13, &quot;peak&quot;: 1.8094651699066162, &quot;component_start&quot;: 19, &quot;component_end&quot;: 27}], &quot;beam_filtered_point_count&quot;: 1, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.98, &quot;score_mean&quot;: 0.695, &quot;abs_offset_mean&quot;: 3.604, &quot;abs_offset_p95&quot;: 8.6, &quot;wiggle_mean&quot;: 0.992}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 84.0, &quot;rhos&quot;: [-246.0, -169.9, -93.2, -24.39], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.987}, {&quot;angle_deg&quot;: 174.0, &quot;rhos&quot;: [-361.03, -267.75, -167.87, -74.85], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.973}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>04 最小代价路径曲线</h2>
+                <span>15 points</span>
+              </div>
+              <p>仍沿法线找 ridge，但用动态规划约束相邻采样点偏移连续。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/04_dp_depth_curve_original.png" alt="04 最小代价路径曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/04_dp_depth_curve_rectified.png" alt="04 最小代价路径曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;beam_bands&quot;: [{&quot;axis&quot;: &quot;x&quot;, &quot;side&quot;: &quot;min&quot;, &quot;start&quot;: 17, &quot;end&quot;: 29, &quot;width&quot;: 13, &quot;peak&quot;: 1.8094651699066162, &quot;component_start&quot;: 19, &quot;component_end&quot;: 27}], &quot;beam_filtered_point_count&quot;: 1, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.963, &quot;score_mean&quot;: 0.654, &quot;abs_offset_mean&quot;: 5.033, &quot;abs_offset_p95&quot;: 9.0, &quot;wiggle_mean&quot;: 0.059}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 84.0, &quot;rhos&quot;: [-246.0, -169.9, -93.2, -24.39], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.987}, {&quot;angle_deg&quot;: 174.0, &quot;rhos&quot;: [-361.03, -267.75, -167.87, -74.85], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.94}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>05 ridge 约束曲线</h2>
+                <span>15 points</span>
+              </div>
+              <p>动态规划分数加入“中间强、两侧弱”的局部 ridge 判断。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/05_dp_ridge_curve_original.png" alt="05 ridge 约束曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/05_dp_ridge_curve_rectified.png" alt="05 ridge 约束曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;beam_bands&quot;: [{&quot;axis&quot;: &quot;x&quot;, &quot;side&quot;: &quot;min&quot;, &quot;start&quot;: 17, &quot;end&quot;: 29, &quot;width&quot;: 13, &quot;peak&quot;: 1.8094651699066162, &quot;component_start&quot;: 19, &quot;component_end&quot;: 27}], &quot;beam_filtered_point_count&quot;: 1, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.965, &quot;score_mean&quot;: 0.652, &quot;abs_offset_mean&quot;: 4.506, &quot;abs_offset_p95&quot;: 9.0, &quot;wiggle_mean&quot;: 0.062}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 84.0, &quot;rhos&quot;: [-246.0, -169.9, -93.2, -24.39], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.987}, {&quot;angle_deg&quot;: 174.0, &quot;rhos&quot;: [-361.03, -267.75, -167.87, -74.85], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.943}]</pre>
+            </section>
+<section class="variant">
+              <div class="variant-header">
+                <h2>06 红外辅助曲线</h2>
+                <span>15 points</span>
+              </div>
+              <p>沿当前底层组合响应做同拓扑曲线收束，保留为对照候选。</p>
+              <div class="images">
+                <figure>
+                  <img src="images/06_ir_assisted_curve_original.png" alt="06 红外辅助曲线 original overlay">
+                  <figcaption>原图叠加</figcaption>
+                </figure>
+                <figure>
+                  <img src="images/06_ir_assisted_curve_rectified.png" alt="06 红外辅助曲线 rectified overlay">
+                  <figcaption>透视展开后叠加</figcaption>
+                </figure>
+              </div>
+              <pre>{&quot;beam_bands&quot;: [{&quot;axis&quot;: &quot;x&quot;, &quot;side&quot;: &quot;min&quot;, &quot;start&quot;: 17, &quot;end&quot;: 29, &quot;width&quot;: 13, &quot;peak&quot;: 1.8094651699066162, &quot;component_start&quot;: 19, &quot;component_end&quot;: 27}], &quot;beam_filtered_point_count&quot;: 1, &quot;curve_metrics&quot;: {&quot;coverage_mean&quot;: 0.97, &quot;score_mean&quot;: 0.69, &quot;abs_offset_mean&quot;: 4.068, &quot;abs_offset_p95&quot;: 9.0, &quot;wiggle_mean&quot;: 0.073}}</pre>
+              <pre>[{&quot;angle_deg&quot;: 84.0, &quot;rhos&quot;: [-246.0, -169.9, -93.2, -24.39], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.997}, {&quot;angle_deg&quot;: 174.0, &quot;rhos&quot;: [-361.03, -267.75, -167.87, -74.85], &quot;line_count&quot;: 4, &quot;curve_coverage&quot;: 0.943}]</pre>
+            </section>
+  </main>
+</body>
+</html>

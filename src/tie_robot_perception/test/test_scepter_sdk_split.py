@@ -97,6 +97,22 @@ class ScepterSdkSplitTest(unittest.TestCase):
         self.assertIsNotNone(processor_block)
         self.assertIn("${PCL_LIBRARIES}", processor_block.group("body"))
 
+    def test_visual_consumers_do_not_apply_camera_info_distortion(self):
+        world_coord_processor = (
+            PACKAGE_DIR / "src" / "perception" / "scepter_world_coord_processor.cpp"
+        ).read_text(encoding="utf-8")
+        pointai_image_buffers = (
+            PACKAGE_DIR / "src" / "tie_robot_perception" / "pointai" / "image_buffers.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("latest_depth_info_.K[0]", world_coord_processor)
+        self.assertNotIn("latest_depth_info_.D", world_coord_processor)
+        self.assertNotIn(".D", world_coord_processor)
+        self.assertNotIn("undistort", world_coord_processor)
+        self.assertNotIn("remap(", world_coord_processor)
+        self.assertNotIn("msg.D", pointai_image_buffers)
+        self.assertNotIn("dist_coeffs = np.array", pointai_image_buffers)
+
 
 if __name__ == "__main__":
     unittest.main()

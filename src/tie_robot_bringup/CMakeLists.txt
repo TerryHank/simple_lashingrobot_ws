@@ -14,5 +14,7 @@ install(PROGRAMS
   scripts/install_rosbridge_service.sh
   scripts/install_driver_services.sh
   scripts/install_backend_service.sh
+  scripts/install_show_legacy_frontend_service.sh
+  scripts/install_demo_mode_service.sh
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG 高召回主拓扑恢复报告</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root {
+      --ink: #17211d;
+      --muted: #5b665f;
+      --paper: #f6f1e8;
+      --panel: #fffdf7;
+      --line: #d8d0c0;
+      --blue: #1d4ed8;
+      --teal: #0f766e;
+      --orange: #c05621;
+      --green: #15803d;
+      --red: #b91c1c;
+    }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.58;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 24px clamp(16px, 4vw, 52px) 18px;
+      background: #fbf7ee;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 3.4vw, 38px);
+      letter-spacing: 0;
+    }
+    .lead {
+      max-width: 1120px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 18px clamp(12px, 3vw, 36px) 48px;
+    }
+    section {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 21px;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 16px 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    p { margin: 8px 0; }
+    code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #ece3d2;
+      color: #26352c;
+    }
+    a { color: var(--blue); text-decoration-thickness: 1px; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+      gap: 10px;
+      margin: 0 0 18px;
+    }
+    .fact {
+      min-width: 0;
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .fact span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .fact b {
+      display: block;
+      margin-top: 2px;
+      font-size: 19px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .callout {
+      padding: 12px 14px;
+      border-left: 4px solid var(--orange);
+      border-radius: 0 8px 8px 0;
+      background: #fff8e8;
+    }
+    .callout strong { color: #7c2d12; }
+    .diagram-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .diagram-card img {
+      display: block;
+      width: 100%;
+      max-height: min(86vh, 1280px);
+      object-fit: contain;
+      background: #f8fafc;
+    }
+    .diagram-card figcaption {
+      padding: 10px 12px;
+      color: var(--muted);
+      border-top: 1px solid #e6dfd1;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+      gap: 12px;
+    }
+    .card {
+      min-width: 0;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .card h3 { margin-top: 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    th, td {
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid #e7dfd0;
+    }
+    th {
+      background: #eee6d5;
+      font-weight: 700;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .tag {
+      display: inline-block;
+      margin: 2px 4px 2px 0;
+      padding: 2px 7px;
+      border: 1px solid #d5c8b5;
+      border-radius: 999px;
+      background: #fbf7ee;
+      color: #4b4036;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .good { color: var(--green); font-weight: 700; }
+    .bad { color: var(--red); font-weight: 700; }
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .links a {
+      display: inline-block;
+      padding: 7px 10px;
+      border: 1px solid #c9d4e8;
+      border-radius: 6px;
+      background: #f8fbff;
+      text-decoration: none;
+    }
+    @media (max-width: 720px) {
+      header { padding: 18px 14px; }
+      main { padding: 12px; }
+      table { font-size: 13px; }
+      .diagram-card img { max-height: 76vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG 高召回主拓扑恢复报告</h1>
+    <p class="lead">
+      本报告把 2026-04-22 在当前尺度下表现较好的频相回归网格方案，重新整理为下一版主视觉链路：
+      用完整网格回归负责召回，用组合响应、钢筋面、梁筋 mask 和曲线方案负责验证、过滤与局部收束。
+    </p>
+  </header>
+
+  <main>
+    <div class="facts">
+      <div class="fact"><span>主拓扑</span><b>4 月 22 日频相回归</b></div>
+      <div class="fact"><span>当前问题</span><b>局部线族只到 8 x 8</b></div>
+      <div class="fact"><span>近期实验</span><b>当前帧 64 点</b></div>
+      <div class="fact"><span>历史基准</span><b>272 点</b></div>
+      <div class="fact"><span>梁筋过滤</span><b>最终点级 ±13 cm</b></div>
+      <div class="fact"><span>3/4/5/6</span><b>收束层，不做主拓扑</b></div>
+    </div>
+
+    <section>
+      <h2>核心结论</h2>
+      <p class="callout">
+        <strong>当前尺度下的召回问题，不应该继续靠 3/4/5/6 曲线方案硬补。</strong>
+        主拓扑应恢复为 4 月 22 日的「FFT / 自相关估周期 + 相位回归 + 完整网格生成」。
+        当前组合响应、钢筋面分割和梁筋候选仍然保留，但只作为底图增强、点级过滤和局部微调。
+      </p>
+    </section>
+
+    <section>
+      <h2>完整算法流程图</h2>
+      <figure class="diagram-card">
+        <img src="images/pr_fprg_recovered_algorithm_flow.svg" alt="PR-FPRG 高召回主拓扑恢复算法流程图">
+        <figcaption>
+          左侧是主拓扑生成链路，右侧是辅助证据链路。主拓扑先完整生成候选网格，辅助证据只参与响应、过滤、评分和收束。
+        </figcaption>
+      </figure>
+      <div class="links">
+        <a href="images/pr_fprg_recovered_algorithm_flow.svg">打开 SVG</a>
+        <a href="images/pr_fprg_recovered_algorithm_flow.png">打开 PNG</a>
+      </div>
+    </section>
+
+    <section>
+      <h2>算法实现拆解</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>1. 输入和几何</h3>
+          <p>输入保持现有三件套：IR 图、raw_world_coord、手动工作区四边形。四边形透视展开后，rectified 尺度优先使用世界角点，避免回到原图 bbox。</p>
+          <span class="tag">corner_pixels</span>
+          <span class="tag">corner_world_camera_frame</span>
+          <span class="tag">rectified geometry</span>
+        </article>
+        <article class="card">
+          <h3>2. 底图响应</h3>
+          <p>底图使用当前效果较好的组合响应：深度暗线为主，IR 暗线为辅。Frangi-like、深度梯度和 worldCoord 高度继续用于钢筋面增强。</p>
+          <span class="tag">combined_response</span>
+          <span class="tag">fused_instance_response</span>
+          <span class="tag">completed_surface_response</span>
+        </article>
+        <article class="card">
+          <h3>3. 主拓扑生成</h3>
+          <p>对 rectified 行、列 profile 做 FFT / 自相关估周期，再做相位回归，按 period + phase 铺满整张规则网格。这一步负责高召回。</p>
+          <span class="tag">period</span>
+          <span class="tag">phase</span>
+          <span class="tag">full lattice</span>
+        </article>
+        <article class="card">
+          <h3>4. 过滤和收束</h3>
+          <p>梁筋只在最终点级过滤，当前口径为 ±13 cm；3/4/5/6 曲线算法只对候选线做局部贴合，不负责决定主拓扑数量。</p>
+          <span class="tag">beam_candidate</span>
+          <span class="tag">±13 cm</span>
+          <span class="tag">curve refine</span>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <h2>与当前多方案的差异</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>项目</th>
+            <th>4 月 22 日频相回归</th>
+            <th>当前多响应 / 3/4/5/6</th>
+            <th>下一版取法</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>主线生成</td>
+            <td><span class="good">全局 period + phase 生成完整网格</span></td>
+            <td><span class="bad">依赖局部峰值、曲线或钢筋面证据</span></td>
+            <td>恢复 4 月 22 日作为主拓扑</td>
+          </tr>
+          <tr>
+            <td>弱线召回</td>
+            <td>可以按周期补出弱线和断线</td>
+            <td>弱线容易在 peak support / spacing / ridge 阶段丢掉</td>
+            <td>先完整召回，再靠证据评分</td>
+          </tr>
+          <tr>
+            <td>梁筋处理</td>
+            <td>旧版处理较弱，容易把梁筋附近也补成候选点</td>
+            <td>已有 beam_candidate 和 ±13 cm 点级过滤</td>
+            <td>保留当前梁筋过滤层</td>
+          </tr>
+          <tr>
+            <td>曲线钢筋</td>
+            <td>主网格偏规则，曲线贴合不足</td>
+            <td>3/4/5/6 能做局部曲线收束，但不能保证召回</td>
+            <td>主网格先召回，曲线只收束</td>
+          </tr>
+          <tr>
+            <td>当前尺度表现</td>
+            <td>历史基准记录为 272 点</td>
+            <td>最近实验为 64 点，线族约 8 x 8</td>
+            <td>以 272 点级别候选作为召回目标</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>落地实现建议</h2>
+      <p>下一步不是把旧代码原样回滚，而是把 4 月 22 日的频相回归作为「候选拓扑生成器」接回当前主链：</p>
+      <table>
+        <thead>
+          <tr>
+            <th>阶段</th>
+            <th>实现目标</th>
+            <th>保留现有能力</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>阶段 A</td>
+            <td>恢复 FFT / 自相关 period + phase 生成完整行列网格</td>
+            <td>继续使用组合响应作为底图</td>
+          </tr>
+          <tr>
+            <td>阶段 B</td>
+            <td>把完整候选交点交给梁筋 ±13 cm 点级过滤</td>
+            <td>保留 beam_candidate 和高伽马报告展示</td>
+          </tr>
+          <tr>
+            <td>阶段 C</td>
+            <td>用钢筋面、Frangi-like、ridge 给候选点打分</td>
+            <td>保留 completed_surface_response</td>
+          </tr>
+          <tr>
+            <td>阶段 D</td>
+            <td>3/4/5/6 对候选线局部收束，不再负责主召回</td>
+            <td>保留曲线报告作为对照</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>关联报告</h2>
+      <p>本报告是算法流程设计报告，当前视觉实验图仍在下面两个页面查看：</p>
+      <div class="links">
+        <a href="/reports/rebar_instance_graph_probe/index.html">多响应底图 / 梁筋候选报告</a>
+        <a href="/reports/rebar_surface_bindpoint_comparison/index.html">钢筋面分割 / 绑扎点对比报告</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

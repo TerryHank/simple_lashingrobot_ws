@@ -28,7 +28,7 @@ export class TopicLayerController {
     this.ui.renderTopicLayerStats(this.stats);
     this.sceneView.setLayerState(this.state);
     this.sceneView.setViewMode(this.state.viewMode);
-    this.sceneView.setFollowCamera(this.state.followCamera);
+    this.sceneView.setFollowOrigin(this.state.followOrigin);
   }
 
   handleLayerControlsChange(partialState) {
@@ -47,9 +47,9 @@ export class TopicLayerController {
     this.state = { ...this.state, ...partialState };
     this.ui.setTopicLayerState(this.state);
     this.sceneView.setViewMode(this.state.viewMode);
-    this.sceneView.setFollowCamera(this.state.followCamera);
+    this.sceneView.setFollowOrigin(this.state.followOrigin);
     this.callbacks.onLog?.(
-      `三维视角已切换为 ${getSceneViewModeLabel(this.state.viewMode)}${this.state.followCamera ? "（跟随相机）" : ""}`,
+      `三维视角已切换为 ${getSceneViewModeLabel(this.state.viewMode)}${this.state.followOrigin ? "（跟随原点）" : ""}`,
       "info",
     );
   }

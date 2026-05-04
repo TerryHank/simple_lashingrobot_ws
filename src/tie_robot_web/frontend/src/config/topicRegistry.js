@@ -4,6 +4,8 @@ export const MESSAGE_TYPES = Object.freeze({
   float32MultiArray: "std_msgs/Float32MultiArray",
   int32: "std_msgs/Int32",
   image: "sensor_msgs/Image",
+  cameraInfo: "sensor_msgs/CameraInfo",
+  cabinState: "tie_robot_msgs/cabin_upload",
   linearModuleState: "tie_robot_msgs/linear_module_upload",
   log: "rosgraph_msgs/Log",
   markerArray: "visualization_msgs/MarkerArray",
@@ -26,6 +28,7 @@ export const SERVICE_TYPES = Object.freeze({
   }),
   tf: Object.freeze({
     setGripperTfCalibration: "tie_robot_msgs/SetGripperTfCalibration",
+    robotHomeCalibration: "tie_robot_msgs/RobotHomeCalibration",
   }),
   trigger: "std_srvs/Trigger",
 });
@@ -41,6 +44,7 @@ export const ACTION_TYPES = Object.freeze({
 export const TOPICS = Object.freeze({
   camera: Object.freeze({
     irImage: "/Scepter/ir/image_raw",
+    irCameraInfo: "/Scepter/ir/camera_info",
     colorImage: "/Scepter/color/image_raw",
     depthImage: "/Scepter/depth/image_raw",
     filteredWorldCoord: "/Scepter/worldCoord/world_coord",
@@ -58,6 +62,7 @@ export const TOPICS = Object.freeze({
   }),
   process: Object.freeze({
     areaProgress: "/cabin/area_progress",
+    cabinState: "/cabin/cabin_data_upload",
     diagnostics: "/diagnostics",
     pseudoSlamMarkers: "/cabin/pseudo_slam_markers",
     setCabinSpeed: "/web/cabin/set_cabin_speed",
@@ -77,13 +82,13 @@ export const TOPICS = Object.freeze({
   tf: Object.freeze({
     live: "/tf",
     static: "/tf_static",
-    setOffset: "/web/tf/set_offset",
+    setCameraTcpExtrinsic: "/web/tf/set_camera_tcp_extrinsic",
   }),
   logs: Object.freeze({
     all: "/system_log/all",
-    cabin: "/system_log/suoquNode",
+    cabin: "/system_log/suoqu_driver_node",
     camera: "/system_log/scepter_manager",
-    moduan: "/system_log/moduanNode",
+    moduan: "/system_log/moduan_driver_node",
   }),
 });
 
@@ -98,7 +103,8 @@ export const SERVICES = Object.freeze({
     driverStop: "/cabin/driver/stop",
     motionStop: "/cabin/motion/stop",
     setExecutionMode: "/cabin/set_execution_mode",
-    singleMove: "/cabin/single_move",
+    singleMove: "/cabin/driver/raw_move",
+    incrementalMove: "/cabin/driver/incremental_move",
   }),
   moduan: Object.freeze({
     driverRestart: "/moduan/driver/restart",
@@ -116,6 +122,7 @@ export const SERVICES = Object.freeze({
   }),
   tf: Object.freeze({
     setGripperTfCalibration: "/web/tf/set_gripper_tf_calibration",
+    robotHomeCalibration: "/web/tf/robot_home_calibration",
   }),
 });
 
@@ -138,6 +145,17 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     ownerNode: "scepter_manager",
     direction: "subscribe",
     usage: "图像预览与工作区选点底图",
+  },
+  {
+    key: "camera.irCameraInfo",
+    name: TOPICS.camera.irCameraInfo,
+    label: "红外相机内参",
+    messageType: MESSAGE_TYPES.cameraInfo,
+    sourceLayer: "driver",
+    sourceLabel: "相机驱动",
+    ownerNode: "scepter_manager",
+    direction: "subscribe",
+    usage: "红外图像 TCP 工作范围投影",
   },
   {
     key: "camera.colorImage",
@@ -281,6 +299,17 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     ownerNode: "suoquNode",
     direction: "subscribe",
     usage: "区域规划与账本路径显示",
+  },
+  {
+    key: "process.cabinState",
+    name: TOPICS.process.cabinState,
+    label: "索驱实时状态",
+    messageType: MESSAGE_TYPES.cabinState,
+    sourceLayer: "process",
+    sourceLabel: "执行规划层",
+    ownerNode: "suoquNode",
+    direction: "subscribe",
+    usage: "索驱位置条和遥控可操作状态",
   },
   {
     key: "process.diagnostics",
@@ -437,15 +466,15 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     usage: "三维坐标轴与实体位置",
   },
   {
-    key: "tf.setOffset",
-    name: TOPICS.tf.setOffset,
-    label: "TF 外参偏移",
+    key: "tf.setCameraTcpExtrinsic",
+    name: TOPICS.tf.setCameraTcpExtrinsic,
+    label: "相机-TCP外参热更新",
     messageType: MESSAGE_TYPES.pose,
     sourceLayer: "tf",
     sourceLabel: "TF 层",
     ownerNode: "gripper_tf_broadcaster",
     direction: "publish",
-    usage: "/set_offset 只写给 TF 层",
+    usage: "设置 Scepter_depth_frame -> gripper_frame 的 translation_mm",
   },
 ]);
 

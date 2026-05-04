@@ -95,15 +95,6 @@ def initialize_processor_state(self):
     self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 500.0))
     self.display_bind_range_max_y_mm = float(rospy.get_param("~display_bind_range_max_y_mm", 360.0))
     self.binary_small_blob_min_area_px = int(rospy.get_param("~binary_small_blob_min_area_px", 20))
-    self.manual_workspace_s2_stability_samples = max(
-        1,
-        int(rospy.get_param("~manual_workspace_s2_stability_samples", 5)),
-    )
-    self.manual_workspace_s2_stability_interval_sec = max(
-        0.0,
-        float(rospy.get_param("~manual_workspace_s2_stability_interval_sec", 0.06)),
-    )
-    self.manual_workspace_s2_phase_lock = None
     self.world_image_seq = 0
     self.plane_z = None
     self.pose_matrix = None

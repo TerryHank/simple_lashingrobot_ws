@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>当前视觉识别流程效果图</title>
+  <style>
+    :root {
+      --paper: #f5f3ee;
+      --ink: #17201d;
+      --muted: #65716c;
+      --line: #cbd3ce;
+      --panel: #fffdf8;
+      --accent: #127c55;
+      --accent-2: #0d6e9c;
+      --warn: #b66a18;
+      --shadow: 0 18px 42px rgba(32, 42, 38, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(23, 32, 29, 0.04) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(23, 32, 29, 0.04) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: 0;
+    }
+
+    header {
+      padding: 28px clamp(18px, 4vw, 48px) 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(245, 243, 238, 0.94);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(14px);
+    }
+
+    .topline {
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 58px);
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .subtitle {
+      margin: 10px 0 0;
+      max-width: 980px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    main {
+      padding: 26px clamp(18px, 4vw, 48px) 54px;
+    }
+
+    .notice {
+      max-width: 1160px;
+      border-left: 4px solid var(--accent);
+      padding: 14px 18px;
+      background: rgba(255, 253, 248, 0.78);
+      box-shadow: var(--shadow);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    section {
+      margin-top: 34px;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 380px);
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: clamp(24px, 3.4vw, 38px);
+      line-height: 1.08;
+      font-weight: 900;
+    }
+
+    .section-head p {
+      margin: 9px 0 0;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+      max-width: 860px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      min-height: 58px;
+      padding: 10px 12px;
+      background: #17201d;
+      color: #f8fbf7;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .metric span {
+      display: block;
+      color: #b7c4bd;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 5px;
+      font-size: 18px;
+      white-space: nowrap;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .flow-card {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 12px 28px rgba(32, 42, 38, 0.08);
+      overflow: hidden;
+    }
+
+    .flow-card figure {
+      margin: 0;
+      background: #17201d;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .flow-card img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: contain;
+      background: #17201d;
+    }
+
+    .card-copy {
+      padding: 14px 16px 16px;
+    }
+
+    h3 {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .card-copy p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .runtime-note {
+      margin-top: 24px;
+      padding: 16px 18px;
+      background: #fffdf8;
+      border: 1px solid var(--line);
+      line-height: 1.7;
+      color: var(--muted);
+    }
+
+    code {
+      font-family: "Cascadia Mono", "Fira Code", Consolas, monospace;
+      color: #153f31;
+      background: rgba(18, 124, 85, 0.12);
+      padding: 2px 5px;
+      border-radius: 4px;
+    }
+
+    @media (max-width: 980px) {
+      .section-head {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      header {
+        position: static;
+      }
+
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-card img {
+        aspect-ratio: 1 / 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topline">
+      <div>
+        <h1>当前视觉识别流程效果图</h1>
+        <p class="subtitle">
+          基于仓库内 <code>slam_v30</code> 视觉模态快照离线生成，扫描分支按当前代码的 2026-04-22
+          <code>manual workspace S2</code> 口径重跑：depth-only 背景差分、纵横 profile 周期相位、透视网格反投影。
+        </p>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge">/pointAI/process_image request_mode=3</span>
+      <span class="badge">MODE_SCAN_ONLY</span>
+      <span class="badge">MODE_EXECUTION_REFINE</span>
+      <span class="badge">2026-05-03</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="notice">
+      当前扫描识别链路不包含 depth+IR 组合响应、方向线族或梁筋 ±13 cm 过滤；这些后续实验链路只保留在研究工具和报告中，不进入扫描运行路径。
+      执行微调仍走平面分割 + Hough，用于逐区到位后的局部视觉。
+    </div>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>扫描识别：2026-04-22 PR-FPRG</h2>
+          <p>
+            固定识别位姿下，前端触发仍进入 <code>/pointAI/process_image</code> 的
+            <code>request_mode=3</code>。算法只看手动工作区内的原始相机深度，展开到 rectified 平面后
+            做周期相位估计，再把规则网格映射回原图并输出相机坐标点。
+          </p>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>rectified</span><strong>128 x 136 px</strong></div>
+<div class="metric"><span>v period / phase</span><strong>30 / 24</strong></div>
+<div class="metric"><span>h period / phase</span><strong>30 / 13</strong></div>
+<div class="metric"><span>grid lines</span><strong>4 x 5</strong></div>
+<div class="metric"><span>valid points</span><strong>20</strong></div>
+        </div>
+      </div>
+      <div class="flow-grid">
+        <article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/01_scan_color_input.png" alt="01 原始彩色输入">
+              </figure>
+              <div class="card-copy">
+                <h3>01 原始彩色输入</h3>
+                <p>/Scepter/color/image_raw；只作现场背景参照。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/02_scan_ir_input.png" alt="02 红外输入">
+              </figure>
+              <div class="card-copy">
+                <h3>02 红外输入</h3>
+                <p>/Scepter/ir/image_raw；当前扫描最终叠加图的底图。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/03_scan_raw_depth.png" alt="03 原始相机深度">
+              </figure>
+              <div class="card-copy">
+                <h3>03 原始相机深度</h3>
+                <p>/Scepter/worldCoord/raw_world_coord 的 Z 通道，扫描算法只用这一路做响应。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/04_scan_workspace_overlay.png" alt="04 手动工作区">
+              </figure>
+              <div class="card-copy">
+                <h3>04 手动工作区</h3>
+                <p>前端保存的四边形工作区，后续只在这个区域内透视展开和取点。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/05_scan_rectified_depth.png" alt="05 透视展开深度">
+              </figure>
+              <div class="card-copy">
+                <h3>05 透视展开深度</h3>
+                <p>四边形工作区被展开到 rectified 平面，宽高由四角相机坐标尺度估计。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/06_scan_depth_response.png" alt="06 depth-only 背景差分">
+              </figure>
+              <div class="card-copy">
+                <h3>06 depth-only 背景差分</h3>
+                <p>当前版本只取 depth 背景差分响应，不混入 IR 响应。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/07_scan_axis_profiles.png" alt="07 纵横 profile 周期相位">
+              </figure>
+              <div class="card-copy">
+                <h3>07 纵横 profile 周期相位</h3>
+                <p>分别沿 X/Y 方向投影响应，估计 period 与 phase。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/08_scan_rectified_grid.png" alt="08 rectified 网格">
+              </figure>
+              <div class="card-copy">
+                <h3>08 rectified 网格</h3>
+                <p>按估计出的纵横线位置构造规则网格，交点仍在 rectified 平面。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/09_scan_projective_overlay.png" alt="09 透视网格反投影">
+              </figure>
+              <div class="card-copy">
+                <h3>09 透视网格反投影</h3>
+                <p>将 rectified 网格线和交点通过 inverse H 投回原图。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/10_scan_final_overlay.png" alt="10 扫描识别输出">
+              </figure>
+              <div class="card-copy">
+                <h3>10 扫描识别输出</h3>
+                <p>最终输出有效相机坐标点，同步用于 /coordinate_point 与扫描账本。</p>
+              </div>
+            </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>执行微调：平面分割 + Hough</h2>
+          <p>
+            执行层逐区到位后不复用扫描网格主链，而是读取平面分割后的
+            <code>/Scepter/worldCoord/world_coord</code>，构造二值图、提取近水平/垂直 Hough 线段，
+            再聚类交点并进入执行范围筛选。
+          </p>
+        </div>
+        <div class="metrics">
+          <div class="metric"><span>binary pixels</span><strong>66274</strong></div>
+<div class="metric"><span>Hough lines</span><strong>51</strong></div>
+<div class="metric"><span>intersections</span><strong>295</strong></div>
+        </div>
+      </div>
+      <div class="flow-grid">
+        <article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/11_execution_world_coord_z.png" alt="11 平面分割世界坐标输入">
+              </figure>
+              <div class="card-copy">
+                <h3>11 平面分割世界坐标输入</h3>
+                <p>执行微调读取 /Scepter/worldCoord/world_coord，使用 Z 通道构造非平面区域。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/12_execution_binary.png" alt="12 Hough 二值图">
+              </figure>
+              <div class="card-copy">
+                <h3>12 Hough 二值图</h3>
+                <p>按当前阈值逻辑保留非平面深度像素，再做小连通域清理。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/13_execution_hough_lines.png" alt="13 骨架与轴向线段">
+              </figure>
+              <div class="card-copy">
+                <h3>13 骨架与轴向线段</h3>
+                <p>二值图细化后运行 HoughLinesP，只保留近水平或近垂直线段。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/14_execution_intersections.png" alt="14 Hough 交点叠加">
+              </figure>
+              <div class="card-copy">
+                <h3>14 Hough 交点叠加</h3>
+                <p>线段交点聚类后进入执行范围筛选，输出局部执行候选点。</p>
+              </div>
+            </article>
+<article class="flow-card">
+              <figure>
+                <img loading="lazy" src="images/15_runtime_result_topics.png" alt="15 运行话题结果参考">
+              </figure>
+              <div class="card-copy">
+                <h3>15 运行话题结果参考</h3>
+                <p>离线快照中的结果话题预览；现场运行时由上面的当前算法实时发布。</p>
+              </div>
+            </article>
+      </div>
+    </section>
+
+    <div class="runtime-note">
+      本页是离线可打开的流程效果页，生成脚本为
+      <code>src/tie_robot_perception/tools/build_current_visual_recognition_flow_page.py</code>。
+      重新采集现场样例后，可替换 <code>docs/releases/slam_v30/visual_modalities</code> 下的快照并重新运行脚本生成新图。
+    </div>
+  </main>
+</body>
+</html>

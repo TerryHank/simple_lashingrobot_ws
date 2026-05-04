@@ -1,0 +1,192 @@
+{
+  "generated_at": "2026-04-30 14:44:34",
+  "frame_source": "raw_world",
+  "report_url": "/reports/pr_fprg_multiscale_bindpoint_experiment/index.html",
+  "response_name": "combined_depth_ir_darkline",
+  "ir_display_gamma": 2.15,
+  "scale_metrics": {
+    "scale_mode": "frequency_primary",
+    "scale_reason": "可见周期充足，优先使用 2026-04-22 频相主拓扑恢复，再用实例图谱校验。",
+    "current_line_counts": [
+      8,
+      8
+    ],
+    "recovered_line_counts": [
+      17,
+      13
+    ],
+    "visible_cells": 192,
+    "rectified_width": 329,
+    "rectified_height": 371,
+    "resolution_mm_per_px": 5.0,
+    "fft_scores": [
+      0.6055755500392244,
+      0.6558145734231703
+    ],
+    "strategy_weights": {
+      "frequency_phase_after_beam": 1.0,
+      "curve04_frequency_dp_13cm": 0.9,
+      "completed_surface_intersections_13cm": 0.7,
+      "instance_graph_junctions_13cm": 0.55
+    },
+    "anchor_sources": [
+      "frequency_phase_after_beam"
+    ],
+    "merge_radius_px": 7.0
+  },
+  "current_runtime": {
+    "line_counts": [
+      8,
+      8
+    ],
+    "point_count": 64
+  },
+  "frequency_phase": {
+    "line_counts": [
+      17,
+      13
+    ],
+    "point_count_before_filter": 221,
+    "point_count_after_beam_13cm": 221,
+    "vertical_fft_estimate": {
+      "period": 26,
+      "phase": 11,
+      "score": 0.6055755500392244,
+      "fft_score": 0.9898510492322912,
+      "correlation_score": 0.18718770146369934,
+      "phase_score": 0.49595192074775696,
+      "frequency_bin": 13,
+      "method": "fft"
+    },
+    "horizontal_fft_estimate": {
+      "period": 22,
+      "phase": 10,
+      "score": 0.6558145734231703,
+      "fft_score": 1.0,
+      "correlation_score": 0.5407648682594299,
+      "phase_score": 0.4862469434738159,
+      "frequency_bin": 17,
+      "method": "fft"
+    }
+  },
+  "surface_segmentation": {
+    "ordinary_rebar_pixels": 15812,
+    "ordinary_completed_rebar_pixels": 45028,
+    "completed_surface_pixels": 45028,
+    "line_support_pixels": 36064,
+    "completed_line_counts": [
+      8,
+      8
+    ],
+    "beam_candidate_pixels": 0,
+    "beam_candidate_body_pixels": 0,
+    "beam_candidate_13cm_pixels": 0,
+    "surface_candidate_pixels": 15812
+  },
+  "beam_candidate_bands": [],
+  "candidate_variants": [
+    {
+      "id": "frequency_phase_after_beam",
+      "title": "频相主拓扑 + 梁筋 ±13cm",
+      "point_count": 221,
+      "mean_score": 0.5346188489895534,
+      "note": "22 日频相恢复负责远/中尺度高召回。"
+    },
+    {
+      "id": "completed_surface_intersections_13cm",
+      "title": "补全钢筋面交点 + 梁筋 ±13cm",
+      "point_count": 64,
+      "mean_score": 0.6541778540704399,
+      "note": "近尺度补偿：分割缺线后用 line support 补全再求交点。"
+    },
+    {
+      "id": "instance_graph_junctions_13cm",
+      "title": "实例骨架交叉点 + 梁筋 ±13cm",
+      "point_count": 86,
+      "mean_score": 0.9534364280312561,
+      "note": "不依赖理论周期，作为近距离和遮挡下的召回补充。"
+    },
+    {
+      "id": "curve04_frequency_dp_13cm",
+      "title": "方案4 DP 曲线收束 + 梁筋 ±13cm",
+      "point_count": 221,
+      "mean_score": 0.9568474401311098,
+      "note": "以频相主线为基底，只在局部把线贴回真实钢筋。"
+    },
+    {
+      "id": "multiscale_fused",
+      "title": "PR-FPRG-MS 多尺度融合",
+      "point_count": 221,
+      "mean_score": 0.5346188489895534,
+      "note": "按尺度权重合并频相、补全面、实例骨架和曲线收束候选。"
+    }
+  ],
+  "curve3456": [
+    {
+      "id": "03_recovered_greedy_curve",
+      "point_count": 220,
+      "mean_score": 0.886093327707865,
+      "fallback_to_recovered_grid": false
+    },
+    {
+      "id": "04_recovered_dp_curve",
+      "point_count": 221,
+      "mean_score": 0.9568474401311098,
+      "fallback_to_recovered_grid": false
+    },
+    {
+      "id": "05_recovered_ridge_curve",
+      "point_count": 221,
+      "mean_score": 0.9069090491051183,
+      "fallback_to_recovered_grid": false
+    },
+    {
+      "id": "06_recovered_ir_assisted_curve",
+      "point_count": 221,
+      "mean_score": 0.9364026101533643,
+      "fallback_to_recovered_grid": false
+    }
+  ],
+  "multiscale_fused": {
+    "point_count": 221,
+    "mean_confidence": 0.860762830601356,
+    "source_histogram": {
+      "frequency_phase_after_beam": 221,
+      "curve04_frequency_dp_13cm": 113,
+      "completed_surface_intersections_13cm": 51,
+      "instance_graph_junctions_13cm": 45
+    }
+  },
+  "timings_ms": {
+    "capture": 184.23240599804558,
+    "experiment": 1513.054421000561,
+    "total": 1697.4486610015447
+  },
+  "images": {
+    "01_input_high_gamma_workspace.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/01_input_high_gamma_workspace.png",
+    "02_rectified_ir.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/02_rectified_ir.png",
+    "03_combined_response.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/03_combined_response.png",
+    "04_scale_decision_flow.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/04_scale_decision_flow.png",
+    "05_vertical_profile_fft.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/05_vertical_profile_fft.png",
+    "06_horizontal_profile_fft.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/06_horizontal_profile_fft.png",
+    "07_frequency_phase_lattice_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/07_frequency_phase_lattice_rectified.png",
+    "08_surface_segmentation_overlay.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/08_surface_segmentation_overlay.png",
+    "09_surface_completion_overlay.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/09_surface_completion_overlay.png",
+    "10_beam_candidate_13cm_mask.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/10_beam_candidate_13cm_mask.png",
+    "11_frequency_phase_after_beam_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/11_frequency_phase_after_beam_original.png",
+    "12_completed_surface_intersections_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/12_completed_surface_intersections_original.png",
+    "13_instance_graph_junctions_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/13_instance_graph_junctions_original.png",
+    "14_curve04_frequency_dp_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/14_curve04_frequency_dp_original.png",
+    "15_multiscale_fused_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/15_multiscale_fused_original.png",
+    "16_current_runtime_reference.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/16_current_runtime_reference.png",
+    "17_03_recovered_greedy_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/17_03_recovered_greedy_curve_original.png",
+    "17r_03_recovered_greedy_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/17r_03_recovered_greedy_curve_rectified.png",
+    "18_04_recovered_dp_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/18_04_recovered_dp_curve_original.png",
+    "18r_04_recovered_dp_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/18r_04_recovered_dp_curve_rectified.png",
+    "19_05_recovered_ridge_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/19_05_recovered_ridge_curve_original.png",
+    "19r_05_recovered_ridge_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/19r_05_recovered_ridge_curve_rectified.png",
+    "20_06_recovered_ir_assisted_curve_original.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/20_06_recovered_ir_assisted_curve_original.png",
+    "20r_06_recovered_ir_assisted_curve_rectified.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/20r_06_recovered_ir_assisted_curve_rectified.png",
+    "21_candidate_matrix.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/pr_fprg_multiscale_bindpoint_experiment_20260430_144432/images/21_candidate_matrix.png"
+  }
+}

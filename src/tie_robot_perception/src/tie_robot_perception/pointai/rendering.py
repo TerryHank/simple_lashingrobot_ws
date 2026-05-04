@@ -137,11 +137,6 @@ def render_manual_workspace_s2_result_image(self, workspace_mask, line_segments,
         else:
             result_image = np.zeros((*workspace_mask.shape[:2], 3), dtype=np.uint8)
 
-    manual_workspace = self.load_manual_workspace_quad()
-    if manual_workspace is not None:
-        polygon_points = np.array(manual_workspace["corner_pixels"], dtype=np.int32).reshape((-1, 1, 2))
-        cv2.polylines(result_image, [polygon_points], True, (220, 220, 220), 2)
-
     for family_segments in line_segments.values():
         for segment_start, segment_end in family_segments:
             cv2.line(

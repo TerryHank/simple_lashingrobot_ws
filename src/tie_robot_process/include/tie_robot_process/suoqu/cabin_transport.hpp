@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -15,7 +16,7 @@ extern std::mutex cabin_last_error_detail_mutex;
 extern std::string last_cabin_transport_error_detail;
 extern std::string last_cabin_execution_wait_error_detail;
 extern const std::string kCabinLastFatalErrorDetailFile;
-extern std::atomic<uint16_t> pending_tcp_status_word;
+extern std::atomic<uint32_t> pending_tcp_status_word;
 extern std::atomic<bool> pending_tcp_status_word_valid;
 extern std::atomic<bool> use_remote_cabin_driver;
 extern float TCP_Move[7];
@@ -26,18 +27,18 @@ namespace suoqu {
 struct TcpProtocolStatusDecode
 {
     uint16_t command_word = 0;
-    uint16_t status_word = 0;
+    uint32_t status_word = 0;
     std::string command_name;
     std::vector<std::string> reasons;
     bool has_error = false;
 };
 
-void cache_pending_tcp_status_error(uint16_t status_word);
-bool consume_pending_tcp_status_error(uint16_t& status_word);
+void cache_pending_tcp_status_error(uint32_t status_word);
+bool consume_pending_tcp_status_error(uint32_t& status_word);
 bool is_motion_move_command_frame(const uint8_t* control_word, int tlen);
 const char* tcp_protocol_command_name(uint16_t command_word);
-std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_word, uint16_t status_word);
-uint16_t extract_tcp_protocol_status_word(uint16_t command_word, const uint8_t* buffer, ssize_t recv_len);
+std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_word, uint32_t status_word);
+uint32_t extract_tcp_protocol_status_word(uint16_t command_word, const uint8_t* buffer, ssize_t recv_len);
 TcpProtocolStatusDecode decode_tcp_protocol_status(
     uint16_t command_word,
     const uint8_t* buffer,
@@ -65,6 +66,12 @@ bool move_cabin_pose_via_driver(
     float x_mm,
     float y_mm,
     float z_mm,
+    std::string* error_message);
+bool move_cabin_incremental_via_driver(
+    float speed_mm_per_sec,
+    float x_delta_mm,
+    float y_delta_mm,
+    float z_delta_mm,
     std::string* error_message);
 
 }  // namespace suoqu

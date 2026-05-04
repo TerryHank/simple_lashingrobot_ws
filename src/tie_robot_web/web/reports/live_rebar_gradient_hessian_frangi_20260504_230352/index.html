@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>depth_gradient + Hessian + Frangi 效果图</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #17211d;
+      background: #f6f1e8;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.55;
+    }
+    header { padding: 22px clamp(16px, 4vw, 42px); background: #fffaf0; border-bottom: 1px solid #d8cfbf; }
+    h1 { margin: 0 0 6px; font-size: clamp(22px, 3vw, 34px); letter-spacing: 0; }
+    main { max-width: 1660px; margin: 0 auto; padding: 18px clamp(12px, 3vw, 34px) 42px; }
+    .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 10px; margin-bottom: 18px; }
+    .fact { background: #fffdf7; border: 1px solid #d8cfbf; border-radius: 8px; padding: 10px 12px; }
+    .fact span { display: block; color: #657064; font-size: 12px; }
+    .fact b { display: block; font-size: 18px; overflow-wrap: anywhere; }
+    .pipeline { background: #fff8e8; border-left: 4px solid #b55d2d; border-radius: 0 8px 8px 0; padding: 10px 12px; margin: 0 0 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 430px), 1fr)); gap: 14px; align-items: start; }
+    figure { margin: 0; background: #fffdf7; border: 1px solid #d8cfbf; border-radius: 8px; overflow: hidden; }
+    img { display: block; width: 100%; max-height: min(82vh, 980px); object-fit: contain; background: #10140f; }
+    figcaption { padding: 9px 10px; border-top: 1px solid #e4dccd; color: #3d453f; }
+    code { background: #ece3d2; border-radius: 4px; padding: 1px 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>depth_gradient + Hessian + Frangi 脊线增强效果图</h1>
+    <div>固定快照：<code>live_raw_world_current_capture</code></div>
+  </header>
+  <main>
+    <div class="facts">
+      <div class="fact"><span>基础响应</span><b>combined_depth_ir_darkline</b></div>
+      <div class="fact"><span>基础线族</span><b>[8, 8]</b></div>
+      <div class="fact"><span>新方案点数</span><b>64</b></div>
+      <div class="fact"><span>新方案线族</span><b>[8, 8]</b></div>
+      <div class="fact"><span>补全面均分</span><b>0.926</b></div>
+      <div class="fact"><span>骨架 junction</span><b>743</b></div>
+    </div>
+    <p class="pipeline">
+      新方案：<code>combined_response + depth_gradient + Hessian ridge + Frangi-like</code>
+      -> 二值候选 -> skeleton 诊断 -> completed_surface_mask -> DP 曲线 -> 曲线交点。
+    </p>
+    <div class="grid">
+      
+        <figure>
+          <img src="images/90_effect_montage.png" alt="90_effect_montage.png">
+          <figcaption>90_effect_montage.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/00_input_workspace.png" alt="00_input_workspace.png">
+          <figcaption>00_input_workspace.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/01_combined_response.png" alt="01_combined_response.png">
+          <figcaption>01_combined_response.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/02_depth_gradient.png" alt="02_depth_gradient.png">
+          <figcaption>02_depth_gradient.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/03_hessian_ridge.png" alt="03_hessian_ridge.png">
+          <figcaption>03_hessian_ridge.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/04_frangi_like.png" alt="04_frangi_like.png">
+          <figcaption>04_frangi_like.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/05_gradient_hessian_frangi_fusion.png" alt="05_gradient_hessian_frangi_fusion.png">
+          <figcaption>05_gradient_hessian_frangi_fusion.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/06_binary_candidate.png" alt="06_binary_candidate.png">
+          <figcaption>06_binary_candidate.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/07_skeleton_on_fusion.png" alt="07_skeleton_on_fusion.png">
+          <figcaption>07_skeleton_on_fusion.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/08_completed_surface_response.png" alt="08_completed_surface_response.png">
+          <figcaption>08_completed_surface_response.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/09_dp_curve_rectified_points.png" alt="09_dp_curve_rectified_points.png">
+          <figcaption>09_dp_curve_rectified_points.png</figcaption>
+        </figure>
+        
+
+        <figure>
+          <img src="images/10_dp_curve_original_points.png" alt="10_dp_curve_original_points.png">
+          <figcaption>10_dp_curve_original_points.png</figcaption>
+        </figure>
+        
+    </div>
+  </main>
+</body>
+</html>

@@ -16,13 +16,13 @@ export const LOG_TOPIC_OPTIONS = [
     id: "cabin",
     label: "索驱",
     topic: TOPICS.logs.cabin,
-    nodeNames: ["suoquNode"],
+    nodeNames: ["suoqu_driver_node", "suoquNode", "cabin_motion_controller"],
   },
   {
     id: "moduan",
     label: "线性模组",
     topic: TOPICS.logs.moduan,
-    nodeNames: ["moduanNode"],
+    nodeNames: ["moduan_driver_node", "moduanNode", "moduan_motion_controller"],
   },
   {
     id: "camera",

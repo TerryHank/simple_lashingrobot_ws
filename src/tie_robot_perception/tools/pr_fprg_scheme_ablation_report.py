@@ -29,6 +29,8 @@ from pr_fprg_peak_supported_probe import (  # noqa: E402
     capture_depth_ir_frame,
     capture_synced_frame,
     render_response_heatmap,
+    render_rectified_lines,
+    render_removed_lines,
     to_bgr,
     to_u8,
 )
@@ -53,6 +55,7 @@ from tie_robot_perception.perception.workspace_s2 import (  # noqa: E402
     build_workspace_s2_structural_edge_suppression_mask,
     build_workspace_s2_curved_line_families,
     detect_workspace_s2_structural_edge_bands,
+    expand_workspace_s2_exclusion_mask_by_metric_margin,
     filter_workspace_s2_rectified_points_outside_mask,
     intersect_workspace_s2_curved_line_families,
     intersect_workspace_s2_oriented_line_families,
@@ -65,12 +68,63 @@ REALTIME_TARGET_SCHEME_ID = "01_current_theta_rho"
 SCHEMES = [
     {
         "id": "01_current_theta_rho",
-        "label": "01 当前主链：theta/rho 直线族",
+        "label": "01 当前主链：行/列峰值正交网格",
         "short_label": "方案 1",
         "kind": "straight",
-        "description": "透视展开后自动估计两组真实方向，在 rho 轴找周期峰值并以直线族求交；梁筋只在最终点级过滤。",
+        "description": "透视展开后使用组合响应，只对固定行/列 profile 做峰值识别，以正交网格求交；梁筋±13cm范围只在最终点级过滤。",
         "color": (0, 255, 0),
         "tone": "baseline",
+    },
+    {
+        "id": "03_greedy_depth_curve",
+        "label": "03 局部 ridge 贪心曲线",
+        "short_label": "方案 3",
+        "kind": "curve",
+        "description": "以当前方案1正交网格为拓扑骨架，每个采样点沿法线独立找局部响应中心；用于观察曲线追踪是否会被地板缝牵引。",
+        "trace_method": "greedy",
+        "score_mode": "response",
+        "response_mode": "selected",
+        "color": (255, 90, 0),
+        "tone": "warn",
+    },
+    {
+        "id": "04_dp_depth_curve",
+        "label": "04 最小代价路径曲线",
+        "short_label": "方案 4",
+        "kind": "curve",
+        "description": "沿法线找 ridge，并用动态规划约束相邻采样点偏移连续；保留为曲线收束候选。",
+        "trace_method": "dynamic_programming",
+        "score_mode": "response",
+        "response_mode": "selected",
+        "smoothness_weight": 0.12,
+        "color": (255, 0, 220),
+        "tone": "warn",
+    },
+    {
+        "id": "05_dp_ridge_curve",
+        "label": "05 ridge 约束曲线",
+        "short_label": "方案 5",
+        "kind": "curve",
+        "description": "动态规划分数加入“中间强、两侧弱”的 ridge 判断，用于抑制曲线贴地板缝。",
+        "trace_method": "dynamic_programming",
+        "score_mode": "response_ridge",
+        "response_mode": "selected",
+        "smoothness_weight": 0.12,
+        "color": (0, 120, 255),
+        "tone": "baseline",
+    },
+    {
+        "id": "06_ir_assisted_curve",
+        "label": "06 红外辅助曲线",
+        "short_label": "方案 6",
+        "kind": "curve",
+        "description": "沿当前组合响应做同拓扑曲线收束，保留为红外辅助对照候选。",
+        "trace_method": "dynamic_programming",
+        "score_mode": "response_ridge",
+        "response_mode": "combined",
+        "smoothness_weight": 0.12,
+        "color": (180, 255, 60),
+        "tone": "warn",
     },
 ]
 
@@ -80,21 +134,20 @@ STAGE_VARIANTS = [
         "id": "full",
         "label": "全流程",
         "stage": "基准",
-        "description": "回到 08:21 主链：深度响应、局部峰值、连续钢筋条/ridge 验证、spacing 收束；梁筋只在最终点级过滤。",
+        "description": "当前主链：组合响应、固定行/列 profile 峰值、spacing 收束；梁筋±13cm范围只在最终点级过滤。",
         "conclusion": "方案内部基准。",
         "tone": "baseline",
-        "enable_local_peak_refine": True,
-        "use_orientation_prior_angle_pool": True,
-        "enable_continuous_validation": True,
+        "enable_local_peak_refine": False,
+        "enable_continuous_validation": False,
         "enable_spacing_prune": True,
     },
     {
         "id": "skip_continuous",
-        "label": "关闭连续/ridge 验证",
+        "label": "保持关闭连续/ridge 验证",
         "stage": "连续验证",
-        "description": "保留 peak 支撑与 spacing 收束，但不沿钢筋方向做连续条验证和 ridge 检查。",
-        "conclusion": "用于暴露只靠一维 profile 峰值时会多出多少地板缝/边缘假线。",
-        "tone": "warn",
+        "description": "行/列峰值主链默认不沿钢筋方向做连续条验证和 ridge 检查，本项作为历史对照保留。",
+        "conclusion": "当前主链默认关闭。",
+        "tone": "ok",
         "enable_continuous_validation": False,
         "enable_spacing_prune": True,
     },
@@ -102,7 +155,7 @@ STAGE_VARIANTS = [
         "id": "skip_spacing",
         "label": "关闭 spacing prune",
         "stage": "间距筛选",
-        "description": "保留连续/ridge 验证，但不做 rho 轴间距收束。",
+        "description": "保留行/列 profile 峰值，但不做间距收束。",
         "conclusion": "用于观察连续验证后是否仍有密集重复线。",
         "tone": "warn",
         "enable_continuous_validation": True,
@@ -133,22 +186,13 @@ STAGE_VARIANTS = [
         "id": "profile_only_raw",
         "label": "只保留 profile 周期原始线",
         "stage": "profile-only",
-        "description": "只根据 theta/rho profile 周期相位生成线，所有后续筛选都关闭。",
+        "description": "只根据固定行/列 profile 周期相位生成线，所有后续筛选都关闭。",
         "conclusion": "最快但最容易产生大量假点。",
         "tone": "danger",
         "enable_local_peak_refine": False,
         "enable_peak_support": False,
         "enable_continuous_validation": False,
         "enable_spacing_prune": False,
-    },
-    {
-        "id": "full_angle_sweep",
-        "label": "全角度候选池对照",
-        "stage": "theta 候选池",
-        "description": "关闭方向先验收窄，扫描更宽 theta 候选池。",
-        "conclusion": "用于确认方向先验没有破坏主链质量。",
-        "tone": "warn",
-        "use_orientation_prior_angle_pool": False,
     },
 ]
 
@@ -251,10 +295,14 @@ def build_straight_scheme_payload(frame, prepared, line_families, response_map, 
         structural_edge_response,
         prepared["rectified_valid"].astype(np.uint8),
     )
+    beam_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
+        beam_mask,
+        prepared["rectified_geometry"],
+        margin_mm=130.0,
+    )
     rectified_points = filter_workspace_s2_rectified_points_outside_mask(
         rectified_points,
         beam_mask,
-        margin_px=2,
     )
     points = points_from_rectified_intersections(frame, result_like, rectified_points)
     return {
@@ -289,10 +337,14 @@ def build_ir_refined_scheme_payload(frame, prepared, line_families, response_map
         structural_edge_response,
         prepared["rectified_valid"].astype(np.uint8),
     )
+    beam_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
+        beam_mask,
+        prepared["rectified_geometry"],
+        margin_mm=130.0,
+    )
     rectified_points = filter_workspace_s2_rectified_points_outside_mask(
         rectified_points,
         beam_mask,
-        margin_px=2,
     )
     points = points_from_rectified_intersections(frame, result_like, rectified_points)
     return {
@@ -344,10 +396,14 @@ def build_curved_scheme_payload(frame, prepared, line_families, response_map, sc
         structural_edge_response,
         prepared["rectified_valid"].astype(np.uint8),
     )
+    beam_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
+        beam_mask,
+        prepared["rectified_geometry"],
+        margin_mm=130.0,
+    )
     rectified_points = filter_workspace_s2_rectified_points_outside_mask(
         rectified_points,
         beam_mask,
-        margin_px=2,
     )
     points = points_from_rectified_intersections(frame, result_like, rectified_points)
     families = [
@@ -458,16 +514,29 @@ def render_report(output_dir, frame, prepared, results, metadata):
     cv2.imwrite(str(image_dir / "00_rectified_ir.png"), to_bgr(prepared["rectified_ir"]))
 
     baseline_response = None
+    baseline_full_result = None
     for result in results:
-        if result["stage_variant_id"] == "full":
+        if result["scheme_id"] == REALTIME_TARGET_SCHEME_ID and result["stage_variant_id"] == "full":
             baseline_response = result.get("response")
+            baseline_full_result = result
             break
+    if baseline_full_result is None:
+        for result in results:
+            if result["stage_variant_id"] == "full":
+                baseline_response = result.get("response")
+                baseline_full_result = result
+                break
     if baseline_response is not None:
         cv2.imwrite(str(image_dir / "00_response.png"), render_response_heatmap(baseline_response))
         structural_edge_response = prepared.get("structural_edge_response", baseline_response)
         beam_mask = build_workspace_s2_structural_edge_suppression_mask(
             structural_edge_response,
             prepared["rectified_valid"].astype(np.uint8),
+        )
+        beam_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
+            beam_mask,
+            prepared["rectified_geometry"],
+            margin_mm=130.0,
         )
         beam_overlay = render_response_heatmap(structural_edge_response)
         if np.any(beam_mask):
@@ -496,6 +565,13 @@ def render_report(output_dir, frame, prepared, results, metadata):
                     1,
                 )
         cv2.imwrite(str(image_dir / "00_beam_mask_overlay.png"), beam_overlay)
+    if baseline_full_result is not None:
+        peak_result = {
+            "rectified_ir": prepared["rectified_ir"],
+            "line_families": baseline_full_result.get("line_families", []),
+        }
+        cv2.imwrite(str(image_dir / "00_peak_supported_lines.png"), render_rectified_lines(peak_result, "peak_supported"))
+        cv2.imwrite(str(image_dir / "00_peak_spacing_pruned_lines.png"), render_removed_lines(peak_result))
 
     for result in results:
         image_prefix = f"{result['scheme_id']}__{result['stage_variant_id']}"
@@ -1023,7 +1099,7 @@ def render_report(output_dir, frame, prepared, results, metadata):
 <body>
   <header>
     <h1>PR-FPRG 方案1工序消融报告</h1>
-    <p>同一帧输入、锁定同一深度优先响应图。当前只保留方案1直线族识别：钢筋线允许穿过梁筋，梁筋只在最终绑扎点级排除。</p>
+      <p>同一帧输入、锁定同一组合响应图。当前只保留方案1直线族识别：钢筋线允许穿过梁筋，梁筋±13cm范围只在最终绑扎点级排除。</p>
   </header>
   <main>
     <section class="summary-grid">
@@ -1039,12 +1115,14 @@ def render_report(output_dir, frame, prepared, results, metadata):
       <div class="scheme-filter-row">{''.join(scheme_nav_buttons)}</div>
     </section>
     <section class="source-strip">
-      <h2>输入与基准响应图</h2>
-      <p>用于所有方案和消融项的同一帧输入。</p>
+      <h2>输入、响应与峰值图</h2>
+      <p>用于所有方案和消融项的同一帧输入；峰值图固定显示方案1全流程的候选线与最终保留/剔除情况。</p>
       <div class="images">
         <figure><img src="images/00_ir_input.png" alt="ir input"><figcaption>红外输入</figcaption></figure>
         <figure><img src="images/00_rectified_ir.png" alt="rectified ir"><figcaption>透视展开红外</figcaption></figure>
         <figure><img src="images/00_response.png" alt="response"><figcaption>锁定响应图</figcaption></figure>
+        <figure><img src="images/00_peak_supported_lines.png" alt="peak supported lines"><figcaption>峰值图：peak-supported 候选线</figcaption></figure>
+        <figure><img src="images/00_peak_spacing_pruned_lines.png" alt="peak spacing pruned lines"><figcaption>峰值图：绿色保留 / 红色剔除</figcaption></figure>
       </div>
     </section>
     <section class="table-panel">

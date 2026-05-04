@@ -51,7 +51,7 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         single_bind_body = task_action_controller[single_bind_start:single_bind_end]
 
         self.assertIn("await this.rosConnection.callSinglePointBindService()", single_bind_body)
-        self.assertNotIn("triggerPrFprgRecognition({", single_bind_body)
+        self.assertNotIn("triggerSurfaceDpRecognition({", single_bind_body)
         self.assertNotIn("callLashingRecognizeOnceService", single_bind_body)
         self.assertNotIn("startPseudoSlamScanActionClient", single_bind_body)
         self.assertNotIn("triggerPseudoSlamScan", single_bind_body)

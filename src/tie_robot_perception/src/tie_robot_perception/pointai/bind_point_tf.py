@@ -7,7 +7,7 @@ from geometry_msgs.msg import TransformStamped
 
 
 RAW_CAMERA_BIND_POINT_SOURCE_FRAME = "Scepter_depth_frame"
-RAW_CAMERA_BIND_POINT_CHILD_PREFIX = "pr_fprg_bind_point"
+RAW_CAMERA_BIND_POINT_CHILD_PREFIX = "surface_dp_bind_point"
 
 
 def build_raw_camera_bind_point_transforms(

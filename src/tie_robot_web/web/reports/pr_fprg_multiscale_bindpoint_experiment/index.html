@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR-FPRG-MS 多尺度绑扎点实验报告</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #17211d;
+      background: #f4f0e7;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.56;
+      overflow-x: hidden;
+    }
+    header {
+      padding: 22px clamp(16px, 4vw, 44px);
+      background: #fbf7ed;
+      border-bottom: 1px solid #d7cebe;
+    }
+    h1 { margin: 0 0 6px; font-size: clamp(23px, 3vw, 34px); letter-spacing: 0; }
+    .subline { margin: 0; color: #5b655d; }
+    main { max-width: 1580px; margin: 0 auto; padding: 16px clamp(12px, 3vw, 34px) 44px; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 196px), 1fr));
+      gap: 10px;
+      margin: 16px 0 18px;
+    }
+    .fact {
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fffdf7;
+      min-width: 0;
+    }
+    .fact span { display: block; color: #607067; font-size: 12px; }
+    .fact b { display: block; font-size: 18px; overflow-wrap: anywhere; }
+    section { margin-top: 18px; padding-top: 18px; border-top: 1px solid #d8d0c0; }
+    h2 { margin: 0 0 10px; font-size: 20px; letter-spacing: 0; }
+    .note { border-left: 4px solid #b76632; background: #fff8e8; padding: 10px 12px; border-radius: 0 8px 8px 0; }
+    table { width: 100%; border-collapse: collapse; background: #fffdf7; border: 1px solid #d8d0c0; border-radius: 8px; overflow: hidden; }
+    th, td { padding: 9px 10px; border-bottom: 1px solid #e4dccd; vertical-align: top; text-align: left; }
+    th { background: #eee6d5; }
+    code { background: #ece3d2; border-radius: 4px; padding: 1px 4px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 390px), 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+    .image-card {
+      margin: 0;
+      border: 1px solid #d8d0c0;
+      border-radius: 8px;
+      background: #fffdf7;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .image-card img {
+      display: block;
+      width: 100%;
+      max-height: min(78vh, 980px);
+      object-fit: contain;
+      background: #10140f;
+    }
+    figcaption { padding: 9px 10px; color: #384239; border-top: 1px solid #e6dfd1; }
+    @media (max-width: 720px) {
+      header { padding: 16px; }
+      main { padding: 12px; }
+      table { font-size: 13px; }
+      .image-card img { max-height: 72vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PR-FPRG-MS 多尺度绑扎点实验报告</h1>
+    <p class="subline">当前画面真实实验：频相主拓扑、钢筋面补全、实例骨架和 3/4/5/6 曲线收束融合。</p>
+  </header>
+  <main>
+    <div class="facts">
+      <div class="fact"><span>帧来源</span><b>raw_world</b></div>
+      <div class="fact"><span>尺度模式</span><b>frequency_primary</b></div>
+      <div class="fact"><span>当前主链</span><b>[8, 8] / 64 点</b></div>
+      <div class="fact"><span>频相滤后</span><b>221 点</b></div>
+      <div class="fact"><span>最终融合</span><b>221 点</b></div>
+      <div class="fact"><span>总耗时</span><b>1697.4 ms</b></div>
+    </div>
+    <section>
+      <h2>路线结论</h2>
+      <p class="note">可见周期充足，优先使用 2026-04-22 频相主拓扑恢复，再用实例图谱校验。</p>
+      <p>本报告实现的技术路线是：<code>组合响应 -> 尺度判别 -> 频相拓扑 / 钢筋面补全 / 实例骨架 -> 梁筋 ±13cm 点级排除 -> 3/4/5/6 局部收束 -> 多源融合</code>。</p>
+      <p>注意：梁筋 mask 只过滤最终绑扎点，不把普通钢筋线从图谱里直接删掉；这样钢筋穿过梁筋的情况仍能参与拓扑恢复。</p>
+    </section>
+    <section>
+      <h2>候选来源对比</h2>
+      <table>
+        <thead><tr><th>来源</th><th>名称</th><th>点数</th><th>均值响应</th><th>说明</th></tr></thead>
+        <tbody>
+            <tr>
+              <td><code>frequency_phase_after_beam</code></td>
+              <td>频相主拓扑 + 梁筋 ±13cm</td>
+              <td>221</td>
+              <td>0.535</td>
+              <td>22 日频相恢复负责远/中尺度高召回。</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>completed_surface_intersections_13cm</code></td>
+              <td>补全钢筋面交点 + 梁筋 ±13cm</td>
+              <td>64</td>
+              <td>0.654</td>
+              <td>近尺度补偿：分割缺线后用 line support 补全再求交点。</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>instance_graph_junctions_13cm</code></td>
+              <td>实例骨架交叉点 + 梁筋 ±13cm</td>
+              <td>86</td>
+              <td>0.953</td>
+              <td>不依赖理论周期，作为近距离和遮挡下的召回补充。</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>curve04_frequency_dp_13cm</code></td>
+              <td>方案4 DP 曲线收束 + 梁筋 ±13cm</td>
+              <td>221</td>
+              <td>0.957</td>
+              <td>以频相主线为基底，只在局部把线贴回真实钢筋。</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>multiscale_fused</code></td>
+              <td>PR-FPRG-MS 多尺度融合</td>
+              <td>221</td>
+              <td>0.535</td>
+              <td>按尺度权重合并频相、补全面、实例骨架和曲线收束候选。</td>
+            </tr>
+            </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>3/4/5/6 曲线收束对照</h2>
+      <table>
+        <thead><tr><th>算法</th><th>点数</th><th>均值响应</th><th>是否兜底直线</th></tr></thead>
+        <tbody>
+        <tr>
+          <td><code>03_recovered_greedy_curve</code></td>
+          <td>220</td>
+          <td>0.886</td>
+          <td>否</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>04_recovered_dp_curve</code></td>
+          <td>221</td>
+          <td>0.957</td>
+          <td>否</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>05_recovered_ridge_curve</code></td>
+          <td>221</td>
+          <td>0.907</td>
+          <td>否</td>
+        </tr>
+        
+
+        <tr>
+          <td><code>06_recovered_ir_assisted_curve</code></td>
+          <td>221</td>
+          <td>0.936</td>
+          <td>否</td>
+        </tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>每一步效果图</h2>
+      <div class="grid">
+        <figure class="image-card">
+          <img src="images/01_input_high_gamma_workspace.png" alt="1. 当前画面：高伽马 IR + 工作区">
+          <figcaption>1. 当前画面：高伽马 IR + 工作区</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/02_rectified_ir.png" alt="2. 透视展开 IR">
+          <figcaption>2. 透视展开 IR</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/03_combined_response.png" alt="3. 组合响应底图">
+          <figcaption>3. 组合响应底图</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/04_scale_decision_flow.png" alt="4. 多尺度路线判别">
+          <figcaption>4. 多尺度路线判别</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/05_vertical_profile_fft.png" alt="5. 纵向 profile + FFT 驼峰">
+          <figcaption>5. 纵向 profile + FFT 驼峰</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/06_horizontal_profile_fft.png" alt="6. 横向 profile + FFT 驼峰">
+          <figcaption>6. 横向 profile + FFT 驼峰</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/07_frequency_phase_lattice_rectified.png" alt="7. 频相完整网格">
+          <figcaption>7. 频相完整网格</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/08_surface_segmentation_overlay.png" alt="8. 钢筋面 / 梁筋实例分割">
+          <figcaption>8. 钢筋面 / 梁筋实例分割</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/09_surface_completion_overlay.png" alt="9. 钢筋面补全">
+          <figcaption>9. 钢筋面补全</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/10_beam_candidate_13cm_mask.png" alt="10. 梁筋 ±13cm 排除区">
+          <figcaption>10. 梁筋 ±13cm 排除区</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/11_frequency_phase_after_beam_original.png" alt="11. 频相拓扑过滤后点位">
+          <figcaption>11. 频相拓扑过滤后点位</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/12_completed_surface_intersections_original.png" alt="12. 补全钢筋面交点">
+          <figcaption>12. 补全钢筋面交点</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/13_instance_graph_junctions_original.png" alt="13. 实例骨架交叉点">
+          <figcaption>13. 实例骨架交叉点</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/14_curve04_frequency_dp_original.png" alt="14. 方案4 DP 曲线局部收束">
+          <figcaption>14. 方案4 DP 曲线局部收束</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/15_multiscale_fused_original.png" alt="15. PR-FPRG-MS 最终融合点">
+          <figcaption>15. PR-FPRG-MS 最终融合点</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/21_candidate_matrix.png" alt="21. 多源候选矩阵对照">
+          <figcaption>21. 多源候选矩阵对照</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/17_03_recovered_greedy_curve_original.png" alt="17. 3/4/5/6 对照：03 频相主线 + greedy 曲线">
+          <figcaption>17. 3/4/5/6 对照：03 频相主线 + greedy 曲线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/18_04_recovered_dp_curve_original.png" alt="18. 3/4/5/6 对照：04 频相主线 + DP 曲线">
+          <figcaption>18. 3/4/5/6 对照：04 频相主线 + DP 曲线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/19_05_recovered_ridge_curve_original.png" alt="19. 3/4/5/6 对照：05 频相主线 + ridge 约束曲线">
+          <figcaption>19. 3/4/5/6 对照：05 频相主线 + ridge 约束曲线</figcaption>
+        </figure>
+        
+
+        <figure class="image-card">
+          <img src="images/20_06_recovered_ir_assisted_curve_original.png" alt="20. 3/4/5/6 对照：06 频相主线 + 红外/多模态辅助曲线">
+          <figcaption>20. 3/4/5/6 对照：06 频相主线 + 红外/多模态辅助曲线</figcaption>
+        </figure>
+        </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-05-04 22:58:31",
+  "frame_source": "live_raw_world_current_capture",
+  "base_response": "combined_depth_ir_darkline",
+  "base_line_counts": [
+    8,
+    8
+  ],
+  "scheme": {
+    "id": "depth_gradient_hessian_frangi_dp",
+    "point_count": 64,
+    "line_counts": [
+      8,
+      8
+    ],
+    "binary_threshold": 0.6941544294357298,
+    "binary_candidate_pixels": 37189,
+    "completed_surface_pixels": 87059,
+    "instance_graph_endpoint_count": 759,
+    "instance_graph_junction_count": 777,
+    "mean_completed_surface_score": 0.9463460063561797
+  },
+  "images": {
+    "00_input_workspace.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/00_input_workspace.png",
+    "01_combined_response.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/01_combined_response.png",
+    "02_depth_gradient.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/02_depth_gradient.png",
+    "03_hessian_ridge.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/03_hessian_ridge.png",
+    "04_frangi_like.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/04_frangi_like.png",
+    "05_gradient_hessian_frangi_fusion.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/05_gradient_hessian_frangi_fusion.png",
+    "06_binary_candidate.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/06_binary_candidate.png",
+    "07_skeleton_on_fusion.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/07_skeleton_on_fusion.png",
+    "08_completed_surface_response.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/08_completed_surface_response.png",
+    "09_dp_curve_rectified_points.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/09_dp_curve_rectified_points.png",
+    "10_dp_curve_original_points.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/10_dp_curve_original_points.png",
+    "90_effect_montage.png": "/home/hyq-/simple_lashingrobot_ws/.debug_frames/live_depth_gradient_hessian_frangi_scheme_20260504_225825/images/90_effect_montage.png"
+  },
+  "note": "This is an offline visual report. It does not change the runtime mainline."
+}

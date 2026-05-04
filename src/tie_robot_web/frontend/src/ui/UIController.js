@@ -16,6 +16,7 @@ import {
 import { DEFAULT_IMAGE_TOPIC, IMAGE_TOPIC_OPTIONS, getImageTopicLabel } from "../config/imageTopicCatalog.js";
 import { DEFAULT_LOG_TOPIC, LOG_TOPIC_OPTIONS, getLogTopicLabel } from "../config/logTopicCatalog.js";
 import { STATUS_MONITORS } from "../config/statusMonitorCatalog.js";
+import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
 
 const DISPLAY_MODE_LABELS = {
   auto: "自动增强",
@@ -41,10 +42,17 @@ const CONNECTION_ACTIONS = {
   error: { id: "startRosStack", label: "启动ROS" },
 };
 
+const STATUS_CHIP_LONG_PRESS_RESTART_MS = 800;
+
 const CABIN_POSITION_AXES = [
   { id: "x", label: "X" },
   { id: "y", label: "Y" },
   { id: "z", label: "Z" },
+];
+
+const CABIN_REMOTE_MOVE_MODES = [
+  { id: "absolute", label: "绝对点动" },
+  { id: "relative", label: "相对点动" },
 ];
 
 const TCP_LINEAR_POSITION_FIELDS = [
@@ -54,26 +62,46 @@ const TCP_LINEAR_POSITION_FIELDS = [
   { id: "angle", label: "角度", key: "motor_angle", unit: "deg" },
 ];
 
+const NETWORK_PING_TARGETS = [
+  {
+    id: "cabin",
+    label: "索驱",
+    settingsKey: "cabinHost",
+    defaultHost: "192.168.6.62",
+    hostRef: "networkPingCabinHost",
+    buttonRef: "networkPingCabinButton",
+    resultRef: "networkPingCabinResult",
+    buttonLabel: "保存并测试",
+  },
+  {
+    id: "moduan",
+    label: "线性模组",
+    settingsKey: "moduanHost",
+    defaultHost: "192.168.6.167",
+    hostRef: "networkPingModuanHost",
+    buttonRef: "networkPingModuanButton",
+    resultRef: "networkPingModuanResult",
+    buttonLabel: "保存并测试",
+  },
+];
+
 const SETTINGS_PAGE_OPTIONS = [
   { id: "topics", label: "话题总览" },
   { id: "logs", label: "节点日志" },
   { id: "visualDebug", label: "视觉调试" },
   { id: "gb28181Local", label: "国标接入" },
+  { id: "networkPing", label: "网络配置" },
   { id: "workspace", label: "工作区选点" },
   { id: "scene", label: "显示与视角" },
-  { id: "layers", label: "图层与数据" },
   { id: "cabinRemote", label: "索驱遥控" },
   { id: "tcpLinearRemote", label: "TCP线模遥控" },
-  { id: "calibration", label: "相机-TCP外参" },
+  { id: "homeCalibration", label: "Home点位" },
 ];
 
-const VISUAL_DEBUG_REQUEST_MODES = [
-  { id: 1, label: "自适应高度" },
-  { id: 2, label: "绑扎检查" },
-  { id: 3, label: "扫描输出" },
-  { id: 4, label: "执行微调" },
-  { id: 0, label: "默认模式" },
-];
+const SETTINGS_PAGE_ALIASES = {
+  layers: "scene",
+  calibration: "visualDebug",
+};
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -81,6 +109,10 @@ function escapeHtml(value) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function normalizeCabinRemoteMoveMode(moveMode) {
+  return moveMode === "relative" ? "relative" : "absolute";
 }
 
 export class UIController {
@@ -100,6 +132,8 @@ export class UIController {
     this.settingsPagePointerDrag = null;
     this.settingsPageDragGhost = null;
     this.settingsPageDragFrame = 0;
+    this.bottomCabinPositionTitle = "等待索驱 TF 更新机器位置";
+    this.bottomCabinOperationDetail = "索驱不可操作：连接断开或状态未上报";
     this.handleSettingsHomePageChange = null;
     this.handleSettingsPageOrderChange = null;
     this.graphicalAppPanelStates = new Map();
@@ -137,8 +171,9 @@ export class UIController {
     const allowedIds = new Set(SETTINGS_PAGE_OPTIONS.map((option) => option.id));
     const uniqueIds = [];
     (Array.isArray(pageOrder) ? pageOrder : []).forEach((pageId) => {
-      if (allowedIds.has(pageId) && !uniqueIds.includes(pageId)) {
-        uniqueIds.push(pageId);
+      const normalizedPageId = this.normalizeSettingsPageId(pageId);
+      if (allowedIds.has(normalizedPageId) && !uniqueIds.includes(normalizedPageId)) {
+        uniqueIds.push(normalizedPageId);
       }
     });
     SETTINGS_PAGE_OPTIONS.forEach((option) => {
@@ -154,6 +189,19 @@ export class UIController {
     return this.normalizeSettingsPageOrder(this.settingsPageOrder)
       .map((pageId) => optionById.get(pageId))
       .filter(Boolean);
+  }
+
+  getSettingsPageHomeFirstOrder(pageId, pageOrder = this.settingsPageOrder) {
+    const normalizedPageId = this.normalizeSettingsPageId(pageId);
+    const normalizedOrder = this.normalizeSettingsPageOrder(pageOrder);
+    return [
+      normalizedPageId,
+      ...normalizedOrder.filter((candidateId) => candidateId !== normalizedPageId),
+    ];
+  }
+
+  getSettingsPageOrder() {
+    return [...this.settingsPageOrder];
   }
 
   renderSettingsPageOptionMarkup() {
@@ -318,20 +366,34 @@ export class UIController {
                           <label for="visualDebugStableFrameCount">释放帧数</label>
                           <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
                         </div>
-                        <div class="field">
-                          <label for="visualDebugRequestMode">服务模式</label>
-                          <select id="visualDebugRequestMode" class="ui-select">
-                            ${VISUAL_DEBUG_REQUEST_MODES.map((mode) => `
-                              <option value="${mode.id}">${mode.label}</option>
-                            `).join("")}
-                          </select>
-                        </div>
                       </div>
                       <div class="button-row">
                         <button id="visualDebugApplyStableFrameCount" class="secondary-btn" type="button">应用帧数</button>
                         <button id="visualDebugTrigger" class="primary-btn" type="button">触发视觉服务</button>
                       </div>
                       <div id="visualDebugTimingSummary" class="info-block mono">单帧=--ms 服务=--ms 释放=3帧 点数=--</div>
+                    </div>
+
+                    <div class="settings-section gripper-tf-calibration-card">
+                      <div class="section-title">相机-TCP外参</div>
+                      <div id="gripperTfCurrent" class="info-block mono gripper-tf-current">等待 TF 链路后读取当前外参。</div>
+                      <div class="field-grid compact-grid gripper-tf-grid">
+                        <div class="field">
+                          <label for="gripperTfX">X (mm)</label>
+                          <input id="gripperTfX" type="number" step="1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="gripperTfY">Y (mm)</label>
+                          <input id="gripperTfY" type="number" step="1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="gripperTfZ">Z (mm)</label>
+                          <input id="gripperTfZ" type="number" step="1" value="0" />
+                        </div>
+                      </div>
+                      <div class="button-row gripper-tf-actions">
+                        <button id="applyGripperTfCalibration" class="primary-btn" type="button">应用外参</button>
+                      </div>
                     </div>
 
                     <div class="settings-section visual-debug-log-card">
@@ -394,6 +456,50 @@ export class UIController {
                   </div>
                 </section>
 
+                <section class="settings-page" data-settings-page="networkPing" hidden>
+                  <div class="settings-grid network-ping-grid">
+                    <div class="settings-section network-ping-card">
+                      <div class="section-title">索驱上位机</div>
+                      <div class="field-grid compact-grid network-ping-field-grid">
+                        <div class="field">
+                          <label for="networkPingCabinHost">上位机 IP</label>
+                          <input id="networkPingCabinHost" type="text" inputmode="decimal" autocomplete="off" value="192.168.6.62" />
+                        </div>
+                        <div class="network-ping-action-cell">
+                          <button
+                            id="networkPingCabinButton"
+                            class="secondary-btn network-ping-button"
+                            type="button"
+                            data-network-ping-target="cabin"
+                            data-state="idle"
+                          >保存并测试</button>
+                        </div>
+                      </div>
+                      <div id="networkPingCabinResult" class="network-ping-result" data-state="idle">等待测试。</div>
+                    </div>
+
+                    <div class="settings-section network-ping-card">
+                      <div class="section-title">线性模组上位机</div>
+                      <div class="field-grid compact-grid network-ping-field-grid">
+                        <div class="field">
+                          <label for="networkPingModuanHost">上位机 IP</label>
+                          <input id="networkPingModuanHost" type="text" inputmode="decimal" autocomplete="off" value="192.168.6.167" />
+                        </div>
+                        <div class="network-ping-action-cell">
+                          <button
+                            id="networkPingModuanButton"
+                            class="secondary-btn network-ping-button"
+                            type="button"
+                            data-network-ping-target="moduan"
+                            data-state="idle"
+                          >保存并测试</button>
+                        </div>
+                      </div>
+                      <div id="networkPingModuanResult" class="network-ping-result" data-state="idle">等待测试。</div>
+                    </div>
+                  </div>
+                </section>
+
                 <section class="settings-page is-active" data-settings-page="workspace">
                   <div class="settings-grid">
                     <div class="settings-section">
@@ -433,111 +539,121 @@ export class UIController {
                 </section>
 
                 <section class="settings-page" data-settings-page="scene" hidden>
-                  <div class="settings-grid">
-                    <div class="settings-section">
-                      <div class="section-title">场景视角</div>
+                  <div class="settings-grid scene-view-grid">
+                    <div class="settings-section scene-view-card">
+                      <div class="section-title">视角</div>
+                      <input id="sceneViewMode" type="hidden" value="free" />
+                      <div class="scene-view-control-row">
+                        <div class="scene-view-mode-group" role="group" aria-label="视角">
+                          ${SCENE_VIEW_MODES.map((mode) => `
+                            <button
+                              class="scene-view-mode-button ${mode.id === "free" ? "is-active" : ""}"
+                              type="button"
+                              data-scene-view-mode="${mode.id}"
+                              aria-pressed="${mode.id === "free" ? "true" : "false"}"
+                            >${mode.label}</button>
+                          `).join("")}
+                        </div>
+                        <label class="checkbox-field scene-follow-origin-field">
+                          <input id="followOriginToggle" type="checkbox" />
+                          <span>跟随原点</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div class="settings-section settings-section-layers">
+                      <div class="section-title">图层设置</div>
                       <div class="field-grid compact-grid">
                         <div class="field">
-                          <label for="sceneViewMode">视角</label>
-                          <select id="sceneViewMode" class="ui-select">
-                            ${SCENE_VIEW_MODES.map((mode) => `
+                          <label for="topicLayerMode">模式</label>
+                            <select id="topicLayerMode" class="ui-select">
+                            ${TOPIC_LAYER_MODES.map((mode) => `
                               <option value="${mode.id}">${mode.label}</option>
                             `).join("")}
                           </select>
                         </div>
-                        <label class="checkbox-field">
-                          <input id="followCameraToggle" type="checkbox" />
-                          <span>跟随相机</span>
-                        </label>
+                        <div class="field">
+                          <label for="pointCloudSource">点云源</label>
+                            <select id="pointCloudSource" class="ui-select">
+                            ${POINT_CLOUD_SOURCES.map((source) => `
+                              <option value="${source.id}">${source.label}</option>
+                            `).join("")}
+                          </select>
+                        </div>
                       </div>
+
+                      <div class="toggle-grid">
+                        <label class="checkbox-field"><input id="showRobotToggle" type="checkbox" checked /><span>机器</span></label>
+                        <label class="checkbox-field"><input id="showAxesToggle" type="checkbox" checked /><span>坐标轴</span></label>
+                        <label class="checkbox-field"><input id="showPointCloudToggle" type="checkbox" /><span>点云</span></label>
+                        <label class="checkbox-field"><input id="showPlanningMarkersToggle" type="checkbox" checked /><span>规划点/绑扎点</span></label>
+                      </div>
+
+                      <div class="tf-axis-frame-panel">
+                        <div class="tf-axis-frame-header">
+                          <span>坐标轴明细</span>
+                          <small>总开关关闭时全部隐藏</small>
+                        </div>
+                        <div class="tf-axis-frame-grid">
+                          ${TF_AXIS_FRAMES.map((frame) => `
+                            <label class="checkbox-field tf-axis-frame-option">
+                              <input type="checkbox" data-tf-axis-frame="${frame.id}" checked />
+                              <span>${frame.label}</span>
+                            </label>
+                          `).join("")}
+                        </div>
+                      </div>
+
+                      <div class="field-grid compact-grid settings-range-grid">
+                        <div class="field">
+                          <label for="pointSizeRange">点大小</label>
+                          <input id="pointSizeRange" type="range" min="0.01" max="0.10" step="0.005" value="0.035" />
+                        </div>
+                        <div class="field">
+                          <label for="pointOpacityRange">点透明度</label>
+                          <input id="pointOpacityRange" type="range" min="0.15" max="1.00" step="0.05" value="0.78" />
+                        </div>
+                      </div>
+
+                      <div id="topicLayerSummary" class="info-block mono">模式=点云 + 规划点/绑扎点 点云源=滤波世界点云 点大小=0.035 透明度=0.78</div>
+
+                      <div class="section-title">当前数据量</div>
+                      <div id="topicLayerStats" class="stats-grid"></div>
                     </div>
                   </div>
                 </section>
 
-                <section class="settings-page" data-settings-page="layers" hidden>
-                  <div class="settings-section settings-section-layers">
-                    <div class="section-title">图层设置</div>
-                    <div class="field-grid compact-grid">
-                      <div class="field">
-                        <label for="topicLayerMode">模式</label>
-                          <select id="topicLayerMode" class="ui-select">
-                          ${TOPIC_LAYER_MODES.map((mode) => `
-                            <option value="${mode.id}">${mode.label}</option>
-                          `).join("")}
-                        </select>
-                      </div>
-                      <div class="field">
-                        <label for="pointCloudSource">点云源</label>
-                          <select id="pointCloudSource" class="ui-select">
-                          ${POINT_CLOUD_SOURCES.map((source) => `
-                            <option value="${source.id}">${source.label}</option>
-                          `).join("")}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div class="toggle-grid">
-                      <label class="checkbox-field"><input id="showRobotToggle" type="checkbox" checked /><span>机器</span></label>
-                      <label class="checkbox-field"><input id="showAxesToggle" type="checkbox" checked /><span>坐标轴</span></label>
-                      <label class="checkbox-field"><input id="showPointCloudToggle" type="checkbox" /><span>点云</span></label>
-                      <label class="checkbox-field"><input id="showPlanningMarkersToggle" type="checkbox" checked /><span>规划点/绑扎点</span></label>
-                    </div>
-
-                    <div class="tf-axis-frame-panel">
-                      <div class="tf-axis-frame-header">
-                        <span>坐标轴明细</span>
-                        <small>总开关关闭时全部隐藏</small>
-                      </div>
-                      <div class="tf-axis-frame-grid">
-                        ${TF_AXIS_FRAMES.map((frame) => `
-                          <label class="checkbox-field tf-axis-frame-option">
-                            <input type="checkbox" data-tf-axis-frame="${frame.id}" checked />
-                            <span>${frame.label}</span>
-                          </label>
-                        `).join("")}
-                      </div>
-                    </div>
-
-                    <div class="field-grid compact-grid settings-range-grid">
-                      <div class="field">
-                        <label for="pointSizeRange">点大小</label>
-                        <input id="pointSizeRange" type="range" min="0.01" max="0.10" step="0.005" value="0.035" />
-                      </div>
-                      <div class="field">
-                        <label for="pointOpacityRange">点透明度</label>
-                        <input id="pointOpacityRange" type="range" min="0.15" max="1.00" step="0.05" value="0.78" />
-                      </div>
-                    </div>
-
-                    <div id="topicLayerSummary" class="info-block mono">模式=点云 + 规划点/绑扎点 点云源=滤波世界点云 点大小=0.035 透明度=0.78</div>
-
-                    <div class="section-title">当前数据量</div>
-                    <div id="topicLayerStats" class="stats-grid"></div>
-                  </div>
-                </section>
-
-                <section class="settings-page" data-settings-page="calibration" hidden>
-                  <div class="settings-grid">
+                <section class="settings-page" data-settings-page="homeCalibration" hidden>
+                  <div class="settings-grid home-calibration-grid">
                     <div class="settings-section">
-                      <div class="section-title">相机-TCP外参</div>
-                      <div id="gripperTfCurrent" class="info-block mono">等待 TF 链路后读取当前外参。</div>
+                      <div class="section-title">Home点位</div>
+                      <div id="robotHomeSummary" class="info-block mono">等待 Home 标定服务。</div>
                       <div class="field-grid compact-grid">
                         <div class="field">
-                          <label for="gripperTfX">X (mm)</label>
-                          <input id="gripperTfX" type="number" step="1" value="0" />
+                          <label for="robotHomeX">Home X (mm)</label>
+                          <input id="robotHomeX" type="number" step="1" value="0" />
                         </div>
                         <div class="field">
-                          <label for="gripperTfY">Y (mm)</label>
-                          <input id="gripperTfY" type="number" step="1" value="0" />
+                          <label for="robotHomeY">Home Y (mm)</label>
+                          <input id="robotHomeY" type="number" step="1" value="0" />
                         </div>
                         <div class="field">
-                          <label for="gripperTfZ">Z (mm)</label>
-                          <input id="gripperTfZ" type="number" step="1" value="0" />
+                          <label for="robotHomeZ">Home Z (mm)</label>
+                          <input id="robotHomeZ" type="number" step="1" value="0" />
                         </div>
                       </div>
                       <div class="button-row">
-                        <button id="applyGripperTfCalibration" class="primary-btn" type="button">应用外参</button>
+                        <button id="refreshRobotHome" class="secondary-btn" type="button">刷新</button>
+                        <button id="captureRobotHome" class="secondary-btn" type="button">当前位置设为Home</button>
+                        <button id="saveRobotHomeCalibration" class="primary-btn" type="button">保存</button>
+                        <button id="moveRobotHome" class="secondary-btn" type="button">回Home</button>
                       </div>
+                    </div>
+
+                    <div class="settings-section">
+                      <div class="section-title">base_link → 相机</div>
+                      <div id="robotHomeTfSummary" class="info-block mono">等待 TF 投射状态。</div>
+                      <div id="baseToCameraComputed" class="info-block mono">由 TF 链自动计算，人工只设置 Home 点。</div>
                     </div>
                   </div>
                 </section>
@@ -550,6 +666,17 @@ export class UIController {
                         <input id="cabinKeyboardRemoteToggle" type="checkbox" />
                         <span>开启键盘遥控（全局生效）</span>
                       </label>
+                      <input id="cabinRemoteMoveMode" type="hidden" value="absolute" />
+                      <div class="cabin-remote-mode-group" role="group" aria-label="索驱点动模式">
+                        ${CABIN_REMOTE_MOVE_MODES.map((mode) => `
+                          <button
+                            class="cabin-remote-mode-button ${mode.id === "absolute" ? "is-active" : ""}"
+                            type="button"
+                            data-cabin-remote-move-mode="${mode.id}"
+                            aria-pressed="${mode.id === "absolute" ? "true" : "false"}"
+                          >${mode.label}</button>
+                        `).join("")}
+                      </div>
                       <div class="cabin-remote-pad">
                         <button class="secondary-btn cabin-remote-btn" type="button" data-cabin-remote-direction="zPositive" disabled>上</button>
                         <button class="secondary-btn cabin-remote-btn" type="button" data-cabin-remote-direction="xPositive" disabled>X+</button>
@@ -578,20 +705,23 @@ export class UIController {
                           <input id="cabinRemoteSpeed" type="number" min="1" step="1" value="300" />
                         </div>
                       </div>
-                      <div class="section-title">当前索驱坐标</div>
-                      <div id="cabinRemoteCurrentPosition" class="info-block cabin-remote-position-grid mono">
-                        <div class="cabin-remote-position-item">
-                          <span class="cabin-remote-position-label">X</span>
-                          <span class="cabin-remote-position-value">等待索驱 TF…</span>
+                      <div class="section-title">绝对目标位姿</div>
+                      <div class="field-grid compact-grid">
+                        <div class="field">
+                          <label for="cabinRemoteAbsoluteX">X (mm)</label>
+                          <input id="cabinRemoteAbsoluteX" type="number" step="1" />
                         </div>
-                        <div class="cabin-remote-position-item">
-                          <span class="cabin-remote-position-label">Y</span>
-                          <span class="cabin-remote-position-value">等待索驱 TF…</span>
+                        <div class="field">
+                          <label for="cabinRemoteAbsoluteY">Y (mm)</label>
+                          <input id="cabinRemoteAbsoluteY" type="number" step="1" />
                         </div>
-                        <div class="cabin-remote-position-item">
-                          <span class="cabin-remote-position-label">Z</span>
-                          <span class="cabin-remote-position-value">等待索驱 TF…</span>
+                        <div class="field">
+                          <label for="cabinRemoteAbsoluteZ">Z (mm)</label>
+                          <input id="cabinRemoteAbsoluteZ" type="number" step="1" />
                         </div>
+                      </div>
+                      <div class="cabin-remote-absolute-actions">
+                        <button id="cabinRemoteAbsoluteMoveButton" class="primary-btn" type="button" disabled>移动到绝对位姿</button>
                       </div>
                     </div>
                   </div>
@@ -704,6 +834,7 @@ export class UIController {
             id="bottomCabinPosition"
             class="bottom-cabin-position mono"
             data-state="waiting"
+            data-operation-state="blocked"
             title="等待索驱 TF 更新机器位置"
             aria-label="等待索驱 TF 更新机器位置"
           >
@@ -768,7 +899,8 @@ export class UIController {
     this.refs.irCanvas = this.rootElement.querySelector("#irCanvas");
     this.refs.overlayCanvas = this.rootElement.querySelector("#overlayCanvas");
     this.refs.sceneViewMode = this.rootElement.querySelector("#sceneViewMode");
-    this.refs.followCameraToggle = this.rootElement.querySelector("#followCameraToggle");
+    this.refs.sceneViewModeButtons = [...this.rootElement.querySelectorAll("[data-scene-view-mode]")];
+    this.refs.followOriginToggle = this.rootElement.querySelector("#followOriginToggle");
     this.refs.connectionBadge = this.rootElement.querySelector("#connectionBadge");
     this.refs.voltageBadge = this.rootElement.querySelector("#voltageBadge");
     this.refs.themeToggle = this.rootElement.querySelector("#themeToggle");
@@ -806,7 +938,6 @@ export class UIController {
     this.refs.logList = this.rootElement.querySelector("#logList");
     this.refs.settingsLayerLogList = this.rootElement.querySelector("#settingsLayerLogList");
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
-    this.refs.visualDebugRequestMode = this.rootElement.querySelector("#visualDebugRequestMode");
     this.refs.visualDebugApplyStableFrameCount = this.rootElement.querySelector("#visualDebugApplyStableFrameCount");
     this.refs.visualDebugTrigger = this.rootElement.querySelector("#visualDebugTrigger");
     this.refs.visualDebugTimingSummary = this.rootElement.querySelector("#visualDebugTimingSummary");
@@ -827,14 +958,38 @@ export class UIController {
     this.refs.gb28181ResetRemote = this.rootElement.querySelector("#gb28181ResetRemote");
     this.refs.gb28181WriteConfig = this.rootElement.querySelector("#gb28181WriteConfig");
     this.refs.gb28181ConfigStatus = this.rootElement.querySelector("#gb28181ConfigStatus");
+    this.refs.networkPingCabinHost = this.rootElement.querySelector("#networkPingCabinHost");
+    this.refs.networkPingModuanHost = this.rootElement.querySelector("#networkPingModuanHost");
+    this.refs.networkPingCabinButton = this.rootElement.querySelector("#networkPingCabinButton");
+    this.refs.networkPingModuanButton = this.rootElement.querySelector("#networkPingModuanButton");
+    this.refs.networkPingCabinResult = this.rootElement.querySelector("#networkPingCabinResult");
+    this.refs.networkPingModuanResult = this.rootElement.querySelector("#networkPingModuanResult");
+    this.refs.networkPingInputs = [this.refs.networkPingCabinHost, this.refs.networkPingModuanHost].filter(Boolean);
+    this.refs.networkPingButtons = [...this.rootElement.querySelectorAll("[data-network-ping-target]")];
     this.refs.gripperTfCurrent = this.rootElement.querySelector("#gripperTfCurrent");
     this.refs.gripperTfX = this.rootElement.querySelector("#gripperTfX");
     this.refs.gripperTfY = this.rootElement.querySelector("#gripperTfY");
     this.refs.gripperTfZ = this.rootElement.querySelector("#gripperTfZ");
     this.refs.applyGripperTfCalibration = this.rootElement.querySelector("#applyGripperTfCalibration");
+    this.refs.robotHomeSummary = this.rootElement.querySelector("#robotHomeSummary");
+    this.refs.robotHomeTfSummary = this.rootElement.querySelector("#robotHomeTfSummary");
+    this.refs.robotHomeX = this.rootElement.querySelector("#robotHomeX");
+    this.refs.robotHomeY = this.rootElement.querySelector("#robotHomeY");
+    this.refs.robotHomeZ = this.rootElement.querySelector("#robotHomeZ");
+    this.refs.baseToCameraComputed = this.rootElement.querySelector("#baseToCameraComputed");
+    this.refs.refreshRobotHome = this.rootElement.querySelector("#refreshRobotHome");
+    this.refs.captureRobotHome = this.rootElement.querySelector("#captureRobotHome");
+    this.refs.saveRobotHomeCalibration = this.rootElement.querySelector("#saveRobotHomeCalibration");
+    this.refs.moveRobotHome = this.rootElement.querySelector("#moveRobotHome");
     this.refs.cabinKeyboardRemoteToggle = this.rootElement.querySelector("#cabinKeyboardRemoteToggle");
+    this.refs.cabinRemoteMoveMode = this.rootElement.querySelector("#cabinRemoteMoveMode");
+    this.refs.cabinRemoteMoveModeButtons = [...this.rootElement.querySelectorAll("[data-cabin-remote-move-mode]")];
     this.refs.cabinRemoteStep = this.rootElement.querySelector("#cabinRemoteStep");
     this.refs.cabinRemoteSpeed = this.rootElement.querySelector("#cabinRemoteSpeed");
+    this.refs.cabinRemoteAbsoluteX = this.rootElement.querySelector("#cabinRemoteAbsoluteX");
+    this.refs.cabinRemoteAbsoluteY = this.rootElement.querySelector("#cabinRemoteAbsoluteY");
+    this.refs.cabinRemoteAbsoluteZ = this.rootElement.querySelector("#cabinRemoteAbsoluteZ");
+    this.refs.cabinRemoteAbsoluteMoveButton = this.rootElement.querySelector("#cabinRemoteAbsoluteMoveButton");
     this.refs.bottomCabinPosition = this.rootElement.querySelector("#bottomCabinPosition");
     this.refs.bottomCabinPositionAxes = [...this.rootElement.querySelectorAll("[data-bottom-cabin-axis]")];
     this.refs.bottomLinearModulePosition = this.rootElement.querySelector("#bottomLinearModulePosition");
@@ -867,7 +1022,7 @@ export class UIController {
       this.refs.pointSizeRange,
       this.refs.pointOpacityRange,
     ].filter(Boolean);
-    this.refs.sceneInputs = [this.refs.sceneViewMode, this.refs.followCameraToggle];
+    this.refs.sceneInputs = [this.refs.followOriginToggle].filter(Boolean);
     this.enhanceSelectControls();
     this.refs.settingsPageSelect?.addEventListener("change", () => this.setSettingsPage(this.refs.settingsPageSelect.value));
     this.bindGb28181LocalControls();
@@ -972,7 +1127,10 @@ export class UIController {
             return;
           }
           const previousHomePageId = this.settingsHomePageId;
-          const normalizedPageId = this.setSettingsHomePage(option.value);
+          const normalizedPageId = this.setSettingsHomePage(option.value, {
+            notifyOrder: true,
+            animate: true,
+          });
           if (previousHomePageId !== normalizedPageId) {
             this.handleSettingsHomePageChange?.(normalizedPageId);
           }
@@ -1206,7 +1364,7 @@ export class UIController {
     this.cleanupSettingsPageDragGhost();
     this.settingsPagePointerDrag = null;
     if (finalOrder) {
-      this.handleSettingsPageOrderChange?.(finalOrder);
+      this.notifySettingsPageOrderCommitted(finalOrder);
     }
   }
 
@@ -1276,9 +1434,21 @@ export class UIController {
     const beforeRects = animate ? this.captureSettingsPageRowRects(entry) : null;
     const committedOrder = this.setSettingsPageOrder(normalizedOrder, { animateFrom: beforeRects });
     if (notify) {
-      this.handleSettingsPageOrderChange?.(committedOrder);
+      this.notifySettingsPageOrderCommitted(committedOrder);
     }
     return committedOrder;
+  }
+
+  notifySettingsPageOrderCommitted(pageOrder) {
+    const committedOrder = this.normalizeSettingsPageOrder(pageOrder);
+    this.handleSettingsPageOrderChange?.(committedOrder);
+    const firstPageId = committedOrder[0] || "";
+    if (firstPageId && firstPageId !== this.settingsHomePageId) {
+      const normalizedHomePageId = this.setSettingsHomePage(firstPageId, {
+        reorder: false,
+      });
+      this.handleSettingsHomePageChange?.(normalizedHomePageId);
+    }
   }
 
   setSettingsPageOrder(pageOrder, { animateFrom = null } = {}) {
@@ -1499,12 +1669,26 @@ export class UIController {
   }
 
   normalizeSettingsPageId(pageId) {
-    return SETTINGS_PAGE_OPTIONS.some((option) => option.id === pageId) ? pageId : "topics";
+    const normalizedPageId = SETTINGS_PAGE_ALIASES[pageId] || pageId;
+    return SETTINGS_PAGE_OPTIONS.some((option) => option.id === normalizedPageId) ? normalizedPageId : "topics";
   }
 
-  setSettingsHomePage(pageId) {
+  setSettingsHomePage(pageId, { reorder = true, notifyOrder = false, animate = false } = {}) {
     const normalizedPageId = this.normalizeSettingsPageId(pageId);
     this.settingsHomePageId = normalizedPageId;
+    if (reorder) {
+      const nextOrder = this.getSettingsPageHomeFirstOrder(normalizedPageId);
+      const orderChanged = nextOrder.join("\u0000") !== this.settingsPageOrder.join("\u0000");
+      if (orderChanged) {
+        const entry = this.customSelects.get("settingsPageSelect");
+        const beforeRects = animate ? this.captureSettingsPageRowRects(entry) : null;
+        const committedOrder = this.setSettingsPageOrder(nextOrder, { animateFrom: beforeRects });
+        if (notifyOrder) {
+          this.handleSettingsPageOrderChange?.(committedOrder);
+        }
+        return normalizedPageId;
+      }
+    }
     if (this.refs.settingsPageSelect) {
       this.refreshCustomSelect(this.refs.settingsPageSelect);
     }
@@ -1672,7 +1856,7 @@ export class UIController {
   }
 
   renderStatusChips() {
-    this.refs.statusCapsuleGrid.innerHTML = STATUS_MONITORS
+    const monitorMarkup = STATUS_MONITORS
       .filter((item) => item.id !== "ros")
       .map((item) => `
       <button
@@ -1689,6 +1873,23 @@ export class UIController {
           </span>
       </button>
     `).join("");
+    const demoModeMarkup = `
+      <button
+        class="system-status-item error is-interactive"
+        type="button"
+        data-status-id="demoMode"
+        data-status-action="toggleDemoMode"
+        aria-pressed="false"
+        title="演示模式未启用"
+      >
+          <span class="system-status-light"></span>
+          <span class="system-status-text">
+            <span class="system-status-label">演示模式</span>
+            <span class="system-status-action-label">进入</span>
+          </span>
+      </button>
+    `;
+    this.refs.statusCapsuleGrid.innerHTML = `${monitorMarkup}${demoModeMarkup}`;
   }
 
   renderControlPanelTasks() {
@@ -1766,8 +1967,8 @@ export class UIController {
       tfAxisFrameVisibility: this.getTfAxisFrameVisibility(),
       pointSize: Number.parseFloat(this.refs.pointSizeRange.value),
       pointOpacity: Number.parseFloat(this.refs.pointOpacityRange.value),
-      viewMode: this.refs.sceneViewMode.value,
-      followCamera: this.refs.followCameraToggle.checked,
+      viewMode: this.getSelectedSceneViewMode(),
+      followOrigin: this.refs.followOriginToggle.checked,
     };
   }
 
@@ -1780,17 +1981,66 @@ export class UIController {
 
   getSceneViewState() {
     return {
-      viewMode: this.refs.sceneViewMode.value,
-      followCamera: this.refs.followCameraToggle.checked,
+      viewMode: this.getSelectedSceneViewMode(),
+      followOrigin: this.refs.followOriginToggle.checked,
     };
+  }
+
+  getSelectedSceneViewMode() {
+    const currentValue = this.refs.sceneViewMode?.value || "free";
+    return SCENE_VIEW_MODES.some((mode) => mode.id === currentValue) ? currentValue : "free";
+  }
+
+  setSceneViewMode(viewMode) {
+    const normalizedViewMode = SCENE_VIEW_MODES.some((mode) => mode.id === viewMode)
+      ? viewMode
+      : "free";
+    if (this.refs.sceneViewMode) {
+      this.refs.sceneViewMode.value = normalizedViewMode;
+    }
+    this.refs.sceneViewModeButtons?.forEach((button) => {
+      const active = button.dataset.sceneViewMode === normalizedViewMode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    return normalizedViewMode;
   }
 
   getCabinRemoteSettings() {
     return {
       keyboardEnabled: Boolean(this.refs.cabinKeyboardRemoteToggle?.checked),
+      moveMode: normalizeCabinRemoteMoveMode(this.refs.cabinRemoteMoveMode?.value),
       step: Number.parseFloat(this.refs.cabinRemoteStep?.value || "50"),
       speed: Number.parseFloat(this.refs.cabinRemoteSpeed?.value || "300"),
     };
+  }
+
+  getCabinRemoteAbsoluteTarget() {
+    return {
+      x: Number.parseFloat(this.refs.cabinRemoteAbsoluteX?.value || ""),
+      y: Number.parseFloat(this.refs.cabinRemoteAbsoluteY?.value || ""),
+      z: Number.parseFloat(this.refs.cabinRemoteAbsoluteZ?.value || ""),
+      speed: Number.parseFloat(this.refs.cabinRemoteSpeed?.value || "300"),
+    };
+  }
+
+  setCabinRemoteAbsoluteTarget(position) {
+    const activeElement = document.activeElement;
+    const isEditing = [
+      this.refs.cabinRemoteAbsoluteX,
+      this.refs.cabinRemoteAbsoluteY,
+      this.refs.cabinRemoteAbsoluteZ,
+    ].includes(activeElement);
+    if (isEditing) {
+      return;
+    }
+    CABIN_POSITION_AXES.forEach(({ id }) => {
+      const refName = `cabinRemoteAbsolute${id.toUpperCase()}`;
+      if (!this.refs[refName] || !Number.isFinite(Number(position?.[id]))) {
+        return;
+      }
+      this.refs[refName].value = String(Math.round(Number(position[id])));
+    });
   }
 
   setCabinRemoteSettings(settings) {
@@ -1806,26 +2056,104 @@ export class UIController {
     if (this.refs.cabinRemoteSpeed) {
       this.refs.cabinRemoteSpeed.value = String(speed);
     }
+    this.setCabinRemoteMoveMode(settings?.moveMode);
+  }
+
+  setCabinRemoteMoveMode(moveMode) {
+    const normalizedMoveMode = normalizeCabinRemoteMoveMode(moveMode);
+    if (this.refs.cabinRemoteMoveMode) {
+      this.refs.cabinRemoteMoveMode.value = normalizedMoveMode;
+    }
+    this.refs.cabinRemoteMoveModeButtons?.forEach((button) => {
+      const active = button.dataset.cabinRemoteMoveMode === normalizedMoveMode;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    return normalizedMoveMode;
+  }
+
+  getNetworkPingTargetMeta(targetId) {
+    return NETWORK_PING_TARGETS.find((target) => target.id === targetId) || null;
+  }
+
+  getNetworkPingSettings() {
+    return NETWORK_PING_TARGETS.reduce((settings, target) => {
+      const value = this.refs[target.hostRef]?.value;
+      settings[target.settingsKey] = value == null ? target.defaultHost : String(value).trim();
+      return settings;
+    }, {});
+  }
+
+  setNetworkPingSettings(settings = {}) {
+    NETWORK_PING_TARGETS.forEach((target) => {
+      const input = this.refs[target.hostRef];
+      if (!input) {
+        return;
+      }
+      input.value = String(settings?.[target.settingsKey] || target.defaultHost);
+    });
+  }
+
+  setNetworkPingPending(targetId, pending) {
+    const target = this.getNetworkPingTargetMeta(targetId);
+    const button = target ? this.refs[target.buttonRef] : null;
+    if (!button) {
+      return;
+    }
+    button.disabled = Boolean(pending);
+    button.classList.toggle("is-pending", Boolean(pending));
+    if (pending) {
+      button.dataset.state = "pending";
+    }
+    button.textContent = pending ? "测试中…" : target.buttonLabel;
+  }
+
+  setNetworkPingResult(targetId, result) {
+    const target = this.getNetworkPingTargetMeta(targetId);
+    const resultNode = target ? this.refs[target.resultRef] : null;
+    if (!resultNode) {
+      return;
+    }
+    const button = this.refs[target.buttonRef];
+    const state = result?.state
+      || (result?.success ? "success" : result?.reachable === false ? "error" : "idle");
+    const hasResultTarget = Object.prototype.hasOwnProperty.call(result || {}, "target");
+    const inputHost = this.refs[target.hostRef]?.value?.trim();
+    const targetHost = hasResultTarget ? String(result.target || "").trim() : inputHost || target.defaultHost;
+    const displayHost = targetHost || "未填写";
+    const summary = String(result?.summary || result?.message || "").trim();
+    const durationText = Number.isFinite(Number(result?.durationMs))
+      ? `，耗时 ${Math.round(Number(result.durationMs))} ms`
+      : "";
+    const directMessage = !result?.target && summary;
+    const displayText = directMessage
+      ? summary
+      : state === "pending"
+        ? `${target.label} ${displayHost}：正在测试连接`
+        : state === "success"
+          ? `${target.label} ${displayHost}：连接成功${durationText}`
+          : state === "error"
+            ? `${target.label} ${displayHost}：连接失败${durationText}`
+            : `${target.label} ${displayHost}：等待测试。`;
+    resultNode.dataset.state = state;
+    resultNode.textContent = displayText;
+    resultNode.title = summary || displayText;
+    if (button) {
+      button.dataset.state = state;
+    }
   }
 
   getVisualDebugSettings() {
     return {
       stableFrameCount: Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugStableFrameCount?.value || "3"))),
-      requestMode: Number.parseInt(this.refs.visualDebugRequestMode?.value || "1", 10),
+      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     };
   }
 
   setVisualDebugSettings(settings) {
     const stableFrameCount = Math.max(1, Math.round(Number(settings?.stableFrameCount) || 3));
-    const requestMode = [0, 1, 2, 3, 4].includes(Number(settings?.requestMode))
-      ? Number(settings.requestMode)
-      : 1;
     if (this.refs.visualDebugStableFrameCount) {
       this.refs.visualDebugStableFrameCount.value = String(stableFrameCount);
-    }
-    if (this.refs.visualDebugRequestMode) {
-      this.refs.visualDebugRequestMode.value = String(requestMode);
-      this.refreshCustomSelect(this.refs.visualDebugRequestMode);
     }
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
@@ -1886,9 +2214,48 @@ export class UIController {
 
   onStatusChipAction(callback) {
     [...this.rootElement.querySelectorAll("[data-status-id][data-status-action]")].forEach((button) => {
+      let longPressTimer = null;
+      let suppressNextClick = false;
+      const clearLongPressTimer = () => {
+        button.classList.remove("is-long-press-charging");
+        if (!longPressTimer) {
+          return;
+        }
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+      };
+      button.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) {
+          return;
+        }
+        if (button.disabled || button.classList.contains("is-pending") || !button.dataset.statusLongAction) {
+          return;
+        }
+        clearLongPressTimer();
+        suppressNextClick = false;
+        button.classList.add("is-long-press-charging");
+        longPressTimer = window.setTimeout(() => {
+          longPressTimer = null;
+          suppressNextClick = true;
+          button.classList.remove("is-long-press-charging");
+          if (button.disabled || button.classList.contains("is-pending")) {
+            return;
+          }
+          callback(button.dataset.statusId, button.dataset.statusLongAction);
+        }, STATUS_CHIP_LONG_PRESS_RESTART_MS);
+      });
+      ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
+        button.addEventListener(eventName, () => {
+          clearLongPressTimer();
+        });
+      });
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          return;
+        }
         if (button.disabled || button.classList.contains("is-pending")) {
           return;
         }
@@ -1971,15 +2338,11 @@ export class UIController {
 
   onCabinRemoteAction(callback) {
     this.refs.cabinRemoteButtons.forEach((button) => {
-      button.addEventListener("pointerdown", (event) => {
-        if (event.button !== 0 || button.disabled) {
+      button.addEventListener("click", () => {
+        if (button.disabled) {
           return;
         }
-        event.preventDefault();
-        callback(button.dataset.cabinRemoteDirection, { type: "pressstart" });
-      });
-      ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
-        button.addEventListener(eventName, () => callback(button.dataset.cabinRemoteDirection, { type: "pressend" }));
+        callback(button.dataset.cabinRemoteDirection, { type: "click" });
       });
       button.addEventListener("keydown", (event) => {
         if (button.disabled || event.repeat) {
@@ -2000,7 +2363,23 @@ export class UIController {
     });
   }
 
+  onCabinRemoteAbsoluteMoveAction(callback) {
+    this.refs.cabinRemoteAbsoluteMoveButton?.addEventListener("click", () => {
+      if (this.refs.cabinRemoteAbsoluteMoveButton.disabled) {
+        return;
+      }
+      callback(this.getCabinRemoteAbsoluteTarget());
+    });
+  }
+
   onCabinRemoteSettingsChange(callback) {
+    this.refs.cabinRemoteMoveModeButtons?.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.setCabinRemoteMoveMode(button.dataset.cabinRemoteMoveMode);
+        callback(this.getCabinRemoteSettings());
+      });
+    });
     [this.refs.cabinKeyboardRemoteToggle, this.refs.cabinRemoteStep, this.refs.cabinRemoteSpeed]
       .filter(Boolean)
       .forEach((element) => {
@@ -2009,6 +2388,40 @@ export class UIController {
         if (eventName !== "change") {
           element.addEventListener("change", () => callback(this.getCabinRemoteSettings()));
         }
+      });
+  }
+
+  onNetworkPingSettingsChange(callback) {
+    this.refs.networkPingInputs
+      ?.filter(Boolean)
+      .forEach((element) => {
+        const notify = () => {
+          callback(this.getNetworkPingSettings());
+          const target = NETWORK_PING_TARGETS.find((candidate) => this.refs[candidate.hostRef] === element);
+          if (target) {
+            this.setNetworkPingResult(target.id, {
+              state: "idle",
+              target: element.value.trim(),
+            });
+          }
+        };
+        element.addEventListener("input", notify);
+        element.addEventListener("change", notify);
+      });
+  }
+
+  onNetworkPingTest(callback) {
+    this.refs.networkPingButtons
+      ?.filter(Boolean)
+      .forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (button.disabled) {
+            return;
+          }
+          callback(button.dataset.networkPingTarget);
+        });
       });
   }
 
@@ -2051,7 +2464,7 @@ export class UIController {
   }
 
   onVisualDebugSettingsChange(callback) {
-    [this.refs.visualDebugStableFrameCount, this.refs.visualDebugRequestMode]
+    [this.refs.visualDebugStableFrameCount]
       .filter(Boolean)
       .forEach((element) => {
         element.addEventListener("input", () => callback(this.getVisualDebugSettings()));
@@ -2061,6 +2474,17 @@ export class UIController {
 
   onCalibrationApply(callback) {
     this.refs.applyGripperTfCalibration?.addEventListener("click", () => callback(this.getGripperTfCalibrationInputs()));
+  }
+
+  onRobotHomeCalibrationAction(callback) {
+    [
+      [this.refs.refreshRobotHome, "refresh"],
+      [this.refs.captureRobotHome, "capture"],
+      [this.refs.saveRobotHomeCalibration, "save"],
+      [this.refs.moveRobotHome, "moveHome"],
+    ].forEach(([button, action]) => {
+      button?.addEventListener("click", () => callback(action, this.getRobotHomeCalibrationInputs()));
+    });
   }
 
   onLegacyCommand(callback) {
@@ -2083,6 +2507,13 @@ export class UIController {
   }
 
   onSceneControlsChange(callback) {
+    this.refs.sceneViewModeButtons?.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        this.setSceneViewMode(button.dataset.sceneViewMode);
+        callback(this.getSceneViewState());
+      });
+    });
     this.refs.sceneInputs.forEach((element) => {
       const eventName = element.type === "checkbox" ? "change" : "input";
       element.addEventListener(eventName, () => callback(this.getSceneViewState()));
@@ -2189,7 +2620,9 @@ export class UIController {
         button.classList.toggle("is-pending", Boolean(pending));
       });
     [...this.rootElement.querySelectorAll("[data-status-action]")]
-      .filter((button) => button.dataset.statusAction === actionId || button.dataset.pendingActionId === actionId)
+      .filter((button) => button.dataset.statusAction === actionId
+        || button.dataset.statusLongAction === actionId
+        || button.dataset.pendingActionId === actionId)
       .forEach((button) => {
         button.disabled = Boolean(pending);
         button.classList.toggle("is-pending", Boolean(pending));
@@ -2226,6 +2659,9 @@ export class UIController {
   }
 
   getPendingActionLabel(actionId) {
+    if (actionId === "toggleDemoMode") {
+      return "切换中";
+    }
     if (actionId.startsWith("stop")) {
       return "关闭中";
     }
@@ -2236,6 +2672,9 @@ export class UIController {
   }
 
   getStatusActionLabelForAction(actionId) {
+    if (actionId === "toggleDemoMode") {
+      return "进入";
+    }
     if (actionId === "restartRosStack") {
       return "重启ROS";
     }
@@ -2277,13 +2716,22 @@ export class UIController {
   }
 
   setCabinRemoteButtonsEnabled(enabled) {
+    const moveEnabled = typeof enabled === "object"
+      ? Boolean(enabled?.move)
+      : Boolean(enabled);
+    const stopEnabled = typeof enabled === "object"
+      ? Boolean(enabled?.stop ?? enabled?.move)
+      : Boolean(enabled);
     this.refs.cabinRemoteButtons.forEach((button) => {
-      button.disabled = !enabled;
+      button.disabled = !moveEnabled;
     });
     if (this.refs.cabinRemoteStopButton) {
-      this.refs.cabinRemoteStopButton.disabled = !enabled;
+      this.refs.cabinRemoteStopButton.disabled = !stopEnabled;
     }
-    if (!enabled) {
+    if (this.refs.cabinRemoteAbsoluteMoveButton) {
+      this.refs.cabinRemoteAbsoluteMoveButton.disabled = !moveEnabled;
+    }
+    if (!moveEnabled) {
       this.clearCabinRemoteButtonActive();
     }
   }
@@ -2356,11 +2804,10 @@ export class UIController {
     this.setTfAxisFrameVisibility(state.tfAxisFrameVisibility);
     this.refs.pointSizeRange.value = Number(state.pointSize).toFixed(3);
     this.refs.pointOpacityRange.value = Number(state.pointOpacity).toFixed(2);
-    this.refs.sceneViewMode.value = state.viewMode;
-    this.refs.followCameraToggle.checked = Boolean(state.followCamera);
+    this.setSceneViewMode(state.viewMode);
+    this.refs.followOriginToggle.checked = Boolean(state.followOrigin);
     this.refreshCustomSelect(this.refs.topicLayerMode);
     this.refreshCustomSelect(this.refs.pointCloudSource);
-    this.refreshCustomSelect(this.refs.sceneViewMode);
     const visibleTfAxes = this.getVisibleTfAxisFrameLabels(state.tfAxisFrameVisibility);
     this.refs.topicLayerSummary.textContent =
       `模式=${getTopicLayerModeLabel(state.mode)} 坐标轴=${state.showAxes ? visibleTfAxes : "总开关关闭"} 点云=${state.showPointCloud ? "开启" : "关闭"} 点云源=${getPointCloudSourceLabel(state.pointCloudSource)} 点大小=${Number(state.pointSize).toFixed(3)} 透明度=${Number(state.pointOpacity).toFixed(2)}`;
@@ -2499,6 +2946,79 @@ export class UIController {
     };
   }
 
+  getRobotHomeCalibrationInputs() {
+    return {
+      home: {
+        x: Number.parseFloat(this.refs.robotHomeX?.value || "0"),
+        y: Number.parseFloat(this.refs.robotHomeY?.value || "0"),
+        z: Number.parseFloat(this.refs.robotHomeZ?.value || "0"),
+      },
+    };
+  }
+
+  formatMmTriplet(position, waitingText = "等待") {
+    if (!position || !CABIN_POSITION_AXES.every(({ id }) => Number.isFinite(Number(position[id])))) {
+      return waitingText;
+    }
+    return CABIN_POSITION_AXES
+      .map(({ id, label }) => `${label}=${Math.round(Number(position[id]))}mm`)
+      .join(" ");
+  }
+
+  setRobotHomeCalibration(calibration, { forceInputs = false } = {}) {
+    if (!calibration) {
+      if (this.refs.robotHomeSummary) {
+        this.refs.robotHomeSummary.textContent = "等待 Home 标定服务。";
+      }
+      if (this.refs.robotHomeTfSummary) {
+        this.refs.robotHomeTfSummary.textContent = "等待 TF 投射状态。";
+      }
+      return;
+    }
+
+    const currentText = calibration.hasCurrentPose
+      ? this.formatMmTriplet(calibration.current, "无当前坐标")
+      : "等待索驱当前坐标";
+    const homeText = this.formatMmTriplet(calibration.home, "未保存 Home");
+    if (this.refs.robotHomeSummary) {
+      this.refs.robotHomeSummary.textContent = `当前=${currentText} | Home=${homeText}`;
+    }
+
+    const cameraText = calibration.hasCameraPose
+      ? this.formatMmTriplet(calibration.camera, "无相机投射")
+      : "等待 map -> Scepter_depth_frame";
+    const groundText = calibration.hasGroundProbe
+      ? `${Math.round(Number(calibration.groundProbe.distance || 0))}mm | ${this.formatMmTriplet(calibration.groundProbe, "无地面投射")}`
+      : "等待深度最远点";
+    if (this.refs.robotHomeTfSummary) {
+      this.refs.robotHomeTfSummary.textContent = `相机map=${cameraText} | 深度最远点=${groundText}`;
+    }
+    if (this.refs.baseToCameraComputed) {
+      const baseToCamera = calibration.baseToCamera || {};
+      const baseToCameraText = [
+        `X=${Number(baseToCamera.x || 0).toFixed(1)}mm`,
+        `Y=${Number(baseToCamera.y || 0).toFixed(1)}mm`,
+        `Z=${Number(baseToCamera.z || 0).toFixed(1)}mm`,
+        `R=${Number(baseToCamera.roll ?? Math.PI).toFixed(4)}`,
+        `P=${Number(baseToCamera.pitch || 0).toFixed(4)}`,
+        `Y=${Number(baseToCamera.yaw || 0).toFixed(4)}`,
+      ].join(" ");
+      this.refs.baseToCameraComputed.textContent = `TF自动结果：${baseToCameraText}`;
+    }
+
+    const activeElement = document.activeElement;
+    const editableRefs = [
+      this.refs.robotHomeX,
+      this.refs.robotHomeY,
+      this.refs.robotHomeZ,
+    ];
+    if (forceInputs || !editableRefs.includes(activeElement)) {
+      this.refs.robotHomeX.value = Number(calibration.home?.x || 0).toFixed(1);
+      this.refs.robotHomeY.value = Number(calibration.home?.y || 0).toFixed(1);
+      this.refs.robotHomeZ.value = Number(calibration.home?.z || 0).toFixed(1);
+    }
+  }
+
   setGripperTfCalibration(calibration, { forceInputs = false } = {}) {
     if (!calibration) {
       this.refs.gripperTfCurrent.textContent = "等待 TF 链路后读取当前外参。";
@@ -2536,6 +3056,28 @@ export class UIController {
     `).join("");
   }
 
+  setDemoModeState(active, detail = "") {
+    const chip = this.rootElement.querySelector('[data-status-id="demoMode"]');
+    if (!chip) {
+      return;
+    }
+    const pending = chip.classList.contains("is-pending");
+    const level = active ? "success" : "error";
+    const actionText = active ? "退出" : "进入";
+    chip.className = `system-status-item ${level} is-interactive`;
+    chip.classList.toggle("is-pending", pending);
+    chip.dataset.statusAction = "toggleDemoMode";
+    chip.setAttribute("aria-pressed", active ? "true" : "false");
+    chip.setAttribute("aria-label", `演示模式：${actionText}`);
+    chip.title = detail || (active ? "演示模式运行中" : "演示模式未启用");
+    const actionLabel = chip.querySelector(".system-status-action-label");
+    if (actionLabel) {
+      actionLabel.textContent = chip.dataset.pendingActionId
+        ? this.getPendingActionLabel(chip.dataset.pendingActionId)
+        : actionText;
+    }
+  }
+
   setStatusChipState(statusId, level, detail) {
     const chip = this.rootElement.querySelector(`[data-status-id="${statusId}"]`);
     if (!chip) {
@@ -2552,6 +3094,11 @@ export class UIController {
       moduan: level === "success" ? "stopModuanSubsystem" : "startModuanSubsystem",
       visual: level === "success" ? "stopVisualSubsystem" : "startVisualSubsystem",
     };
+    const longPressActionMap = {
+      chassis: "restartCabinSubsystem",
+      moduan: "restartModuanSubsystem",
+      visual: "restartVisualSubsystem",
+    };
     const nextActionLabelMap = {
       ros: level === "success" ? "重启ROS" : "启动ROS",
       chassis: level === "success" ? "关闭" : "启动",
@@ -2559,9 +3106,17 @@ export class UIController {
       visual: level === "success" ? "关闭" : "启动",
     };
     const nextAction = nextActionMap[statusId] || "";
+    const longPressAction = longPressActionMap[statusId] || "";
     const nextActionLabel = nextActionLabelMap[statusId] || "";
     chip.dataset.statusAction = nextAction;
-    chip.setAttribute("aria-label", `${chip.querySelector(".system-status-label")?.textContent || statusId}：${nextActionLabel}`);
+    chip.dataset.statusLongAction = longPressAction;
+    const statusLabel = chip.querySelector(".system-status-label")?.textContent || statusId;
+    chip.setAttribute("aria-label", longPressAction
+      ? `${statusLabel}：短按${nextActionLabel}，长按重启`
+      : `${statusLabel}：${nextActionLabel}`);
+    chip.title = longPressAction
+      ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按0.8秒重启`
+      : detail || "";
     if (actionLabel) {
       actionLabel.textContent = chip.dataset.pendingActionId
         ? this.getPendingActionLabel(chip.dataset.pendingActionId)
@@ -2599,12 +3154,11 @@ export class UIController {
     if (!this.refs.bottomCabinPosition) {
       return;
     }
-    const title = hasPosition
+    this.bottomCabinPositionTitle = hasPosition
       ? `机器位置：${CABIN_POSITION_AXES.map(({ id, label }) => `${label}=${Math.round(position[id])}mm`).join(" ")}`
       : "等待索驱 TF 更新机器位置";
     this.refs.bottomCabinPosition.dataset.state = hasPosition ? "live" : "waiting";
-    this.refs.bottomCabinPosition.title = title;
-    this.refs.bottomCabinPosition.setAttribute("aria-label", title);
+    this.syncBottomCabinPositionA11y();
     this.refs.bottomCabinPositionAxes.forEach((axisNode) => {
       const axisId = axisNode.dataset.bottomCabinAxis;
       const axis = CABIN_POSITION_AXES.find((item) => item.id === axisId);
@@ -2615,6 +3169,24 @@ export class UIController {
       const value = Number.isFinite(position?.[axisId]) ? `${Math.round(position[axisId])} mm` : "-- mm";
       axisNode.textContent = `${label} ${value}`;
     });
+  }
+
+  setBottomCabinOperationState(operationState) {
+    if (!this.refs.bottomCabinPosition) {
+      return;
+    }
+    this.refs.bottomCabinPosition.dataset.operationState = operationState?.state || "blocked";
+    this.bottomCabinOperationDetail = operationState?.detail || "索驱不可操作";
+    this.syncBottomCabinPositionA11y();
+  }
+
+  syncBottomCabinPositionA11y() {
+    if (!this.refs.bottomCabinPosition) {
+      return;
+    }
+    const title = `${this.bottomCabinPositionTitle} | ${this.bottomCabinOperationDetail}`;
+    this.refs.bottomCabinPosition.title = title;
+    this.refs.bottomCabinPosition.setAttribute("aria-label", title);
   }
 
   setBottomLinearModulePosition(localPosition, globalPosition) {

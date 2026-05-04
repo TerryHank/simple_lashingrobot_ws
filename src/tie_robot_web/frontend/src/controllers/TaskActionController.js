@@ -1,4 +1,9 @@
 import { ROSLIB } from "../vendor/roslib.js";
+import {
+  FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
+  FRONTEND_VISUAL_RECOGNITION_MODE_LABEL,
+  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+} from "../config/visualRecognitionMode.js";
 import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
 const WORKSPACE_QUAD_ACK_TIMEOUT_MS = 4000;
@@ -48,49 +53,45 @@ export class TaskActionController {
     const resources = this.rosConnection.getResources();
     const selectedPoints = this.workspaceView.getSelectedPoints();
     if (!resources?.workspaceQuadPublisher || selectedPoints.length !== 4) {
-      this.report("当前还不能提交工作区四边形，请先连上 ROS 并点满 4 个角点", "warn");
+      this.report("当前还不能确认工作区域，请先连上 ROS 并点满 4 个角点", "warn");
       return;
     }
     const payload = buildWorkspaceQuadPayload(selectedPoints);
     this.workspaceView.setExecutionOverlayMessage(null);
     this.setPendingWorkspaceQuadSubmission(payload);
     resources.workspaceQuadPublisher.publish(new ROSLIB.Message({ data: payload }));
-    this.callbacks.onResultMessage?.(`工作区四边形已发送，等待 pointAI 保存确认: [${payload.join(", ")}]`);
-    this.callbacks.onLog?.(`已发送工作区四边形: [${payload.join(", ")}]`, "success");
+    this.callbacks.onResultMessage?.(`工作区域已发送，等待 pointAI 保存确认: [${payload.join(", ")}]`);
+    this.callbacks.onLog?.(`已发送工作区域: [${payload.join(", ")}]`, "success");
   }
 
   triggerSavedWorkspaceS2() {
-    return this.triggerPrFprgRecognition({
-      resultMessage: "正在使用当前已保存工作区运行视觉识别，当前图像图层会等待视觉识别点位覆盖层...",
-      logMessage: "已触发基于已保存工作区的视觉识别",
+    return this.triggerSurfaceDpRecognition({
+      resultMessage: `正在触发识别位姿扫描链路的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别，当前图像图层会等待视觉识别点位覆盖层...`,
+      logMessage: `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别`,
     });
   }
 
-  async triggerPrFprgRecognition({
-    resultMessage = "正在使用当前已保存工作区运行视觉识别，当前图像图层会等待视觉识别点位覆盖层...",
-    logMessage = "已触发基于已保存工作区的视觉识别",
+  async triggerSurfaceDpRecognition({
+    resultMessage = `正在触发识别位姿扫描链路的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别，当前图像图层会等待视觉识别点位覆盖层...`,
+    logMessage = `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别`,
   } = {}) {
     const resources = this.rosConnection.getResources();
-    const savedPoints = this.workspaceView.getSavedWorkspacePoints();
-    if (!resources?.lashingRecognizeOnceService || savedPoints.length !== 4) {
-      if (this.pendingWorkspaceQuadSubmission) {
-        this.report("工作区正在保存，请等保存完成后再触发视觉识别。", "warn");
-        return false;
-      }
-      this.report("当前没有可复用的已保存工作区，请先点 4 个角点并提交四边形。", "warn");
+    if (!resources?.processImageService) {
+      this.report("ROS 还没连好，暂时不能触发视觉识别。", "warn");
       return false;
     }
-    this.clearPendingWorkspaceQuadSubmission();
     this.workspaceView.setExecutionOverlayMessage(null);
     this.callbacks.onWorkspaceS2Triggered?.();
     this.callbacks.onResultMessage?.(resultMessage);
     this.callbacks.onLog?.(logMessage, "success");
-    const result = await this.rosConnection.callLashingRecognizeOnceService();
+    const result = await this.rosConnection.callProcessImageService({
+      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+    });
     if (!result?.success) {
-      this.report(`视觉识别失败: ${result?.message || "未知错误"}`, "error");
+      this.report(`${FRONTEND_VISUAL_RECOGNITION_FULL_LABEL}失败: ${result?.message || "未知错误"}`, "error");
       return false;
     }
-    this.callbacks.onLog?.(`视觉识别服务完成: ${result.message || "已完成"}`, "success");
+    this.callbacks.onLog?.(`${FRONTEND_VISUAL_RECOGNITION_FULL_LABEL}完成: ${result.message || "已完成"}`, "success");
     return true;
   }
 
@@ -102,7 +103,7 @@ export class TaskActionController {
         this.report("工作区正在保存，请等保存完成后再触发单点绑扎。", "warn");
         return;
       }
-      this.report("当前没有可复用的已保存工作区，请先点 4 个角点并提交四边形。", "warn");
+      this.report("当前没有可复用的已保存工作区，请先点 4 个角点并确认工作区域。", "warn");
       return;
     }
 
@@ -135,7 +136,7 @@ export class TaskActionController {
         return;
       }
       this.pendingWorkspaceQuadSubmission = null;
-      this.report("工作区四边形已发送，但等待 pointAI 保存确认超时。请检查视觉日志后重试。", "warn");
+      this.report("工作区域已发送，但等待 pointAI 保存确认超时。请检查视觉日志后重试。", "warn");
     }, WORKSPACE_QUAD_ACK_TIMEOUT_MS);
 
     this.pendingWorkspaceQuadSubmission = {
@@ -162,15 +163,19 @@ export class TaskActionController {
     }
 
     const resources = this.rosConnection.getResources();
-    if (!resources?.lashingRecognizeOnceService) {
+    if (!resources?.processImageService) {
       this.clearPendingWorkspaceQuadSubmission();
       this.report("工作区已保存，但 ROS 未就绪，当前不能触发视觉识别。", "warn");
       return false;
     }
 
     this.clearPendingWorkspaceQuadSubmission();
-    this.callbacks.onResultMessage?.("工作区已保存，可以手动点击“触发视觉识别”开始识别。");
-    this.callbacks.onLog?.("已收到工作区保存确认，等待手动触发视觉识别", "success");
+    void this.triggerSurfaceDpRecognition({
+      resultMessage: `工作区已保存，正在自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别...`,
+      logMessage: `已收到工作区保存确认，自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别`,
+    }).catch((error) => {
+      this.report(`自动触发视觉识别失败: ${error?.message || String(error)}`, "error");
+    });
     return true;
   }
 

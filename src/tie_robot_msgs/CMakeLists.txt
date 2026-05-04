@@ -26,6 +26,7 @@ add_service_files(
   StartPseudoSlamScan.srv
   SetExecutionMode.srv
   SetGripperTfCalibration.srv
+  RobotHomeCalibration.srv
 )
 
 add_action_files(

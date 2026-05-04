@@ -4,8 +4,8 @@
   "ros_master_uri": "http://localhost:11311",
   "bag_path": "docs/releases/slam_v30/visual_modalities/slam_v30_visual_modalities.bag",
   "bag_name": "slam_v30_visual_modalities.bag",
-  "topic_count": 23,
-  "captured_count": 19,
+  "topic_count": 24,
+  "captured_count": 20,
   "records": [
     {
       "topic": "/Scepter/color/image_raw",
@@ -326,6 +326,17 @@
       "type": "tf2_msgs.msg._TFMessage.TFMessage",
       "stamp": 1777441069.4648438,
       "message_path": "messages/tf_static.txt"
+    },
+    {
+      "topic": "/release/slam_v30/experiment_summary",
+      "resolved_topic": "/release/slam_v30/experiment_summary",
+      "captured": true,
+      "type": "std_msgs.msg._String.String",
+      "stamp": 1777441039.1851375,
+      "message_path": "messages/release_slam_v30_experiment_summary.txt",
+      "description": "slam/v30 release experiment summary and final PR-FPRG decisions from 2026-04-29 session"
     }
-  ]
+  ],
+  "updated_at": "2026-04-29T16:50:00",
+  "bag_size_bytes": 3740911
 }

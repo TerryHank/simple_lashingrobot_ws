@@ -24,8 +24,8 @@ if str(PERCEPTION_SRC) not in sys.path:
     sys.path.insert(0, str(PERCEPTION_SRC))
 
 from tie_robot_perception.perception.workspace_s2 import (  # noqa: E402
+    build_workspace_s2_axis_aligned_line_families,
     build_workspace_s2_line_positions,
-    build_workspace_s2_oriented_line_families,
     build_workspace_s2_oriented_projective_line_segments,
     build_workspace_s2_rectified_geometry,
     intersect_workspace_s2_oriented_line_families,
@@ -193,6 +193,8 @@ def normalize_probe_raw_world(raw_image):
 
 def build_initial_rhos_for_families(line_families):
     for family in line_families:
+        if family.get("initial_rhos"):
+            continue
         estimate = family.get("estimate") or {}
         profile = family.get("profile")
         family["initial_rhos"] = [
@@ -206,16 +208,41 @@ def build_initial_rhos_for_families(line_families):
         ]
 
 
-def select_best_response_variant(response_candidates, rectified_valid):
+def build_normalized_depth_ir_combined_response(depth_response, infrared_response, rectified_valid, depth_weight=0.68):
+    normalized_depth = normalize_workspace_s2_response(
+        np.asarray(depth_response, dtype=np.float32),
+        rectified_valid,
+    )
+    normalized_infrared = normalize_workspace_s2_response(
+        np.asarray(infrared_response, dtype=np.float32),
+        rectified_valid,
+    )
+    depth_weight = float(np.clip(depth_weight, 0.0, 1.0))
+    combined = (depth_weight * normalized_depth) + ((1.0 - depth_weight) * normalized_infrared)
+    return normalize_workspace_s2_response(combined, rectified_valid)
+
+
+def select_best_response_variant(response_candidates, rectified_valid, response_name_filter=None):
+    if response_name_filter:
+        allowed_names = {
+            str(name).strip()
+            for name in str(response_name_filter).split(",")
+            if str(name).strip()
+        }
+        response_candidates = [
+            candidate
+            for candidate in response_candidates
+            if str(candidate.get("name", "")) in allowed_names
+        ]
+
     rectified_mask = rectified_valid.astype(np.uint8)
-    best_variant = None
     for variant_index, response_candidate in enumerate(response_candidates):
         response_variant = response_candidate["image"]
         normalized_response = normalize_workspace_s2_response(
             response_variant.astype(np.float32),
             rectified_valid,
         )
-        line_families = build_workspace_s2_oriented_line_families(
+        line_families = build_workspace_s2_axis_aligned_line_families(
             normalized_response,
             rectified_mask,
             min_period=10,
@@ -226,19 +253,18 @@ def select_best_response_variant(response_candidates, rectified_valid):
         line_families = line_families[:2]
         build_initial_rhos_for_families(line_families)
         combined_score = score_workspace_s2_oriented_line_family_result(line_families)
-        if best_variant is None or combined_score > best_variant["combined_score"]:
-            best_variant = {
-                "variant_index": variant_index,
-                "response_source": response_candidate["source"],
-                "response_name": response_candidate["name"],
-                "response": normalized_response,
-                "line_families": line_families,
-                "combined_score": combined_score,
-            }
-    return best_variant
+        return {
+            "variant_index": variant_index,
+            "response_source": response_candidate["source"],
+            "response_name": response_candidate["name"],
+            "response": normalized_response,
+            "line_families": line_families,
+            "combined_score": combined_score,
+        }
+    return None
 
 
-def run_peak_supported_pr_fprg(frame):
+def run_peak_supported_pr_fprg(frame, response_name_filter=None):
     manual_workspace = load_manual_workspace_quad()
     corner_pixels = manual_workspace["corner_pixels"]
     corner_world = manual_workspace.get("corner_world_camera_frame")
@@ -269,12 +295,24 @@ def run_peak_supported_pr_fprg(frame):
     filled_depth = np.where(rectified_valid, rectified_depth, median_depth).astype(np.float32)
     background_depth = cv2.GaussianBlur(filled_depth, (0, 0), sigmaX=11.0, sigmaY=11.0)
     infrared_background = cv2.GaussianBlur(rectified_ir, (0, 0), sigmaX=7.0, sigmaY=7.0)
+    depth_dark_line_response = background_depth - filled_depth
+    infrared_dark_line_response = infrared_background - rectified_ir
+    combined_depth_ir_response = build_normalized_depth_ir_combined_response(
+        depth_dark_line_response,
+        infrared_dark_line_response,
+        rectified_valid,
+    )
     best_variant = select_best_response_variant(
         [
             {
+                "source": "depth_ir",
+                "name": "combined_depth_ir_darkline",
+                "image": combined_depth_ir_response,
+            },
+            {
                 "source": "depth",
                 "name": "depth_background_minus_filled",
-                "image": background_depth - filled_depth,
+                "image": depth_dark_line_response,
             },
             {
                 "source": "depth",
@@ -283,6 +321,7 @@ def run_peak_supported_pr_fprg(frame):
             },
         ],
         rectified_valid,
+        response_name_filter=response_name_filter,
     )
     if best_variant is None:
         best_variant = select_best_response_variant(
@@ -290,7 +329,7 @@ def run_peak_supported_pr_fprg(frame):
                 {
                     "source": "ir_fallback",
                     "name": "ir_background_minus_intensity",
-                    "image": infrared_background - rectified_ir,
+                    "image": infrared_dark_line_response,
                 },
                 {
                     "source": "ir_fallback",
@@ -299,14 +338,15 @@ def run_peak_supported_pr_fprg(frame):
                 },
             ],
             rectified_valid,
+            response_name_filter=response_name_filter,
         )
     if best_variant is None:
-        raise RuntimeError("oriented PR-FPRG line family estimation failed")
+        raise RuntimeError("axis-aligned row/column PR-FPRG line family estimation failed")
     response = best_variant["response"]
     rectified_mask = rectified_valid.astype(np.uint8)
     line_families = best_variant["line_families"]
     if any(len(family.get("line_rhos", [])) < 2 for family in line_families):
-        raise RuntimeError("oriented PR-FPRG continuous line families insufficient")
+        raise RuntimeError("axis-aligned row/column PR-FPRG line families insufficient")
 
     rectified_intersections = intersect_workspace_s2_oriented_line_families(
         line_families[0],
@@ -564,7 +604,7 @@ def save_pr_fprg_step_visualizations(frame, result, output_dir, docs_assets_dir=
         ("01_input_workspace", render_source_workspace(frame, result)),
         ("02_rectified_ir", to_bgr(result["rectified_ir"])),
         ("03_rectified_depth", render_response_heatmap(result["filled_depth"])),
-        ("04_depth_response", render_response_heatmap(result["response"])),
+        ("04_selected_combined_response", render_response_heatmap(result["response"])),
         (
             "05_vertical_profile",
             render_profile_plot(

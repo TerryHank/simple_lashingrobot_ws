@@ -1,0 +1,176 @@
+{
+  "generated_at": "2026-04-30 13:33:34",
+  "frame_source": "raw_world",
+  "response_name": "combined_depth_ir_darkline",
+  "line_counts": [
+    8,
+    8
+  ],
+  "ir_display_gamma": 1.95,
+  "surface_segmentation": {
+    "ordinary_rebar_pixels": 15696,
+    "ordinary_completed_rebar_pixels": 43648,
+    "completed_surface_pixels": 43648,
+    "line_support_pixels": 35434,
+    "completed_line_counts": [
+      8,
+      8
+    ],
+    "beam_candidate_pixels": 0,
+    "beam_candidate_body_pixels": 0,
+    "beam_candidate_13cm_pixels": 0,
+    "surface_candidate_pixels": 15696
+  },
+  "beam_candidate_bands": [],
+  "legacy_edge_bands": [
+    {
+      "axis": "x",
+      "side": "min",
+      "start": 3,
+      "end": 21,
+      "width": 19,
+      "peak": 1.1904919147491455,
+      "component_start": 6,
+      "component_end": 18
+    },
+    {
+      "axis": "x",
+      "side": "min",
+      "start": 25,
+      "end": 44,
+      "width": 20,
+      "peak": 1.1394121646881104,
+      "component_start": 28,
+      "component_end": 41
+    }
+  ],
+  "bind_point_variants": [
+    {
+      "id": "pr_fprg_all",
+      "title": "PR-FPRG 全部交点",
+      "point_count": 64,
+      "mean_score": 0.553253909223713,
+      "note": "不做梁筋过滤，用作当前方案 1 对照。"
+    },
+    {
+      "id": "legacy_edge_band_13cm",
+      "title": "旧 edge-band ±13cm",
+      "point_count": 48,
+      "mean_score": 0.6282706226532658,
+      "note": "旧梁筋 edge-band mask 的保守排除；本帧只抓到左侧梁筋。"
+    },
+    {
+      "id": "beam_candidate_direct",
+      "title": "新 beam_candidate 本体",
+      "point_count": 64,
+      "mean_score": 0.553253909223713,
+      "note": "只去掉落在梁筋本体膨胀 mask 上的绑扎点，保留梁筋附近普通钢筋交点。"
+    },
+    {
+      "id": "beam_candidate_13cm",
+      "title": "新 beam_candidate ±13cm",
+      "point_count": 64,
+      "mean_score": 0.553253909223713,
+      "note": "按梁筋左右 ±13cm 做图谱排除，更保守，但会少保留梁筋附近交点。"
+    },
+    {
+      "id": "completed_surface_intersections",
+      "title": "补全钢筋面交点",
+      "point_count": 64,
+      "mean_score": 0.6683636475354433,
+      "note": "先补全钢筋面，再从补全面重建行/列线族并直接求交点；这是本轮推荐技术路径。"
+    },
+    {
+      "id": "instance_graph_junctions",
+      "title": "instance_graph 骨架交叉点",
+      "point_count": 85,
+      "mean_score": 0.9602825971210704,
+      "note": "不依赖理论网格交点，直接从骨架 junction 聚类取点；当前作为探索对照。"
+    },
+    {
+      "id": "03_surface_greedy_curve",
+      "title": "03 补全面 greedy 曲线",
+      "point_count": 64,
+      "mean_score": 0.9005104806274176,
+      "note": "以补全钢筋面作为底图，沿补全后的线族拓扑做局部 ridge 贪心曲线，再求曲线交点。"
+    },
+    {
+      "id": "04_surface_dp_curve",
+      "title": "04 补全面 DP 曲线",
+      "point_count": 64,
+      "mean_score": 0.9466455837246031,
+      "note": "以补全钢筋面作为底图，动态规划约束相邻采样点偏移连续。"
+    },
+    {
+      "id": "05_surface_ridge_curve",
+      "title": "05 补全面 ridge 曲线",
+      "point_count": 64,
+      "mean_score": 0.964453608263284,
+      "note": "以补全钢筋面作为底图，动态规划分数加入中间强、两侧弱的 ridge 判断。"
+    },
+    {
+      "id": "06_surface_ir_assisted_curve",
+      "title": "06 组合响应辅助曲线",
+      "point_count": 64,
+      "mean_score": 0.9593082943465561,
+      "note": "以组合响应、Frangi-like、补全面共同形成的多模态底图做曲线收束。"
+    }
+  ],
+  "recommended_variant": {
+    "id": "completed_surface_intersections",
+    "point_count": 64,
+    "reason": "本轮优先走“补全钢筋面后直接检测交点”的技术路径；梁筋本体点仍用 beam_candidate 排除。"
+  },
+  "variant_timings_ms": {
+    "pr_fprg_all": 0.15543900008196943,
+    "legacy_edge_band_13cm": 2.9709400005231146,
+    "beam_candidate_direct": 0.3056189998460468,
+    "beam_candidate_13cm": 0.2728929976001382,
+    "completed_surface_intersections": 1.9734199995582458,
+    "instance_graph_junctions": 1.370697998936521,
+    "curve3456_on_completed_surface": 145.5830659979256
+  },
+  "timings_ms": {
+    "capture": 203.57742800115375,
+    "pr_fprg": 701.4787650005019,
+    "segmentation": 308.8376119994791,
+    "variants": 152.63904099992942,
+    "total": 1763.7283690019103
+  },
+  "images": {
+    "ir_high_gamma_workspace.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/ir_high_gamma_workspace.png",
+    "surface_segmentation_overlay.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/surface_segmentation_overlay.png",
+    "surface_completion_overlay.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/surface_completion_overlay.png",
+    "completed_surface_response.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/completed_surface_response.png",
+    "completed_surface_mask.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/completed_surface_mask.png",
+    "ordinary_rebar_mask.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/ordinary_rebar_mask.png",
+    "beam_candidate_mask.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_mask.png",
+    "beam_candidate_body_mask.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_body_mask.png",
+    "beam_candidate_mask_13cm.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_mask_13cm.png",
+    "beam_candidate_overlay.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_overlay.png",
+    "legacy_edge_band_overlay.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/legacy_edge_band_overlay.png",
+    "instance_graph_overlay.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/instance_graph_overlay.png",
+    "pr_fprg_reference.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/pr_fprg_reference.png",
+    "pr_fprg_all_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/pr_fprg_all_original.png",
+    "pr_fprg_all_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/pr_fprg_all_rectified.png",
+    "legacy_edge_band_13cm_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/legacy_edge_band_13cm_original.png",
+    "legacy_edge_band_13cm_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/legacy_edge_band_13cm_rectified.png",
+    "beam_candidate_direct_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_direct_original.png",
+    "beam_candidate_direct_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_direct_rectified.png",
+    "beam_candidate_13cm_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_13cm_original.png",
+    "beam_candidate_13cm_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/beam_candidate_13cm_rectified.png",
+    "completed_surface_intersections_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/completed_surface_intersections_original.png",
+    "completed_surface_intersections_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/completed_surface_intersections_rectified.png",
+    "instance_graph_junctions_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/instance_graph_junctions_original.png",
+    "instance_graph_junctions_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/instance_graph_junctions_rectified.png",
+    "03_surface_greedy_curve_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/03_surface_greedy_curve_original.png",
+    "03_surface_greedy_curve_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/03_surface_greedy_curve_rectified.png",
+    "04_surface_dp_curve_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/04_surface_dp_curve_original.png",
+    "04_surface_dp_curve_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/04_surface_dp_curve_rectified.png",
+    "05_surface_ridge_curve_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/05_surface_ridge_curve_original.png",
+    "05_surface_ridge_curve_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/05_surface_ridge_curve_rectified.png",
+    "06_surface_ir_assisted_curve_original.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/06_surface_ir_assisted_curve_original.png",
+    "06_surface_ir_assisted_curve_rectified.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/06_surface_ir_assisted_curve_rectified.png",
+    "bindpoint_comparison_matrix.png": ".debug_frames/rebar_surface_bindpoint_comparison_20260430_133331/images/bindpoint_comparison_matrix.png"
+  }
+}

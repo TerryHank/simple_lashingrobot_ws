@@ -47,12 +47,12 @@ export const packageNodes = Object.freeze([
   {
     id: "tie_robot_perception",
     label: "tie_robot_perception",
-    subtitle: "视觉 / TF / PR-FPRG",
+    subtitle: "视觉 / TF / Surface-DP",
     symbols: 488,
     x: 23,
     y: 66,
     tone: "green",
-    summary: "PointAI、PR-FPRG、相机坐标点和 gripper TF 的主阵地，/perception/lashing/points_camera 保持相机原始坐标。",
+    summary: "PointAI、Surface-DP、相机坐标点和 gripper TF 的主阵地，/perception/lashing/points_camera 保持相机原始坐标。",
     entrypoints: ["scripts/pointai_node.py", "scripts/gripper_tf_broadcaster.py", "src/tie_robot_perception/pointai"],
   },
   {
@@ -227,7 +227,7 @@ export const systemFlows = Object.freeze([
   {
     name: "扫描建图链",
     route: ["tie_robot_web", "tie_robot_process", "tie_robot_perception", "tie_robot_process", "tie_robot_web"],
-    detail: "前端启动扫描，流程层移动索驱并请求 PR-FPRG，视觉输出 map 点，流程层写 pseudo_slam_points/bind_path，再回到 3D Scene。",
+    detail: "前端启动扫描，流程层移动索驱并请求 Surface-DP 物理先验视觉，视觉输出 map 点，流程层写 pseudo_slam_points/bind_path，再回到 3D Scene。",
   },
   {
     name: "真实执行链",

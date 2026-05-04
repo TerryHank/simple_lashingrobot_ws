@@ -25,6 +25,7 @@ class SystemdRosMasterOwnershipTest(unittest.TestCase):
 
                 self.assertIn("Wants=network-online.target tie-robot-rosbridge.service", template)
                 self.assertIn("After=network-online.target tie-robot-rosbridge.service", template)
+                self.assertIn("PartOf=tie-robot-rosbridge.service", template)
                 self.assertIn("Environment=ROS_MASTER_URI=http://127.0.0.1:11311", template)
                 self.assertIn("wait_for_ros_master.py", template)
                 self.assertIn("--timeout-sec 30", template)
@@ -34,6 +35,7 @@ class SystemdRosMasterOwnershipTest(unittest.TestCase):
 
         self.assertIn("Wants=network-online.target tie-robot-rosbridge.service", template)
         self.assertIn("After=network-online.target tie-robot-rosbridge.service", template)
+        self.assertIn("PartOf=tie-robot-rosbridge.service", template)
         self.assertIn("Environment=ROS_MASTER_URI=http://127.0.0.1:11311", template)
         self.assertIn("wait_for_ros_master.py", template)
         self.assertIn("--timeout-sec 30", template)

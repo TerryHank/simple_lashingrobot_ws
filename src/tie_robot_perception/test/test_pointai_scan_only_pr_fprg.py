@@ -67,6 +67,36 @@ PR_FPRG_SCHEME_COMPARISON_PATH = (
     / "tools"
     / "pr_fprg_scheme_comparison.py"
 )
+REBAR_INSTANCE_GRAPH_PROBE_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "tools"
+    / "rebar_instance_graph_probe.py"
+)
+REBAR_SURFACE_BINDPOINT_COMPARISON_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "tools"
+    / "rebar_surface_bindpoint_comparison.py"
+)
+PR_FPRG_TOPOLOGY_RECOVERY_EXPERIMENT_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "tools"
+    / "pr_fprg_topology_recovery_experiment.py"
+)
+PR_FPRG_MULTISCALE_BINDPOINT_EXPERIMENT_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "tools"
+    / "pr_fprg_multiscale_bindpoint_experiment.py"
+)
+PR_FPRG_PREVIOUS_SCHEMES_ARCHIVE_PATH = (
+    WORKSPACE_ROOT.parent
+    / "docs"
+    / "archive"
+    / "pr_fprg_previous_schemes_2026-04-30.md"
+)
 ALGORITHM_STACK_LAUNCH_PATH = WORKSPACE_ROOT / "tie_robot_bringup" / "launch" / "algorithm_stack.launch"
 LASHING_CONFIG_PATH = WORKSPACE_ROOT / "tie_robot_perception" / "data" / "lashing_config.json"
 LEGACY_RANSAC_HOUGH_ARCHIVE_DIR = (
@@ -74,6 +104,14 @@ LEGACY_RANSAC_HOUGH_ARCHIVE_DIR = (
     / "docs"
     / "archive"
     / "legacy_ransac_hough_pointai"
+)
+EXECUTION_REFINE_HOUGH_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "src"
+    / "tie_robot_perception"
+    / "pointai"
+    / "execution_refine_hough.py"
 )
 
 
@@ -176,17 +214,14 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             ("corner_pixels",),
         )
         self.assertTrue(
-            callable(DummyProcessor().score_workspace_s2_oriented_line_family_result),
-            "pointAINode 运行态需要绑定 PR-FPRG 线族评分函数。",
+            callable(DummyProcessor().build_workspace_s2_projective_line_segments),
+            "pointAINode 运行态需要绑定 2026-04-22 S2 透视线段映射函数。",
         )
-        self.assertTrue(
-            callable(DummyProcessor().filter_workspace_s2_rectified_points_outside_mask),
-            "pointAINode 运行态需要绑定 PR-FPRG 结构边缘过滤函数。",
-        )
-        self.assertTrue(
-            callable(DummyProcessor().build_workspace_s2_structural_edge_suppression_mask),
-            "pointAINode 运行态需要绑定 PR-FPRG 结构边缘抑制函数。",
-        )
+        self.assertFalse(hasattr(DummyProcessor, "build_workspace_s2_axis_aligned_line_families"))
+        self.assertFalse(hasattr(DummyProcessor, "score_workspace_s2_oriented_line_family_result"))
+        self.assertFalse(hasattr(DummyProcessor, "expand_workspace_s2_exclusion_mask_by_metric_margin"))
+        self.assertFalse(hasattr(DummyProcessor, "collect_stable_manual_workspace_s2_inputs"))
+        self.assertFalse(hasattr(DummyProcessor, "apply_manual_workspace_s2_phase_lock"))
 
     def test_rendering_bbox_overlap_is_bound_as_static_helper(self):
         from tie_robot_perception.pointai.processor import bind_image_processor_methods
@@ -200,45 +235,64 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertTrue(dummy.bboxes_overlap((0, 0, 10, 10), (8, 8, 18, 18)))
         self.assertFalse(dummy.bboxes_overlap((0, 0, 10, 10), (40, 40, 50, 50)))
 
-    def test_process_image_wait_loop_uses_pr_fprg_as_main_visual_path(self):
+    def test_process_image_wait_loop_routes_scan_to_surface_dp_and_execution_to_hough(self):
         service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
         start_index = service_text.index("def wait_for_stable_point_coords(self, request_mode):")
         end_index = service_text.index("def handle_process_image(self, req):", start_index)
         wait_loop_text = service_text[start_index:end_index]
 
         self.assertIn(
+            "if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:",
+            wait_loop_text,
+        )
+        self.assertIn(
+            "execution_refine_result = self.run_execution_refine_hough_pipeline(publish=True)",
+            wait_loop_text,
+        )
+        self.assertIn(
+            "if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:",
+            wait_loop_text,
+        )
+        self.assertIn(
             "main_visual_result = self.run_manual_workspace_s2_pipeline(publish=True)",
             wait_loop_text,
         )
         self.assertIn(
-            "当前主视觉方案为方向自适应 PR-FPRG，请先提交并保存工作区四边形。",
+            "当前扫描触发方案为Surface-DP物理先验扫描",
             wait_loop_text,
         )
         self.assertIn(
-            "pointAI process_image timed out while waiting for direction-adaptive PR-FPRG main vision",
+            "pointAI process_image timed out while waiting for execution refine plane-segmentation + Hough vision",
             wait_loop_text,
         )
-        self.assertIn(
-            "if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):",
-            wait_loop_text,
-        )
-        self.assertNotIn("self.pre_img(", wait_loop_text)
-        self.assertNotIn("try_scan_only_manual_workspace_s2", wait_loop_text)
         self.assertNotIn(
-            "return self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)\n        if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:",
+            "request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE)",
             wait_loop_text,
         )
+        self.assertNotIn("try_scan_only_manual_workspace_s2", wait_loop_text)
 
     def test_project_logs_record_scan_only_pr_fprg_rule(self):
         changelog_text = CHANGELOG_PATH.read_text(encoding="utf-8")
         knowledge_text = PR_FPRG_KNOWLEDGE_PATH.read_text(encoding="utf-8")
 
         self.assertIn(
-            "`pointAI` 的主视觉链路统一切到方向自适应 `PR-FPRG`",
+            "视觉扫描算法复刻 2026-04-22 PR-FPRG",
             changelog_text,
         )
         self.assertIn(
-            "运行主链为方向自适应版本：透视展开后在 `theta/rho` 空间估计两组钢筋线族",
+            "扫描 S2 主链回到 depth-only 版本",
+            changelog_text,
+        )
+        self.assertIn(
+            "扫描视觉算法完全复刻 2026-04-22 版本",
+            knowledge_text,
+        )
+        self.assertIn(
+            "固定识别位姿扫描触发走 2026-04-22 `PR-FPRG` 拓扑恢复方案，执行层逐区到位后走平面分割 + Hough",
+            changelog_text,
+        )
+        self.assertIn(
+            "`MODE_EXECUTION_REFINE` 改走平面分割 + Hough 局部视觉",
             knowledge_text,
         )
 
@@ -323,7 +377,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         transform = transforms[0]
         self.assertEqual(transform.header.frame_id, "Scepter_depth_frame")
         self.assertEqual(transform.header.stamp, rospy.Time(42))
-        self.assertEqual(transform.child_frame_id, "pr_fprg_bind_point_7")
+        self.assertEqual(transform.child_frame_id, "surface_dp_bind_point_7")
         self.assertAlmostEqual(transform.transform.translation.x, 0.123)
         self.assertAlmostEqual(transform.transform.translation.y, -0.456)
         self.assertAlmostEqual(transform.transform.translation.z, 0.789)
@@ -354,7 +408,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         class DummyProcessor:
             raw_bind_point_tf_broadcaster = DummyBroadcaster()
             raw_bind_point_tf_source_frame = "Scepter_depth_frame"
-            raw_bind_point_tf_child_prefix = "pr_fprg_bind_point"
+            raw_bind_point_tf_child_prefix = "surface_dp_bind_point"
 
         point = PointCoords()
         point.idx = 3
@@ -400,7 +454,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertIn("tf2_ros.TransformBroadcaster()", ros_interfaces_text)
         self.assertIn('self.raw_bind_point_tf_source_frame = "Scepter_depth_frame"', ros_interfaces_text)
-        self.assertIn('self.raw_bind_point_tf_child_prefix = "pr_fprg_bind_point"', ros_interfaces_text)
+        self.assertIn('self.raw_bind_point_tf_child_prefix = "surface_dp_bind_point"', ros_interfaces_text)
         self.assertIn("rospy.Timer(", ros_interfaces_text)
         self.assertIn("self.republish_latest_raw_camera_bind_point_transforms", ros_interfaces_text)
         self.assertIn("from . import bind_point_tf", processor_text)
@@ -485,7 +539,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(int(inside_mask[30, 45]), 1)
         self.assertEqual(int(inside_mask[5, 5]), 0)
 
-    def test_realtime_result_image_skips_legacy_roi_rectangle_when_manual_workspace_exists(self):
+    def test_realtime_result_image_omits_legacy_roi_rectangle(self):
         image_buffers_path = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -495,13 +549,44 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             / "image_buffers.py"
         )
         image_buffers_text = image_buffers_path.read_text(encoding="utf-8")
+        callback_start = image_buffers_text.index("def image_callback(self, msg):")
+        callback_end = image_buffers_text.index("def camera_info_callback", callback_start)
+        callback_text = image_buffers_text[callback_start:callback_end]
 
-        self.assertIn("if self.load_manual_workspace_quad() is None:", image_buffers_text)
-        self.assertIn("cv2.rectangle(result_image, self.point1, self.point2, 255, 2)", image_buffers_text)
-        self.assertLess(
-            image_buffers_text.index("if self.load_manual_workspace_quad() is None:"),
-            image_buffers_text.index("cv2.rectangle(result_image, self.point1, self.point2, 255, 2)"),
+        self.assertNotIn("cv2.rectangle(result_image, self.point1, self.point2, 255, 2)", callback_text)
+
+    def test_realtime_result_image_does_not_draw_workspace_or_legacy_roi_frames(self):
+        image_buffers_path = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "image_buffers.py"
         )
+        image_buffers_text = image_buffers_path.read_text(encoding="utf-8")
+        callback_start = image_buffers_text.index("def image_callback(self, msg):")
+        callback_end = image_buffers_text.index("def camera_info_callback", callback_start)
+        callback_text = image_buffers_text[callback_start:callback_end]
+
+        self.assertNotIn("cv2.rectangle(result_image, self.point1, self.point2, 255, 2)", callback_text)
+        self.assertNotIn("self.draw_scan_workspace_overlay(result_image)", callback_text)
+
+    def test_manual_workspace_s2_result_image_does_not_draw_manual_quad_frame(self):
+        rendering_path = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "rendering.py"
+        )
+        rendering_text = rendering_path.read_text(encoding="utf-8")
+        render_start = rendering_text.index("def render_manual_workspace_s2_result_image")
+        render_end = rendering_text.index("def format_result_display_label", render_start)
+        render_text = rendering_text[render_start:render_end]
+
+        self.assertNotIn("cv2.polylines(result_image, [polygon_points], True, (220, 220, 220), 2)", render_text)
 
     def test_manual_workspace_s2_labels_are_drawn_directly_above_each_point(self):
         from tie_robot_perception.pointai import rendering
@@ -665,68 +750,6 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("float(camera_coord[2])", manual_workspace_s2_text)
         self.assertIn("log_manual_workspace_s2_camera_distance(", manual_workspace_s2_text)
         self.assertNotIn("published_world_coord", manual_workspace_s2_text)
-
-    def test_manual_workspace_s2_stability_prefers_phase_consensus_over_single_high_score_outlier(self):
-        from tie_robot_perception.pointai import manual_workspace_s2
-
-        def candidate(vertical_phase, horizontal_phase, score):
-            return {
-                "vertical_estimate": {"period": 20, "phase": vertical_phase, "score": score},
-                "horizontal_estimate": {"period": 22, "phase": horizontal_phase, "score": score},
-            }
-
-        selected = manual_workspace_s2.select_stable_manual_workspace_s2_inputs([
-            candidate(10, 7, 1.0),
-            candidate(0, 7, 1.4),
-            candidate(10, 7, 1.0),
-            candidate(11, 7, 0.9),
-        ])
-
-        self.assertEqual(selected["vertical_estimate"]["phase"], 10)
-        self.assertEqual(selected["horizontal_estimate"]["phase"], 7)
-
-    def test_manual_workspace_s2_stability_merges_profiles_before_final_phase(self):
-        from tie_robot_perception.pointai import manual_workspace_s2
-
-        def periodic_profile(phase, period=20, size=140):
-            profile = np.zeros(size, dtype=np.float32)
-            for position in range(phase, size, period):
-                profile[position] = 1.0
-                if position - 1 >= 0:
-                    profile[position - 1] = 0.45
-                if position + 1 < size:
-                    profile[position + 1] = 0.45
-            return profile
-
-        def candidate(vertical_phase, horizontal_phase):
-            vertical_profile = periodic_profile(vertical_phase)
-            horizontal_profile = periodic_profile(horizontal_phase)
-            return {
-                "vertical_profile": vertical_profile,
-                "horizontal_profile": horizontal_profile,
-                "vertical_estimate": {
-                    "period": 20,
-                    "phase": 0,
-                    "score": 1.0,
-                    "profile": vertical_profile,
-                },
-                "horizontal_estimate": {
-                    "period": 20,
-                    "phase": 0,
-                    "score": 1.0,
-                    "profile": horizontal_profile,
-                },
-            }
-
-        selected = manual_workspace_s2.select_stable_manual_workspace_s2_inputs([
-            candidate(6, 8),
-            candidate(6, 8),
-            candidate(15, 8),
-            candidate(6, 8),
-        ])
-
-        self.assertEqual(selected["vertical_estimate"]["phase"], 6)
-        self.assertEqual(selected["horizontal_estimate"]["phase"], 8)
 
     def test_workspace_s2_refines_global_line_positions_to_local_response_peaks(self):
         from tie_robot_perception.perception import workspace_s2
@@ -907,8 +930,15 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertEqual(selected, [9, 115, 224, 292])
 
-    def test_workspace_s2_scored_spacing_collapses_dense_floor_seam_candidates_to_lattice(self):
+    def test_workspace_s2_scored_spacing_keeps_current_scale_dense_lattice(self):
         from tie_robot_perception.perception import workspace_s2
+
+        self.assertEqual(workspace_s2.LEGACY_WORKSPACE_S2_PREFERRED_LATTICE_LINE_COUNT, 8)
+        self.assertEqual(workspace_s2.LEGACY_WORKSPACE_S2_SCORE_TARGET_MIN_POINTS, 42)
+        self.assertEqual(
+            workspace_s2.select_workspace_s2_regular_lattice_line_rhos.__defaults__[2],
+            10,
+        )
 
         dense_candidates = [
             -308.0,
@@ -952,10 +982,37 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             min_spacing_ratio=0.60,
         )
 
-        self.assertLessEqual(len(selected), 6)
-        self.assertGreaterEqual(len(selected), 4)
-        self.assertEqual(selected[:4], [-308.0, -236.0, -166.0, -98.0])
-        self.assertGreaterEqual(min(np.diff(selected)), 55.0)
+        self.assertEqual(len(selected), 8)
+        self.assertGreaterEqual(min(np.diff(selected)), 36.0)
+
+    def test_workspace_s2_lattice_pruning_recovers_current_dense_pitch_candidates(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        current_dense_candidates = [
+            -282.5,
+            -232.3253292143345,
+            -219.22988003492355,
+            -210.95329166203737,
+            -198.16945579648018,
+            -184.61215868592262,
+            -170.8525856435299,
+            -130.71272912621498,
+            -99.45786380767822,
+            -89.47286593914032,
+            -53.171943947672844,
+            -30.046466380357742,
+            -8.388371169567108,
+            9.421881198883057,
+            27.910356298089027,
+        ]
+
+        selected = workspace_s2.prune_workspace_s2_line_rhos_by_scored_spacing(
+            current_dense_candidates,
+            min_spacing_ratio=0.60,
+        )
+
+        self.assertEqual(len(selected), 8)
+        self.assertGreaterEqual(float(np.min(np.diff(selected))), 36.0)
 
     def test_workspace_s2_intersects_skew_line_families_inside_rectified_workspace(self):
         from tie_robot_perception.perception import workspace_s2
@@ -984,6 +1041,77 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             self.assertLessEqual(x_value, 149.0)
             self.assertGreaterEqual(y_value, 0.0)
             self.assertLessEqual(y_value, 119.0)
+
+    def test_workspace_s2_axis_aligned_line_families_use_fixed_row_column_peaks(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        response = np.zeros((120, 100), dtype=np.float32)
+        for x_position in (20, 50, 80):
+            response[:, x_position] = 1.0
+        for y_position in (15, 45, 75, 105):
+            response[y_position, :] = 1.0
+        workspace_mask = np.ones_like(response, dtype=np.uint8)
+
+        families = workspace_s2.build_workspace_s2_axis_aligned_line_families(
+            response,
+            workspace_mask,
+            min_period=20,
+            max_period=40,
+            enable_structural_edge_suppression=False,
+        )
+
+        self.assertEqual([family["line_angle_deg"] for family in families], [0.0, 90.0])
+        self.assertEqual([family["axis_orientation"] for family in families], ["horizontal", "vertical"])
+        self.assertEqual(families[0]["normal"], [0.0, 1.0])
+        self.assertEqual(families[1]["normal"], [1.0, 0.0])
+        self.assertEqual([round(rho) for rho in families[0]["line_rhos"]], [15, 45, 75, 105])
+        self.assertEqual([round(rho) for rho in families[1]["line_rhos"]], [20, 50, 80])
+
+    def test_workspace_s2_fft_period_estimate_recovers_profile_peaks(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        profile = np.full(180, 0.08, dtype=np.float32)
+        for position in range(9, profile.size, 24):
+            profile[position] = 1.0
+            if position + 1 < profile.size:
+                profile[position + 1] = 0.62
+        profile += (0.015 * np.sin(np.arange(profile.size, dtype=np.float32) * 0.31)).astype(np.float32)
+
+        estimate = workspace_s2.estimate_workspace_s2_fft_period_and_phase(
+            profile,
+            min_period=18,
+            max_period=30,
+        )
+
+        self.assertIsNotNone(estimate)
+        self.assertEqual(estimate["method"], "fft")
+        self.assertAlmostEqual(float(estimate["period"]), 24.0, delta=1.0)
+        self.assertAlmostEqual(float(estimate["phase"]), 9.0, delta=1.0)
+        self.assertGreater(int(estimate["frequency_bin"]), 0)
+
+    def test_workspace_s2_axis_aligned_line_families_can_use_fft_estimator(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        response = np.zeros((132, 126), dtype=np.float32)
+        for x_position in (18, 42, 66, 90, 114):
+            response[:, x_position] = 1.0
+        for y_position in (9, 33, 57, 81, 105, 129):
+            response[y_position, :] = 1.0
+        workspace_mask = np.ones_like(response, dtype=np.uint8)
+
+        families = workspace_s2.build_workspace_s2_axis_aligned_line_families(
+            response,
+            workspace_mask,
+            min_period=18,
+            max_period=30,
+            period_estimator="fft",
+            enable_structural_edge_suppression=False,
+        )
+
+        self.assertEqual([family["line_angle_deg"] for family in families], [0.0, 90.0])
+        self.assertEqual([family["estimate"]["method"] for family in families], ["fft", "fft"])
+        self.assertEqual([round(rho) for rho in families[0]["line_rhos"]], [9, 33, 57, 81, 105, 129])
+        self.assertEqual([round(rho) for rho in families[1]["line_rhos"]], [18, 42, 66, 90, 114])
 
     def test_workspace_s2_traces_curved_line_centerline_from_local_ridges(self):
         from tie_robot_perception.perception import workspace_s2
@@ -1121,6 +1249,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         from tie_robot_perception.perception import workspace_s2
 
         response = np.zeros((160, 230), dtype=np.float32)
+        _draw_synthetic_line_family(response, 90.0, [-14.0, -20.0, -26.0], sigma_px=2.0, amp=1.4)
         _draw_synthetic_line_family(response, 0.0, [20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0], sigma_px=1.1)
         _draw_synthetic_line_family(response, 90.0, [-25.0, -60.0, -95.0, -130.0, -165.0, -190.0], sigma_px=1.1)
         _draw_synthetic_line_family(response, 90.0, [-206.0, -212.0, -218.0], sigma_px=2.0, amp=1.4)
@@ -1136,14 +1265,16 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         beam_mask = workspace_s2.build_workspace_s2_structural_edge_suppression_mask(response, mask)
 
+        self.assertGreater(float(np.mean(beam_mask[:, 14:28])), 0.65)
         self.assertGreater(float(np.mean(beam_mask[:, 206:222])), 0.65)
         self.assertLess(float(np.mean(beam_mask[:, 187:194])), 0.20)
-        self.assertLess(float(np.mean(beam_mask[:, 22:29])), 0.20)
+        self.assertLess(float(np.mean(beam_mask[:, 55:64])), 0.20)
 
     def test_workspace_s2_structural_edge_detection_reports_beam_band_location(self):
         from tie_robot_perception.perception import workspace_s2
 
         response = np.zeros((160, 230), dtype=np.float32)
+        _draw_synthetic_line_family(response, 90.0, [-14.0, -20.0, -26.0], sigma_px=2.0, amp=1.4)
         _draw_synthetic_line_family(response, 0.0, [20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0], sigma_px=1.1)
         _draw_synthetic_line_family(response, 90.0, [-25.0, -60.0, -95.0, -130.0, -165.0, -190.0], sigma_px=1.1)
         _draw_synthetic_line_family(response, 90.0, [-206.0, -212.0, -218.0], sigma_px=2.0, amp=1.4)
@@ -1163,9 +1294,42 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             band for band in beam_bands
             if band["axis"] == "x" and band["side"] == "max"
         ]
+        left_vertical_bands = [
+            band for band in beam_bands
+            if band["axis"] == "x" and band["side"] == "min"
+        ]
+        self.assertTrue(left_vertical_bands)
+        self.assertLessEqual(left_vertical_bands[0]["start"], 16)
         self.assertTrue(right_vertical_bands)
         self.assertGreaterEqual(right_vertical_bands[0]["start"], 198)
         self.assertGreaterEqual(right_vertical_bands[0]["peak"], 1.4)
+
+    def test_workspace_s2_structural_edge_detection_catches_live_like_side_beams(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        response = np.zeros((371, 329), dtype=np.float32)
+        _draw_synthetic_line_family(response, 0.0, [40.0, 110.0, 180.0, 250.0, 320.0], sigma_px=1.1, amp=1.0)
+        _draw_synthetic_line_family(
+            response,
+            90.0,
+            [-58.0, -100.0, -149.0, -199.0, -247.0, -284.0, -298.0],
+            sigma_px=1.1,
+            amp=1.0,
+        )
+        _draw_synthetic_line_family(response, 90.0, [-23.0], sigma_px=1.6, amp=1.4)
+        _draw_synthetic_line_family(response, 90.0, [-314.0], sigma_px=1.6, amp=1.5)
+        mask = np.ones_like(response, dtype=np.uint8)
+
+        beam_bands = workspace_s2.detect_workspace_s2_structural_edge_bands(response, mask)
+
+        self.assertTrue([
+            band for band in beam_bands
+            if band["axis"] == "x" and band["side"] == "min" and band["start"] <= 18
+        ])
+        self.assertTrue([
+            band for band in beam_bands
+            if band["axis"] == "x" and band["side"] == "max" and band["start"] >= 300
+        ])
 
     def test_workspace_s2_structural_edge_detection_ignores_horizontal_tcp_intrusion(self):
         from tie_robot_perception.perception import workspace_s2
@@ -1240,6 +1404,39 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertEqual(filtered_points, [(50.0, 30.0), (90.0, 30.0), (50.0, 70.0)])
 
+    def test_workspace_s2_expands_beam_mask_by_thirteen_centimeters_for_graph_exclusion(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        beam_mask = np.zeros((80, 120), dtype=bool)
+        beam_mask[:, 50:56] = True
+        rectified_geometry = {
+            "rectified_width": 120,
+            "rectified_height": 80,
+            "resolution_mm_per_px": 5.0,
+        }
+
+        graph_exclusion_mask = workspace_s2.expand_workspace_s2_exclusion_mask_by_metric_margin(
+            beam_mask,
+            rectified_geometry,
+            margin_mm=130.0,
+        )
+        filtered_points = workspace_s2.filter_workspace_s2_rectified_points_outside_mask(
+            [
+                (23.0, 40.0),
+                (24.0, 40.0),
+                (81.0, 40.0),
+                (82.0, 40.0),
+            ],
+            graph_exclusion_mask,
+        )
+
+        self.assertFalse(beam_mask[40, 24])
+        self.assertTrue(graph_exclusion_mask[40, 24])
+        self.assertTrue(graph_exclusion_mask[40, 81])
+        self.assertFalse(graph_exclusion_mask[40, 23])
+        self.assertFalse(graph_exclusion_mask[40, 82])
+        self.assertEqual(filtered_points, [(23.0, 40.0), (82.0, 40.0)])
+
     def test_workspace_s2_filters_line_rhos_that_run_inside_vertical_beam_mask(self):
         from tie_robot_perception.perception import workspace_s2
 
@@ -1256,23 +1453,60 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertEqual(filtered_rhos, [-190.0, -150.0])
 
-    def test_workspace_s2_family_score_prefers_dense_real_grid_over_sparse_subset(self):
+    def test_workspace_s2_family_score_targets_current_dense_lattice(self):
         from tie_robot_perception.perception import workspace_s2
 
-        dense_family = {
-            "line_rhos": [10.0, 35.0, 60.0, 85.0, 110.0, 135.0, 160.0],
+        sparse_0600_family = {
+            "line_rhos": [-263.0, -172.0, -84.0],
             "periodic_score": 1.0,
             "orientation_score": 0.8,
         }
-        sparse_family = {
-            "line_rhos": [10.0, 60.0, 110.0, 160.0, 210.0],
+        current_dense_family = {
+            "line_rhos": [-282.5, -232.3, -184.6, -130.7, -89.5, -53.2, -30.0, 9.4],
             "periodic_score": 1.0,
             "orientation_score": 0.8,
         }
 
         self.assertGreater(
-            workspace_s2._workspace_s2_supported_family_score(dense_family),
-            workspace_s2._workspace_s2_supported_family_score(sparse_family),
+            workspace_s2._workspace_s2_supported_family_score(current_dense_family),
+            workspace_s2._workspace_s2_supported_family_score(sparse_0600_family),
+        )
+
+    def test_workspace_s2_pair_score_prefers_current_dense_target_over_sparse_lattice(self):
+        from tie_robot_perception.perception import workspace_s2
+
+        sparse_0600_pair = [
+            {
+                "line_angle_deg": 88.0,
+                "line_rhos": [-263.0, -172.0, -84.0],
+                "periodic_score": 1.0,
+                "orientation_score": 0.8,
+            },
+            {
+                "line_angle_deg": 178.0,
+                "line_rhos": [-297.0, -206.0, -121.0, -14.0],
+                "periodic_score": 1.0,
+                "orientation_score": 0.8,
+            },
+        ]
+        current_dense_pair = [
+            {
+                "line_angle_deg": 84.0,
+                "line_rhos": [-282.5, -232.3, -184.6, -130.7, -89.5, -53.2, -30.0, 9.4],
+                "periodic_score": 1.0,
+                "orientation_score": 0.8,
+            },
+            {
+                "line_angle_deg": 174.0,
+                "line_rhos": [-396.5, -337.5, -267.8, -210.0, -150.5, -88.9, -42.0, 14.0],
+                "periodic_score": 1.0,
+                "orientation_score": 0.8,
+            },
+        ]
+
+        self.assertGreater(
+            workspace_s2.score_workspace_s2_oriented_line_family_result(current_dense_pair),
+            workspace_s2.score_workspace_s2_oriented_line_family_result(sparse_0600_pair),
         )
 
     def test_workspace_s2_oriented_continuous_validation_supports_precomputed_sparse_sampling(self):
@@ -1370,7 +1604,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(sorted(line_scores.keys()), selected)
         self.assertGreater(line_scores[42.0], 0.0)
 
-    def test_manual_workspace_s2_response_variant_selection_uses_depth_before_ir_fallback(self):
+    def test_manual_workspace_s2_response_variant_selection_replicates_april22_depth_only_mainline(self):
         manual_workspace_s2_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1381,17 +1615,121 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         depth_block_index = manual_workspace_s2_text.index("depth_response_variants = [")
-        infrared_block_index = manual_workspace_s2_text.index("infrared_response_variants = []", depth_block_index)
-        fallback_index = manual_workspace_s2_text.index("if best_variant is None:", infrared_block_index)
+        depth_loop_index = manual_workspace_s2_text.index("for response_variant in depth_response_variants:")
 
-        self.assertLess(depth_block_index, infrared_block_index)
-        self.assertLess(infrared_block_index, fallback_index)
-        self.assertIn("for response_variant in depth_response_variants:", manual_workspace_s2_text)
-        self.assertIn("for response_variant in infrared_response_variants:", manual_workspace_s2_text[fallback_index:])
-        self.assertIn("infrared_response_variants.append(infrared_dark_line_response)", manual_workspace_s2_text)
-        self.assertNotIn("\n            response_variants.append(infrared_dark_line_response)", manual_workspace_s2_text)
+        self.assertLess(depth_block_index, depth_loop_index)
+        self.assertIn("vertical_estimate = self.estimate_workspace_s2_period_and_phase(", manual_workspace_s2_text)
+        self.assertIn("horizontal_estimate = self.estimate_workspace_s2_period_and_phase(", manual_workspace_s2_text)
+        self.assertNotIn("combined_response_variants", manual_workspace_s2_text)
+        self.assertNotIn("combined_response =", manual_workspace_s2_text)
+        self.assertNotIn("infrared_response_variants", manual_workspace_s2_text)
+        self.assertNotIn("infrared_dark_line_response", manual_workspace_s2_text)
 
-    def test_manual_workspace_s2_current_chain_keeps_original_continuous_ridge_mainline(self):
+    def test_manual_workspace_s2_selects_highest_scored_depth_response_variant_like_april22(self):
+        from tie_robot_perception.pointai import manual_workspace_s2
+
+        class DummyProcessor:
+            def __init__(self):
+                self.depth_v = np.arange(400, dtype=np.float32).reshape(20, 20) + 100.0
+                self.variant_counter = 0
+
+            def load_manual_workspace_quad(self):
+                return {
+                    "corner_pixels": [[0, 0], [19, 0], [19, 19], [0, 19]],
+                    "corner_world_camera_frame": [
+                        [0.0, 0.0, 100.0],
+                        [100.0, 0.0, 100.0],
+                        [100.0, 100.0, 100.0],
+                        [0.0, 100.0, 100.0],
+                    ],
+                }
+
+            def get_manual_workspace_pixel_mask(self):
+                return np.ones((20, 20), dtype=np.uint8)
+
+            def ensure_raw_world_channels(self):
+                return True
+
+            def build_workspace_s2_rectified_geometry(self, corner_pixels, corner_world):
+                del corner_pixels, corner_world
+                return {
+                    "rectified_width": 20,
+                    "rectified_height": 20,
+                    "forward_h": np.eye(3, dtype=np.float32),
+                    "inverse_h": np.eye(3, dtype=np.float32),
+                }
+
+            def normalize_workspace_s2_response(self, response_variant, valid_mask):
+                del response_variant, valid_mask
+                self.variant_counter += 1
+                return np.full((20, 20), float(self.variant_counter), dtype=np.float32)
+
+            def build_workspace_s2_axis_profile(self, normalized_response, mask, axis):
+                del mask, axis
+                return np.full(20, float(normalized_response[0, 0]), dtype=np.float32)
+
+            def estimate_workspace_s2_period_and_phase(self, profile, min_period=10, max_period=30):
+                del min_period, max_period
+                marker = float(profile[0])
+                return {"period": 10, "phase": 0, "score": marker}
+
+            def build_workspace_s2_bbox(self, workspace_mask):
+                del workspace_mask
+                return (0, 0, 19, 19)
+
+        result = manual_workspace_s2.prepare_manual_workspace_s2_inputs(DummyProcessor())
+
+        self.assertIsNotNone(result)
+        self.assertEqual(float(result["response_crop"][0, 0]), 2.0)
+        self.assertEqual(float(result["vertical_estimate"]["score"]), 2.0)
+        self.assertEqual(float(result["horizontal_estimate"]["score"]), 2.0)
+
+    def test_manual_workspace_s2_rectification_prefers_april22_cabin_corner_geometry(self):
+        from tie_robot_perception.pointai import manual_workspace_s2
+
+        cabin_corners = [
+            [10.0, 20.0, 30.0],
+            [110.0, 20.0, 30.0],
+            [110.0, 120.0, 30.0],
+            [10.0, 120.0, 30.0],
+        ]
+        camera_corners = [
+            [1.0, 2.0, 3.0],
+            [101.0, 2.0, 3.0],
+            [101.0, 102.0, 3.0],
+            [1.0, 102.0, 3.0],
+        ]
+
+        class DummyProcessor:
+            def __init__(self):
+                self.depth_v = np.ones((20, 20), dtype=np.float32)
+                self.geometry_corner_world = None
+
+            def load_manual_workspace_quad(self):
+                return {
+                    "corner_pixels": [[0, 0], [19, 0], [19, 19], [0, 19]],
+                    "corner_world_cabin_frame": cabin_corners,
+                    "corner_world_camera_frame": camera_corners,
+                }
+
+            def get_manual_workspace_pixel_mask(self):
+                return np.ones((20, 20), dtype=np.uint8)
+
+            def ensure_raw_world_channels(self):
+                return True
+
+            def build_workspace_s2_rectified_geometry(self, corner_pixels, corner_world):
+                del corner_pixels
+                self.geometry_corner_world = corner_world
+                return None
+
+        dummy = DummyProcessor()
+        result = manual_workspace_s2.prepare_manual_workspace_s2_inputs(dummy)
+
+        self.assertIsNone(result)
+        self.assertEqual(dummy.geometry_corner_world, cabin_corners)
+
+    def test_manual_workspace_s2_current_chain_rejects_depth_only_fallback(self):
         manual_workspace_s2_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1401,16 +1739,26 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             / "manual_workspace_s2.py"
         ).read_text(encoding="utf-8")
 
-        wrapper_index = manual_workspace_s2_text.index("def build_workspace_s2_oriented_line_families(")
-        wrapper_body = manual_workspace_s2_text[wrapper_index:manual_workspace_s2_text.index("def score_workspace_s2_oriented_line_family_result", wrapper_index)]
+        pipeline_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_pipeline(self, publish=False):")
+        pipeline_body = manual_workspace_s2_text[pipeline_index:manual_workspace_s2_text.index("def run_manual_workspace_s2(self):", pipeline_index)]
+        fallback_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):")
+        fallback_body = manual_workspace_s2_text[fallback_index:pipeline_index]
 
-        self.assertIn("enable_local_peak_refine=True", wrapper_body)
-        self.assertIn("enable_continuous_validation=True", wrapper_body)
-        self.assertIn("enable_spacing_prune=True", wrapper_body)
-        self.assertIn("use_orientation_prior_angle_pool=True", wrapper_body)
-        self.assertNotIn("enable_continuous_validation=False", wrapper_body)
+        self.assertIn("self.run_manual_workspace_surface_dp_pipeline(publish=publish)", pipeline_body)
+        self.assertNotIn("self.run_manual_workspace_s2_depth_only_pipeline(publish=publish)", pipeline_body)
+        self.assertNotIn("fallback_result", pipeline_body)
+        self.assertIn('surface_result["legacy_depth_only_fallback"] = False', pipeline_body)
+        self.assertIn("vertical_lines = self.build_workspace_s2_line_positions(", fallback_body)
+        self.assertIn("horizontal_lines = self.build_workspace_s2_line_positions(", fallback_body)
+        self.assertIn("rectified_intersections = [", fallback_body)
+        self.assertIn("self.build_workspace_s2_projective_line_segments(", fallback_body)
+        self.assertIn("v_period=%d, h_period=%d, points=%d", fallback_body)
+        self.assertNotIn("collect_stable_manual_workspace_s2_inputs", pipeline_body)
+        self.assertNotIn("apply_manual_workspace_s2_phase_lock", pipeline_body)
+        self.assertNotIn("beam_exclusion_margin_mm", pipeline_body)
+        self.assertNotIn("expand_workspace_s2_exclusion_mask_by_metric_margin", pipeline_body)
 
-    def test_manual_workspace_s2_filters_beam_points_with_structural_edge_response(self):
+    def test_manual_workspace_s2_module_omits_later_stability_and_phase_lock_experiments(self):
         manual_workspace_s2_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1420,8 +1768,26 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             / "manual_workspace_s2.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('"structural_edge_response_crop": structural_edge_response', manual_workspace_s2_text)
-        self.assertIn('s2_inputs.get("structural_edge_response_crop", s2_inputs["response_crop"])', manual_workspace_s2_text)
+        self.assertNotIn("select_stable_manual_workspace_s2_inputs", manual_workspace_s2_text)
+        self.assertNotIn("collect_stable_manual_workspace_s2_inputs", manual_workspace_s2_text)
+        self.assertNotIn("manual_workspace_s2_phase_lock", manual_workspace_s2_text)
+        self.assertNotIn("apply_manual_workspace_s2_phase_lock", manual_workspace_s2_text)
+
+    def test_manual_workspace_s2_scan_path_omits_beam_expansion_filtering(self):
+        manual_workspace_s2_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "manual_workspace_s2.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn('"structural_edge_response_crop": structural_edge_response', manual_workspace_s2_text)
+        self.assertNotIn('structural_edge_response = best_variant["response"]', manual_workspace_s2_text)
+        self.assertNotIn("beam_exclusion_margin_mm = 130.0", manual_workspace_s2_text)
+        self.assertNotIn("expand_workspace_s2_exclusion_mask_by_metric_margin", manual_workspace_s2_text)
+        self.assertNotIn('s2_inputs.get("structural_edge_response_crop", s2_inputs["response_crop"])', manual_workspace_s2_text)
 
     def test_stage_ablation_filters_beam_points_with_structural_edge_response(self):
         stage_ablation_text = (
@@ -1433,8 +1799,10 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertIn('"structural_edge_response": structural_edge_response', stage_ablation_text)
         self.assertIn('prepared.get("structural_edge_response", best_result["response"])', stage_ablation_text)
+        self.assertIn("expand_workspace_s2_exclusion_mask_by_metric_margin", stage_ablation_text)
+        self.assertIn("margin_mm=130.0", stage_ablation_text)
 
-    def test_stage_ablation_prefers_first_supported_depth_response(self):
+    def test_stage_ablation_prefers_first_supported_combined_response(self):
         stage_ablation_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1442,9 +1810,46 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             / "pr_fprg_stage_ablation.py"
         ).read_text(encoding="utf-8")
 
+        self.assertIn("combined_depth_ir_darkline", stage_ablation_text)
+        self.assertLess(
+            stage_ablation_text.index('"name": "combined_depth_ir_darkline"'),
+            stage_ablation_text.index('"name": "depth_background_minus_filled"'),
+        )
+        self.assertIn('candidate["source"] == "depth_ir"', stage_ablation_text)
         self.assertIn("selected_group_result = None", stage_ablation_text)
         self.assertIn("selected_group_result = {", stage_ablation_text)
         self.assertIn("if selected_group_result is not None:\n                break", stage_ablation_text)
+
+    def test_peak_supported_probe_prefers_first_supported_depth_response(self):
+        probe_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "tools"
+            / "pr_fprg_peak_supported_probe.py"
+        ).read_text(encoding="utf-8")
+        selector_body = probe_text[
+            probe_text.index("def select_best_response_variant("):
+            probe_text.index("def run_peak_supported_pr_fprg(", probe_text.index("def select_best_response_variant("))
+        ]
+
+        self.assertIn("return {", selector_body)
+        self.assertNotIn("combined_score > best_variant", selector_body)
+        self.assertNotIn("best_variant = {", selector_body)
+
+    def test_peak_supported_probe_uses_combined_response_before_depth_for_scheme1_peak_finding(self):
+        probe_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "tools"
+            / "pr_fprg_peak_supported_probe.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("combined_depth_ir_darkline", probe_text)
+        self.assertIn("response_name_filter", probe_text)
+        self.assertLess(
+            probe_text.index('"name": "combined_depth_ir_darkline"'),
+            probe_text.index('"name": "depth_background_minus_filled"'),
+        )
 
     def test_workspace_s2_beam_mask_does_not_delete_line_rhos(self):
         workspace_s2_text = (
@@ -1461,14 +1866,14 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertNotIn("filter_workspace_s2_line_rhos_by_mask_overlap(", builder_body)
 
-    def test_pr_fprg_scheme_ablation_report_focuses_only_on_scheme1(self):
+    def test_pr_fprg_scheme_ablation_report_covers_active_and_curve_schemes_without_scheme2(self):
         report_text = PR_FPRG_SCHEME_ABLATION_REPORT_PATH.read_text(encoding="utf-8")
 
         schemes_block = report_text[report_text.index("SCHEMES = ["):report_text.index("STAGE_VARIANTS = [")]
         self.assertIn("01_current_theta_rho", schemes_block)
         self.assertNotIn("02_archived_ir_rho", schemes_block)
         for scheme_id in ("03_greedy_depth_curve", "04_dp_depth_curve", "05_dp_ridge_curve", "06_ir_assisted_curve"):
-            self.assertNotIn(scheme_id, schemes_block)
+            self.assertIn(scheme_id, schemes_block)
 
     def test_pr_fprg_scheme_ablation_report_crosses_schemes_with_stage_variants(self):
         report_text = PR_FPRG_SCHEME_ABLATION_REPORT_PATH.read_text(encoding="utf-8")
@@ -1477,6 +1882,11 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("for stage_variant in STAGE_VARIANTS:", report_text)
         self.assertIn("scheme_id", report_text)
         self.assertIn("stage_variant_id", report_text)
+        self.assertIn("同一组合响应图", report_text)
+        self.assertIn("梁筋±13cm范围", report_text)
+        self.assertIn("00_peak_supported_lines.png", report_text)
+        self.assertIn("00_peak_spacing_pruned_lines.png", report_text)
+        self.assertNotIn("full_angle_sweep", report_text)
 
     def test_pr_fprg_scheme_ablation_report_has_visible_scheme_navigation(self):
         report_text = PR_FPRG_SCHEME_ABLATION_REPORT_PATH.read_text(encoding="utf-8")
@@ -1495,25 +1905,217 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         comparison_text = PR_FPRG_SCHEME_COMPARISON_PATH.read_text(encoding="utf-8")
 
         self.assertIn("build_workspace_s2_structural_edge_suppression_mask", comparison_text)
+        self.assertIn("detect_workspace_s2_structural_edge_bands", comparison_text)
+        self.assertIn("expand_workspace_s2_exclusion_mask_by_metric_margin", comparison_text)
+        self.assertIn("beam_exclusion_margin_mm = 130.0", comparison_text)
         self.assertIn("filter_workspace_s2_rectified_points_outside_mask", comparison_text)
+        self.assertIn("beam_bands", comparison_text)
+        self.assertIn("梁筋±13cm图谱排除 mask", comparison_text)
         self.assertIn("beam_filtered_point_count", comparison_text)
         self.assertIn("curve_metrics", comparison_text)
         self.assertIn("abs_offset_p95", comparison_text)
         self.assertIn("wiggle_mean", comparison_text)
+        self.assertIn('"01b_fft_axis_peaks"', comparison_text)
+        self.assertIn("FFT 行/列峰值正交网格", comparison_text)
+        self.assertIn("period_estimator=\"fft\"", comparison_text)
+        self.assertIn("00_combined_response_beam_mask_overlay.png", comparison_text)
+        self.assertIn("组合响应 + 梁筋±13cm过滤叠加", comparison_text)
+        self.assertIn("00_beam_mask_binary.png", comparison_text)
+        self.assertIn("梁筋mask二值图", comparison_text)
+        self.assertIn("00_fft_frequency_spectrum.png", comparison_text)
+        self.assertIn("FFT 频域谱图", comparison_text)
+        self.assertIn("直角坐标系驼峰峰值图", comparison_text)
+        self.assertIn("period_px", comparison_text)
+        self.assertIn("display_gamma", comparison_text)
+        self.assertIn("00_source_workspace_gamma.png", comparison_text)
+        self.assertIn("00_selected_response_gamma.png", comparison_text)
+        self.assertIn("00_combined_response_gamma.png", comparison_text)
+        self.assertIn("高伽马组合响应", comparison_text)
+        self.assertIn("梁筋 mask 当前状态", comparison_text)
+        self.assertIn("曲线为什么没有完全贴钢筋", comparison_text)
+        self.assertIn("尺度变化为什么影响精度", comparison_text)
+        self.assertIn("全尺度鲁棒方案", comparison_text)
+        self.assertIn("历史技术路径", comparison_text)
+        self.assertIn("box-sizing: border-box", comparison_text)
+        self.assertIn("overflow-x: hidden", comparison_text)
+        self.assertIn("minmax(min(100%, 320px), 1fr)", comparison_text)
+        self.assertIn("min-width: 0", comparison_text)
+        self.assertIn("max-height: min(76vh, 920px)", comparison_text)
+        self.assertIn("object-fit: contain", comparison_text)
+        self.assertIn('"topology_source": variant.get("topology_source")', comparison_text)
 
-    def test_pr_fprg_stage_tools_default_full_pipeline_uses_continuous_ridge_mainline(self):
+    def test_pr_fprg_previous_schemes_are_archived_before_instance_graph_probe(self):
+        archive_text = PR_FPRG_PREVIOUS_SCHEMES_ARCHIVE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("方案 1", archive_text)
+        self.assertIn("方案 2 废案", archive_text)
+        self.assertIn("方案 3/4/5/6", archive_text)
+        self.assertIn("红外最终 rho 微调", archive_text)
+        self.assertIn("梁筋 edge-band mask", archive_text)
+        self.assertIn("不是实例分割", archive_text)
+        self.assertIn("组合响应", archive_text)
+        self.assertIn("深度响应", archive_text)
+        self.assertIn("主链不回滚", archive_text)
+
+    def test_rebar_instance_graph_probe_derives_modalities_from_combined_and_depth_response(self):
+        probe_text = REBAR_INSTANCE_GRAPH_PROBE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("combined_response", probe_text)
+        self.assertIn("depth_response", probe_text)
+        self.assertIn("hessian", probe_text)
+        self.assertIn("ridge", probe_text)
+        self.assertIn("skeleton", probe_text)
+        self.assertIn("instance_graph", probe_text)
+        self.assertIn("worldCoord", probe_text)
+        self.assertIn("beam_candidate", probe_text)
+        self.assertIn("write_report", probe_text)
+        self.assertIn("07_skeleton.png", probe_text)
+        self.assertIn("08_instance_graph_overlay.png", probe_text)
+        comparison_text = PR_FPRG_SCHEME_COMPARISON_PATH.read_text(encoding="utf-8")
+        self.assertIn('"main_axis_rowcol"', comparison_text)
+        self.assertIn('"fft_axis_peaks"', comparison_text)
+        self.assertIn("方案3/4/5/6 当前使用主链行/列峰值线族作为曲线拓扑骨架，不使用 FFT 线族。", comparison_text)
+        for scheme_id in (
+            "03f_fft_greedy_depth_curve",
+            "04f_fft_dp_depth_curve",
+            "05f_fft_dp_ridge_curve",
+            "06f_fft_ir_assisted_curve",
+        ):
+            self.assertIn(scheme_id, comparison_text)
+        self.assertIn("FFT 线族拓扑骨架", comparison_text)
+        self.assertNotIn('"02_archived_ir_rho"', comparison_text)
+        self.assertNotIn("02 归档方案", comparison_text)
+
+    def test_rebar_surface_bindpoint_comparison_reports_segmentation_and_variants(self):
+        comparison_text = REBAR_SURFACE_BINDPOINT_COMPARISON_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("surface_segmentation", comparison_text)
+        self.assertIn("ordinary_rebar_mask", comparison_text)
+        self.assertIn("beam_candidate_mask", comparison_text)
+        self.assertIn("beam_candidate_mask_13cm", comparison_text)
+        self.assertIn("bind_point_variants", comparison_text)
+        self.assertIn("pr_fprg_all", comparison_text)
+        self.assertIn("legacy_edge_band_13cm", comparison_text)
+        self.assertIn("beam_candidate_direct", comparison_text)
+        self.assertIn("beam_candidate_13cm", comparison_text)
+        self.assertIn("ir_display_gamma", comparison_text)
+        self.assertIn("ir_high_gamma", comparison_text)
+        self.assertIn("completed_surface_mask", comparison_text)
+        self.assertIn("completed_surface_intersections", comparison_text)
+        self.assertIn("instance_graph_junctions", comparison_text)
+        self.assertIn("curve3456_on_completed_surface", comparison_text)
+        for scheme_id in (
+            "03_surface_greedy_curve",
+            "04_surface_dp_curve",
+            "05_surface_ridge_curve",
+            "06_surface_ir_assisted_curve",
+        ):
+            self.assertIn(scheme_id, comparison_text)
+        self.assertIn("variant_timings_ms", comparison_text)
+        self.assertIn("write_report", comparison_text)
+        self.assertIn("surface_segmentation_overlay.png", comparison_text)
+        self.assertIn("surface_completion_overlay.png", comparison_text)
+        self.assertIn("ir_high_gamma_workspace.png", comparison_text)
+        self.assertIn("bindpoint_comparison_matrix.png", comparison_text)
+
+    def test_pr_fprg_topology_recovery_experiment_reports_each_algorithm_step(self):
+        report_text = PR_FPRG_TOPOLOGY_RECOVERY_EXPERIMENT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("build_recovered_frequency_phase_grid", report_text)
+        self.assertIn("enable_peak_support=False", report_text)
+        self.assertIn("period_estimator=\"fft\"", report_text)
+        self.assertIn("recovered_topology_before_filter", report_text)
+        self.assertIn("recovered_topology_after_beam_filter", report_text)
+        self.assertIn("beam_candidate_mask_13cm", report_text)
+        self.assertIn("01_input_workspace.png", report_text)
+        self.assertIn("02_rectified_ir.png", report_text)
+        self.assertIn("03_combined_response.png", report_text)
+        self.assertIn("04_vertical_profile_fft.png", report_text)
+        self.assertIn("05_horizontal_profile_fft.png", report_text)
+        self.assertIn("06_frequency_phase_lattice_rectified.png", report_text)
+        self.assertIn("07_beam_candidate_13cm_mask.png", report_text)
+        self.assertIn("08_before_filter_original.png", report_text)
+        self.assertIn("09_after_filter_original.png", report_text)
+        self.assertIn("10_current_peak_supported_original.png", report_text)
+        self.assertIn("build_curve3456_on_recovered_mainline", report_text)
+        for scheme_id in (
+            "03_recovered_greedy_curve",
+            "04_recovered_dp_curve",
+            "05_recovered_ridge_curve",
+            "06_recovered_ir_assisted_curve",
+        ):
+            self.assertIn(scheme_id, report_text)
+        self.assertIn("12_03_recovered_greedy_curve_original.png", report_text)
+        self.assertIn("13_04_recovered_dp_curve_original.png", report_text)
+        self.assertIn("14_05_recovered_ridge_curve_original.png", report_text)
+        self.assertIn("15_06_recovered_ir_assisted_curve_original.png", report_text)
+        self.assertIn("write_report", report_text)
+
+    def test_pr_fprg_multiscale_experiment_fuses_frequency_surface_graph_and_curve_paths(self):
+        report_text = PR_FPRG_MULTISCALE_BINDPOINT_EXPERIMENT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("PR-FPRG-MS", report_text)
+        self.assertIn("def compute_multiscale_scale_metrics", report_text)
+        self.assertIn("def merge_multiscale_bindpoint_candidates", report_text)
+        self.assertIn("def build_multiscale_bindpoint_experiment", report_text)
+        self.assertIn("build_recovered_frequency_phase_grid", report_text)
+        self.assertIn("build_surface_segmentation", report_text)
+        self.assertIn("build_completed_surface_intersections", report_text)
+        self.assertIn("cluster_instance_graph_junctions", report_text)
+        self.assertIn("build_curve3456_on_recovered_mainline", report_text)
+        self.assertIn("beam_candidate_mask_13cm", report_text)
+        self.assertIn("scale_mode", report_text)
+        self.assertIn("frequency_phase_after_beam", report_text)
+        self.assertIn("completed_surface_intersections_13cm", report_text)
+        self.assertIn("instance_graph_junctions_13cm", report_text)
+        self.assertIn("multiscale_fused", report_text)
+        self.assertIn("04_scale_decision_flow.png", report_text)
+        self.assertIn("15_multiscale_fused_original.png", report_text)
+        self.assertIn("reports/pr_fprg_multiscale_bindpoint_experiment", report_text)
+
+    def test_pr_fprg_reports_label_bottom_response_as_combined_response(self):
+        comparison_text = PR_FPRG_SCHEME_COMPARISON_PATH.read_text(encoding="utf-8")
+        probe_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "tools"
+            / "pr_fprg_peak_supported_probe.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("00_selected_response.png", comparison_text)
+        self.assertIn("00_peak_supported_lines.png", comparison_text)
+        self.assertIn("00_peak_spacing_pruned_lines.png", comparison_text)
+        self.assertIn("峰值图：peak-supported 候选线", comparison_text)
+        self.assertIn("峰值图：绿色保留 / 红色剔除", comparison_text)
+        self.assertIn("底层组合响应", comparison_text)
+        self.assertIn("底层深度响应", comparison_text)
+        self.assertIn("--response-name-filter", comparison_text)
+        self.assertIn("04_selected_combined_response", probe_text)
+        self.assertNotIn("<figcaption>深度响应</figcaption>", comparison_text)
+
+    def test_pr_fprg_stage_tools_default_full_pipeline_uses_axis_peak_mainline(self):
         stage_ablation_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
             / "tools"
             / "pr_fprg_stage_ablation.py"
         ).read_text(encoding="utf-8")
+        stage_report_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "tools"
+            / "pr_fprg_stage_ablation_report.py"
+        ).read_text(encoding="utf-8")
         scheme_report_text = PR_FPRG_SCHEME_ABLATION_REPORT_PATH.read_text(encoding="utf-8")
 
-        self.assertIn('"enable_local_peak_refine": True', scheme_report_text)
-        self.assertIn('"enable_continuous_validation": True', scheme_report_text)
-        self.assertIn('variant.get("enable_local_peak_refine", True)', stage_ablation_text)
-        self.assertIn('variant.get("enable_continuous_validation", True)', stage_ablation_text)
+        self.assertIn('"enable_local_peak_refine": False', scheme_report_text)
+        self.assertIn('"enable_continuous_validation": False', scheme_report_text)
+        self.assertIn('variant.get("enable_local_peak_refine", False)', stage_ablation_text)
+        self.assertIn('variant.get("enable_continuous_validation", False)', stage_ablation_text)
+        self.assertIn("00_peak_supported_lines.png", stage_report_text)
+        self.assertIn("00_peak_spacing_pruned_lines.png", stage_report_text)
+        self.assertNotIn("full_angle_sweep", stage_ablation_text)
+        self.assertNotIn("全角度候选池", scheme_report_text)
 
     def test_visual_debug_runtime_controls_are_exposed_to_frontend(self):
         ros_interfaces_text = POINTAI_ROS_INTERFACES_PATH.read_text(encoding="utf-8")
@@ -1525,6 +2127,34 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("def set_stable_frame_count_callback(self, msg):", runtime_config_text)
         self.assertIn("self.stable_frame_count = max(1, int(getattr(msg, \"data\", 1)))", runtime_config_text)
         self.assertIn('rospy.set_param("~stable_frame_count", int(self.stable_frame_count))', runtime_config_text)
+
+    def test_colab_training_package_includes_full_non_rgb_modality_set(self):
+        colab_script = WORKSPACE_ROOT.parent / "notebooks" / "pr_fprg_multimodal_segmentation_colab.py"
+        script_text = colab_script.read_text(encoding="utf-8")
+
+        expected_input_channels = (
+            '"ir"',
+            '"depth_z"',
+            '"worldcoord_height_response"',
+            '"depth_response"',
+            '"depth_gradient"',
+            '"combined_response"',
+            '"hessian_ridge"',
+            '"frangi_like"',
+            '"fused_instance_response"',
+        )
+        for channel_name in expected_input_channels:
+            self.assertIn(channel_name, script_text)
+
+        self.assertIn('"rectified_ir"', script_text)
+        self.assertIn('"rectified_depth"', script_text)
+        self.assertIn('"raw_world_z"', script_text)
+        self.assertIn("TRAINING_MASK_CHANNELS", script_text)
+        self.assertIn('"valid_mask"', script_text)
+        self.assertIn('"workspace_mask"', script_text)
+        self.assertIn("apply_training_support_masks", script_text)
+        self.assertIn("target[ignore_mask] = IGNORE_INDEX", script_text)
+        self.assertNotIn("建议第一版先用这 6 个", script_text)
 
     def test_manual_workspace_s2_logs_single_frame_elapsed_ms(self):
         manual_workspace_s2_text = (
@@ -1547,7 +2177,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn('REALTIME_TARGET_SCHEME_ID = "01_current_theta_rho"', report_text)
         self.assertNotIn('ARCHIVED_CURVE_SCHEME_IDS = ["05_dp_ridge_curve", "06_ir_assisted_curve"]', report_text)
 
-    def test_manual_workspace_s2_pipeline_uses_oriented_line_families_as_main_path(self):
+    def test_manual_workspace_s2_pipeline_uses_surface_dp_as_main_path(self):
         manual_workspace_s2_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1557,12 +2187,17 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             / "manual_workspace_s2.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("line_families = self.build_workspace_s2_oriented_line_families(", manual_workspace_s2_text)
-        self.assertIn("rectified_intersections = self.intersect_workspace_s2_oriented_line_families(", manual_workspace_s2_text)
-        self.assertNotIn("vertical_lines = self.build_workspace_s2_line_positions(", manual_workspace_s2_text)
-        self.assertNotIn("horizontal_lines = self.build_workspace_s2_line_positions(", manual_workspace_s2_text)
+        pipeline_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_pipeline(self, publish=False):")
+        pipeline_body = manual_workspace_s2_text[pipeline_index:manual_workspace_s2_text.index("def run_manual_workspace_s2(self):", pipeline_index)]
 
-    def test_legacy_ransac_hough_pointai_code_is_archived_and_not_runtime_bound(self):
+        self.assertIn("self.run_manual_workspace_surface_dp_pipeline(publish=publish)", pipeline_body)
+        self.assertNotIn("self.run_manual_workspace_s2_depth_only_pipeline(publish=publish)", pipeline_body)
+        self.assertIn('surface_result["legacy_depth_only_fallback"] = False', pipeline_body)
+        self.assertNotIn("vertical_lines = self.build_workspace_s2_line_positions(", pipeline_body)
+        self.assertNotIn("horizontal_lines = self.build_workspace_s2_line_positions(", pipeline_body)
+        self.assertNotIn("rectified_intersections = [", pipeline_body)
+
+    def test_execution_refine_hough_is_runtime_bound_without_importing_legacy_pre_img(self):
         processor_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1572,6 +2207,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             / "processor.py"
         ).read_text(encoding="utf-8")
         process_image_service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        ros_interfaces_text = POINTAI_ROS_INTERFACES_PATH.read_text(encoding="utf-8")
         active_pointai_sources = "\n".join(
             path.read_text(encoding="utf-8")
             for path in (
@@ -1584,9 +2220,17 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         )
 
         self.assertTrue((LEGACY_RANSAC_HOUGH_ARCHIVE_DIR / "matrix_preprocess.py").exists())
+        self.assertIn("from . import execution_refine_hough", processor_text)
+        self.assertIn(
+            "cls.run_execution_refine_hough_pipeline = execution_refine_hough.run_execution_refine_hough_pipeline",
+            processor_text,
+        )
+        self.assertIn("self.depth_binary_image_pub", ros_interfaces_text)
+        self.assertIn("self.line_image_pub", ros_interfaces_text)
+        self.assertIn("HoughLinesP", active_pointai_sources)
+        self.assertIn("self.run_execution_refine_hough_pipeline(", process_image_service_text)
         self.assertNotIn("cls.pre_img", processor_text)
         self.assertNotIn("self.pre_img(", process_image_service_text)
-        self.assertNotIn("HoughLinesP", active_pointai_sources)
         self.assertNotIn("from .matrix_preprocess import pre_img", active_pointai_sources)
 
     def test_manual_workspace_s2_pipeline_uses_peak_supported_lines_before_mapping_intersections(self):
@@ -1639,73 +2283,6 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertLess(continuous_support_index, spacing_prune_index)
         self.assertLess(spacing_prune_index, line_assignment_index)
-
-    def test_manual_workspace_s2_phase_lock_keeps_same_workspace_on_same_grid_phase(self):
-        from tie_robot_perception.pointai import manual_workspace_s2
-
-        class DummyProcessor:
-            manual_workspace_s2_phase_lock = None
-
-        dummy = DummyProcessor()
-        s2_inputs = {
-            "manual_workspace": {
-                "corner_pixels": [[10, 10], [110, 10], [110, 110], [10, 110]],
-            },
-            "rectified_geometry": {
-                "rectified_width": 120,
-                "rectified_height": 120,
-            },
-        }
-
-        first_vertical, first_horizontal = manual_workspace_s2.apply_manual_workspace_s2_phase_lock(
-            dummy,
-            s2_inputs,
-            [18, 38, 58, 78],
-            [16, 36, 56, 76],
-        )
-        second_vertical, second_horizontal = manual_workspace_s2.apply_manual_workspace_s2_phase_lock(
-            dummy,
-            s2_inputs,
-            [10, 30, 50, 70],
-            [16, 36, 56, 76],
-        )
-
-        self.assertEqual(first_vertical, [18, 38, 58, 78])
-        self.assertEqual(second_vertical, [18, 38, 58, 78])
-        self.assertEqual(second_horizontal, [16, 36, 56, 76])
-
-    def test_manual_workspace_s2_phase_lock_is_not_invalidated_by_one_extra_candidate_line(self):
-        from tie_robot_perception.pointai import manual_workspace_s2
-
-        class DummyProcessor:
-            manual_workspace_s2_phase_lock = None
-
-        dummy = DummyProcessor()
-        s2_inputs = {
-            "manual_workspace": {
-                "corner_pixels": [[10, 10], [110, 10], [110, 110], [10, 110]],
-            },
-            "rectified_geometry": {
-                "rectified_width": 120,
-                "rectified_height": 120,
-            },
-        }
-
-        manual_workspace_s2.apply_manual_workspace_s2_phase_lock(
-            dummy,
-            s2_inputs,
-            [18, 38, 58, 78],
-            [16, 36, 56, 76],
-        )
-        vertical, horizontal = manual_workspace_s2.apply_manual_workspace_s2_phase_lock(
-            dummy,
-            s2_inputs,
-            [8, 28, 48, 68, 88],
-            [16, 36, 56, 76],
-        )
-
-        self.assertEqual(vertical, [18, 38, 58, 78])
-        self.assertEqual(horizontal, [16, 36, 56, 76])
 
     def test_manual_workspace_s2_pipeline_refines_lines_before_mapping_intersections(self):
         workspace_s2_text = (

@@ -23,6 +23,7 @@ import { UIController } from "../ui/UIController.js";
 import {
   loadCabinRemoteSettings,
   loadDisplayPreferences,
+  loadNetworkPingSettings,
   loadRecognitionPose,
   loadSettingsHomePagePreference,
   loadSettingsPageOrderPreference,
@@ -31,6 +32,7 @@ import {
   loadViewerLayout,
   saveCabinRemoteSettings,
   saveDisplayPreferences,
+  saveNetworkPingSettings,
   saveRecognitionPose,
   saveSettingsHomePagePreference,
   saveSettingsPageOrderPreference,
@@ -44,16 +46,25 @@ import {
   resolveCabinRemoteDirectionFromKey,
   shouldIgnoreCabinRemoteKeyboardTarget,
 } from "../utils/cabinRemoteKeyboard.js";
+import {
+  normalizeCabinTelemetry,
+  resolveCabinRemoteOperationState,
+} from "../utils/cabinRemoteOperationState.js";
+import { formatCabinRemoteProtocolFeedback } from "../utils/cabinRemoteProtocolFeedback.js";
 import { inferLegacyLogLevel, sanitizeRosLogText } from "../utils/logText.js";
 import { Scene3DView } from "../views/Scene3DView.js";
 import { WorkspaceCanvasView } from "../views/WorkspaceCanvasView.js";
+import { TOPICS } from "../config/topicRegistry.js";
+import {
+  FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
+  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+} from "../config/visualRecognitionMode.js";
 
 const DIRECT_CABIN_MOVE_TARGET = Object.freeze({
   x: -260,
   y: 1700,
   z: 3197,
 });
-const CABIN_REMOTE_REPEAT_INTERVAL_MS = 250;
 const PLANNING_AREA_REFRESH_DELAY_MS = 180;
 const S2_RESULT_TIMEOUT_MS = 6000;
 const SETTINGS_LAYER_LOG_HISTORY_LIMIT = 50;
@@ -77,11 +88,7 @@ const SETTINGS_LAYER_LOG_GROUPS = [
 ];
 
 const VISUAL_DEBUG_REQUEST_MODE_LABELS = {
-  0: "默认模式",
-  1: "自适应高度",
-  2: "绑扎检查",
-  3: "扫描输出",
-  4: "执行微调",
+  [FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE]: FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
 };
 
 export class TieRobotFrontApp {
@@ -96,26 +103,27 @@ export class TieRobotFrontApp {
     this.s2ResultTimeoutId = null;
     this.planningAreaRefreshTimerId = null;
     this.planningAreaRequestToken = 0;
-    this.prFprgOverlayActive = false;
-    this.prFprgOverlayRequested = false;
+    this.surfaceDpOverlayActive = false;
+    this.surfaceDpOverlayRequested = false;
     this.visualRecognitionOverlayCompleted = false;
     this.visualRecognitionOverlayCleared = false;
     this.latestVisualRecognitionPointsMessage = null;
-    this.cabinRemoteRepeatTimerId = null;
-    this.cabinRemoteRepeatDirectionId = null;
+    this.irCameraInfo = null;
+    this.displayedImageTopicName = DEFAULT_IMAGE_TOPIC;
+    this.cabinTelemetry = normalizeCabinTelemetry(null);
     this.cabinRemoteMoveInFlight = false;
     this.tcpLinearRemoteMoveInFlight = false;
+    this.robotHomeCalibration = null;
     this.graphicalAppSessions = [];
     this.graphicalAppSessionSignature = "";
     this.graphicalAppSessionPollTimer = null;
+    this.demoModeStatusPollTimer = null;
     this.handleCabinRemoteKeyDown = this.handleCabinRemoteKeyDown.bind(this);
-    this.handleCabinRemoteGlobalPointerUp = this.handleCabinRemoteGlobalPointerUp.bind(this);
-    this.handleCabinRemoteWindowBlur = this.handleCabinRemoteWindowBlur.bind(this);
-    this.handleCabinRemoteVisibilityChange = this.handleCabinRemoteVisibilityChange.bind(this);
     this.handleWindowBeforeUnload = this.handleWindowBeforeUnload.bind(this);
     this.handleGraphicalAppFrameMessage = this.handleGraphicalAppFrameMessage.bind(this);
     this.displaySettings = loadDisplayPreferences();
     this.cabinRemoteSettings = loadCabinRemoteSettings();
+    this.networkPingSettings = loadNetworkPingSettings();
     this.recognitionPose = loadRecognitionPose(DIRECT_CABIN_MOVE_TARGET);
     this.visualDebugSettings = loadVisualDebugSettings();
     this.settingsHomePage = loadSettingsHomePagePreference();
@@ -141,10 +149,16 @@ export class TieRobotFrontApp {
     this.renderControlPanelTasks();
     this.settingsPageOrder = this.ui.setSettingsPageOrder(this.settingsPageOrder);
     this.settingsHomePage = this.ui.setSettingsHomePage(this.settingsHomePage);
+    const homeFirstPageOrder = this.ui.getSettingsPageOrder();
+    if (homeFirstPageOrder.join("\u0000") !== this.settingsPageOrder.join("\u0000")) {
+      this.settingsPageOrder = homeFirstPageOrder;
+      saveSettingsPageOrderPreference(homeFirstPageOrder);
+    }
     this.ui.setSettingsPage(this.settingsHomePage);
     this.ui.renderPanelsFromLayout(this.activeLayout);
     this.ui.setTheme(this.theme);
     this.ui.setCabinRemoteSettings(this.cabinRemoteSettings);
+    this.ui.setNetworkPingSettings(this.networkPingSettings);
 
     this.panelManager = new PanelManager({
       onLayoutChange: () => this.persistActiveLayout(),
@@ -210,6 +224,7 @@ export class TieRobotFrontApp {
         this.syncLogSubscription({ suppressLog: true });
         this.syncGlobalCabinMoveSpeed({ suppressLog: true });
         this.applyVisualDebugStableFrameCount({ suppressLog: true });
+        this.refreshRobotHomeCalibration({ suppressLog: true });
         this.schedulePlanningAreaRefresh();
         this.refreshActionState();
       },
@@ -219,18 +234,22 @@ export class TieRobotFrontApp {
         this.clearPlanningAreaRefresh();
         this.planningAreaRequestToken += 1;
         this.sceneView.setPlanningAreaPayload(null);
-        this.prFprgOverlayActive = false;
-        this.prFprgOverlayRequested = false;
+        this.surfaceDpOverlayActive = false;
+        this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCleared = false;
-        this.stopCabinRemoteRepeat();
+        this.irCameraInfo = null;
+        this.workspaceView.setTcpWorkspaceBoundary(null);
         this.legacyCommandController?.reset();
         this.ui.syncControlToggleStates(this.legacyCommandController?.getToggleStateSnapshot());
         this.ui.renderTopicInventory([]);
         this.ui.setCabinRemoteCurrentPosition(null);
+        this.cabinTelemetry = normalizeCabinTelemetry(null);
         this.ui.setTcpLinearRemoteState(null);
         this.ui.setBottomLinearModulePosition(null, null);
         this.ui.setTcpLinearRemoteButtonsEnabled(false);
         this.ui.setGripperTfCalibration(null);
+        this.ui.setRobotHomeCalibration(null);
+        this.robotHomeCalibration = null;
         this.viewerStore.patch({
           connection: {
             ready: false,
@@ -262,8 +281,14 @@ export class TieRobotFrontApp {
       onBaseImage: (message) => {
         this.workspaceView.setBaseImageMessage(message);
       },
-      onDisplayedImage: (message) => {
+      onDisplayedImage: (message, topicName) => {
+        this.displayedImageTopicName = topicName || DEFAULT_IMAGE_TOPIC;
         this.workspaceView.setBaseImageMessage(message);
+        this.syncTcpWorkspaceBoundaryOverlay();
+      },
+      onIrCameraInfo: (message) => {
+        this.irCameraInfo = message;
+        this.syncTcpWorkspaceBoundaryOverlay();
       },
       onSavedWorkspacePayload: (payload) => {
         this.workspaceView.setSavedWorkspacePayload(payload);
@@ -274,13 +299,13 @@ export class TieRobotFrontApp {
         this.refreshActionState();
       },
       onExecutionOverlay: (message) => {
-        if (this.prFprgOverlayRequested) {
+        if (this.surfaceDpOverlayRequested) {
           return;
         }
         if (this.visualRecognitionOverlayCleared) {
           return;
         }
-        if (this.prFprgOverlayActive) {
+        if (this.surfaceDpOverlayActive) {
           return;
         }
         this.clearS2ResultTimeout();
@@ -288,7 +313,7 @@ export class TieRobotFrontApp {
         this.ui.setControlFeedback("执行结果覆盖层已更新。");
       },
       onWorkspaceS2Overlay: (message) => {
-        if (!this.prFprgOverlayRequested) {
+        if (!this.surfaceDpOverlayRequested) {
           return;
         }
         this.showVisualRecognitionOverlayMessage(message);
@@ -302,7 +327,7 @@ export class TieRobotFrontApp {
       onTiePoints: (message) => {
         this.sceneAdapter.normalizeTiePoints(message);
         const count = this.sceneView.setTiePointsMessage(message);
-        if (this.prFprgOverlayActive || this.prFprgOverlayRequested) {
+        if (this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested) {
           this.handleVisualRecognitionPointsMessage(message);
         }
         this.topicLayerController.updateStats({ tiePointCount: count });
@@ -320,17 +345,23 @@ export class TieRobotFrontApp {
       },
       onTfMessage: (message) => {
         this.sceneView.handleTfMessage(message);
-        const currentCabinPosition = this.sceneView.getCurrentCabinPositionMm();
-        if (currentCabinPosition) {
-          this.cabinRemoteController?.setLastKnownCabinPosition(currentCabinPosition);
+        const sceneCabinPosition = this.sceneView.getCurrentCabinPositionMm();
+        if (sceneCabinPosition) {
+          this.cabinRemoteController?.setLastKnownCabinPosition(sceneCabinPosition);
         }
-        this.ui.setCabinRemoteCurrentPosition(currentCabinPosition);
-        this.ui.setTaskButtonEnabled("setRecognitionPose", Boolean(currentCabinPosition));
+        const rawCabinPosition = this.cabinRemoteController?.getCurrentRawCabinPositionMm?.() || null;
+        this.ui.setCabinRemoteCurrentPosition(rawCabinPosition || sceneCabinPosition);
+        this.ui.setTaskButtonEnabled("setRecognitionPose", Boolean(rawCabinPosition));
         const tfFrameCount = this.sceneView.getKnownTransformCount();
         this.topicLayerController.updateStats({ tfFrameCount });
         this.viewerStore.updateIn("scene", { tfFrameCount });
         this.ui.setGripperTfCalibration(this.sceneView.getCameraToTcpCalibration());
+        this.syncTcpWorkspaceBoundaryOverlay();
+        this.syncCabinRemoteOperationState();
         this.refreshBottomLinearModulePosition();
+      },
+      onCabinState: (message) => {
+        this.handleCabinStateMessage(message);
       },
       onLinearModuleState: (message) => {
         this.tcpLinearRemoteController.setCurrentState(message);
@@ -372,6 +403,8 @@ export class TieRobotFrontApp {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
         onPendingChange: (actionId, pending) => this.ui.setSystemActionPending(actionId, pending),
+        onDemoModeStatus: (payload) => this.handleDemoModeStatus(payload),
+        onOpenUrl: (url) => this.openExternalUrl(url),
       },
     });
     this.terminalController = new TerminalController({
@@ -390,6 +423,7 @@ export class TieRobotFrontApp {
   init() {
     this.bindUIEvents();
     this.refreshCabinRemoteCurrentPosition();
+    this.syncCabinRemoteOperationState();
     this.refreshBottomLinearModulePosition();
     this.syncCabinRemoteStatusSummary();
     this.syncDisplayedImageSubscription({ suppressLog: true });
@@ -399,6 +433,8 @@ export class TieRobotFrontApp {
     this.restoreTerminalPanelIfVisible();
     this.refreshGraphicalAppSessions();
     this.startGraphicalAppSessionPolling();
+    this.refreshDemoModeStatus({ suppressLog: true });
+    this.startDemoModeStatusPolling();
     this.rosConnectionController.connect();
     window.addEventListener("message", this.handleGraphicalAppFrameMessage);
     return this;
@@ -409,6 +445,63 @@ export class TieRobotFrontApp {
     const globalPosition = this.sceneView.getLinearModuleGlobalPositionMm(localPosition);
     this.ui.setBottomLinearModulePosition(localPosition, globalPosition);
     return { localPosition, globalPosition };
+  }
+
+  syncTcpWorkspaceBoundaryOverlay() {
+    if (this.displayedImageTopicName !== TOPICS.camera.irImage || !this.irCameraInfo) {
+      this.workspaceView.setTcpWorkspaceBoundary(null);
+      return null;
+    }
+    const boundary = this.sceneView.projectTcpWorkspaceBoundaryToImage(this.irCameraInfo);
+    this.workspaceView.setTcpWorkspaceBoundary(boundary);
+    return boundary;
+  }
+
+  handleCabinStateMessage(message) {
+    this.cabinTelemetry = normalizeCabinTelemetry(message);
+    this.cabinRemoteController?.setLastKnownRawCabinPosition?.({
+      x: Number(message?.cabin_state_X),
+      y: Number(message?.cabin_state_Y),
+      z: Number(message?.cabin_state_Z),
+    });
+    const currentCabinPosition = this.cabinRemoteController?.getCurrentRawCabinPositionMm?.() || null;
+    this.ui.setCabinRemoteCurrentPosition(currentCabinPosition);
+    this.ui.setCabinRemoteAbsoluteTarget(currentCabinPosition);
+    this.ui.setTaskButtonEnabled("setRecognitionPose", Boolean(currentCabinPosition));
+    this.syncCabinRemoteOperationState();
+  }
+
+  getCabinRemoteOperationState() {
+    const ready = this.rosConnectionController?.isReady?.() || false;
+    const resources = this.rosConnectionController?.getResources?.() || {};
+    const currentCabinPosition = this.cabinRemoteController?.getCurrentRawCabinPositionMm?.() || null;
+    return resolveCabinRemoteOperationState({
+      rosReady: ready,
+      hasMoveServices: Boolean(
+        resources?.cabinIncrementalMoveService &&
+        resources?.cabinSingleMoveService &&
+        resources?.stopCabinMotionService,
+      ),
+      hasPosition: Boolean(currentCabinPosition),
+      moveInFlight: this.cabinRemoteMoveInFlight,
+      cabinTelemetry: this.cabinTelemetry,
+    });
+  }
+
+  syncCabinRemoteOperationState() {
+    const operationState = this.getCabinRemoteOperationState();
+    const ready = this.rosConnectionController?.isReady?.() || false;
+    const resources = this.rosConnectionController?.getResources?.() || {};
+    const stopEnabled = ready
+      && Boolean(resources?.stopCabinMotionService)
+      && this.cabinTelemetry?.hasTelemetry
+      && this.cabinTelemetry?.cabinConnectFlag === 1;
+    this.ui.setBottomCabinOperationState(operationState);
+    this.ui.setCabinRemoteButtonsEnabled({
+      move: operationState.canOperate,
+      stop: stopEnabled,
+    });
+    return operationState;
   }
 
   bindUIEvents() {
@@ -440,8 +533,8 @@ export class TieRobotFrontApp {
         return;
       }
       if (taskAction === "moveToPosition") {
-        this.prFprgOverlayActive = false;
-        this.prFprgOverlayRequested = false;
+        this.surfaceDpOverlayActive = false;
+        this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCompleted = false;
         this.visualRecognitionOverlayCleared = false;
         this.workspaceView.setS2OverlayMessage(null);
@@ -451,8 +544,8 @@ export class TieRobotFrontApp {
         return;
       }
       if (!["runSavedS2", "triggerSingleBind"].includes(taskAction)) {
-        this.prFprgOverlayActive = false;
-        this.prFprgOverlayRequested = false;
+        this.surfaceDpOverlayActive = false;
+        this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCompleted = false;
         this.visualRecognitionOverlayCleared = false;
         this.workspaceView.setS2OverlayMessage(null);
@@ -487,6 +580,9 @@ export class TieRobotFrontApp {
     });
     this.ui.onSettingsPageChange((pageId) => {
       this.workspaceView.setSavedWorkspaceGuideVisible(pageId === "workspace");
+      if (pageId === "homeCalibration") {
+        this.refreshRobotHomeCalibration({ suppressLog: true });
+      }
     });
     this.ui.onSettingsHomePageChange((pageId) => {
       this.settingsHomePage = pageId;
@@ -497,8 +593,8 @@ export class TieRobotFrontApp {
       saveSettingsPageOrderPreference(pageOrder);
     });
     this.ui.onImageTopicChange(() => {
-      this.prFprgOverlayActive = false;
-      this.prFprgOverlayRequested = false;
+      this.surfaceDpOverlayActive = false;
+      this.surfaceDpOverlayRequested = false;
       this.workspaceView.setS2OverlayMessage(null);
       this.syncDisplayedImageSubscription();
     });
@@ -512,26 +608,31 @@ export class TieRobotFrontApp {
     this.ui.onCalibrationApply((payload) => {
       this.applyGripperTfCalibration(payload);
     });
+    this.ui.onRobotHomeCalibrationAction((action, payload) => {
+      this.handleRobotHomeCalibrationAction(action, payload);
+    });
     this.ui.onCabinRemoteAction((directionId, event) => {
       if (event.type === "stop") {
         this.handleCabinRemoteStopAction("button");
         return;
       }
-      if (event.type === "pressstart") {
-        this.startCabinRemoteRepeat(directionId);
-        return;
-      }
-      if (event.type === "pressend") {
-        this.stopCabinRemoteRepeat();
-        return;
-      }
       this.handleCabinRemoteDirection(directionId, "button");
+    });
+    this.ui.onCabinRemoteAbsoluteMoveAction((target) => {
+      this.handleCabinRemoteAbsoluteMove(target);
     });
     this.ui.onCabinRemoteSettingsChange((settings) => {
       this.cabinRemoteSettings = settings;
       saveCabinRemoteSettings(settings);
       this.syncCabinRemoteStatusSummary();
       this.syncGlobalCabinMoveSpeed({ suppressLog: true });
+    });
+    this.ui.onNetworkPingSettingsChange((settings) => {
+      this.networkPingSettings = settings;
+      saveNetworkPingSettings(settings);
+    });
+    this.ui.onNetworkPingTest((targetId) => {
+      this.handleNetworkPingTest(targetId);
     });
     this.ui.onTcpLinearRemoteAction((directionId, event = {}) => {
       if (event.type === "stop") {
@@ -588,12 +689,6 @@ export class TieRobotFrontApp {
     });
     document.removeEventListener("keydown", this.handleCabinRemoteKeyDown, true);
     document.addEventListener("keydown", this.handleCabinRemoteKeyDown, true);
-    window.removeEventListener("pointerup", this.handleCabinRemoteGlobalPointerUp, true);
-    window.addEventListener("pointerup", this.handleCabinRemoteGlobalPointerUp, true);
-    window.removeEventListener("blur", this.handleCabinRemoteWindowBlur, true);
-    window.addEventListener("blur", this.handleCabinRemoteWindowBlur, true);
-    document.removeEventListener("visibilitychange", this.handleCabinRemoteVisibilityChange, true);
-    document.addEventListener("visibilitychange", this.handleCabinRemoteVisibilityChange, true);
     window.removeEventListener("beforeunload", this.handleWindowBeforeUnload, true);
     window.addEventListener("beforeunload", this.handleWindowBeforeUnload, true);
   }
@@ -676,7 +771,7 @@ export class TieRobotFrontApp {
   }
 
   handleSetRecognitionPose() {
-    const pose = this.sceneView.getCurrentCabinPositionMm();
+    const pose = this.cabinRemoteController.getCurrentRawCabinPositionMm();
     if (!pose || !["x", "y", "z"].every((axis) => Number.isFinite(Number(pose[axis])))) {
       const message = "暂未拿到机器当前位置，无法设置识别位姿。";
       this.ui.setControlFeedback(message);
@@ -703,6 +798,7 @@ export class TieRobotFrontApp {
     );
     const result = await this.rosConnectionController.callCabinSingleMoveService(payload);
     if (result.success) {
+      this.cabinRemoteController.setLastKnownRawCabinPosition(payload);
       this.cabinRemoteController.setLastKnownCabinPosition(payload);
       this.refreshCabinRemoteCurrentPosition();
       this.ui.setControlFeedback(result.message || "索驱已移动到识别位姿。");
@@ -762,8 +858,12 @@ export class TieRobotFrontApp {
   }
 
   async handleVisualDebugTrigger(settings = this.ui.getVisualDebugSettings()) {
-    this.visualDebugSettings = settings;
-    saveVisualDebugSettings(settings);
+    const scanOnlySettings = {
+      ...settings,
+      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+    };
+    this.visualDebugSettings = scanOnlySettings;
+    saveVisualDebugSettings(scanOnlySettings);
     if (!this.rosConnectionController.isReady()) {
       const message = "ROS 未连接，无法触发视觉调试服务。";
       this.addLog(message, "error");
@@ -774,13 +874,13 @@ export class TieRobotFrontApp {
     this.applyVisualDebugStableFrameCount({ suppressLog: true });
     this.handleWorkspaceS2Triggered();
 
-    const modeLabel = VISUAL_DEBUG_REQUEST_MODE_LABELS[settings.requestMode] || `mode=${settings.requestMode}`;
-    const startMessage = `视觉调试服务请求开始：模式=${modeLabel}，释放=${settings.stableFrameCount}帧。`;
+    const modeLabel = VISUAL_DEBUG_REQUEST_MODE_LABELS[scanOnlySettings.requestMode] || `mode=${scanOnlySettings.requestMode}`;
+    const startMessage = `视觉调试服务请求开始：模式=${modeLabel}，释放=${scanOnlySettings.stableFrameCount}帧。`;
     this.addLog(startMessage, "info");
     this.addVisualDebugLog(startMessage, "info");
 
     const result = await this.rosConnectionController.callProcessImageService({
-      requestMode: settings.requestMode,
+      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     });
     const singleFrameText = Number.isFinite(Number(result.singleFrameElapsedMs))
       ? `${Number(result.singleFrameElapsedMs).toFixed(1)}ms`
@@ -795,13 +895,72 @@ export class TieRobotFrontApp {
     this.ui.setVisualDebugTimingSummary({
       singleFrameElapsedMs: result.singleFrameElapsedMs,
       serviceElapsedMs: result.serviceElapsedMs,
-      releaseFrameCount: settings.stableFrameCount,
+      releaseFrameCount: scanOnlySettings.stableFrameCount,
       pointCount: result.count,
     });
     this.addLog(message, level);
     this.addVisualDebugLog(message, level);
     this.ui.setControlFeedback(result.message || (result.success ? "视觉服务请求完成。" : "视觉服务请求失败。"));
     this.refreshActionState();
+  }
+
+  async handleNetworkPingTest(targetId) {
+    const settings = this.ui.getNetworkPingSettings();
+    this.networkPingSettings = settings;
+    saveNetworkPingSettings(settings);
+
+    const targetLabels = {
+      cabin: "索驱",
+      moduan: "线性模组",
+    };
+    const targetHosts = {
+      cabin: settings.cabinHost,
+      moduan: settings.moduanHost,
+    };
+    const label = targetLabels[targetId] || "设备";
+    const host = String(targetHosts[targetId] || "").trim();
+    if (!host) {
+      const message = `${label} IP 不能为空。`;
+      this.ui.setNetworkPingResult(targetId, { state: "error", message });
+      this.addLog(message, "warn");
+      return;
+    }
+
+    this.ui.setNetworkPingPending(targetId, true);
+    this.ui.setNetworkPingResult(targetId, {
+      state: "pending",
+      target: host,
+      summary: "正在测试连接…",
+    });
+
+    try {
+      const response = await fetch("/api/network/ping", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetId, label, host }),
+      });
+      const result = await response.json().catch(() => ({}));
+      const reachable = Boolean(response.ok && result.success);
+      const summary = result.summary || result.message || (reachable ? "连接成功。" : "连接失败。");
+      const message = `${label} ${result.target || host} ${reachable ? "可达" : "不可达"}：${summary}`;
+      this.ui.setNetworkPingResult(targetId, {
+        ...result,
+        state: reachable ? "success" : "error",
+        target: result.target || host,
+        summary,
+      });
+      this.addLog(message, reachable ? "success" : "warn");
+    } catch (error) {
+      const message = `${label} ${host} 网络测试请求失败：${error?.message || String(error)}`;
+      this.ui.setNetworkPingResult(targetId, {
+        state: "error",
+        target: host,
+        summary: message,
+      });
+      this.addLog(message, "error");
+    } finally {
+      this.ui.setNetworkPingPending(targetId, false);
+    }
   }
 
   handleCabinRemoteKeyDown(event) {
@@ -840,27 +999,14 @@ export class TieRobotFrontApp {
   }
 
   refreshCabinRemoteCurrentPosition() {
-    const currentCabinPosition = this.cabinRemoteController.getCurrentCabinPositionMm();
+    const currentCabinPosition =
+      this.cabinRemoteController.getCurrentRawCabinPositionMm()
+      || this.cabinRemoteController.getCurrentCabinPositionMm();
     this.ui.setCabinRemoteCurrentPosition(currentCabinPosition);
     return currentCabinPosition;
   }
 
-  handleCabinRemoteGlobalPointerUp() {
-    this.stopCabinRemoteRepeat();
-  }
-
-  handleCabinRemoteWindowBlur() {
-    this.stopCabinRemoteRepeat();
-  }
-
-  handleCabinRemoteVisibilityChange() {
-    if (document.hidden) {
-      this.stopCabinRemoteRepeat();
-    }
-  }
-
   async handleCabinRemoteStopAction(source) {
-    this.stopCabinRemoteRepeat();
     this.ui.refs.cabinRemoteStopButton?.classList.add("is-active");
     window.setTimeout(() => {
       this.ui.refs.cabinRemoteStopButton?.classList.remove("is-active");
@@ -874,99 +1020,98 @@ export class TieRobotFrontApp {
     this.ui.setCabinRemoteStatus(message);
     this.ui.setControlFeedback(message);
     this.addLog(message, result?.success ? "success" : "warn");
+    this.syncCabinRemoteOperationState();
     return result;
   }
 
-  async startCabinRemoteRepeat(directionId) {
-    if (!directionId) {
-      return;
-    }
-    if (this.cabinRemoteRepeatDirectionId === directionId && (this.cabinRemoteRepeatTimerId || this.cabinRemoteMoveInFlight)) {
-      return;
-    }
-    this.stopCabinRemoteRepeat();
-    this.cabinRemoteRepeatDirectionId = directionId;
-    this.ui.setCabinRemoteButtonActive(directionId);
-    const result = await this.handleCabinRemoteDirection(directionId, "button", { repeating: true });
-    if (result?.success && this.cabinRemoteRepeatDirectionId === directionId) {
-      this.scheduleCabinRemoteRepeatTick();
-      return;
-    }
-    this.stopCabinRemoteRepeat();
-  }
-
-  stopCabinRemoteRepeat() {
-    if (this.cabinRemoteRepeatTimerId) {
-      window.clearTimeout(this.cabinRemoteRepeatTimerId);
-      this.cabinRemoteRepeatTimerId = null;
-    }
-    this.cabinRemoteRepeatDirectionId = null;
-    this.ui.clearCabinRemoteButtonActive();
-  }
-
-  scheduleCabinRemoteRepeatTick() {
-    if (!this.cabinRemoteRepeatDirectionId) {
-      return;
-    }
-    if (this.cabinRemoteRepeatTimerId) {
-      window.clearTimeout(this.cabinRemoteRepeatTimerId);
-    }
-    this.cabinRemoteRepeatTimerId = window.setTimeout(async () => {
-      this.cabinRemoteRepeatTimerId = null;
-      const directionId = this.cabinRemoteRepeatDirectionId;
-      if (!directionId) {
-        return;
-      }
-      if (this.cabinRemoteMoveInFlight) {
-        this.scheduleCabinRemoteRepeatTick();
-        return;
-      }
-      const result = await this.handleCabinRemoteDirection(directionId, "button", { repeating: true });
-      if (result?.success && this.cabinRemoteRepeatDirectionId === directionId) {
-        this.scheduleCabinRemoteRepeatTick();
-        return;
-      }
-      this.stopCabinRemoteRepeat();
-    }, CABIN_REMOTE_REPEAT_INTERVAL_MS);
-  }
-
-  async handleCabinRemoteDirection(directionId, source, { repeating = false } = {}) {
-    if (this.cabinRemoteMoveInFlight) {
-      if (repeating) {
-        return { success: false, skipped: true, message: "索驱上一条移动指令仍在执行，已跳过本次连发节拍。" };
-      }
-      const busyMessage = "索驱上一条移动指令仍在执行，已忽略本次遥控。";
-      this.ui.setCabinRemoteStatus(busyMessage);
-      this.ui.setControlFeedback(busyMessage);
-      this.addLog(busyMessage, "warn");
-      return { success: false, skipped: true, message: busyMessage };
+  async handleCabinRemoteDirection(directionId, source) {
+    const operationState = this.getCabinRemoteOperationState();
+    if (!operationState.canOperate) {
+      const blockedMessage = operationState.detail || "索驱当前不可操作，已忽略本次遥控。";
+      this.ui.setCabinRemoteStatus(blockedMessage);
+      this.ui.setControlFeedback(blockedMessage);
+      this.addLog(blockedMessage, "warn");
+      this.syncCabinRemoteOperationState();
+      return { success: false, skipped: true, message: blockedMessage };
     }
 
     const settings = this.ui.getCabinRemoteSettings();
     this.cabinRemoteMoveInFlight = true;
+    this.syncCabinRemoteOperationState();
     try {
       const result = await this.cabinRemoteController.move(directionId, settings);
       this.refreshCabinRemoteCurrentPosition();
-      const message = this.buildCabinRemoteFeedbackMessage(result, source, { repeating });
+      const message = this.buildCabinRemoteFeedbackMessage(result, source);
       this.ui.setCabinRemoteStatus(message);
       this.ui.setControlFeedback(message);
       this.addLog(message, result.success ? "success" : "warn");
-      if (!result.success && repeating) {
-        this.stopCabinRemoteRepeat();
-      }
       return result;
     } finally {
       this.cabinRemoteMoveInFlight = false;
+      this.syncCabinRemoteOperationState();
     }
   }
 
-  buildCabinRemoteFeedbackMessage(result, source, { repeating = false } = {}) {
+  buildCabinRemoteFeedbackMessage(result, source) {
     const sourceLabel = source === "keyboard" ? "键盘" : "按钮";
     if (!result?.success) {
       return result?.message || `${sourceLabel}遥控执行失败。`;
     }
-    const repeatSuffix = repeating ? " | 连发中" : "";
-    return `${sourceLabel}遥控 ${result.label}：步距=${result.step}mm 速度=${result.speed} 目标=(${Math.round(result.target.x)}, ${Math.round(result.target.y)}, ${Math.round(result.target.z)})${repeatSuffix}`;
+    const delta = result.delta || result.target || { x: 0, y: 0, z: 0 };
+    if (result.mode === "relative") {
+      return `${sourceLabel}遥控 ${result.label}：模式=相对点动 步距=${result.step}mm 速度=${result.speed} 增量=(${Math.round(delta.x)}, ${Math.round(delta.y)}, ${Math.round(delta.z)})`;
+    }
+    const target = result.target || { x: 0, y: 0, z: 0 };
+    return `${sourceLabel}遥控 ${result.label}：模式=绝对点动 步距=${result.step}mm 速度=${result.speed} 目标=(${Math.round(target.x)}, ${Math.round(target.y)}, ${Math.round(target.z)}) 增量=(${Math.round(delta.x)}, ${Math.round(delta.y)}, ${Math.round(delta.z)})`;
+  }
+
+  async handleCabinRemoteAbsoluteMove(target) {
+    const operationState = this.getCabinRemoteOperationState();
+    if (!operationState.canOperate) {
+      const blockedMessage = operationState.detail || "索驱当前不可操作，已忽略绝对位姿移动。";
+      this.ui.setCabinRemoteStatus(blockedMessage);
+      this.ui.setControlFeedback(blockedMessage);
+      this.addLog(blockedMessage, "warn");
+      this.syncCabinRemoteOperationState();
+      return { success: false, skipped: true, message: blockedMessage };
+    }
+
+    const payload = {
+      x: Number(target?.x),
+      y: Number(target?.y),
+      z: Number(target?.z),
+      speed: Number.isFinite(Number(target?.speed)) && Number(target.speed) > 0
+        ? Number(target.speed)
+        : this.getGlobalCabinMoveSpeed(),
+    };
+    if (!["x", "y", "z"].every((axis) => Number.isFinite(payload[axis]))) {
+      const message = "绝对目标位姿不完整，索驱未移动。";
+      this.ui.setCabinRemoteStatus(message);
+      this.ui.setControlFeedback(message);
+      this.addLog(message, "warn");
+      return { success: false, message };
+    }
+
+    this.cabinRemoteMoveInFlight = true;
+    this.syncCabinRemoteOperationState();
+    try {
+      const result = await this.rosConnectionController.callCabinSingleMoveService(payload);
+      if (result?.success) {
+        this.cabinRemoteController.setLastKnownRawCabinPosition(payload);
+        this.ui.setCabinRemoteCurrentPosition(payload);
+        this.ui.setCabinRemoteAbsoluteTarget(payload);
+      }
+      const message = result?.success
+        ? `绝对位姿移动已下发：X=${Math.round(payload.x)} Y=${Math.round(payload.y)} Z=${Math.round(payload.z)} speed=${Math.round(payload.speed)}`
+        : formatCabinRemoteProtocolFeedback(result?.message || "") || "绝对位姿移动失败。";
+      this.ui.setCabinRemoteStatus(message);
+      this.ui.setControlFeedback(message);
+      this.addLog(message, result?.success ? "success" : "warn");
+      return result;
+    } finally {
+      this.cabinRemoteMoveInFlight = false;
+      this.syncCabinRemoteOperationState();
+    }
   }
 
   async handleTcpLinearRemoteDirection(directionId) {
@@ -1008,17 +1153,96 @@ export class TieRobotFrontApp {
     return `TCP线模遥控 ${result.label}：步距=${result.increment} 目标=(${result.target.x.toFixed(1)}, ${result.target.y.toFixed(1)}, ${result.target.z.toFixed(1)}, 角度=${result.target.angle.toFixed(1)})${clampSuffix}`;
   }
 
+  async refreshRobotHomeCalibration({ suppressLog = false } = {}) {
+    const result = await this.rosConnectionController.callRobotHomeCalibrationService({ command: "get" });
+    if (!result?.success) {
+      if (!suppressLog) {
+        this.addLog(result?.message || "读取 Home 点位标定失败。", "warn");
+      }
+      return result;
+    }
+    this.robotHomeCalibration = result;
+    this.ui.setRobotHomeCalibration(result, { forceInputs: false });
+    if (!suppressLog) {
+      this.addLog(result.message || "已读取 Home 点位标定。", "info");
+    }
+    return result;
+  }
+
+  async handleRobotHomeCalibrationAction(action, payload) {
+    if (action === "refresh") {
+      await this.refreshRobotHomeCalibration();
+      return;
+    }
+
+    if (action === "capture") {
+      const result = await this.rosConnectionController.callRobotHomeCalibrationService({
+        command: "capture_current",
+      });
+      if (!result?.success) {
+        this.addLog(result?.message || "当前位置设为 Home 失败。", "warn");
+        return;
+      }
+      this.robotHomeCalibration = result;
+      this.ui.setRobotHomeCalibration(result, { forceInputs: true });
+      this.addLog(result.message || "当前位置已写入 Home 点位。", "success");
+      return;
+    }
+
+    if (action === "save") {
+      const result = await this.rosConnectionController.callRobotHomeCalibrationService({
+        command: "set_home",
+        home: payload.home,
+      });
+      if (!result?.success) {
+        this.addLog(result?.message || "保存 Home 点位失败。", "warn");
+        return;
+      }
+      this.robotHomeCalibration = result;
+      this.ui.setRobotHomeCalibration(result, { forceInputs: true });
+      this.addLog(result.message || "Home 点位已保存。", "success");
+      return;
+    }
+
+    if (action === "moveHome") {
+      const home = this.robotHomeCalibration?.home || payload.home;
+      const hasHome = ["x", "y", "z"].every((axis) => Number.isFinite(Number(home?.[axis])));
+      if (!hasHome) {
+        this.addLog("没有可用 Home 点位，无法回 Home。", "warn");
+        return;
+      }
+      const { speed } = this.ui.getCabinRemoteSettings();
+      const result = await this.rosConnectionController.callCabinSingleMoveService({
+        x: Number(home.x),
+        y: Number(home.y),
+        z: Number(home.z),
+        speed,
+      });
+      if (!result?.success) {
+        this.addLog(result?.message || "一键回 Home 失败。", "warn");
+        return;
+      }
+      this.cabinRemoteController.setLastKnownRawCabinPosition(home);
+      this.refreshCabinRemoteCurrentPosition();
+      this.addLog(
+        `一键回 Home 已下发：X=${Math.round(Number(home.x))}mm Y=${Math.round(Number(home.y))}mm Z=${Math.round(Number(home.z))}mm`,
+        "success",
+      );
+    }
+  }
+
   syncCabinRemoteStatusSummary() {
     const settings = this.ui.getCabinRemoteSettings();
     const keyboardStatus = settings.keyboardEnabled ? "已开启" : "未开启";
+    const moveModeLabel = settings.moveMode === "relative" ? "相对点动" : "绝对点动";
     this.ui.setCabinRemoteStatus(
-      `键盘遥控${keyboardStatus}：Q/W/E = Z+/X+/Z-，A/S/D = Y+/X-/Y-，空格 = 暂停 | 步距=${Number.isFinite(settings.step) ? settings.step : 50}mm | 全局索驱速度=${Number.isFinite(settings.speed) ? settings.speed : 300}`,
+      `键盘遥控${keyboardStatus}：Q/W/E = Z+/X+/Z-，A/S/D = Y+/X-/Y-，空格 = 暂停 | 模式=${moveModeLabel} | 步距=${Number.isFinite(settings.step) ? settings.step : 50}mm | 全局索驱速度=${Number.isFinite(settings.speed) ? settings.speed : 300}`,
     );
   }
 
   handleWorkspaceS2Triggered() {
-    this.prFprgOverlayActive = true;
-    this.prFprgOverlayRequested = true;
+    this.surfaceDpOverlayActive = true;
+    this.surfaceDpOverlayRequested = true;
     this.visualRecognitionOverlayCompleted = false;
     this.visualRecognitionOverlayCleared = false;
     this.workspaceView.setS2OverlayMessage(null);
@@ -1030,8 +1254,8 @@ export class TieRobotFrontApp {
   }
 
   showVisualRecognitionOverlayMessage(message) {
-    this.prFprgOverlayActive = true;
-    this.prFprgOverlayRequested = false;
+    this.surfaceDpOverlayActive = true;
+    this.surfaceDpOverlayRequested = false;
     this.visualRecognitionOverlayCompleted = true;
     this.visualRecognitionOverlayCleared = false;
     this.clearS2ResultTimeout();
@@ -1044,8 +1268,8 @@ export class TieRobotFrontApp {
 
   handleClearVisualRecognitionOverlay() {
     this.clearS2ResultTimeout();
-    this.prFprgOverlayActive = false;
-    this.prFprgOverlayRequested = false;
+    this.surfaceDpOverlayActive = false;
+    this.surfaceDpOverlayRequested = false;
     this.visualRecognitionOverlayCompleted = false;
     this.visualRecognitionOverlayCleared = true;
     this.workspaceView.setS2OverlayMessage(null);
@@ -1067,7 +1291,7 @@ export class TieRobotFrontApp {
 
   handleVisualRecognitionPointsMessage(message) {
     const pointsLength = this.cacheLatestVisualRecognitionPointsMessage(message);
-    const requestActive = this.prFprgOverlayActive || this.prFprgOverlayRequested;
+    const requestActive = this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested;
     if (!requestActive) {
       return pointsLength;
     }
@@ -1078,8 +1302,8 @@ export class TieRobotFrontApp {
     this.clearS2ResultTimeout();
     this.s2ResultTimeoutId = window.setTimeout(() => {
       this.s2ResultTimeoutId = null;
-      this.prFprgOverlayActive = false;
-      this.prFprgOverlayRequested = false;
+      this.surfaceDpOverlayActive = false;
+      this.surfaceDpOverlayRequested = false;
       this.visualRecognitionOverlayCompleted = false;
       this.visualRecognitionOverlayCleared = true;
       this.workspaceView.setS2OverlayMessage(null);
@@ -1147,12 +1371,11 @@ export class TieRobotFrontApp {
     this.ui.setTaskButtonsEnabled({
       submitQuad:
         ready &&
-        Boolean(resources?.workspaceQuadPublisher && resources?.lashingRecognizeOnceService) &&
+        Boolean(resources?.workspaceQuadPublisher && resources?.processImageService) &&
         selectedPoints.length === 4,
       runSavedS2:
         ready &&
-        Boolean(resources?.lashingRecognizeOnceService) &&
-        savedPoints.length === 4,
+        Boolean(resources?.processImageService),
       triggerSingleBind:
         ready &&
         Boolean(resources?.singlePointBindService) &&
@@ -1175,13 +1398,7 @@ export class TieRobotFrontApp {
       undo: selectedPoints.length > 0,
       clear: selectedPoints.length > 0,
     });
-    const cabinRemoteEnabled = ready
-      && Boolean(resources?.cabinSingleMoveService)
-      && Boolean(resources?.stopCabinMotionService);
-    this.ui.setCabinRemoteButtonsEnabled(cabinRemoteEnabled);
-    if (!cabinRemoteEnabled) {
-      this.stopCabinRemoteRepeat();
-    }
+    this.syncCabinRemoteOperationState();
     this.ui.setTcpLinearRemoteButtonsEnabled(
       ready &&
         Boolean(resources?.linearModuleSingleMoveService) &&
@@ -1211,7 +1428,9 @@ export class TieRobotFrontApp {
 
   syncDisplayedImageSubscription({ suppressLog = false } = {}) {
     const selectedTopic = this.ui.getSelectedImageTopic();
+    this.displayedImageTopicName = selectedTopic || DEFAULT_IMAGE_TOPIC;
     this.workspaceView.setOverlayEnabled(isOverlayCompatibleImageTopic(selectedTopic));
+    this.syncTcpWorkspaceBoundaryOverlay();
     const subscriptionResult = this.rosConnectionController.updateDisplayedImageSubscription(selectedTopic);
     if (!suppressLog && subscriptionResult?.changed) {
       this.addLog(`图像卡片已切换到 ${getImageTopicLabel(subscriptionResult.topic || DEFAULT_IMAGE_TOPIC)}。`, "info");
@@ -1255,7 +1474,7 @@ export class TieRobotFrontApp {
       return;
     }
 
-    this.ui.setGripperTfCalibration({
+    const appliedCalibration = {
       parentFrame: "Scepter_depth_frame",
       childFrame: "gripper_frame",
       translationMm: {
@@ -1263,12 +1482,18 @@ export class TieRobotFrontApp {
         y: Number.isFinite(result?.applied?.y) ? result.applied.y : 0,
         z: Number.isFinite(result?.applied?.z) ? result.applied.z : 0,
       },
-    }, { forceInputs: true });
+    };
+    const sceneCalibration = this.sceneView.applyCameraToTcpCalibration(appliedCalibration) || appliedCalibration;
+    this.ui.setGripperTfCalibration(sceneCalibration, { forceInputs: true });
+    this.syncTcpWorkspaceBoundaryOverlay();
     this.addLog(
       `相机-TCP外参已热更新：x=${Number(result.applied.x).toFixed(1)}mm y=${Number(result.applied.y).toFixed(1)}mm z=${Number(result.applied.z).toFixed(1)}mm`,
       "success",
     );
     this.addLog(result.message || "gripper_tf_broadcaster 已写回本地 gripper_tf.yaml。", "info");
+    if (result.fallback === "topic") {
+      this.addLog("service 未返回时已自动改发 /web/tf/set_camera_tcp_extrinsic，前端已先按本次外参刷新显示。", "warn");
+    }
 
     const savedPoints = this.workspaceView.getSavedWorkspacePoints();
     if (savedPoints.length === 4) {
@@ -1276,7 +1501,7 @@ export class TieRobotFrontApp {
       return;
     }
 
-    this.addLog("外参已热更新，但当前没有已保存工作区；提交四边形后再手动触发视觉识别。", "info");
+    this.addLog("外参已热更新，但当前没有已保存工作区；确认工作区域后会自动触发视觉识别。", "info");
   }
 
   applyTheme(theme) {
@@ -1345,6 +1570,39 @@ export class TieRobotFrontApp {
     this.graphicalAppSessionPollTimer = window.setInterval(() => {
       this.refreshGraphicalAppSessions({ suppressLog: true });
     }, 2500);
+  }
+
+  handleDemoModeStatus(payload) {
+    const active = Boolean(payload?.active ?? payload?.demoModeActive);
+    const detail = payload?.message || (active ? "演示模式运行中" : "演示模式未启用");
+    this.ui.setDemoModeState(active, detail);
+  }
+
+  async refreshDemoModeStatus({ suppressLog = false } = {}) {
+    try {
+      await this.systemControlController.refreshDemoModeStatus();
+    } catch (error) {
+      this.ui.setDemoModeState(false, `演示模式状态读取失败：${error?.message || String(error)}`);
+      if (!suppressLog) {
+        this.addLog(`演示模式状态读取失败：${error?.message || String(error)}`, "warn");
+      }
+    }
+  }
+
+  startDemoModeStatusPolling() {
+    if (this.demoModeStatusPollTimer) {
+      return;
+    }
+    this.demoModeStatusPollTimer = window.setInterval(() => {
+      this.refreshDemoModeStatus({ suppressLog: true });
+    }, 5000);
+  }
+
+  openExternalUrl(url) {
+    if (!url) {
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   handleGraphicalAppFrameMessage(event) {

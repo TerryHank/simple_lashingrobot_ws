@@ -19,7 +19,9 @@ public:
     bool start(DriverError* error = nullptr);
     void stop();
     bool moveToPose(const CabinPoseCommand& command, DriverError* error);
+    bool moveByOffset(const CabinPoseCommand& command, DriverError* error);
     bool sendStop(DriverError* error);
+    void markExternalIoSuccess();
     CabinStateSnapshot readState() const;
     ConnectionState connectionState() const;
     std::string lastErrorText() const;

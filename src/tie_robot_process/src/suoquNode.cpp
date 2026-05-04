@@ -155,6 +155,7 @@ uint8_t FtoU_register[4]={0};//用于暂时储存float数转为成的uint数
 float TCP_Move[7]={200,0,0,400,0,0,0};//速度,x,y,z,a,b,c
 constexpr int TCP_TIMEOUT_SEC = 5;
 constexpr int RECV_BUFFER_SIZE = 256;
+constexpr int CABIN_STATE_RESPONSE_BYTES = 144;
 constexpr int WRITE_DELAY_MS = 300;
 constexpr int HEARTBEAT_WRITE_DELAY_MS = 0;
 constexpr int kMotionWaitTimeoutSec = 30;
@@ -180,7 +181,7 @@ tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner
 std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLiveVisual)};
 std::atomic<bool> cabin_driver_enabled{true};
 std::atomic<double> cabin_driver_last_state_stamp_sec{0.0};
-std::atomic<uint16_t> pending_tcp_status_word{0};
+std::atomic<uint32_t> pending_tcp_status_word{0};
 std::atomic<bool> pending_tcp_status_word_valid{false};
 std::atomic<bool> use_remote_cabin_driver{false};
 std::string suoqu_node_role = "compat_all";
@@ -1251,6 +1252,16 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
         ros_log_printf("Cabin_Error: Invalid input parameters.\n");
         return -1;
     }
+    const int expected_recv_len = Rlen;
+    if (expected_recv_len <= 0 || expected_recv_len >= RECV_BUFFER_SIZE) {
+        const std::string error_detail =
+            "TCP期望回包长度非法: " + std::to_string(expected_recv_len);
+        update_last_cabin_transport_error_detail(error_detail);
+        printCurrentTime();
+        ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
+        log_cabin_error_ros(error_detail);
+        return -1;
+    }
 
     const uint16_t command_word =
         (static_cast<uint16_t>(Control_Word[2]) << 8) |
@@ -1325,69 +1336,81 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
         std::this_thread::sleep_for(std::chrono::milliseconds(post_send_delay_ms));
     }
 
-    // 5. 读操作带超时控制
+    // 5. 读操作带超时控制，按协议长度完整消费回包，避免状态包尾字节残留污染下一条运动命令。
     uint8_t buffer[RECV_BUFFER_SIZE];
-    fd_set readfds;
-    FD_ZERO(&readfds);
-    FD_SET(socket, &readfds);
+    ssize_t total_recv = 0;
+    while (total_recv < expected_recv_len) {
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(socket, &readfds);
 
-    timeout.tv_sec = TCP_TIMEOUT_SEC;
-    timeout.tv_usec = 0;
-    ret = select(socket + 1, &readfds, nullptr, nullptr, &timeout);
-    if (ret < 0) {
-        const std::string error_detail =
-            "TCP读就绪等待失败: " + std::string(strerror(errno)) + "，" + command_debug_context;
-        update_last_cabin_transport_error_detail(error_detail);
-        printCurrentTime();
-        ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
-        log_cabin_error_ros(error_detail);
-        return -1;
-    }
-    if (ret == 0) {
-        std::ostringstream oss;
-        oss << "TCP读取等待超时(" << TCP_TIMEOUT_SEC << "s)，" << command_debug_context;
-        const std::string error_detail = oss.str();
-        update_last_cabin_transport_error_detail(error_detail);
-        printCurrentTime();
-        ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
-        log_cabin_error_ros(error_detail);
-        return -1;
-    }
+        timeout.tv_sec = TCP_TIMEOUT_SEC;
+        timeout.tv_usec = 0;
+        ret = select(socket + 1, &readfds, nullptr, nullptr, &timeout);
+        if (ret < 0) {
+            const std::string error_detail =
+                "TCP读就绪等待失败: " + std::string(strerror(errno)) + "，" + command_debug_context;
+            update_last_cabin_transport_error_detail(error_detail);
+            printCurrentTime();
+            ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
+            log_cabin_error_ros(error_detail);
+            return -1;
+        }
+        if (ret == 0) {
+            std::ostringstream oss;
+            oss << "TCP读取等待超时(" << TCP_TIMEOUT_SEC << "s)，已接收"
+                << total_recv << "/" << expected_recv_len << "字节，" << command_debug_context;
+            const std::string error_detail = oss.str();
+            update_last_cabin_transport_error_detail(error_detail);
+            printCurrentTime();
+            ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
+            log_cabin_error_ros(error_detail);
+            return -1;
+        }
 
-    // 6. 循环接收或限制最大接收长度
-    ssize_t recv_len = recv(socket, buffer, sizeof(buffer) - 1, 0); // 预留1字节给'\0'
-    if (recv_len == 0) {
-        const std::string error_detail =
-            "TCP连接被对端关闭，" + command_debug_context;
-        update_last_cabin_transport_error_detail(error_detail);
-        printCurrentTime();
-        ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
-        log_cabin_error_ros(error_detail);
-        return -1;
-    }
-    if (recv_len < 0) {
-        const std::string error_detail =
-            "TCP接收失败: " + std::string(strerror(errno)) + "，" + command_debug_context;
-        update_last_cabin_transport_error_detail(error_detail);
-        printCurrentTime();
-        ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
-        log_cabin_error_ros(error_detail);
-        return -1;
+        const ssize_t recv_len = recv(
+            socket,
+            buffer + total_recv,
+            static_cast<size_t>(expected_recv_len - total_recv),
+            0
+        );
+        if (recv_len == 0) {
+            const std::string error_detail =
+                "TCP连接被对端关闭，已接收" + std::to_string(total_recv) +
+                "/" + std::to_string(expected_recv_len) + "字节，" + command_debug_context;
+            update_last_cabin_transport_error_detail(error_detail);
+            printCurrentTime();
+            ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
+            log_cabin_error_ros(error_detail);
+            return -1;
+        }
+        if (recv_len < 0) {
+            const std::string error_detail =
+                "TCP接收失败: " + std::string(strerror(errno)) +
+                "，已接收" + std::to_string(total_recv) +
+                "/" + std::to_string(expected_recv_len) + "字节，" + command_debug_context;
+            update_last_cabin_transport_error_detail(error_detail);
+            printCurrentTime();
+            ros_log_printf("Cabin_Error: %s\n", error_detail.c_str());
+            log_cabin_error_ros(error_detail);
+            return -1;
+        }
+        total_recv += recv_len;
     }
     
     // 安全添加字符串结束符
-    buffer[recv_len] = '\0';
+    buffer[total_recv] = '\0';
     if (!is_heartbeat_frame) {
         printCurrentTime();
-        printFrameBytes("Cabin_log: TCP recv frame: ", buffer, static_cast<size_t>(recv_len));
-        const auto decoded_status = decode_tcp_protocol_status(command_word, buffer, recv_len);
+        printFrameBytes("Cabin_log: TCP recv frame: ", buffer, static_cast<size_t>(total_recv));
+        const auto decoded_status = decode_tcp_protocol_status(command_word, buffer, total_recv);
         if (decoded_status.has_error) {
             cache_pending_tcp_status_error(decoded_status.status_word);
             const std::string protocol_status_message =
                 format_tcp_protocol_status_message(decoded_status);
             const std::string error_detail =
                 "索驱协议返回异常，" + protocol_status_message
-                + "，recv_len=" + std::to_string(recv_len)
+                + "，recv_len=" + std::to_string(total_recv)
                 + "，" + command_debug_context;
             update_last_cabin_transport_error_detail(error_detail);
             printCurrentTime();
@@ -1404,7 +1427,8 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
     // 7. 状态缓存逻辑（建议后续改为指令ID判断）
     // 假设 TCP_Normal_Connection 是一个特定的指令码，而不是指针
     if (is_heartbeat_frame) {
-        memcpy(cabin_state_buffer, buffer, recv_len + 1);
+        memset(cabin_state_buffer, 0, sizeof(cabin_state_buffer));
+        memcpy(cabin_state_buffer, buffer, static_cast<size_t>(total_recv));
     }
 
     return 0; // 成功
@@ -1425,11 +1449,25 @@ int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socke
         std::chrono::steady_clock::now() - std::chrono::seconds(MOTION_COMMAND_STATUS_RETRY_LOG_INTERVAL_SEC);
     for(int i = 0; i < 5; i++){
         int frame_result = 0;
+        if (socket < 0)
+        {
+            if (connectToServer())
+            {
+                socket = sockfd;
+            }
+            else
+            {
+                frame_result = -1;
+            }
+        }
         while (true) {
+            if (frame_result < 0) {
+                break;
+            }
             frame_result = Frame_Generate(Control_Word, Tlen, Rlen,socket);
             if (frame_result == -2)
             {
-                const uint16_t status_word = pending_tcp_status_word.load(std::memory_order_relaxed);
+                const uint32_t status_word = pending_tcp_status_word.load(std::memory_order_relaxed);
                 const std::string recent_tcp_error_detail = get_last_cabin_failure_detail();
                 if (keep_retrying_on_status_reject) {
                     const auto now = std::chrono::steady_clock::now();
@@ -1445,8 +1483,8 @@ int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socke
                             );
                         } else {
                             ros_log_printf(
-                                "Cabin_Warn: 索驱上位机暂未接受当前运动指令，status_word=0x%04X，继续等待索驱上位机接受当前运动指令后重试。\n",
-                                status_word
+                                "Cabin_Warn: 索驱上位机暂未接受当前运动指令，status_word=0x%08X，继续等待索驱上位机接受当前运动指令后重试。\n",
+                                static_cast<unsigned int>(status_word)
                             );
                         }
                         last_motion_reject_log_time = now;
@@ -1462,8 +1500,8 @@ int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socke
                     );
                 } else {
                     ros_log_printf(
-                        "Cabin_Error: 索驱上位机拒绝当前运动指令，status_word=0x%04X，立即停止本次等待。\n",
-                        status_word
+                        "Cabin_Error: 索驱上位机拒绝当前运动指令，status_word=0x%08X，立即停止本次等待。\n",
+                        static_cast<unsigned int>(status_word)
                     );
                 }
                 return -2;
@@ -1498,6 +1536,7 @@ int Frame_Generate_With_Retry(uint8_t* Control_Word ,int Tlen,int Rlen,int socke
                     else
                     {
                         printCurrentTime();
+                        socket = sockfd;
                         ros_log_printf("Cabin_Error:重新连接成功，正在尝试重新发送指令。\n");
                         std::this_thread::sleep_for(std::chrono::milliseconds(200)); // 延时0.2秒重试
                         j = 0;
@@ -1594,19 +1633,19 @@ bool wait_cabin_axis_arrival(int Axis, double Target_position)
 
     while (1)
     {
-        uint16_t pending_tcp_status_word = 0;
+        uint32_t pending_tcp_status_word = 0;
         if (consume_pending_tcp_status_error(pending_tcp_status_word)) {
             std::ostringstream oss;
             oss << "等待轴" << Axis << "到位前检测到索驱状态字异常0x"
-                << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
                 << pending_tcp_status_word << std::dec
                 << "，目标位置=" << Target_position;
             set_last_execution_wait_error_detail(oss.str());
             printCurrentTime();
             ros_log_printf(
-                "Cabin_Error: 等待轴%d到位前检测到索驱状态字异常0x%04X，目标位置 %.2f，立即停止等待。\n",
+                "Cabin_Error: 等待轴%d到位前检测到索驱状态字异常0x%08X，目标位置 %.2f，立即停止等待。\n",
                 Axis,
-                pending_tcp_status_word,
+                static_cast<unsigned int>(pending_tcp_status_word),
                 Target_position
             );
             return false;
@@ -1707,19 +1746,19 @@ bool wait_cabin_axis_stable_arrival(int Axis, double Target_position, double tar
 
     while (1)
     {
-        uint16_t pending_tcp_status_word = 0;
+        uint32_t pending_tcp_status_word = 0;
         if (consume_pending_tcp_status_error(pending_tcp_status_word)) {
             std::ostringstream oss;
             oss << "执行层等待轴" << Axis << "到位前检测到索驱状态字异常0x"
-                << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
                 << pending_tcp_status_word << std::dec
                 << "，目标位置=" << Target_position;
             set_last_execution_wait_error_detail(oss.str());
             printCurrentTime();
             ros_log_printf(
-                "Cabin_Error: 执行层等待轴%d到位前检测到索驱状态字异常0x%04X，目标位置 %.2f，立即停止等待。\n",
+                "Cabin_Error: 执行层等待轴%d到位前检测到索驱状态字异常0x%08X，目标位置 %.2f，立即停止等待。\n",
                 Axis,
-                pending_tcp_status_word,
+                static_cast<unsigned int>(pending_tcp_status_word),
                 Target_position
             );
             return false;
@@ -2003,6 +2042,16 @@ bool cabin_driver_raw_move_service(tie_robot_msgs::SingleMove::Request& req, tie
     res.success = move_cabin_pose_via_driver(req.speed, req.x, req.y, req.z, &driver_error_message);
     res.message = res.success
         ? "索驱驱动层 raw move 已下发。"
+        : driver_error_message;
+    return true;
+}
+
+bool cabin_driver_incremental_move_service(tie_robot_msgs::SingleMove::Request& req, tie_robot_msgs::SingleMove::Response& res)
+{
+    std::string driver_error_message;
+    res.success = move_cabin_incremental_via_driver(req.speed, req.x, req.y, req.z, &driver_error_message);
+    res.message = res.success
+        ? "索驱驱动层 TCP相对位置运动已下发。"
         : driver_error_message;
     return true;
 }
@@ -4401,7 +4450,10 @@ void read_cabin_state(Cabin_State *cab_state) {
             }
             TCP_Normal_Connection[12]=check_sum;
             TCP_Normal_Connection[13]=check_sum>>8;
-            Frame_Generate_With_Retry(TCP_Normal_Connection, 14, sizeof(cabin_state_buffer));
+            const int state_frame_result = Frame_Generate_With_Retry(TCP_Normal_Connection, 14, CABIN_STATE_RESPONSE_BYTES);
+            if (state_frame_result == 0 && g_cabin_driver) {
+                g_cabin_driver->markExternalIoSuccess();
+            }
         }
 
         // 校验和计算和验证
@@ -4604,6 +4656,7 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
     ros::ServiceServer cabin_driver_restart_service;
     ros::ServiceServer cabin_motion_stop_service;
     ros::ServiceServer cabin_driver_raw_move_service_server;
+    ros::ServiceServer cabin_driver_incremental_move_service_server;
     ros::ServiceServer cabin_single_move_service;
 
     ros::Subscriber change_cabin_speed_sub;
@@ -4635,6 +4688,8 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
             nh.advertiseService("/cabin/motion/stop", cabinMotionStopService);
         cabin_driver_raw_move_service_server =
             nh.advertiseService("/cabin/driver/raw_move", cabin_driver_raw_move_service);
+        cabin_driver_incremental_move_service_server =
+            nh.advertiseService("/cabin/driver/incremental_move", cabin_driver_incremental_move_service);
         pub_cabin_data_upload =
             nh.advertise<tie_robot_msgs::cabin_upload>("/cabin/cabin_data_upload", 5);
 

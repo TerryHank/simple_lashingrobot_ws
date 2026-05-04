@@ -369,7 +369,12 @@ def wait_for_stable_point_coords(self, request_mode):
 
     while not rospy.is_shutdown():
         if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
-            message = "pointAI process_image timed out while waiting for direction-adaptive PR-FPRG main vision"
+            if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+                message = "pointAI process_image timed out while waiting for execution refine plane-segmentation + Hough vision"
+            elif request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                message = "pointAI process_image timed out while waiting for Surface-DP physical-prior scan vision"
+            else:
+                message = "pointAI process_image timed out while waiting for Surface-DP main vision"
             rospy.logwarn(message)
             return {
                 "success": False,
@@ -391,10 +396,35 @@ def wait_for_stable_point_coords(self, request_mode):
             continue
         last_processed_frame_seq = current_frame_seq
 
+        if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+            execution_refine_result = self.run_execution_refine_hough_pipeline(publish=True)
+            single_frame_elapsed_ms = execution_refine_result.get("single_frame_elapsed_ms")
+            point_coords = execution_refine_result.get("point_coords")
+            if not self.has_detected_points(point_coords):
+                stable_snapshots = []
+                latest_point_coords = None
+                rospy.logwarn_throttle(
+                    2.0,
+                    "pointAI等待执行微调平面分割+Hough有效点: %s",
+                    execution_refine_result.get("message", "unknown error"),
+                )
+                rate.sleep()
+                continue
+
+            latest_point_coords = point_coords
+            result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+            result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
+            return result
+
         if self.load_manual_workspace_quad() is None:
+            missing_workspace_message = (
+                "当前扫描触发方案为Surface-DP物理先验扫描，请先提交并保存工作区四边形。"
+                if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
+                else "当前主视觉方案为Surface-DP，请先提交并保存工作区四边形。"
+            )
             return {
                 "success": False,
-                "message": "当前主视觉方案为方向自适应 PR-FPRG，请先提交并保存工作区四边形。",
+                "message": missing_workspace_message,
                 "point_coords": None,
                 "out_of_height_count": 0,
                 "out_of_height_point_indices": [],
@@ -409,14 +439,18 @@ def wait_for_stable_point_coords(self, request_mode):
             latest_point_coords = None
             rospy.logwarn_throttle(
                 2.0,
-                "pointAI等待方向自适应PR-FPRG主视觉有效点: %s",
+                (
+                    "pointAI等待Surface-DP物理先验扫描有效点: %s"
+                    if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
+                    else "pointAI等待Surface-DP主视觉有效点: %s"
+                ),
                 main_visual_result.get("message", "unknown error"),
             )
             rate.sleep()
             continue
 
         latest_point_coords = point_coords
-        if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
             result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
             result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
             return result

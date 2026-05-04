@@ -17,6 +17,7 @@ from tie_robot_msgs.srv import (
 from tf.transformations import quaternion_from_euler
 
 TF_OFFSET_TOPIC = "/web/tf/set_offset"
+SET_CAMERA_TCP_EXTRINSIC_TOPIC = "/web/tf/set_camera_tcp_extrinsic"
 SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/tf/set_gripper_tf_calibration"
 
 
@@ -244,7 +245,7 @@ def main():
         )
         return updated_config
 
-    def handle_set_offset(msg):
+    def handle_pose_update(topic_name, msg):
         try:
             apply_translation_update(
                 msg.position.x,
@@ -254,9 +255,15 @@ def main():
         except Exception as exc:
             rospy.logerr(
                 "gripper_tf_broadcaster: 处理%s失败，无法实时更新TF平移标定: %s",
-                TF_OFFSET_TOPIC,
+                topic_name,
                 exc,
             )
+
+    def handle_set_offset(msg):
+        handle_pose_update(TF_OFFSET_TOPIC, msg)
+
+    def handle_set_camera_tcp_extrinsic(msg):
+        handle_pose_update(SET_CAMERA_TCP_EXTRINSIC_TOPIC, msg)
 
     def handle_set_gripper_tf_calibration(request):
         try:
@@ -287,6 +294,7 @@ def main():
             )
 
     rospy.Subscriber(TF_OFFSET_TOPIC, Pose, handle_set_offset)
+    rospy.Subscriber(SET_CAMERA_TCP_EXTRINSIC_TOPIC, Pose, handle_set_camera_tcp_extrinsic)
     rospy.Service(
         SET_GRIPPER_TF_CALIBRATION_SERVICE,
         SetGripperTfCalibration,

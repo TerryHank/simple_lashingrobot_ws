@@ -28,6 +28,7 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertIn("child_frame: gripper_frame", config_text)
         self.assertIn("translation_mm:", config_text)
         self.assertIn("rotation_rpy:", config_text)
+        self.assertIn("yaw: 3.141592653589793", config_text)
 
     def test_api_launch_does_not_start_gripper_tf_broadcaster(self):
         launch_text = (TIE_ROBOT_BRINGUP_DIR / "launch" / "api.launch").read_text(
@@ -166,7 +167,7 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         )
         self.assertNotIn("translation", reloaded)
 
-    def test_broadcaster_exposes_tf_layer_offset_topic_and_service_only(self):
+    def test_broadcaster_exposes_camera_tcp_extrinsic_topic_and_service(self):
         script_text = (
             TIE_ROBOT_PERCEPTION_DIR / "scripts" / "gripper_tf_broadcaster.py"
         ).read_text(encoding="utf-8")
@@ -174,8 +175,11 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertNotIn("POINTAI_OFFSET_TOPIC", script_text)
         self.assertNotIn("/web/pointAI/set_offset", script_text)
         self.assertNotIn("/web/pointAI/set_gripper_tf_calibration", script_text)
-        self.assertIn('TF_OFFSET_TOPIC = "/web/tf/set_offset"', script_text)
-        self.assertIn("rospy.Subscriber(TF_OFFSET_TOPIC, Pose, handle_set_offset)", script_text)
+        self.assertIn('SET_CAMERA_TCP_EXTRINSIC_TOPIC = "/web/tf/set_camera_tcp_extrinsic"', script_text)
+        self.assertIn(
+            "rospy.Subscriber(SET_CAMERA_TCP_EXTRINSIC_TOPIC, Pose, handle_set_camera_tcp_extrinsic)",
+            script_text,
+        )
         self.assertIn('SET_GRIPPER_TF_CALIBRATION_SERVICE = "/web/tf/set_gripper_tf_calibration"', script_text)
         self.assertIn("rospy.Service(", script_text)
         self.assertIn("SetGripperTfCalibration", script_text)
@@ -217,6 +221,20 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertAlmostEqual(transform.transform.translation.y, 0.2)
         self.assertAlmostEqual(transform.transform.translation.z, 0.3)
         self.assertAlmostEqual(transform.transform.rotation.w, 1.0)
+
+    def test_configured_gripper_frame_axes_match_tcp_jaw_convention(self):
+        config_path = TIE_ROBOT_PERCEPTION_DIR / "config" / "gripper_tf.yaml"
+        config = gripper_tf_broadcaster.load_gripper_tf_config(
+            str(config_path),
+            allow_identity_config=True,
+        )
+        transform = gripper_tf_broadcaster.build_transform(config)
+
+        self.assertAlmostEqual(config["rotation_rpy"]["roll"], 0.0)
+        self.assertAlmostEqual(config["rotation_rpy"]["pitch"], 0.0)
+        self.assertAlmostEqual(config["rotation_rpy"]["yaw"], 3.141592653589793)
+        self.assertAlmostEqual(abs(transform.transform.rotation.z), 1.0)
+        self.assertAlmostEqual(transform.transform.rotation.w, 0.0, places=6)
 
     def test_pointai_no_longer_contains_legacy_workspace_tf_publishers(self):
         pointai_text = (TIE_ROBOT_PERCEPTION_DIR / "src" / "tie_robot_perception" / "pointai" / "processor.py").read_text(

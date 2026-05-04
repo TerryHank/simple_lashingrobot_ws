@@ -13,13 +13,13 @@
 namespace tie_robot_process {
 namespace suoqu {
 
-void cache_pending_tcp_status_error(uint16_t status_word)
+void cache_pending_tcp_status_error(uint32_t status_word)
 {
     ::pending_tcp_status_word.store(status_word, std::memory_order_relaxed);
     ::pending_tcp_status_word_valid.store(true, std::memory_order_release);
 }
 
-bool consume_pending_tcp_status_error(uint16_t& status_word)
+bool consume_pending_tcp_status_error(uint32_t& status_word)
 {
     const bool had_pending_error =
         ::pending_tcp_status_word_valid.exchange(false, std::memory_order_acq_rel);
@@ -63,18 +63,18 @@ namespace {
 
 void append_tcp_status_reason_if_set(
     std::vector<std::string>& reasons,
-    uint16_t status_word,
+    uint32_t status_word,
     int bit_index,
     const char* reason)
 {
-    if ((status_word & (static_cast<uint16_t>(1u) << bit_index)) != 0) {
+    if ((status_word & (static_cast<uint32_t>(1u) << bit_index)) != 0) {
         reasons.emplace_back(reason);
     }
 }
 
 }  // namespace
 
-std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_word, uint16_t status_word)
+std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_word, uint32_t status_word)
 {
     std::vector<std::string> reasons;
     switch (command_word) {
@@ -118,6 +118,7 @@ std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_wor
             append_tcp_status_reason_if_set(reasons, status_word, 13, "B超正限位");
             append_tcp_status_reason_if_set(reasons, status_word, 14, "B超负限位");
             append_tcp_status_reason_if_set(reasons, status_word, 15, "C超正限位");
+            append_tcp_status_reason_if_set(reasons, status_word, 16, "C超负限位");
             break;
         case 0x0013:
             append_tcp_status_reason_if_set(reasons, status_word, 0, "逆解未激活");
@@ -131,7 +132,7 @@ std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_wor
     return reasons;
 }
 
-uint16_t extract_tcp_protocol_status_word(
+uint32_t extract_tcp_protocol_status_word(
     uint16_t command_word,
     const uint8_t* buffer,
     ssize_t recv_len)
@@ -145,24 +146,31 @@ uint16_t extract_tcp_protocol_status_word(
         case 0x0005:
         case 0x0006:
         case 0x0007:
-            return static_cast<uint16_t>(buffer[2]) |
-                   (static_cast<uint16_t>(buffer[3]) << 8);
+            return static_cast<uint32_t>(buffer[2]) |
+                   (static_cast<uint32_t>(buffer[3]) << 8);
+        case 0x0012:
+            if (recv_len >= 6) {
+                return (static_cast<uint32_t>(buffer[2]) << 24) |
+                       (static_cast<uint32_t>(buffer[3]) << 16) |
+                       (static_cast<uint32_t>(buffer[4]) << 8) |
+                       static_cast<uint32_t>(buffer[5]);
+            }
+            return 0;
         case 0x0010:
         case 0x0011:
-        case 0x0012:
         case 0x0013:
             if (recv_len >= 6) {
-                return static_cast<uint16_t>(buffer[4]) |
-                       (static_cast<uint16_t>(buffer[5]) << 8);
+                return static_cast<uint32_t>(buffer[4]) |
+                       (static_cast<uint32_t>(buffer[5]) << 8);
             }
             return 0;
         default:
             if (recv_len >= 6) {
-                return static_cast<uint16_t>(buffer[4]) |
-                       (static_cast<uint16_t>(buffer[5]) << 8);
+                return static_cast<uint32_t>(buffer[4]) |
+                       (static_cast<uint32_t>(buffer[5]) << 8);
             }
-            return static_cast<uint16_t>(buffer[2]) |
-                   (static_cast<uint16_t>(buffer[3]) << 8);
+            return static_cast<uint32_t>(buffer[2]) |
+                   (static_cast<uint32_t>(buffer[3]) << 8);
     }
 }
 
@@ -232,7 +240,7 @@ TcpProtocolStatusDecode decode_tcp_protocol_status(
         if (decoded_status.reasons.empty()) {
             std::ostringstream reason_stream;
             reason_stream << "未在协议表中找到状态字0x"
-                          << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                          << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
                           << decoded_status.status_word << "的中文映射";
             decoded_status.reasons.push_back(reason_stream.str());
         }
@@ -246,7 +254,7 @@ std::string format_tcp_protocol_status_message(const TcpProtocolStatusDecode& de
     message_stream << "指令=" << decoded_status.command_name << "(0x"
                    << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
                    << decoded_status.command_word << ")"
-                   << "，状态字=0x" << std::setw(4) << decoded_status.status_word;
+                   << "，状态字=0x" << std::setw(8) << decoded_status.status_word;
     if (!decoded_status.reasons.empty()) {
         message_stream << "，含义=";
         for (size_t reason_index = 0; reason_index < decoded_status.reasons.size(); ++reason_index) {
@@ -514,6 +522,91 @@ bool move_cabin_pose_via_driver(
         sync_global_socket_fd_from_cabin_driver();
         if (!move_ok) {
             const std::string detail = compose_cabin_driver_error_message("索驱位姿运动驱动下发失败", driver_error);
+            update_last_cabin_transport_error_detail(detail);
+            printCurrentTime();
+            ros_log_printf("Cabin_Error: %s\n", detail.c_str());
+            log_cabin_error_ros(detail);
+            if (error_message != nullptr) {
+                *error_message = detail;
+            }
+            return false;
+        }
+    }
+
+    clear_last_cabin_transport_error_detail();
+    if (error_message != nullptr) {
+        error_message->clear();
+    }
+    return true;
+}
+
+bool move_cabin_incremental_via_driver(
+    float speed_mm_per_sec,
+    float x_delta_mm,
+    float y_delta_mm,
+    float z_delta_mm,
+    std::string* error_message)
+{
+    if (::moduan_work_flag.load(std::memory_order_acquire)) {
+        const std::string detail = "末端绑扎/线性模组正在运动，拒绝下发索驱TCP相对位置运动指令";
+        update_last_cabin_transport_error_detail(detail);
+        printCurrentTime();
+        ros_log_printf("Cabin_Warn: %s。\n", detail.c_str());
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        return false;
+    }
+
+    if (::use_remote_cabin_driver.load(std::memory_order_relaxed)) {
+        tie_robot_msgs::SingleMove incremental_move_srv;
+        incremental_move_srv.request.speed = speed_mm_per_sec;
+        incremental_move_srv.request.x = x_delta_mm;
+        incremental_move_srv.request.y = y_delta_mm;
+        incremental_move_srv.request.z = z_delta_mm;
+        if (!ros::service::call("/cabin/driver/incremental_move", incremental_move_srv)) {
+            if (error_message != nullptr) {
+                *error_message = "无法调用索驱驱动层 TCP相对位置运动服务 /cabin/driver/incremental_move";
+            }
+            return false;
+        }
+        if (error_message != nullptr) {
+            *error_message = incremental_move_srv.response.message;
+        }
+        return incremental_move_srv.response.success;
+    }
+
+    if (!::cabin_driver_enabled.load()) {
+        const std::string detail = "索驱驱动已关闭，拒绝下发TCP相对位置运动指令";
+        update_last_cabin_transport_error_detail(detail);
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        return false;
+    }
+    if (!::g_cabin_driver) {
+        const std::string detail = "索驱驱动未初始化，无法下发TCP相对位置运动指令";
+        update_last_cabin_transport_error_detail(detail);
+        log_cabin_error_ros(detail);
+        if (error_message != nullptr) {
+            *error_message = detail;
+        }
+        return false;
+    }
+
+    tie_robot_hw::driver::DriverError driver_error;
+    tie_robot_hw::driver::CabinPoseCommand command;
+    command.speed_mm_per_sec = speed_mm_per_sec;
+    command.x_mm = x_delta_mm;
+    command.y_mm = y_delta_mm;
+    command.z_mm = z_delta_mm;
+
+    {
+        std::lock_guard<std::mutex> lock2(::socket_mutex);
+        const bool move_ok = ::g_cabin_driver->moveByOffset(command, &driver_error);
+        sync_global_socket_fd_from_cabin_driver();
+        if (!move_ok) {
+            const std::string detail = compose_cabin_driver_error_message("索驱TCP相对位置运动驱动下发失败", driver_error);
             update_last_cabin_transport_error_detail(detail);
             printCurrentTime();
             ros_log_printf("Cabin_Error: %s\n", detail.c_str());
