@@ -37,6 +37,13 @@ struct BindExecutionPathOriginPose
     float z = 0.0f;
 };
 
+struct DynamicBindGridIndex
+{
+    int global_idx = -1;
+    int global_row = -1;
+    int global_col = -1;
+};
+
 struct DynamicBindPlannerConfig
 {
     float tcp_max_x_mm = 360.0f;
@@ -57,7 +64,8 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
     const CabinPoint& path_origin,
     float cabin_height,
     const tf2::Transform& gripper_from_base_link,
-    const DynamicBindPlannerConfig& config = DynamicBindPlannerConfig{});
+    const DynamicBindPlannerConfig& config = DynamicBindPlannerConfig{},
+    const std::vector<DynamicBindGridIndex>& grid_indices = std::vector<DynamicBindGridIndex>{});
 
 BindExecutionPathOriginPose build_dynamic_bind_execution_path_origin(
     const std::vector<PseudoSlamGroupedAreaEntry>& bind_area_entries,

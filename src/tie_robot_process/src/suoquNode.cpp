@@ -284,6 +284,8 @@ const char* global_execution_mode_name(GlobalExecutionMode mode)
 PseudoSlamScanStrategy normalize_pseudo_slam_scan_strategy(uint8_t raw_strategy)
 {
     switch (raw_strategy) {
+        case 3:
+            return PseudoSlamScanStrategy::kCurrentFrameNoMotion;
         case 2:
             return PseudoSlamScanStrategy::kFixedManualWorkspace;
         case 1:
@@ -2356,7 +2358,8 @@ void assign_global_indices(std::vector<tie_robot_msgs::PointCoords>& world_point
 
 bool should_persist_pseudo_slam_bind_artifacts(PseudoSlamScanStrategy scan_strategy)
 {
-    return scan_strategy == PseudoSlamScanStrategy::kFixedManualWorkspace;
+    return scan_strategy == PseudoSlamScanStrategy::kFixedManualWorkspace ||
+           scan_strategy == PseudoSlamScanStrategy::kCurrentFrameNoMotion;
 }
 
 bool run_pseudo_slam_scan(
@@ -2365,7 +2368,8 @@ bool run_pseudo_slam_scan(
     float cabin_speed,
     PseudoSlamScanStrategy scan_strategy,
     bool enable_capture_gate,
-    std::string& message)
+    std::string& message,
+    const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override)
 {
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
     std::vector<tie_robot_msgs::PointCoords> merged_world_points;
@@ -2385,11 +2389,118 @@ bool run_pseudo_slam_scan(
     set_pseudo_slam_marker_path_origin(path_origin);
     int total_scan_area_count = 0;
     switch (scan_strategy) {
+        case PseudoSlamScanStrategy::kCurrentFrameNoMotion: {
+            Cabin_State current_state{};
+            {
+                std::lock_guard<std::mutex> lock(cabin_state_mutex);
+                current_state = cabin_state;
+            }
+            const double last_state_stamp = cabin_driver_last_state_stamp_sec.load();
+            const double now_sec = ros::Time::now().toSec();
+            const double state_age_sec =
+                (last_state_stamp > 0.0 && now_sec >= last_state_stamp) ? (now_sec - last_state_stamp) : -1.0;
+
+            total_scan_area_count = 1;
+            publish_area_progress(1, total_scan_area_count, 0, false, false);
+            printCurrentTime();
+            ros_log_printf(
+                "Cabin_log: pseudo_slam当前画面无运动视觉记录，先触发扫描层视觉；"
+                "当前索驱坐标(%f,%f,%f)，state_age=%f，不下发索驱移动指令。\n",
+                current_state.X,
+                current_state.Y,
+                current_state.Z,
+                state_age_sec
+            );
+            if (enable_capture_gate) {
+                printCurrentTime();
+                ros_log_printf("Cabin_log: 当前画面无运动视觉记录忽略最终采集门，直接请求一次视觉。\n");
+            }
+
+            tie_robot_msgs::ProcessImage scan_srv;
+            scan_srv.request.request_mode = kProcessImageModeScanOnly;
+            if (!AI_client.call(scan_srv) || !scan_srv.response.success) {
+                printCurrentTime();
+                ros_log_printf(
+                    "Cabin_Warn: 当前画面无运动视觉记录单帧视觉失败，消息：%s\n",
+                    scan_srv.response.message.c_str()
+                );
+                message = "当前画面无运动视觉记录单帧视觉请求失败";
+                return false;
+            }
+
+            if (state_age_sec < 0.0 || state_age_sec > 2.0) {
+                message = "当前画面无运动视觉记录已触发扫描层视觉，但索驱当前坐标未刷新，未覆盖本地绑扎点文件";
+                return false;
+            }
+            if (current_state.motion_status != 0) {
+                message = "当前画面无运动视觉记录已触发扫描层视觉，但索驱正在运动，未覆盖本地绑扎点文件";
+                return false;
+            }
+            if (!std::isfinite(current_state.X) || !std::isfinite(current_state.Y) || !std::isfinite(current_state.Z)) {
+                message = "当前画面无运动视觉记录已触发扫描层视觉，但索驱当前坐标无效，未覆盖本地绑扎点文件";
+                return false;
+            }
+
+            Cabin_Point current_scan_pose{};
+            current_scan_pose.x = current_state.X;
+            current_scan_pose.y = current_state.Y;
+            path_origin = current_scan_pose;
+            set_pseudo_slam_marker_path_origin(path_origin);
+
+            std::vector<tie_robot_msgs::PointCoords> frame_world_points;
+            int point_index = 1;
+            for (const auto& point : scan_srv.response.PointCoordinatesArray) {
+                tie_robot_msgs::PointCoords world_point;
+                if (build_world_point_from_scan_response(point, point_index, world_point)) {
+                    frame_world_points.push_back(world_point);
+                    point_index++;
+                }
+            }
+            const int raw_frame_point_count = static_cast<int>(frame_world_points.size());
+            const std::vector<tie_robot_msgs::PointCoords> scan_history_points = merged_world_points;
+            std::vector<tie_robot_msgs::PointCoords> accepted_scan_points =
+                filter_new_scan_points_against_existing_xy_tolerance(
+                    frame_world_points,
+                    scan_history_points,
+                    kPseudoSlamScanDuplicateXYToleranceMm
+                );
+            merged_world_points.insert(
+                merged_world_points.end(),
+                accepted_scan_points.begin(),
+                accepted_scan_points.end()
+            );
+            if (merged_world_points.empty()) {
+                message = "当前画面无运动视觉记录返回0个可用点";
+                return false;
+            }
+
+            assign_global_indices(merged_world_points);
+            set_pseudo_slam_tf_points(merged_world_points);
+            publish_pseudo_slam_markers(merged_world_points);
+
+            printCurrentTime();
+            ros_log_printf(
+                "Cabin_log: 当前画面无运动视觉记录完成，当前索驱坐标(%f,%f,%f)，当前帧原始点%d个，去重后保留%d个。\n",
+                current_state.X,
+                current_state.Y,
+                current_state.Z,
+                raw_frame_point_count,
+                static_cast<int>(accepted_scan_points.size())
+            );
+            break;
+        }
+
         case PseudoSlamScanStrategy::kFixedManualWorkspace: {
             Cabin_Point fixed_scan_pose{};
-            fixed_scan_pose.x = kPseudoSlamFixedManualWorkspaceScanXmm;
-            fixed_scan_pose.y = kPseudoSlamFixedManualWorkspaceScanYmm;
-            const float fixed_scan_height = kPseudoSlamFixedManualWorkspaceScanZmm;
+            fixed_scan_pose.x = fixed_scan_pose_override.enabled
+                ? fixed_scan_pose_override.x_mm
+                : kPseudoSlamFixedManualWorkspaceScanXmm;
+            fixed_scan_pose.y = fixed_scan_pose_override.enabled
+                ? fixed_scan_pose_override.y_mm
+                : kPseudoSlamFixedManualWorkspaceScanYmm;
+            const float fixed_scan_height = fixed_scan_pose_override.enabled
+                ? fixed_scan_pose_override.z_mm
+                : kPseudoSlamFixedManualWorkspaceScanZmm;
             const float fixed_scan_speed = get_global_cabin_move_speed_mm_per_sec();
             path_origin = fixed_scan_pose;
             set_pseudo_slam_marker_path_origin(path_origin);
@@ -2766,6 +2877,8 @@ bool run_pseudo_slam_scan(
         checkerboard_info_by_idx
     );
     checkerboard_info_by_idx = build_checkerboard_info_by_global_index(planning_world_points, path_origin);
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo> bind_path_checkerboard_info_by_idx =
+        merged_checkerboard_info_by_idx;
     merged_checkerboard_info_by_idx = sync_merged_checkerboard_membership_with_planning(
         merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx
@@ -2795,13 +2908,53 @@ bool run_pseudo_slam_scan(
     }
 
     const auto dynamic_bind_planner_config = build_dynamic_bind_planner_config();
+    std::vector<tie_robot_msgs::PointCoords> bind_path_world_points;
+    std::vector<tie_robot_process::planning::DynamicBindGridIndex> bind_path_grid_indices;
+    bind_path_world_points.reserve(merged_world_points.size());
+    bind_path_grid_indices.reserve(merged_world_points.size());
+    for (const auto& world_point : merged_world_points) {
+        const auto checkerboard_it = bind_path_checkerboard_info_by_idx.find(world_point.idx);
+        if (checkerboard_it == bind_path_checkerboard_info_by_idx.end() ||
+            !checkerboard_it->second.is_checkerboard_member) {
+            continue;
+        }
+        bind_path_world_points.push_back(world_point);
+        tie_robot_process::planning::DynamicBindGridIndex grid_index;
+        grid_index.global_idx = world_point.idx;
+        grid_index.global_row = checkerboard_it->second.global_row;
+        grid_index.global_col = checkerboard_it->second.global_col;
+        bind_path_grid_indices.push_back(grid_index);
+    }
+    if (bind_path_world_points.empty()) {
+        bind_path_world_points = planning_world_points;
+        for (const auto& world_point : planning_world_points) {
+            const auto checkerboard_it = checkerboard_info_by_idx.find(world_point.idx);
+            if (checkerboard_it == checkerboard_info_by_idx.end() ||
+                !checkerboard_it->second.is_checkerboard_member) {
+                continue;
+            }
+            tie_robot_process::planning::DynamicBindGridIndex grid_index;
+            grid_index.global_idx = world_point.idx;
+            grid_index.global_row = checkerboard_it->second.global_row;
+            grid_index.global_col = checkerboard_it->second.global_col;
+            bind_path_grid_indices.push_back(grid_index);
+        }
+    }
+    if (bind_path_world_points.empty()) {
+        ros_log_printf(
+            "Cabin_Warn: pseudo_slam棋盘格路径成员为空，改用扫描代表点直接聚类生成绑扎路径，避免写出空路径。\n"
+        );
+        bind_path_world_points = merged_world_points;
+        bind_path_grid_indices.clear();
+    }
     std::vector<PseudoSlamGroupedAreaEntry> bind_area_entries =
         tie_robot_process::planning::build_dynamic_bind_area_entries_from_scan_world(
-            planning_world_points,
+            bind_path_world_points,
             {path_origin.x, path_origin.y},
             cabin_height,
             gripper_from_base_link,
-            dynamic_bind_planner_config
+            dynamic_bind_planner_config,
+            bind_path_grid_indices
         );
     int bind_group_count = 0;
     int bind_point_count = 0;
@@ -2813,10 +2966,6 @@ bool run_pseudo_slam_scan(
         }
     }
 
-    tie_robot_process::planning::sort_bind_area_entries_by_snake_rows(
-        bind_area_entries,
-        dynamic_bind_planner_config.snake_row_tolerance_mm
-    );
     BindExecutionPathOriginPose execution_path_origin =
         tie_robot_process::planning::build_dynamic_bind_execution_path_origin(
             bind_area_entries,
@@ -2827,7 +2976,8 @@ bool run_pseudo_slam_scan(
     if (!bind_area_entries.empty()) {
         printCurrentTime();
         ros_log_printf(
-            "Cabin_log: pseudo_slam绑扎路径已改为按索驱坐标系左下角原点蛇形排序，首个执行区域area_index=%d，执行路径原点=(%f,%f,%f)。\n",
+            "Cabin_log: pseudo_slam绑扎路径已改为按当前绑扎点表格2x2分组，"
+            "从世界坐标最小角点开始按两列带蛇形遍历，首个执行区域area_index=%d，执行路径原点=(%f,%f,%f)。\n",
             bind_area_entries.front().area_index,
             execution_path_origin.x,
             execution_path_origin.y,
@@ -2838,13 +2988,13 @@ bool run_pseudo_slam_scan(
     if (!should_persist_pseudo_slam_bind_artifacts(scan_strategy)) {
         printCurrentTime();
         ros_log_printf(
-            "Cabin_Warn: 当前不是固定识别位姿扫描，已拒绝写入本地绑扎点JSON；"
-            "仅固定识别位姿扫描允许更新pseudo_slam_points.json、"
+            "Cabin_Warn: 当前不是可持久化扫描，已拒绝写入本地绑扎点JSON；"
+            "仅固定识别位姿扫描或当前画面无运动视觉记录允许更新pseudo_slam_points.json、"
             "pseudo_slam_bind_path.json和bind_execution_memory.json。\n"
         );
         message =
-            "当前不是固定识别位姿扫描，本次视觉结果不会覆盖本地绑扎点JSON；"
-            "请通过固定识别位姿扫描入口更新pseudo_slam_bind_path.json";
+            "当前不是可持久化扫描，本次视觉结果不会覆盖本地绑扎点JSON；"
+            "请通过当前画面无运动视觉记录或固定识别位姿扫描入口更新pseudo_slam_bind_path.json";
         return false;
     }
 
@@ -2865,7 +3015,7 @@ bool run_pseudo_slam_scan(
     );
     const bool pseudo_slam_bind_path_written = write_pseudo_slam_bind_path_json(
         bind_area_entries,
-        checkerboard_info_by_idx,
+        bind_path_checkerboard_info_by_idx,
         execution_path_origin,
         cabin_height,
         cabin_speed,

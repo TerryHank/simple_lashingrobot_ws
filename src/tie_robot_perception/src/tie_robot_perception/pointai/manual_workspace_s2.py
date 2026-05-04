@@ -47,6 +47,10 @@ from . import scan_surface_dp
 from .constants import *
 
 
+CORNER_WORLD_MAP_KEY = "corner_world_map_frame"
+LEGACY_CORNER_WORLD_KEY = "corner_world_" + "cabin" + "_frame"
+
+
 def prepare_manual_workspace_s2_inputs(self):
     manual_workspace = self.load_manual_workspace_quad()
     workspace_mask = self.get_manual_workspace_pixel_mask()
@@ -56,7 +60,9 @@ def prepare_manual_workspace_s2_inputs(self):
     if not self.ensure_raw_world_channels():
         return None
 
-    corner_world_for_rectification = manual_workspace.get("corner_world_cabin_frame")
+    corner_world_for_rectification = manual_workspace.get(CORNER_WORLD_MAP_KEY)
+    if corner_world_for_rectification is None:
+        corner_world_for_rectification = manual_workspace.get(LEGACY_CORNER_WORLD_KEY)
     if corner_world_for_rectification is None:
         corner_world_for_rectification = manual_workspace.get("corner_world_camera_frame")
     rectified_geometry = self.build_workspace_s2_rectified_geometry(
@@ -206,6 +212,127 @@ def log_manual_workspace_s2_camera_distance(
     )
 
 
+def normalize_scan_surface_dp_debug_image(image):
+    image_array = np.asarray(image)
+    if image_array.ndim != 2 or image_array.size == 0:
+        return None
+    if image_array.dtype == np.bool_:
+        return (image_array.astype(np.uint8) * 255).astype(np.uint8)
+
+    image_array = image_array.astype(np.float32)
+    finite_mask = np.isfinite(image_array)
+    if not np.any(finite_mask):
+        return np.zeros(image_array.shape[:2], dtype=np.uint8)
+
+    finite_values = image_array[finite_mask]
+    low_value = float(np.percentile(finite_values, 1.0))
+    high_value = float(np.percentile(finite_values, 99.0))
+    if high_value <= low_value + 1e-6:
+        low_value = float(np.min(finite_values))
+        high_value = float(np.max(finite_values))
+    output = np.zeros(image_array.shape[:2], dtype=np.uint8)
+    if high_value <= low_value + 1e-6:
+        return output
+
+    scaled = (image_array - low_value) * (255.0 / (high_value - low_value))
+    output[finite_mask] = np.clip(scaled[finite_mask], 0, 255).astype(np.uint8)
+    return output
+
+
+def draw_scan_surface_dp_debug_points(normalized_image, overlay_points=None):
+    if normalized_image is None:
+        return None
+    if overlay_points is None:
+        return normalized_image
+
+    rendered_image = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2BGR)
+    height, width = normalized_image.shape[:2]
+    point_radius = max(3, int(round(min(height, width) * 0.008)))
+    drew_point = False
+
+    try:
+        point_iter = iter(overlay_points)
+    except TypeError:
+        return normalized_image
+
+    for point in point_iter:
+        if point is None:
+            continue
+        try:
+            point_x = float(point[0])
+            point_y = float(point[1])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if not math.isfinite(point_x) or not math.isfinite(point_y):
+            continue
+
+        pixel_x = int(round(point_x))
+        pixel_y = int(round(point_y))
+        if pixel_x < 0 or pixel_y < 0 or pixel_x >= width or pixel_y >= height:
+            continue
+
+        cv2.circle(
+            rendered_image,
+            (pixel_x, pixel_y),
+            point_radius + 2,
+            (0, 0, 0),
+            thickness=-1,
+            lineType=cv2.LINE_AA,
+        )
+        cv2.circle(
+            rendered_image,
+            (pixel_x, pixel_y),
+            point_radius,
+            (0, 255, 255),
+            thickness=-1,
+            lineType=cv2.LINE_AA,
+        )
+        drew_point = True
+
+    return rendered_image if drew_point else normalized_image
+
+
+def publish_scan_surface_dp_debug_image(self, publisher_name, image, frame_id, stamp, overlay_points=None):
+    publisher = getattr(self, publisher_name, None)
+    if publisher is None:
+        return
+    normalized_image = normalize_scan_surface_dp_debug_image(image)
+    if normalized_image is None:
+        return
+
+    rendered_image = draw_scan_surface_dp_debug_points(normalized_image, overlay_points)
+    encoding = "bgr8" if rendered_image.ndim == 3 else "mono8"
+    image_msg = self.bridge.cv2_to_imgmsg(rendered_image, encoding=encoding)
+    image_msg.header.stamp = stamp
+    image_msg.header.frame_id = frame_id
+    publisher.publish(image_msg)
+
+
+def publish_scan_surface_dp_base_images(self, surface_result):
+    stamp = rospy.Time.now()
+    modalities = surface_result.get("modalities") or {}
+    completed_response = surface_result.get("completed_surface_response")
+    if completed_response is None:
+        completed_response = (surface_result.get("surface") or {}).get("completed_surface_response")
+
+    publish_scan_surface_dp_debug_image(
+        self,
+        "scan_surface_dp_base_image_pub",
+        modalities.get("fused_instance_response"),
+        "surface_dp_rectified_workspace",
+        stamp,
+        overlay_points=surface_result.get("rectified_intersections", []),
+    )
+    publish_scan_surface_dp_debug_image(
+        self,
+        "scan_surface_dp_completed_surface_image_pub",
+        completed_response,
+        "surface_dp_rectified_workspace",
+        stamp,
+        overlay_points=surface_result.get("rectified_intersections", []),
+    )
+
+
 def build_manual_workspace_s2_points_array(
     self,
     intersection_pixels,
@@ -306,6 +433,9 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
             "result_image": None,
             "surface_dp_diagnostics": surface_result.get("diagnostics", {}),
         }
+
+    if publish:
+        self.publish_scan_surface_dp_base_images(surface_result)
 
     image_intersections = surface_result.get("image_intersections") or self.map_workspace_s2_rectified_points_to_image(
         surface_result.get("rectified_intersections", []),

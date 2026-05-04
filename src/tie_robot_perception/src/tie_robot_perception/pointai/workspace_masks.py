@@ -43,6 +43,7 @@ from tie_robot_perception.perception.workspace_s2 import (
     sort_polygon_points_clockwise,
 )
 from .constants import *
+from .tcp_display import camera_channels_to_tcp_jaw_channels, camera_coord_to_tcp_jaw_coord
 
 def save_manual_workspace_quad(self, corner_pixels, corner_world_camera_frame, corner_sample_pixels=None):
     manual_workspace_json = {
@@ -295,30 +296,6 @@ def get_frame_space_pixel_mask(self, target_frame, min_x, max_x, min_y, max_y):
     return None
 
 
-def get_roi_pixel_mask(self):
-    image_shape = None
-    for attr_name in ("x_channel", "y_channel", "depth_v", "image_infrared_copy", "image_infrared"):
-        image_data = getattr(self, attr_name, None)
-        if image_data is not None:
-            image_shape = image_data.shape[:2]
-            break
-
-    if image_shape is None:
-        return None
-
-    image_height, image_width = image_shape
-    left = max(0, min(self.point1[0], self.point2[0]))
-    right = min(image_width - 1, max(self.point1[0], self.point2[0]))
-    top = max(0, min(self.point1[1], self.point2[1]))
-    bottom = min(image_height - 1, max(self.point1[1], self.point2[1]))
-    if left > right or top > bottom:
-        return None
-
-    roi_mask = np.zeros((image_height, image_width), dtype=np.uint8)
-    roi_mask[top:bottom + 1, left:right + 1] = 1
-    return roi_mask
-
-
 def get_scan_workspace_pixel_mask(self):
     manual_workspace_mask = self.get_manual_workspace_pixel_mask()
     if manual_workspace_mask is not None:
@@ -336,34 +313,131 @@ def get_scan_workspace_pixel_mask(self):
     )
 
 
-def should_apply_top_detection_occlusion(self, request_mode):
-    return request_mode != PROCESS_IMAGE_MODE_SCAN_ONLY
+def get_tcp_occlusion_pixel_mask(self):
+    image_shape = None
+    for attr_name in ("x_channel", "y_channel", "depth_v", "image_infrared_copy", "image_infrared"):
+        image_data = getattr(self, attr_name, None)
+        if image_data is not None:
+            image_shape = image_data.shape[:2]
+            break
+
+    if image_shape is None:
+        return None
+
+    image_height, image_width = image_shape
+    left, top, right, bottom = getattr(self, "tcp_occlusion_mask_rect", (160, 0, 523, 80))
+    left = max(0, min(image_width - 1, int(round(left))))
+    right = max(0, min(image_width - 1, int(round(right))))
+    top = max(0, min(image_height - 1, int(round(top))))
+    bottom = max(0, min(image_height - 1, int(round(bottom))))
+    if left > right or top > bottom:
+        return None
+
+    tcp_occlusion_mask = np.zeros((image_height, image_width), dtype=np.uint8)
+    tcp_occlusion_mask[top:bottom + 1, left:right + 1] = 1
+    return tcp_occlusion_mask
+
+
+def should_apply_tcp_occlusion_mask(self, request_mode):
+    return request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
 
 def apply_detection_occlusions(self, request_mode):
     detection_mask = np.ones(self.Depth_image_Raw.shape[:2], dtype=np.uint8)
-    if self.should_apply_top_detection_occlusion(request_mode):
-        self.Depth_image_Raw[self.y1:self.y2, self.x1:self.x2] = 0
-        detection_mask[self.y1:self.y2, self.x1:self.x2] = 0
+    if not self.should_apply_tcp_occlusion_mask(request_mode):
+        return detection_mask
+
+    tcp_occlusion_mask = self.get_tcp_occlusion_pixel_mask()
+    if tcp_occlusion_mask is None:
+        return detection_mask
+
+    self.Depth_image_Raw[tcp_occlusion_mask > 0] = 0
+    detection_mask[tcp_occlusion_mask > 0] = 0
     return detection_mask
 
 
-def get_travel_range_pixel_mask(self):
-    roi_mask = self.get_roi_pixel_mask()
-    if roi_mask is None:
+def get_execution_refine_tcp_roi_bounds(self):
+    return {
+        "min_x": float(getattr(self, "execution_refine_tcp_roi_min_x_mm", 0.0)),
+        "max_x": float(getattr(self, "execution_refine_tcp_roi_max_x_mm", 380.0)),
+        "min_y": float(getattr(self, "execution_refine_tcp_roi_min_y_mm", 0.0)),
+        "max_y": float(getattr(self, "execution_refine_tcp_roi_max_y_mm", 3330.0)),
+        "min_z": float(getattr(self, "execution_refine_tcp_roi_min_z_mm", 0.0)),
+        "max_z": float(getattr(self, "execution_refine_tcp_roi_max_z_mm", 3160.0)),
+    }
+
+
+def _is_valid_camera_world_coord(camera_world_coord):
+    if not isinstance(camera_world_coord, (list, tuple)) or len(camera_world_coord) < 3:
+        return False
+
+    try:
+        coord_values = [float(value) for value in camera_world_coord[:3]]
+    except (TypeError, ValueError):
+        return False
+
+    return (
+        all(np.isfinite(coord_values))
+        and coord_values[0] != 0.0
+        and coord_values[1] != 0.0
+        and coord_values[2] != 0.0
+    )
+
+
+def is_camera_world_coord_in_execution_refine_tcp_range(self, camera_world_coord):
+    if not _is_valid_camera_world_coord(camera_world_coord):
+        return False
+
+    tcp_x, tcp_y, tcp_z = camera_coord_to_tcp_jaw_coord(camera_world_coord)
+    bounds = self.get_execution_refine_tcp_roi_bounds()
+    return (
+        bounds["min_x"] <= tcp_x <= bounds["max_x"]
+        and bounds["min_y"] <= tcp_y <= bounds["max_y"]
+        and bounds["min_z"] <= tcp_z <= bounds["max_z"]
+    )
+
+
+def get_execution_refine_tcp_range_pixel_mask(self):
+    x_channel = getattr(self, "x_channel", None)
+    y_channel = getattr(self, "y_channel", None)
+    z_channel = getattr(self, "depth_v", None)
+    if x_channel is None or y_channel is None or z_channel is None:
         return None
 
-    workspace_mask = self.get_scan_workspace_pixel_mask()
-    if workspace_mask is None:
-        return roi_mask
+    tcp_x, tcp_y, tcp_z = camera_channels_to_tcp_jaw_channels(
+        x_channel,
+        y_channel,
+        z_channel,
+    )
+    valid_camera_coord_mask = (
+        np.isfinite(x_channel)
+        & np.isfinite(y_channel)
+        & np.isfinite(z_channel)
+        & (x_channel != 0.0)
+        & (y_channel != 0.0)
+        & (z_channel != 0.0)
+    )
+    bounds = self.get_execution_refine_tcp_roi_bounds()
+    tcp_range_mask = (
+        valid_camera_coord_mask
+        & (tcp_x >= bounds["min_x"])
+        & (tcp_x <= bounds["max_x"])
+        & (tcp_y >= bounds["min_y"])
+        & (tcp_y <= bounds["max_y"])
+        & (tcp_z >= bounds["min_z"])
+        & (tcp_z <= bounds["max_z"])
+    )
+    return tcp_range_mask.astype(np.uint8)
 
-    return (roi_mask & workspace_mask.astype(np.uint8)).astype(np.uint8)
+
+def get_travel_range_pixel_mask(self):
+    return self.get_scan_workspace_pixel_mask()
 
 
 def is_point_in_matrix_selection_pixel_mask(self, pixel_x, pixel_y, pixel_mask=None):
     matrix_selection_pixel_mask = self.get_travel_range_pixel_mask() if pixel_mask is None else pixel_mask
     if matrix_selection_pixel_mask is None:
-        return self.is_point_in_roi(pixel_x, pixel_y)
+        return True
 
     pixel_x = int(round(pixel_x))
     pixel_y = int(round(pixel_y))
@@ -374,14 +448,6 @@ def is_point_in_matrix_selection_pixel_mask(self, pixel_x, pixel_y, pixel_mask=N
     ):
         return False
     return bool(matrix_selection_pixel_mask[pixel_y, pixel_x])
-
-
-def is_point_in_roi(self, x, y):
-    left = min(self.point1[0], self.point2[0])
-    right = max(self.point1[0], self.point2[0])
-    top = min(self.point1[1], self.point2[1])
-    bottom = max(self.point1[1], self.point2[1])
-    return left <= x <= right and top <= y <= bottom
 
 
 def is_point_in_travel_range(self, calibrated_x, calibrated_y):

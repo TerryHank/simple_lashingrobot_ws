@@ -3,6 +3,32 @@
 本文档记录 `simple_lashingrobot_ws` 的项目级变更约定和近期关键调整。  
 开始修改代码前，先读最新日期的记录，再进入具体包目录。
 
+## 2026-05-05
+
+### 实际移动 TCP 显示与当前虎口相对坐标
+
+- 前端 3D 橙色 TCP 方块不再只贴在静态 `gripper_frame` 外参原点；现在把 `/moduan/moduan_gesture_data` 的线性模组当前位置叠加到 `gripper_frame` 后显示实际移动 TCP 位置，底部线模全局坐标与 3D 方块共用同一换算。
+- 执行微调结果图中的 `tcp=(...)` 改为当前运动 TCP/虎口坐标：先按 `Scepter_depth_frame -> gripper_frame` 得到线模绝对目标坐标，再减去当前线性模组 X/Y/Z，使越靠近当前虎口的点数值越接近 0；执行层写 PLC 的点位仍使用绝对线模目标坐标，不受显示相对坐标影响。
+- `pointAI` 新增订阅 `/moduan/moduan_gesture_data` 缓存当前线模位置；若线模状态暂未到达，显示转换会自然退回只基于静态相机-TCP外参的旧口径。
+- 前端图像层“执行底图 Hough二值”对应的 `/perception/lashing/execution_refine_base_image` 在 Hough 输出点生成后会重新发布带点位叠加的 `bgr8` 调试图：白/黑二值底图不变，识别出的执行点以黄色圆圈、红色中心和编号标出。
+- 视觉图像层不再使用固定像素矩形 ROI：移除 `point1/point2` 白框过滤、执行 Hough 的 `roi_reject` 门和执行范围 mask 对静态 ROI 的叠加；候选点只受有效 3D 坐标、近点去重、手动/规划工作区和执行范围约束。
+- 执行层视觉微调恢复独立的 TCP 遮挡黑色 mask：仅 `MODE_EXECUTION_REFINE` 会在 Hough 二值化前把已知 TCP 遮挡矩形 `(160,0)-(523,80)` 置黑，不作为点位 ROI 过滤，也不产生 `ROI` 拒绝诊断。
+- 执行层视觉微调的 ROI 改为 TCP 坐标执行盒，而不是像素矩形：Hough 二值化前会把 raw world 像素按 `Scepter_depth_frame -> gripper_frame` 外参批量转换，只保留 `x[0,380] / y[0,3330] / z[0,3160]mm` 内的像素和候选点，范围外视图不再参与 Hough。
+- “执行底图 Hough二值”进一步叠加诊断标记：`H` 为 Hough 原始交点，`ZERO` 为取不到有效 3D 坐标，`OUT` 为 TCP 执行范围外，`DUP` 为近点去重移除，`SEL/编号` 为最终输出点；现场漏点时可直接从同一图层判断掉在哪道门。
+
+### 单点绑扎相机点到 TCP 局部坐标修正
+
+- 现场截图中 `tcp=(-65,72,854)` 这类数经排查并非 TF 后的 TCP 坐标，而是 `/perception/lashing/points_camera` 保持的 `Scepter_depth_frame` 原始相机坐标；点消息继续保持 raw camera 语义，执行结果覆盖原图的文字标签改为显示 `gripper_frame` 下的 `tcp=(...)` 虎口局部坐标。
+- `/moduan/sg` 在调用 `MODE_EXECUTION_REFINE=4` 获得 Hough 结果后，新增 `Scepter_depth_frame -> gripper_frame` 的 TF 转换，再把转换后的 TCP 局部点交给 `execute_bind_points(...)`，恢复“视觉输出 raw camera，下游坐标层负责执行坐标”的工程约定。
+- 线性模组执行层的预生成点校验从仅检查局部 `Z[0,140]mm` 扩展为完整 TCP 行程 `X[0,360]mm / Y[0,320]mm / Z[0,140]mm`，防止转换后仍越界的点进入 PLC 点位队列。
+
+### 单点绑扎恢复旧 Hough 执行语义
+
+- 前端“触发单点绑扎”继续只调用后端原子服务 `/moduan/sg`，不在前端拆视觉步骤。
+- `/moduan/sg` 的视觉阶段改为 `/pointAI/process_image` 的 `MODE_EXECUTION_REFINE=4`，即现有执行层“平面分割 + Hough”局部视觉分流；不再走 `MODE_BIND_CHECK=2` 的 Surface-DP/稳定 2x2 校验分支。
+- 旧 `20260403` 工程链路经复查为：`/web/moduan/single_bind` -> `/moduan/sg` -> `/pointAI/process_image` -> `pre_img()` 深度二值化、骨架化、`HoughLinesP`、交点聚类、ROI 过滤 -> 过滤可执行范围后的全部点写入线性模组点位队列 -> 使能执行并等待 `FINISHALL`。因此当前单点绑扎不应从 Hough 返回点里挑最近 1 个点执行。
+- 新增 `src/tie_robot_control/test/test_single_point_bind_chain.py` 锁定上述语义：后端单点绑扎必须请求 `kProcessImageModeExecutionRefine`，并把返回点集合整体交给 `execute_bind_points(...)`。
+
 ## 2026-05-04
 
 ### 扫描层接入 12-16 cm 物理间距先验
@@ -29,7 +55,7 @@
 
 - 用户明确口径：视觉请求和触发链路保持当前 `/pointAI/process_image request_mode=3`，只把扫描视觉算法本体恢复到 2026-04-22 那版 `manual workspace S2`。
 - 扫描 S2 主链回到 depth-only 版本：手动工作区透视展开后，基于深度背景差分构造响应图，分别对 rectified 图的纵向、横向 profile 做周期和相位估计，再用 `build_workspace_s2_projective_line_segments` 与 inverse mapping 投回原图。
-- 扫描 S2 与 `38baa98` 的算法差异继续收口：运行态会完整评分 `background_depth - filled_depth` 与 `filled_depth - background_depth` 两个 depth 响应变体，并按纵横周期估计总分选择最佳变体；透视展开几何优先使用 2026-04-22 口径的 `corner_world_cabin_frame`，缺失时才回退兼容当前已有的 `corner_world_camera_frame`。
+- 扫描 S2 与 `38baa98` 的算法差异继续收口：运行态会完整评分 `background_depth - filled_depth` 与 `filled_depth - background_depth` 两个 depth 响应变体，并按纵横周期估计总分选择最佳变体；透视展开几何优先使用当前 `map` 口径的 `corner_world_map_frame`，缺失时才回退兼容当前已有的 `corner_world_camera_frame`。
 - 当前扫描算法不再使用行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、梁筋 ±13 cm 扩张过滤、稳定采样择优或 phase lock；这些实验链路只保留为报告/研究参考，不进入扫描运行路径。
 - `MODE_EXECUTION_REFINE` 仍按 2026-04-30 口径走平面分割 + Hough 局部视觉；本次不修改前端按钮、Web action、`/pointAI/process_image` 服务入口或执行层 Hough 分流。
 

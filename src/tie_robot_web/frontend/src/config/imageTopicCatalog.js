@@ -35,6 +35,21 @@ export const IMAGE_TOPIC_OPTIONS = [
     overlayCompatible: false,
   },
   {
+    id: TOPICS.algorithm.scanSurfaceDpBaseImage,
+    label: getRegistryLabel(TOPICS.algorithm.scanSurfaceDpBaseImage, "扫描底图 fused response"),
+    overlayCompatible: false,
+  },
+  {
+    id: TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage,
+    label: getRegistryLabel(TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage, "扫描DP收束底图"),
+    overlayCompatible: false,
+  },
+  {
+    id: TOPICS.algorithm.executionRefineBaseImage,
+    label: getRegistryLabel(TOPICS.algorithm.executionRefineBaseImage, "执行底图 Hough二值"),
+    overlayCompatible: false,
+  },
+  {
     id: TOPICS.algorithm.resultImageRaw,
     label: getRegistryLabel(TOPICS.algorithm.resultImageRaw, "识别结果图"),
     overlayCompatible: true,

@@ -588,6 +588,87 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertNotIn("cv2.polylines(result_image, [polygon_points], True, (220, 220, 220), 2)", render_text)
 
+    def test_execution_refine_result_label_shows_tcp_jaw_coordinate(self):
+        from tie_robot_perception.pointai import rendering
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        class DummyProcessor:
+            current_result_request_mode = PROCESS_IMAGE_MODE_EXECUTION_REFINE
+            current_linear_module_position_mm = {"x": 300.0, "y": 0.0, "z": 100.0}
+
+        original_converter = rendering.camera_coord_to_tcp_jaw_coord
+        converter_calls = []
+
+        def fake_converter(camera_coord, current_tcp_mm=None):
+            converter_calls.append((camera_coord, current_tcp_mm))
+            return [50.6, -2.3, 14.0]
+
+        rendering.camera_coord_to_tcp_jaw_coord = fake_converter
+        try:
+            label = rendering.format_result_display_label(
+                DummyProcessor(),
+                3,
+                [-65.6, 72.3, 854.0],
+                "SEL",
+            )
+        finally:
+            rendering.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(label, "3, tcp=(50.6,-2.3,14.0), SEL")
+        self.assertEqual(
+            converter_calls,
+            [([-65.6, 72.3, 854.0], {"x": 300.0, "y": 0.0, "z": 100.0})],
+        )
+        self.assertNotIn("cam=", label)
+
+    def test_tcp_display_can_report_current_moving_tcp_relative_coordinate(self):
+        from tie_robot_perception.pointai.tcp_display import camera_coord_to_tcp_jaw_coord
+
+        config = {
+            "translation_mm": {"x": 285.0, "y": 70.0, "z": 740.0},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 3.141592653589793},
+        }
+
+        relative_coord = camera_coord_to_tcp_jaw_coord(
+            [-65.6, 72.3, 854.0],
+            config=config,
+            current_tcp_mm={"x": 300.0, "y": 0.0, "z": 100.0},
+        )
+
+        self.assertEqual([round(value, 1) for value in relative_coord], [50.6, -2.3, 14.0])
+
+    def test_tcp_display_vectorized_channels_match_scalar_coordinate_conversion(self):
+        from tie_robot_perception.pointai.tcp_display import (
+            camera_channels_to_tcp_jaw_channels,
+            camera_coord_to_tcp_jaw_coord,
+        )
+
+        config = {
+            "translation_mm": {"x": 285.0, "y": 70.0, "z": 740.0},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 3.141592653589793},
+        }
+        x_channel = np.array([[285.0, -65.6]], dtype=np.float32)
+        y_channel = np.array([[70.0, 72.3]], dtype=np.float32)
+        z_channel = np.array([[740.0, 854.0]], dtype=np.float32)
+
+        tcp_x, tcp_y, tcp_z = camera_channels_to_tcp_jaw_channels(
+            x_channel,
+            y_channel,
+            z_channel,
+            config=config,
+        )
+
+        expected_origin = camera_coord_to_tcp_jaw_coord([285.0, 70.0, 740.0], config=config)
+        expected_point = camera_coord_to_tcp_jaw_coord([-65.6, 72.3, 854.0], config=config)
+        self.assertEqual(
+            [round(float(value), 1) for value in [tcp_x[0, 0], tcp_y[0, 0], tcp_z[0, 0]]],
+            [round(value, 1) for value in expected_origin],
+        )
+        self.assertEqual(
+            [round(float(value), 1) for value in [tcp_x[0, 1], tcp_y[0, 1], tcp_z[0, 1]]],
+            [round(value, 1) for value in expected_point],
+        )
+
     def test_manual_workspace_s2_labels_are_drawn_directly_above_each_point(self):
         from tie_robot_perception.pointai import rendering
 
@@ -1684,10 +1765,10 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(float(result["vertical_estimate"]["score"]), 2.0)
         self.assertEqual(float(result["horizontal_estimate"]["score"]), 2.0)
 
-    def test_manual_workspace_s2_rectification_prefers_april22_cabin_corner_geometry(self):
+    def test_manual_workspace_s2_rectification_prefers_map_corner_geometry(self):
         from tie_robot_perception.pointai import manual_workspace_s2
 
-        cabin_corners = [
+        map_corners = [
             [10.0, 20.0, 30.0],
             [110.0, 20.0, 30.0],
             [110.0, 120.0, 30.0],
@@ -1708,7 +1789,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             def load_manual_workspace_quad(self):
                 return {
                     "corner_pixels": [[0, 0], [19, 0], [19, 19], [0, 19]],
-                    "corner_world_cabin_frame": cabin_corners,
+                    "corner_world_map_frame": map_corners,
                     "corner_world_camera_frame": camera_corners,
                 }
 
@@ -1727,7 +1808,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         result = manual_workspace_s2.prepare_manual_workspace_s2_inputs(dummy)
 
         self.assertIsNone(result)
-        self.assertEqual(dummy.geometry_corner_world, cabin_corners)
+        self.assertEqual(dummy.geometry_corner_world, map_corners)
 
     def test_manual_workspace_s2_current_chain_rejects_depth_only_fallback(self):
         manual_workspace_s2_text = (
@@ -2232,6 +2313,230 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertNotIn("cls.pre_img", processor_text)
         self.assertNotIn("self.pre_img(", process_image_service_text)
         self.assertNotIn("from .matrix_preprocess import pre_img", active_pointai_sources)
+
+    def test_scan_and_execution_base_images_are_published_for_frontend_image_layer(self):
+        ros_interfaces_text = POINTAI_ROS_INTERFACES_PATH.read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        manual_workspace_s2_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "manual_workspace_s2.py"
+        ).read_text(encoding="utf-8")
+        execution_refine_hough_text = EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("'/perception/lashing/scan_surface_dp_base_image'", ros_interfaces_text)
+        self.assertIn("'/perception/lashing/scan_surface_dp_completed_surface_image'", ros_interfaces_text)
+        self.assertIn("'/perception/lashing/execution_refine_base_image'", ros_interfaces_text)
+        self.assertIn(
+            "cls.publish_scan_surface_dp_base_images = manual_workspace_s2.publish_scan_surface_dp_base_images",
+            processor_text,
+        )
+        self.assertIn("self.publish_scan_surface_dp_base_images(surface_result)", manual_workspace_s2_text)
+        self.assertIn("def _publish_execution_refine_base_image", execution_refine_hough_text)
+        self.assertIn("cv2.COLOR_GRAY2BGR", execution_refine_hough_text)
+        self.assertIn("point_array_msg.PointCoordinatesArray", execution_refine_hough_text)
+        self.assertIn("cv2.circle", execution_refine_hough_text)
+        self.assertIn("_publish_execution_refine_base_image(", execution_refine_hough_text)
+        self.assertIn("self.execution_refine_diagnostic_points", execution_refine_hough_text)
+
+    def test_execution_refine_binary_overlay_marks_non_roi_reject_gates(self):
+        execution_refine_hough_text = EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("EXECUTION_REFINE_DIAGNOSTIC_STYLES", execution_refine_hough_text)
+        self.assertIn("def _build_execution_refine_diagnostic_points", execution_refine_hough_text)
+        self.assertIn("self.execution_refine_diagnostic_points", execution_refine_hough_text)
+        for status in (
+            '"hough_raw"',
+            '"zero_world"',
+            '"out_of_range"',
+            '"duplicate_removed"',
+            '"selected"',
+        ):
+            with self.subTest(status=status):
+                self.assertIn(status, execution_refine_hough_text)
+        self.assertNotIn('"roi_reject"', execution_refine_hough_text)
+
+        self.assertIn("raw_candidate_records", execution_refine_hough_text)
+        self.assertIn("duplicate_removed_records", execution_refine_hough_text)
+        self.assertIn("zero_world_records", execution_refine_hough_text)
+        self.assertIn("out_of_range_records", execution_refine_hough_text)
+        self.assertIn("diagnostic_points=None", execution_refine_hough_text)
+        self.assertIn("_publish_execution_refine_base_image(", execution_refine_hough_text)
+        self.assertIn("self.execution_refine_diagnostic_points", execution_refine_hough_text)
+
+    def test_pointai_image_layers_do_not_use_static_pixel_roi(self):
+        workspace_masks_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "workspace_masks.py"
+        ).read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        state_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "state.py"
+        ).read_text(encoding="utf-8")
+        process_image_service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        execution_refine_hough_text = EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8")
+
+        for forbidden in (
+            "def get_roi_pixel_mask",
+            "def is_point_in_roi",
+            "get_roi_pixel_mask",
+            "is_point_in_roi",
+            "self.point1",
+            "self.point2",
+            "roi_reject",
+            "白框ROI",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(
+                    forbidden,
+                    "\n".join(
+                        (
+                            workspace_masks_text,
+                            processor_text,
+                            state_text,
+                            process_image_service_text,
+                            execution_refine_hough_text,
+                        )
+                    ),
+                )
+
+        self.assertNotIn("self.Depth_image_Raw[self.y1:self.y2, self.x1:self.x2]", workspace_masks_text)
+        self.assertIn("return self.get_scan_workspace_pixel_mask()", workspace_masks_text)
+        self.assertIn("return True", workspace_masks_text)
+
+    def test_execution_refine_hough_applies_tcp_occlusion_black_mask(self):
+        workspace_masks_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "workspace_masks.py"
+        ).read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        state_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "state.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("self.tcp_occlusion_mask_rect = (160, 0, 523, 80)", state_text)
+        self.assertIn("def get_tcp_occlusion_pixel_mask(self):", workspace_masks_text)
+        self.assertIn("def should_apply_tcp_occlusion_mask(self, request_mode):", workspace_masks_text)
+        self.assertIn("request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE", workspace_masks_text)
+        self.assertIn("tcp_occlusion_mask = self.get_tcp_occlusion_pixel_mask()", workspace_masks_text)
+        self.assertIn("self.Depth_image_Raw[tcp_occlusion_mask > 0] = 0", workspace_masks_text)
+        self.assertIn("detection_mask[tcp_occlusion_mask > 0] = 0", workspace_masks_text)
+        self.assertIn("cls.get_tcp_occlusion_pixel_mask = workspace_masks.get_tcp_occlusion_pixel_mask", processor_text)
+        self.assertIn("cls.should_apply_tcp_occlusion_mask = workspace_masks.should_apply_tcp_occlusion_mask", processor_text)
+
+    def test_execution_refine_hough_uses_tcp_coordinate_box_as_roi(self):
+        workspace_masks_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "workspace_masks.py"
+        ).read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        state_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "state.py"
+        ).read_text(encoding="utf-8")
+        tcp_display_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "tcp_display.py"
+        ).read_text(encoding="utf-8")
+        execution_refine_hough_text = EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8")
+        pipeline_body = execution_refine_hough_text[
+            execution_refine_hough_text.index("def run_execution_refine_hough_pipeline("):
+        ]
+
+        for expected in (
+            'self.execution_refine_tcp_roi_min_x_mm = float(rospy.get_param("~execution_refine_tcp_roi_min_x_mm", 0.0))',
+            'self.execution_refine_tcp_roi_max_x_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_x_mm", 380.0))',
+            'self.execution_refine_tcp_roi_max_y_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_y_mm", 3330.0))',
+            'self.execution_refine_tcp_roi_max_z_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_z_mm", 3160.0))',
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, state_text)
+
+        self.assertIn("def camera_channels_to_tcp_jaw_channels", tcp_display_text)
+        self.assertIn("def get_execution_refine_tcp_range_pixel_mask(self):", workspace_masks_text)
+        self.assertIn("camera_channels_to_tcp_jaw_channels(", workspace_masks_text)
+        self.assertIn("execution_refine_tcp_roi_min_x_mm", workspace_masks_text)
+        self.assertIn("execution_refine_tcp_roi_max_z_mm", workspace_masks_text)
+        self.assertIn("cls.get_execution_refine_tcp_range_pixel_mask = workspace_masks.get_execution_refine_tcp_range_pixel_mask", processor_text)
+        self.assertIn("cls.is_camera_world_coord_in_execution_refine_tcp_range = workspace_masks.is_camera_world_coord_in_execution_refine_tcp_range", processor_text)
+        self.assertIn("tcp_range_mask = self.get_execution_refine_tcp_range_pixel_mask()", execution_refine_hough_text)
+        self.assertIn("binary[tcp_range_mask <= 0] = 0", execution_refine_hough_text)
+        self.assertIn("execution_refine_pixel_mask = self.execution_refine_tcp_range_pixel_mask", pipeline_body)
+        self.assertIn("self.is_camera_world_coord_in_execution_refine_tcp_range(", pipeline_body)
+        self.assertNotIn("execution_refine_pixel_mask = self.get_scan_workspace_pixel_mask()", pipeline_body)
+
+    def test_execution_refine_hough_does_not_apply_static_roi_gate(self):
+        execution_refine_hough_text = EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8")
+        pipeline_body = execution_refine_hough_text[
+            execution_refine_hough_text.index("def run_execution_refine_hough_pipeline("):
+        ]
+
+        self.assertNotIn("self.is_point_in_roi", pipeline_body)
+        self.assertNotIn("roi_reject", pipeline_body)
+        self.assertNotIn("get_travel_range_pixel_mask()", pipeline_body)
+        self.assertIn("execution_refine_pixel_mask = self.execution_refine_tcp_range_pixel_mask", pipeline_body)
+        self.assertIn("execution_refine_pixel_mask is None", pipeline_body)
 
     def test_manual_workspace_s2_pipeline_uses_peak_supported_lines_before_mapping_intersections(self):
         workspace_s2_text = (

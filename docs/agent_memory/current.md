@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-05 00:07:09，当前 HEAD：`04a5dc1`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-05 04:45:10，当前 HEAD：`9c04a06`。
 
 ## Bootstrap Files
 
@@ -36,23 +36,23 @@
 
 ## Latest CHANGELOG Signals
 
-- 用户明确现场钢筋间距为 12-16 cm，钢筋网规格约为 `(15-18) * (15-18)`；扫描层全场识别不再以旧 8x8/64 点作为默认目标。
-- `scan_surface_dp` 的运行态主链新增物理先验选线：根据 `rectified_geometry.resolution_mm_per_px` 将 12-16 cm 换算成像素间距，当前 5 mm/px 下为 24-32 px；当 rectified 视野足以容纳全场网格时，每轴优先选择 15-18 根线，当前现场帧输出 16x16=256 个候选绑扎点。
-- 小视野不会被强行套全场线数：当画面尺度或工作区只容纳少量可见钢筋时，主链切换到 `visible_local`，按当前可见 2-18 根线输出局部交点；它只能识别当前画面里的可见交点，不能从 2-3 根钢筋直接推断完整全场网格。
-- 修复全场服务触发仍返回 64 点的问题：运行态不再把旧 8x8 线族作为全场最终输出兜底；当 `fused_instance_response` 单轴响应不足时，会在物理先验下从 `Frangi / Hessian / depth_gradient / IR / combined` 等底图中选择能恢复 15-18 根线的线族。
-- 清理旧版本残留：扫描主链 Surface-DP 失败时不再自动回退到 2026-04-22 depth-only S2；`workspace_s2` 的 8 根线/64 点偏置改为显式 `LEGACY_*` 命名，Surface-DP 不再调用 legacy axis-aligned 线族作为补全面支撑；前端视觉触发、内部 overlay 命名和项目关系图文案改为 Surface-DP 物理先验，相机原始绑扎点 TF child 前缀改为 `surface_dp_bind_point_*`，并清理旧 hash 静态资源。
-- 新增 `test_scan_surface_dp_runtime.py` 覆盖全场物理先验 16x16 和小视野 2x3 两种行为；现场运行态报告挂载到 `/reports/live_surface_dp_physical_runtime_20260504_232729/`。
-- 用户最新口径：扫描层继续推进 `combined / fused_instance_response -> Hessian + Frangi 脊线增强 -> binary candidate + skeleton -> completed_surface_mask -> DP 曲线沿局部 ridge 收束 -> 曲线交点输出 -> instance_graph junction 只做验证 / 补召回`。
-- `MODE_SCAN_ONLY` 的触发链路仍保持 `/pointAI/process_image request_mode=3`、现有发布话题和 `PointsArray` 输出结构；算法本体从 2026-05-03 的 depth-only S2 主链切到 Surface-DP 主链。
+- 前端 3D 橙色 TCP 方块不再只贴在静态 `gripper_frame` 外参原点；现在把 `/moduan/moduan_gesture_data` 的线性模组当前位置叠加到 `gripper_frame` 后显示实际移动 TCP 位置，底部线模全局坐标与 3D 方块共用同一换算。
+- 执行微调结果图中的 `tcp=(...)` 改为当前运动 TCP/虎口坐标：先按 `Scepter_depth_frame -> gripper_frame` 得到线模绝对目标坐标，再减去当前线性模组 X/Y/Z，使越靠近当前虎口的点数值越接近 0；执行层写 PLC 的点位仍使用绝对线模目标坐标，不受显示相对坐标影响。
+- `pointAI` 新增订阅 `/moduan/moduan_gesture_data` 缓存当前线模位置；若线模状态暂未到达，显示转换会自然退回只基于静态相机-TCP外参的旧口径。
+- 前端图像层“执行底图 Hough二值”对应的 `/perception/lashing/execution_refine_base_image` 在 Hough 输出点生成后会重新发布带点位叠加的 `bgr8` 调试图：白/黑二值底图不变，识别出的执行点以黄色圆圈、红色中心和编号标出。
+- 视觉图像层不再使用固定像素矩形 ROI：移除 `point1/point2` 白框过滤、执行 Hough 的 `roi_reject` 门和执行范围 mask 对静态 ROI 的叠加；候选点只受有效 3D 坐标、近点去重、手动/规划工作区和执行范围约束。
+- 执行层视觉微调恢复独立的 TCP 遮挡黑色 mask：仅 `MODE_EXECUTION_REFINE` 会在 Hough 二值化前把已知 TCP 遮挡矩形 `(160,0)-(523,80)` 置黑，不作为点位 ROI 过滤，也不产生 `ROI` 拒绝诊断。
+- 执行层视觉微调的 ROI 改为 TCP 坐标执行盒，而不是像素矩形：Hough 二值化前会把 raw world 像素按 `Scepter_depth_frame -> gripper_frame` 外参批量转换，只保留 `x[0,380] / y[0,3330] / z[0,3160]mm` 内的像素和候选点，范围外视图不再参与 Hough。
+- “执行底图 Hough二值”进一步叠加诊断标记：`H` 为 Hough 原始交点，`ZERO` 为取不到有效 3D 坐标，`OUT` 为 TCP 执行范围外，`DUP` 为近点去重移除，`SEL/编号` 为最终输出点；现场漏点时可直接从同一图层判断掉在哪道门。
 
 ## Recent Session Memory
 
-- `2026-05-05 00:05 - 补清扫描层旧命名与TF残留`：2026-05-05：继续清理扫描层旧版本残留。运行态 TF child prefix 从 pr_fprg_bind_point 改为 surface_dp_bind_point；前端源码内部 prFprgOverlay/triggerPrFprg 命名改为 surfaceDpOverlay/triggerSurfaceDp；重新 npm run build 并删除未引用旧 hash app 资产。残留扫描限定 active pointai、workspace_s2、frontend src/test 和 web app 产物，未再命中 PR-FPRG/prFprg/pr_fprg_bind_point。重启 pointAINode 后 /pointAI/process_image request_mode=3 返回 count=256，tf_echo 可查 surface_dp_bind_point_1，旧 pr_fprg_bind_point_1 不存在。
-- `2026-05-04 23:59 - 清理扫描层旧版本残留`：2026-05-04：用户确认清理旧版本残留。扫描主链 run_manual_workspace_s2_pipeline 现在只调用 Surface-DP，失败时直接返回失败并标记 legacy_depth_only_fallback=False，不再自动回退 run_manual_workspace_s2_depth_only_pipeline；scan_surface_dp 删除 legacy axis-aligned 线族兜底，物理先验无法解析时不再用旧 8x8 线族补 completed_surface；workspace_s2 的 8 根线/64 点评分偏置改为 LEGACY_* 常量，只保留给旧工具/测试；前端视觉触发和 project graph 文案改为 Surface-DP 物理先验，并清理未引用的旧 hash 静态资源。重启 pointAINode 后 /pointAI/process_image request_mode=3 返回 count=256，日志 lines=[16,16], points=256。
-- `2026-05-04 23:47 - 前端 header 长按重启动画`：2026-05-04：新前端 header 中索驱、末端、视觉三个状态胶囊长按重启时会先进入 is-long-press-charging 充能态，持续约 0.8 秒；按钮内部使用当前状态色做横向填充和扫光动画，计时满后移除充能态并触发对应 restart*Subsystem。松手、滑出或取消 pointer 会清除充能态并保留短按动作。
-- `2026-05-04 23:45 - 修复视觉触发回退 64 点`：2026-05-04 23:45：用户反馈点击前端触发视觉识别仍只有 64 点。系统化排查确认前端按钮调用 /pointAI/process_image request_mode=3，服务稳定返回 count=64，pointAINode 日志为 Surface-DP lines=[8,8]；独立复刻同一工作区和实时帧可输出 256。根因是运行态 Surface-DP 只用 fused/completed 响应做最终物理选线，当 fused 纵向响应不足时物理选线失败，代码又把旧 workspace_s2 8x8 线族作为最终兜底。已改为多底图物理选线：completed/fused/Frangi/Hessian/depth_gradient/IR/combined/depth 中选择能满足 12-16 cm、15-18 根线的物理线族；全场模式不再允许旧 8x8 作为最终输出。重启 pointAINode 后 /pointAI/process_image request_mode=3 返回 count=256，日志 lines=[16,16], points=256, mean_surface=0.974。
-- `2026-05-04 23:41 - 前端 header 子系统短按/长按口径`：2026-05-04：新前端 header 中索驱、末端、视觉三个状态胶囊采用短按/长按双语义。状态只决定在线/离线颜色和短按动作：在线 success 短按关闭对应子系统，离线或非 success 短按启动对应子系统；长按约 0.8 秒统一重启对应子系统。索驱/末端的 start/stop/restart 只控制各自驱动守护，不联动视觉算法；视觉 start 为 startCameraDriver + startAlgorithmStack，stop 为 stopAlgorithmStack + stopCameraDriver，restart 为 restartCameraDriver + restartAlgorithmStack。
-- `2026-05-04 23:28 - 扫描层主链接入物理间距先验`：2026-05-04：按用户要求将 12-16 cm 钢筋间距、(15-18)*(15-18) 规格接入运行态 scan_surface_dp 主链，替代旧 8x8 目标偏置。scan_surface_dp 现在按 rectified_geometry.resolution_mm_per_px 将 120-160 mm 转为像素间距；全场视野足够时使用 full_workspace 模式选择 15-18 根线，当前现场帧输出 16x16=256 点；视野只容纳少量钢筋时切到 visible_local，支持 2-18 根可见线并只输出当前可见局部交点，不从 2-3 根钢筋推断完整全场。效果页：http://192.168.6.99:8080/reports/live_surface_dp_physical_runtime_20260504_232729/index.html。
+- `2026-05-05 04:44 - 执行微调改用TCP坐标执行盒ROI`：执行层视觉微调不再用像素矩形或扫描工作区作为Hough ROI；MODE_EXECUTION_REFINE会把raw_world像素按Scepter_depth_frame->gripper_frame外参批量转换，只保留TCP执行盒x[0,380]/y[0,3330]/z[0,3160]mm内的像素和候选点，范围外视图不参与Hough。TCP遮挡黑色mask仍只负责遮挡置黑，不是ROI。
+- `2026-05-05 04:43 - 当前画面视觉先于索驱状态账本守卫`：2026-05-05 修复确认工作区/触发视觉识别不启动扫描层视觉的问题：前端runSavedS2走/web/cabin/start_pseudo_slam_scan scan_strategy=3，后端kCurrentFrameNoMotion分支必须先调用/pointAI/process_image request_mode=3触发Surface-DP扫描视觉，再检查索驱状态是否新鲜/静止/有效来决定能否覆盖pseudo_slam_points.json和pseudo_slam_bind_path.json；索驱状态异常时返回'已触发扫描层视觉，但未覆盖本地绑扎点文件'。
+- `2026-05-05 04:33 - 扫描分组修复重复格点相邻空格漏组`：2026-05-05 现场图中可分成2x2的一组散点被漏掉，根因是扫描棋盘格身份在边缘出现重复格点和相邻空格：同一global_row/global_col下有两个物理相邻点，旁边真实格为空，动态规划按格占用选择后会漏掉可成组点。已在pseudo_slam扫描棋盘格身份构建阶段把重复格点按物理坐标迁移到有邻居支撑的相邻空格，并在dynamic_bind_planning里增加同类兜底修复旧产物；新增C++回归RecoversPhysicallyAdjacentLeftoversFromDuplicateGridCellGap覆盖该模式。
+- `2026-05-05 04:28 - 执行层恢复TCP遮挡黑色mask`：在保持 pointAI 全局无固定像素 ROI 的前提下，执行层视觉微调恢复独立 TCP 遮挡黑色 mask：仅 MODE_EXECUTION_REFINE 在 Hough 二值化前把 tcp_occlusion_mask_rect=(160,0,523,80) 区域置零；它不参与候选点 ROI 过滤，也不恢复 roi_reject/ROI 诊断。扫描层不应用该遮挡。
+- `2026-05-05 04:21 - 视觉图像层移除固定像素ROI`：pointAI 图像层不再使用 point1/point2 静态像素矩形 ROI：删除 get_roi_pixel_mask/is_point_in_roi 绑定、执行 Hough 的 roi_reject 过滤和诊断、执行范围 mask 对静态 ROI 的叠加，并禁用执行层顶部固定像素遮挡。候选点仍会经过有效 3D 坐标、近点去重、手动/规划工作区和执行范围过滤。执行底图 Hough二值诊断标记现在为 H/ZERO/OUT/DUP/SEL。
+- `2026-05-05 03:52 - 执行 Hough 二值图诊断标记`：执行底图 Hough二值图现在会在最终输出点之外叠加 Hough 原始交点和 ROI/ZERO/执行框外/近点去重移除标记：H=Hough raw，ROI=ROI拒绝，ZERO=无有效3D坐标，OUT=执行微调框或工作区外，DUP=近点去重移除，SEL/编号=最终输出点。现场漏点时优先看此图层判断候选点掉在哪一道过滤门。
 
 ## Handoff Documents
 

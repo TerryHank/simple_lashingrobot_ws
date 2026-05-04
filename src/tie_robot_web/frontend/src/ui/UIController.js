@@ -42,7 +42,8 @@ const CONNECTION_ACTIONS = {
   error: { id: "startRosStack", label: "启动ROS" },
 };
 
-const STATUS_CHIP_LONG_PRESS_RESTART_MS = 800;
+const STATUS_CHIP_LONG_PRESS_RESTART_MS = 2000;
+const STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS = 240;
 
 const CABIN_POSITION_AXES = [
   { id: "x", label: "X" },
@@ -136,6 +137,7 @@ export class UIController {
     this.bottomCabinOperationDetail = "索驱不可操作：连接断开或状态未上报";
     this.handleSettingsHomePageChange = null;
     this.handleSettingsPageOrderChange = null;
+    this.lastGripperTfCalibrationInputValues = null;
     this.graphicalAppPanelStates = new Map();
     this.graphicalAppPanelZIndexSeed = 40;
     this.graphicalAppEmbedInstanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -2215,9 +2217,22 @@ export class UIController {
   onStatusChipAction(callback) {
     [...this.rootElement.querySelectorAll("[data-status-id][data-status-action]")].forEach((button) => {
       let longPressTimer = null;
+      let chargeCompleteCleanupTimer = null;
+      let longPressTriggered = false;
       let suppressNextClick = false;
+      const clearChargeComplete = () => {
+        if (chargeCompleteCleanupTimer) {
+          window.clearTimeout(chargeCompleteCleanupTimer);
+          chargeCompleteCleanupTimer = null;
+        }
+        button.classList.remove("is-long-press-complete");
+        longPressTriggered = false;
+      };
       const clearLongPressTimer = () => {
         button.classList.remove("is-long-press-charging");
+        if (!longPressTriggered) {
+          button.classList.remove("is-long-press-complete");
+        }
         if (!longPressTimer) {
           return;
         }
@@ -2232,21 +2247,28 @@ export class UIController {
           return;
         }
         clearLongPressTimer();
+        clearChargeComplete();
         suppressNextClick = false;
         button.classList.add("is-long-press-charging");
         longPressTimer = window.setTimeout(() => {
           longPressTimer = null;
           suppressNextClick = true;
           button.classList.remove("is-long-press-charging");
+          button.classList.add("is-long-press-complete");
+          longPressTriggered = true;
           if (button.disabled || button.classList.contains("is-pending")) {
+            chargeCompleteCleanupTimer = window.setTimeout(clearChargeComplete, STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS);
             return;
           }
           callback(button.dataset.statusId, button.dataset.statusLongAction);
+          chargeCompleteCleanupTimer = window.setTimeout(clearChargeComplete, STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS);
         }, STATUS_CHIP_LONG_PRESS_RESTART_MS);
       });
       ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
         button.addEventListener(eventName, () => {
-          clearLongPressTimer();
+          if (!longPressTriggered) {
+            clearLongPressTimer();
+          }
         });
       });
       button.addEventListener("click", (event) => {
@@ -2946,6 +2968,19 @@ export class UIController {
     };
   }
 
+  hasEditedGripperTfCalibrationInputs() {
+    if (!this.lastGripperTfCalibrationInputValues) {
+      return false;
+    }
+    const current = this.getGripperTfCalibrationInputs();
+    return ["x", "y", "z"].some((axis) => {
+      const currentValue = current[axis];
+      const lastValue = this.lastGripperTfCalibrationInputValues[axis];
+      return !Number.isFinite(currentValue)
+        || Math.abs(currentValue - lastValue) > 0.0001;
+    });
+  }
+
   getRobotHomeCalibrationInputs() {
     return {
       home: {
@@ -3031,10 +3066,16 @@ export class UIController {
     const isEditing = activeElement === this.refs.gripperTfX
       || activeElement === this.refs.gripperTfY
       || activeElement === this.refs.gripperTfZ;
-    if (forceInputs || !isEditing) {
-      this.refs.gripperTfX.value = calibration.translationMm.x.toFixed(1);
-      this.refs.gripperTfY.value = calibration.translationMm.y.toFixed(1);
-      this.refs.gripperTfZ.value = calibration.translationMm.z.toFixed(1);
+    if (forceInputs || (!isEditing && !this.hasEditedGripperTfCalibrationInputs())) {
+      const inputValues = {
+        x: Number(calibration.translationMm.x || 0),
+        y: Number(calibration.translationMm.y || 0),
+        z: Number(calibration.translationMm.z || 0),
+      };
+      this.refs.gripperTfX.value = inputValues.x.toFixed(1);
+      this.refs.gripperTfY.value = inputValues.y.toFixed(1);
+      this.refs.gripperTfZ.value = inputValues.z.toFixed(1);
+      this.lastGripperTfCalibrationInputValues = inputValues;
     }
   }
 
@@ -3115,7 +3156,7 @@ export class UIController {
       ? `${statusLabel}：短按${nextActionLabel}，长按重启`
       : `${statusLabel}：${nextActionLabel}`);
     chip.title = longPressAction
-      ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按0.8秒重启`
+      ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按2秒重启`
       : detail || "";
     if (actionLabel) {
       actionLabel.textContent = chip.dataset.pendingActionId

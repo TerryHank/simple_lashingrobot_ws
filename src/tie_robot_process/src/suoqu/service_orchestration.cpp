@@ -1,6 +1,7 @@
 #include "suoqu_runtime_internal.hpp"
 #include "tie_robot_process/suoqu/cabin_transport.hpp"
 
+#include <cmath>
 #include <fstream>
 
 bool cabinDriverStartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
@@ -81,13 +82,28 @@ bool startPseudoSlamScanWithOptions(
     try {
         load_configured_path(con_path, cabin_height, cabin_speed);
         cabin_speed = get_global_cabin_move_speed_mm_per_sec();
+        PseudoSlamFixedScanPoseOverride fixed_scan_pose_override;
+        if (req.use_fixed_scan_pose_override) {
+            if (!std::isfinite(req.fixed_scan_pose_x_mm) ||
+                !std::isfinite(req.fixed_scan_pose_y_mm) ||
+                !std::isfinite(req.fixed_scan_pose_z_mm)) {
+                res.success = false;
+                res.message = "固定识别位姿覆盖参数无效";
+                return true;
+            }
+            fixed_scan_pose_override.enabled = true;
+            fixed_scan_pose_override.x_mm = req.fixed_scan_pose_x_mm;
+            fixed_scan_pose_override.y_mm = req.fixed_scan_pose_y_mm;
+            fixed_scan_pose_override.z_mm = req.fixed_scan_pose_z_mm;
+        }
         res.success = run_pseudo_slam_scan(
             con_path,
             cabin_height,
             cabin_speed,
             normalize_pseudo_slam_scan_strategy(req.scan_strategy),
             req.enable_capture_gate,
-            res.message
+            res.message,
+            fixed_scan_pose_override
         );
     } catch (const std::exception& ex) {
         res.success = false;

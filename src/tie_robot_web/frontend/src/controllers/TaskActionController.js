@@ -2,11 +2,11 @@ import { ROSLIB } from "../vendor/roslib.js";
 import {
   FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
   FRONTEND_VISUAL_RECOGNITION_MODE_LABEL,
-  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
 } from "../config/visualRecognitionMode.js";
 import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
 const WORKSPACE_QUAD_ACK_TIMEOUT_MS = 4000;
+const DEFAULT_FIXED_SCAN_POSE_MM = Object.freeze({ x: 490, y: 1700, z: 3197 });
 
 function buildWorkspaceQuadPayloadKey(payload) {
   if (!Array.isArray(payload) || payload.length !== 8) {
@@ -20,10 +20,36 @@ function buildWorkspaceQuadPayloadKey(payload) {
   return pairs.sort().join("|");
 }
 
+function normalizeFixedScanPoseMm(pose) {
+  const source = pose || DEFAULT_FIXED_SCAN_POSE_MM;
+  const normalized = {
+    x: Number(source.x),
+    y: Number(source.y),
+    z: Number(source.z),
+  };
+  if (!["x", "y", "z"].every((axis) => Number.isFinite(normalized[axis]))) {
+    return DEFAULT_FIXED_SCAN_POSE_MM;
+  }
+  return normalized;
+}
+
+function buildFixedScanGoalMessage(pose) {
+  const fixedPose = normalizeFixedScanPoseMm(pose);
+  return {
+    enable_capture_gate: false,
+    scan_strategy: 2,
+    use_fixed_scan_pose_override: true,
+    fixed_scan_pose_x_mm: fixedPose.x,
+    fixed_scan_pose_y_mm: fixedPose.y,
+    fixed_scan_pose_z_mm: fixedPose.z,
+  };
+}
+
 export class TaskActionController {
-  constructor({ rosConnection, workspaceView, callbacks = {} }) {
+  constructor({ rosConnection, workspaceView, getRecognitionPose = null, callbacks = {} }) {
     this.rosConnection = rosConnection;
     this.workspaceView = workspaceView;
+    this.getRecognitionPose = getRecognitionPose;
     this.callbacks = callbacks;
     this.pendingWorkspaceQuadSubmission = null;
   }
@@ -66,33 +92,36 @@ export class TaskActionController {
 
   triggerSavedWorkspaceS2() {
     return this.triggerSurfaceDpRecognition({
-      resultMessage: `正在触发识别位姿扫描链路的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别，当前图像图层会等待视觉识别点位覆盖层...`,
-      logMessage: `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别`,
+      resultMessage:
+        `正在触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
+        "完成后会覆盖 pseudo_slam_points.json 和 pseudo_slam_bind_path.json。",
+      logMessage: `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并准备覆盖本地绑扎点文件`,
     });
   }
 
   async triggerSurfaceDpRecognition({
-    resultMessage = `正在触发识别位姿扫描链路的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别，当前图像图层会等待视觉识别点位覆盖层...`,
-    logMessage = `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别`,
+    resultMessage =
+      `正在触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
+      "完成后会覆盖 pseudo_slam_points.json 和 pseudo_slam_bind_path.json。",
+    logMessage = `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并准备覆盖本地绑扎点文件`,
   } = {}) {
     const resources = this.rosConnection.getResources();
-    if (!resources?.processImageService) {
-      this.report("ROS 还没连好，暂时不能触发视觉识别。", "warn");
+    if (!resources?.startPseudoSlamScanActionClient) {
+      this.report("ROS 还没连好，暂时不能触发视觉识别并覆盖本地绑扎点文件。", "warn");
       return false;
     }
     this.workspaceView.setExecutionOverlayMessage(null);
     this.callbacks.onWorkspaceS2Triggered?.();
     this.callbacks.onResultMessage?.(resultMessage);
     this.callbacks.onLog?.(logMessage, "success");
-    const result = await this.rosConnection.callProcessImageService({
-      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+
+    const result = await this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
+      goalMessage: { enable_capture_gate: false, scan_strategy: 3 },
+      feedbackPrefix: "视觉识别建图进行中",
+      successPrefix: "视觉识别建图完成",
+      failurePrefix: `${FRONTEND_VISUAL_RECOGNITION_FULL_LABEL}失败`,
     });
-    if (!result?.success) {
-      this.report(`${FRONTEND_VISUAL_RECOGNITION_FULL_LABEL}失败: ${result?.message || "未知错误"}`, "error");
-      return false;
-    }
-    this.callbacks.onLog?.(`${FRONTEND_VISUAL_RECOGNITION_FULL_LABEL}完成: ${result.message || "已完成"}`, "success");
-    return true;
+    return Boolean(result?.success);
   }
 
   async triggerSinglePointBind() {
@@ -163,16 +192,19 @@ export class TaskActionController {
     }
 
     const resources = this.rosConnection.getResources();
-    if (!resources?.processImageService) {
+    if (!resources?.startPseudoSlamScanActionClient) {
       this.clearPendingWorkspaceQuadSubmission();
-      this.report("工作区已保存，但 ROS 未就绪，当前不能触发视觉识别。", "warn");
+      this.report("工作区已保存，但 ROS 未就绪，当前不能触发视觉识别并覆盖本地绑扎点文件。", "warn");
       return false;
     }
 
     this.clearPendingWorkspaceQuadSubmission();
     void this.triggerSurfaceDpRecognition({
-      resultMessage: `工作区已保存，正在自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别...`,
-      logMessage: `已收到工作区保存确认，自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别`,
+      resultMessage:
+        `工作区已保存，正在自动触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
+        "完成后会覆盖 pseudo_slam_points.json 和 pseudo_slam_bind_path.json。",
+      logMessage:
+        `已收到工作区保存确认，自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并覆盖本地绑扎点文件`,
     }).catch((error) => {
       this.report(`自动触发视觉识别失败: ${error?.message || String(error)}`, "error");
     });
@@ -186,12 +218,14 @@ export class TaskActionController {
       return;
     }
     this.workspaceView.setExecutionOverlayMessage(null);
+    const fixedScanPose = normalizeFixedScanPoseMm(this.getRecognitionPose?.());
     this.callbacks.onResultMessage?.(
-      "正在执行固定工作区扫描：移动到 x=-260, y=1700, z=3197，索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发视觉识别并动态规划，点位覆盖层会显示在当前图像图层。",
+      `正在执行固定工作区扫描：移动到 x=${Math.round(fixedScanPose.x)}, y=${Math.round(fixedScanPose.y)}, z=${Math.round(fixedScanPose.z)}，` +
+        "索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发视觉识别并动态规划，点位覆盖层会显示在当前图像图层。",
     );
     this.callbacks.onLog?.("已触发固定扫描建图任务", "success");
-    this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
-      goalMessage: { enable_capture_gate: false, scan_strategy: 2 },
+    return this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
+      goalMessage: buildFixedScanGoalMessage(fixedScanPose),
       feedbackPrefix: "扫描建图进行中",
       successPrefix: "扫描建图完成",
       failurePrefix: "扫描建图失败",
@@ -241,7 +275,7 @@ export class TaskActionController {
       "直接执行账本测试已触发：后端将只按 pseudo_slam_bind_path.json 的 path_origin、cabin_pose 和 x/y/z 执行。",
     );
     this.callbacks.onLog?.("已触发直接执行账本测试", "success");
-    this.sendActionGoal(resources.runDirectBindPathTestActionClient, {
+    return this.sendActionGoal(resources.runDirectBindPathTestActionClient, {
       goalMessage: {},
       feedbackPrefix: "账本测试进行中",
       successPrefix: "账本测试完成",
@@ -250,22 +284,52 @@ export class TaskActionController {
   }
 
   sendActionGoal(actionClient, { goalMessage, feedbackPrefix, successPrefix, failurePrefix }) {
-    const goal = new ROSLIB.Goal({ actionClient, goalMessage });
-    goal.on("feedback", (feedback) => {
-      const detail = feedback?.detail || feedback?.stage || "处理中";
-      this.callbacks.onResultMessage?.(`${feedbackPrefix}: ${detail}`);
-    });
-    goal.on("result", (result) => {
-      const message = result?.message || "未知结果";
-      if (result?.success) {
-        this.callbacks.onResultMessage?.(`${successPrefix}: ${message}`);
-        this.callbacks.onLog?.(`${successPrefix}: ${message}`, "success");
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(result);
+      };
+
+      let goal;
+      try {
+        goal = new ROSLIB.Goal({ actionClient, goalMessage });
+      } catch (error) {
+        const message = error?.message || String(error);
+        this.report(`${failurePrefix}: ${message}`, "error");
+        settle({ success: false, message });
         return;
       }
-      this.callbacks.onResultMessage?.(`${failurePrefix}: ${message}`);
-      this.callbacks.onLog?.(`${failurePrefix}: ${message}`, "error");
+
+      goal.on("feedback", (feedback) => {
+        const detail = feedback?.detail || feedback?.stage || "处理中";
+        this.callbacks.onResultMessage?.(`${feedbackPrefix}: ${detail}`);
+      });
+      goal.on("result", (result) => {
+        const success = Boolean(result?.success);
+        const message = result?.message || "未知结果";
+        if (success) {
+          this.callbacks.onResultMessage?.(`${successPrefix}: ${message}`);
+          this.callbacks.onLog?.(`${successPrefix}: ${message}`, "success");
+          settle({ success: true, message, result });
+          return;
+        }
+        this.callbacks.onResultMessage?.(`${failurePrefix}: ${message}`);
+        this.callbacks.onLog?.(`${failurePrefix}: ${message}`, "error");
+        settle({ success: false, message, result });
+      });
+
+      try {
+        goal.send();
+      } catch (error) {
+        const message = error?.message || String(error);
+        this.report(`${failurePrefix}: ${message}`, "error");
+        settle({ success: false, message });
+      }
     });
-    goal.send();
   }
 
   report(message, level = "info") {

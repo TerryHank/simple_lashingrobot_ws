@@ -62,6 +62,15 @@ enum class PseudoSlamScanStrategy
     kSingleCenter = 0,
     kMultiPose = 1,
     kFixedManualWorkspace = 2,
+    kCurrentFrameNoMotion = 3,
+};
+
+struct PseudoSlamFixedScanPoseOverride
+{
+    bool enabled = false;
+    float x_mm = 0.0f;
+    float y_mm = 0.0f;
+    float z_mm = 0.0f;
 };
 
 struct PseudoSlamCheckerboardInfo
@@ -128,7 +137,7 @@ constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
 constexpr float kPseudoSlamClosePointClusterXYToleranceMm = 100.0f;
 constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;
 constexpr float kPseudoSlamGlobalScanHeightOffsetMm = 1500.0f;
-constexpr float kPseudoSlamFixedManualWorkspaceScanXmm = -260.0f;
+constexpr float kPseudoSlamFixedManualWorkspaceScanXmm = 490.0f;
 constexpr float kPseudoSlamFixedManualWorkspaceScanYmm = 1700.0f;
 constexpr float kPseudoSlamFixedManualWorkspaceScanZmm = 3197.0f;
 constexpr float kPseudoSlamFixedManualWorkspaceScanSpeedMmPerSec = 100.0f;
@@ -470,7 +479,8 @@ bool run_pseudo_slam_scan(
     float cabin_speed,
     PseudoSlamScanStrategy scan_strategy,
     bool enable_capture_gate,
-    std::string& message
+    std::string& message,
+    const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override = PseudoSlamFixedScanPoseOverride{}
 );
 bool run_current_area_bind_from_scan_test(std::string& message);
 bool run_bind_path_direct_test(std::string& message);

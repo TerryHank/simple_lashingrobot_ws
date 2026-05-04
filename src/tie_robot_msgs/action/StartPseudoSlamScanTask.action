@@ -1,5 +1,13 @@
+uint8 SCAN_STRATEGY_SINGLE_CENTER=0
+uint8 SCAN_STRATEGY_MULTI_POSE=1
+uint8 SCAN_STRATEGY_FIXED_MANUAL_WORKSPACE=2
+uint8 SCAN_STRATEGY_CURRENT_FRAME_NO_MOTION=3
 bool enable_capture_gate
 uint8 scan_strategy
+bool use_fixed_scan_pose_override
+float32 fixed_scan_pose_x_mm
+float32 fixed_scan_pose_y_mm
+float32 fixed_scan_pose_z_mm
 ---
 bool success
 string message

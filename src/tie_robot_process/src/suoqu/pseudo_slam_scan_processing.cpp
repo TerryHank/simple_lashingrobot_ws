@@ -1,6 +1,7 @@
 #include "suoqu_runtime_internal.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -673,6 +674,145 @@ long long encode_checkerboard_cell_key(int global_row, int global_col)
            static_cast<unsigned int>(global_col);
 }
 
+bool has_checkerboard_cell(
+    const std::unordered_map<long long, std::vector<int>>& indices_by_cell,
+    int row_index,
+    int column_index)
+{
+    const auto cell_it = indices_by_cell.find(encode_checkerboard_cell_key(row_index, column_index));
+    return cell_it != indices_by_cell.end() && !cell_it->second.empty();
+}
+
+bool has_checkerboard_neighbor_support(
+    const std::unordered_map<long long, std::vector<int>>& indices_by_cell,
+    int row_index,
+    int column_index,
+    int source_row_index,
+    int source_column_index)
+{
+    constexpr std::array<std::pair<int, int>, 4> kNeighborOffsets{{
+        {-1, 0},
+        {1, 0},
+        {0, -1},
+        {0, 1},
+    }};
+    for (const auto& offset : kNeighborOffsets) {
+        const int neighbor_row = row_index + offset.first;
+        const int neighbor_column = column_index + offset.second;
+        if (neighbor_row == source_row_index && neighbor_column == source_column_index) {
+            continue;
+        }
+        if (has_checkerboard_cell(indices_by_cell, neighbor_row, neighbor_column)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t select_checkerboard_duplicate_index_for_gap(
+    const std::vector<int>& point_indices,
+    const std::unordered_map<int, const tie_robot_msgs::PointCoords*>& world_points_by_idx,
+    int source_row_index,
+    int source_column_index,
+    int target_row_index,
+    int target_column_index)
+{
+    size_t selected_index = 0;
+    double selected_axis_value = 0.0;
+    bool selected = false;
+    const bool choose_larger =
+        target_row_index > source_row_index || target_column_index > source_column_index;
+    const int axis_index = target_row_index != source_row_index ? 1 : 0;
+    for (size_t index = 0; index < point_indices.size(); ++index) {
+        const auto point_it = world_points_by_idx.find(point_indices[index]);
+        if (point_it == world_points_by_idx.end() || point_it->second == nullptr) {
+            continue;
+        }
+        const double axis_value = static_cast<double>(point_it->second->World_coord[axis_index]);
+        if (!selected ||
+            (choose_larger && axis_value > selected_axis_value) ||
+            (!choose_larger && axis_value < selected_axis_value)) {
+            selected = true;
+            selected_index = index;
+            selected_axis_value = axis_value;
+        }
+    }
+    return selected_index;
+}
+
+void repair_checkerboard_duplicate_cells_into_adjacent_gaps(
+    std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx,
+    const std::unordered_map<int, const tie_robot_msgs::PointCoords*>& world_points_by_idx,
+    int row_count,
+    int column_count)
+{
+    std::unordered_map<long long, std::vector<int>> indices_by_cell;
+    auto rebuild_indices_by_cell = [&]() {
+        indices_by_cell.clear();
+        for (const auto& entry : checkerboard_info_by_idx) {
+            indices_by_cell[encode_checkerboard_cell_key(
+                entry.second.global_row,
+                entry.second.global_col)].push_back(entry.first);
+        }
+    };
+
+    rebuild_indices_by_cell();
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int row_index = 0; row_index < row_count && !changed; ++row_index) {
+            for (int column_index = 0; column_index < column_count && !changed; ++column_index) {
+                const auto source_it = indices_by_cell.find(encode_checkerboard_cell_key(row_index, column_index));
+                if (source_it == indices_by_cell.end() || source_it->second.size() <= 1U) {
+                    continue;
+                }
+
+                constexpr std::array<std::pair<int, int>, 4> kRepairOffsets{{
+                    {1, 0},
+                    {-1, 0},
+                    {0, 1},
+                    {0, -1},
+                }};
+                for (const auto& offset : kRepairOffsets) {
+                    const int target_row = row_index + offset.first;
+                    const int target_column = column_index + offset.second;
+                    if (target_row < 0 ||
+                        target_column < 0 ||
+                        target_row >= row_count ||
+                        target_column >= column_count ||
+                        has_checkerboard_cell(indices_by_cell, target_row, target_column) ||
+                        !has_checkerboard_neighbor_support(
+                            indices_by_cell,
+                            target_row,
+                            target_column,
+                            row_index,
+                            column_index)) {
+                        continue;
+                    }
+
+                    const size_t selected_index = select_checkerboard_duplicate_index_for_gap(
+                        source_it->second,
+                        world_points_by_idx,
+                        row_index,
+                        column_index,
+                        target_row,
+                        target_column);
+                    const int moved_global_idx = source_it->second[selected_index];
+                    auto moved_info_it = checkerboard_info_by_idx.find(moved_global_idx);
+                    if (moved_info_it == checkerboard_info_by_idx.end()) {
+                        continue;
+                    }
+                    moved_info_it->second.global_row = target_row;
+                    moved_info_it->second.global_col = target_column;
+                    rebuild_indices_by_cell();
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 std::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_planning_outliers(
     const std::vector<tie_robot_msgs::PointCoords>& world_points
 )
@@ -1090,6 +1230,13 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
         return checkerboard_info_by_idx;
     }
 
+    std::unordered_map<int, const tie_robot_msgs::PointCoords*> world_points_by_idx;
+    for (const auto& world_point : world_points) {
+        if (world_point.idx > 0) {
+            world_points_by_idx[world_point.idx] = &world_point;
+        }
+    }
+
     std::unordered_set<long long> occupied_cells;
     int phase_reference = 0;
     double nearest_origin_distance_sq = std::numeric_limits<double>::max();
@@ -1106,8 +1253,23 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
             continue;
         }
 
-        occupied_cells.insert(encode_checkerboard_cell_key(info.global_row, info.global_col));
         checkerboard_info_by_idx[world_point.idx] = info;
+    }
+
+    repair_checkerboard_duplicate_cells_into_adjacent_gaps(
+        checkerboard_info_by_idx,
+        world_points_by_idx,
+        static_cast<int>(y_centers.size()),
+        static_cast<int>(x_centers.size()));
+
+    for (const auto& entry : checkerboard_info_by_idx) {
+        const auto point_it = world_points_by_idx.find(entry.first);
+        if (point_it == world_points_by_idx.end() || point_it->second == nullptr) {
+            continue;
+        }
+        const auto& world_point = *point_it->second;
+        const auto& info = entry.second;
+        occupied_cells.insert(encode_checkerboard_cell_key(info.global_row, info.global_col));
         const double distance_sq =
             static_cast<double>(world_point.World_coord[0] - path_origin.x) * static_cast<double>(world_point.World_coord[0] - path_origin.x) +
             static_cast<double>(world_point.World_coord[1] - path_origin.y) * static_cast<double>(world_point.World_coord[1] - path_origin.y);

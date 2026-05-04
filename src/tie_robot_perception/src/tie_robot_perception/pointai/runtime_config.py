@@ -74,6 +74,14 @@ def set_stable_frame_count_callback(self, msg):
     rospy.loginfo("pointAI: 视觉服务最终放行帧数已设置为: %d", self.stable_frame_count)
 
 
+def linear_module_state_callback(self, msg):
+    self.current_linear_module_position_mm = {
+        "x": float(getattr(msg, "linear_module_position_X", 0.0)),
+        "y": float(getattr(msg, "linear_module_position_Y", 0.0)),
+        "z": float(getattr(msg, "linear_module_position_Z", 0.0)),
+    }
+
+
 def load_scan_planning_workspace(self):
     default_bounds = {
         "min_x": 0.0,

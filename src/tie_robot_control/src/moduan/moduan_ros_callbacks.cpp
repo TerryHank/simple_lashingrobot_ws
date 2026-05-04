@@ -12,7 +12,11 @@
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <diagnostic_updater/DiagnosticStatusWrapper.h>
 #include <actionlib/server/simple_action_server.h>
+#include <geometry_msgs/PointStamped.h>
 #include <ros/ros.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <tie_robot_control/common.hpp>
 #include "tie_robot_msgs/ExecuteBindPointsTaskAction.h"
@@ -28,10 +32,14 @@ using namespace tie_robot_control::moduan_registers;
 namespace {
 
 constexpr const char* kModuanDiagnosticHardwareId = "tie_robot/moduan_driver";
+constexpr const char* kScepterDepthFrame = "Scepter_depth_frame";
+constexpr const char* kGripperFrame = "gripper_frame";
 std::unique_ptr<diagnostic_updater::Updater> g_moduan_diagnostic_updater;
 using ExecuteBindPointsActionServer =
     actionlib::SimpleActionServer<tie_robot_msgs::ExecuteBindPointsTaskAction>;
 std::unique_ptr<ExecuteBindPointsActionServer> g_execute_bind_points_action_server;
+std::unique_ptr<tf2_ros::Buffer> g_tf_buffer;
+std::unique_ptr<tf2_ros::TransformListener> g_tf_listener;
 
 const char* connection_state_label(tie_robot_hw::driver::ConnectionState state)
 {
@@ -236,6 +244,69 @@ void execute_bind_points_action_callback(
     }
 }
 
+bool transform_scepter_camera_point_to_gripper_point(
+    const tie_robot_msgs::PointCoords& camera_point,
+    tie_robot_msgs::PointCoords& gripper_point,
+    std::string* error_message)
+{
+    if (!g_tf_buffer) {
+        if (error_message != nullptr) {
+            *error_message = "TF buffer未初始化";
+        }
+        return false;
+    }
+
+    geometry_msgs::PointStamped stamped_camera_point;
+    stamped_camera_point.header.stamp = ros::Time(0);
+    stamped_camera_point.header.frame_id = kScepterDepthFrame;
+    stamped_camera_point.point.x = static_cast<double>(camera_point.World_coord[0]) / 1000.0;
+    stamped_camera_point.point.y = static_cast<double>(camera_point.World_coord[1]) / 1000.0;
+    stamped_camera_point.point.z = static_cast<double>(camera_point.World_coord[2]) / 1000.0;
+
+    try {
+        const geometry_msgs::PointStamped stamped_gripper_point = g_tf_buffer->transform(
+            stamped_camera_point,
+            kGripperFrame,
+            ros::Duration(0.2));
+        gripper_point = camera_point;
+        gripper_point.World_coord[0] = static_cast<float>(stamped_gripper_point.point.x * 1000.0);
+        gripper_point.World_coord[1] = static_cast<float>(stamped_gripper_point.point.y * 1000.0);
+        gripper_point.World_coord[2] = static_cast<float>(stamped_gripper_point.point.z * 1000.0);
+        return true;
+    } catch (const tf2::TransformException& ex) {
+        if (error_message != nullptr) {
+            *error_message = ex.what();
+        }
+        return false;
+    }
+}
+
+bool transform_scepter_camera_points_to_gripper_points(
+    const std::vector<tie_robot_msgs::PointCoords>& camera_points,
+    std::vector<tie_robot_msgs::PointCoords>& gripper_points,
+    std::string& error_message)
+{
+    gripper_points.clear();
+    gripper_points.reserve(camera_points.size());
+    for (const auto& camera_point : camera_points) {
+        tie_robot_msgs::PointCoords gripper_point;
+        std::string point_error;
+        if (!transform_scepter_camera_point_to_gripper_point(camera_point, gripper_point, &point_error)) {
+            std::ostringstream oss;
+            oss << kScepterDepthFrame << "->" << kGripperFrame
+                << "点坐标变换失败，idx=" << camera_point.idx;
+            if (!point_error.empty()) {
+                oss << "，" << point_error;
+            }
+            error_message = oss.str();
+            return false;
+        }
+        gripper_points.push_back(gripper_point);
+    }
+    error_message.clear();
+    return true;
+}
+
 }  // namespace
 
 void pub_moduan_state(
@@ -346,7 +417,7 @@ bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Res
             PLC_Order_Write(FINISHALL, 0, plc);
         }
     }
-    srv.request.request_mode = kProcessImageModeBindCheck;
+    srv.request.request_mode = kProcessImageModeExecutionRefine;
     if (!AI_client.call(srv)) {
         res.success = false;
         res.message = "调用视觉服务失败";
@@ -355,7 +426,7 @@ bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Res
 
     if (!srv.response.success) {
         printCurrentTime();
-        ros_log_printf("Moduan_Warn: 绑扎视觉校验失败：%s\n", srv.response.message.c_str());
+        ros_log_printf("Moduan_Warn: 单点绑扎执行微调视觉失败：%s\n", srv.response.message.c_str());
         if (srv.response.out_of_height_count > 0) {
             for (size_t i = 0; i < srv.response.out_of_height_point_indices.size() &&
                                i < srv.response.out_of_height_z_values.size(); ++i) {
@@ -386,7 +457,23 @@ bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Res
 
     ros_log_printf("Moduan_log: 子区域内钢筋绑扎点数量:%zu.\n", srv.response.PointCoordinatesArray.size());
     auto sortedArray = srv.response.PointCoordinatesArray;
-    std::vector<tie_robot_msgs::PointCoords> filteredPoints(sortedArray.begin(), sortedArray.end());
+    std::vector<tie_robot_msgs::PointCoords> cameraPoints(sortedArray.begin(), sortedArray.end());
+    std::vector<tie_robot_msgs::PointCoords> filteredPoints;
+    std::string transform_error;
+    if (!transform_scepter_camera_points_to_gripper_points(cameraPoints, filteredPoints, transform_error)) {
+        printCurrentTime();
+        ros_log_printf("Moduan_Warn: 单点绑扎视觉点转换TCP局部坐标失败：%s\n", transform_error.c_str());
+        res.success = false;
+        res.message = "单点绑扎视觉点转换TCP局部坐标失败：" + transform_error;
+        return true;
+    }
+    ros_log_printf(
+        "Moduan_log: 单点绑扎视觉点已由%s转换为%s，原始点数量:%zu，转换后点数量:%zu。\n",
+        kScepterDepthFrame,
+        kGripperFrame,
+        cameraPoints.size(),
+        filteredPoints.size()
+    );
     if (filteredPoints.empty()) {
         printCurrentTime();
         ros_log_printf(
@@ -892,6 +979,10 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
     ros::ServiceServer moduan_driver_raw_execute_srv;
 
     if (motion_controller_role) {
+        if (!g_tf_buffer) {
+            g_tf_buffer = std::make_unique<tf2_ros::Buffer>();
+            g_tf_listener = std::make_unique<tf2_ros::TransformListener>(*g_tf_buffer);
+        }
         AI_client = nh_.serviceClient<tie_robot_msgs::ProcessImage>("/pointAI/process_image");
         linear_service = nh_.advertiseService("/moduan/single_move", moduan_move_service);
         lashing_service = nh_.advertiseService("/moduan/sg", moduan_bind_service);

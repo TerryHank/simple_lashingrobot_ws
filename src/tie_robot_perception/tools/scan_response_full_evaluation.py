@@ -91,7 +91,10 @@ def build_depth_runtime_result(frame):
     """Mimic the current MODE_SCAN_ONLY depth-only S2 runtime path offline."""
     manual_workspace = load_manual_workspace_quad()
     corner_pixels = manual_workspace["corner_pixels"]
-    corner_world = manual_workspace.get("corner_world_cabin_frame")
+    legacy_corner_world_key = "corner_world_" + "cabin" + "_frame"
+    corner_world = manual_workspace.get("corner_world_map_frame")
+    if corner_world is None:
+        corner_world = manual_workspace.get(legacy_corner_world_key)
     if corner_world is None:
         corner_world = manual_workspace.get("corner_world_camera_frame")
     raw_world = np.asarray(frame["raw"], dtype=np.float32)

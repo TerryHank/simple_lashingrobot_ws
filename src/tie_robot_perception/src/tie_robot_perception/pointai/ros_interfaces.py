@@ -5,7 +5,7 @@ from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
 from std_srvs.srv import Trigger
 
-from tie_robot_msgs.msg import PointsArray
+from tie_robot_msgs.msg import PointsArray, linear_module_upload
 from tie_robot_msgs.srv import ProcessImage
 
 
@@ -22,6 +22,7 @@ def register_ros_interfaces(self):
     rospy.Subscriber('/web/pointAI/move_to_workspace_center_scan_pose', Bool, self.workspace_center_scan_pose_callback)
     rospy.Subscriber('/web/pointAI/set_height_threshold', Float32, self.fixed_z_value_callback)
     rospy.Subscriber('/web/moduan/send_odd_points', Bool, self.jump_bind_callback)
+    rospy.Subscriber('/moduan/moduan_gesture_data', linear_module_upload, self.linear_module_state_callback)
 
     self.service = rospy.Service('/pointAI/process_image', ProcessImage, self.handle_process_image)
     self.lashing_recognize_once_service = rospy.Service(
@@ -35,6 +36,24 @@ def register_ros_interfaces(self):
     self.depth_binary_image_pub = rospy.Publisher('/pointAI/depth_binary_image', Image, queue_size=10)
     self.line_image_pub = rospy.Publisher('/pointAI/line_image', Image, queue_size=10)
     self.image_pub = rospy.Publisher('/pointAI/result_image', CompressedImage, queue_size=10)
+    self.scan_surface_dp_base_image_pub = rospy.Publisher(
+        '/perception/lashing/scan_surface_dp_base_image',
+        Image,
+        queue_size=1,
+        latch=True,
+    )
+    self.scan_surface_dp_completed_surface_image_pub = rospy.Publisher(
+        '/perception/lashing/scan_surface_dp_completed_surface_image',
+        Image,
+        queue_size=1,
+        latch=True,
+    )
+    self.execution_refine_base_image_pub = rospy.Publisher(
+        '/perception/lashing/execution_refine_base_image',
+        Image,
+        queue_size=1,
+        latch=True,
+    )
     self.lashing_result_image_compressed_pub = rospy.Publisher(
         '/perception/lashing/result_image_compressed',
         CompressedImage,

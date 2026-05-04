@@ -9,7 +9,9 @@ void executeStartPseudoSlamScanAction(
     auto& server = *g_start_pseudo_slam_scan_action_server;
     tie_robot_msgs::StartPseudoSlamScanTaskResult result;
     const std::string scan_mode =
-        goal->scan_strategy == 2 ? "固定工作区单次扫描" : (goal->scan_strategy == 1 ? "多扫描位" : "单次中心位");
+        goal->scan_strategy == 3
+            ? "当前画面无运动视觉记录"
+            : (goal->scan_strategy == 2 ? "固定工作区单次扫描" : (goal->scan_strategy == 1 ? "多扫描位" : "单次中心位"));
 
     printCurrentTime();
     logMessage(
@@ -31,6 +33,10 @@ void executeStartPseudoSlamScanAction(
     tie_robot_msgs::StartPseudoSlamScan scan_srv;
     scan_srv.request.enable_capture_gate = goal->enable_capture_gate;
     scan_srv.request.scan_strategy = goal->scan_strategy;
+    scan_srv.request.use_fixed_scan_pose_override = goal->use_fixed_scan_pose_override;
+    scan_srv.request.fixed_scan_pose_x_mm = goal->fixed_scan_pose_x_mm;
+    scan_srv.request.fixed_scan_pose_y_mm = goal->fixed_scan_pose_y_mm;
+    scan_srv.request.fixed_scan_pose_z_mm = goal->fixed_scan_pose_z_mm;
     if (!g_service_clients.chassis_scan_with_options_client.call(scan_srv)) {
         result.success = false;
         result.message = "扫描建图服务调用失败";

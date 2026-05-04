@@ -61,7 +61,7 @@ import {
 } from "../config/visualRecognitionMode.js";
 
 const DIRECT_CABIN_MOVE_TARGET = Object.freeze({
-  x: -260,
+  x: 490,
   y: 1700,
   z: 3197,
 });
@@ -382,6 +382,7 @@ export class TieRobotFrontApp {
     this.taskActionController = new TaskActionController({
       rosConnection: this.rosConnectionController,
       workspaceView: this.workspaceView,
+      getRecognitionPose: () => this.recognitionPose,
       callbacks: {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
@@ -442,6 +443,7 @@ export class TieRobotFrontApp {
 
   refreshBottomLinearModulePosition() {
     const localPosition = this.tcpLinearRemoteController?.getCurrentState?.() || null;
+    this.sceneView.setLinearModuleLocalPosition(localPosition);
     const globalPosition = this.sceneView.getLinearModuleGlobalPositionMm(localPosition);
     this.ui.setBottomLinearModulePosition(localPosition, globalPosition);
     return { localPosition, globalPosition };
@@ -1375,7 +1377,7 @@ export class TieRobotFrontApp {
         selectedPoints.length === 4,
       runSavedS2:
         ready &&
-        Boolean(resources?.processImageService),
+        Boolean(resources?.startPseudoSlamScanActionClient),
       triggerSingleBind:
         ready &&
         Boolean(resources?.singlePointBindService) &&

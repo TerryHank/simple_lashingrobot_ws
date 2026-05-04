@@ -529,7 +529,20 @@ bool should_keep_jump_bind_point(const tie_robot_msgs::PointCoords& point)
 
 bool is_valid_precomputed_tcp_travel_z(double local_z_mm)
 {
-    return local_z_mm >= kTcpTravelMinZMm && local_z_mm <= kTcpTravelMaxZMm;
+    return std::isfinite(local_z_mm) &&
+           local_z_mm >= kTcpTravelMinZMm &&
+           local_z_mm <= kTcpTravelMaxZMm;
+}
+
+bool is_valid_precomputed_tcp_travel_point(double local_x_mm, double local_y_mm, double local_z_mm)
+{
+    return std::isfinite(local_x_mm) &&
+           std::isfinite(local_y_mm) &&
+           local_x_mm >= 0.0 &&
+           local_x_mm <= kTravelMaxXMm &&
+           local_y_mm >= 0.0 &&
+           local_y_mm <= kTravelMaxYMm &&
+           is_valid_precomputed_tcp_travel_z(local_z_mm);
 }
 
 void inputAllPoints(int i, double x, double y, double z, double rz)
@@ -585,13 +598,20 @@ bool execute_bind_points(
         float_t world_z = point.World_coord[2];
         float_t angle = point.Angle;
 
-        if (!is_valid_precomputed_tcp_travel_z(static_cast<double>(world_z))) {
+        if (!is_valid_precomputed_tcp_travel_point(
+                static_cast<double>(world_x),
+                static_cast<double>(world_y),
+                static_cast<double>(world_z))) {
             rejected_invalid_tcp_travel_count++;
             printCurrentTime();
             ros_log_printf(
-                "Moduan_Warn: 预生成点 idx=%d 的局部z=%.2fmm，不是合法TCP行程[%.2f, %.2f]mm，已拒绝下发。\n",
+                "Moduan_Warn: 预生成点 idx=%d 的TCP局部坐标(%.2f,%.2f,%.2f)mm，不是合法TCP行程X[0.00, %.2f] Y[0.00, %.2f] Z[%.2f, %.2f]mm，已拒绝下发。\n",
                 point.idx,
+                world_x,
+                world_y,
                 world_z,
+                kTravelMaxXMm,
+                kTravelMaxYMm,
                 kTcpTravelMinZMm,
                 kTcpTravelMaxZMm
             );
@@ -620,11 +640,13 @@ bool execute_bind_points(
     if (selected_bind_point_count == 0 && rejected_invalid_tcp_travel_count > 0) {
         printCurrentTime();
         ros_log_printf(
-            "Moduan_Warn: 当前组全部点的局部z都超出TCP行程[%.2f, %.2f]mm，跳过当前组。\n",
+            "Moduan_Warn: 当前组全部点的TCP局部坐标都超出行程X[0.00, %.2f] Y[0.00, %.2f] Z[%.2f, %.2f]mm，跳过当前组。\n",
+            kTravelMaxXMm,
+            kTravelMaxYMm,
             kTcpTravelMinZMm,
             kTcpTravelMaxZMm
         );
-        response_message = "预生成点局部z超出TCP行程，当前组无可执行点";
+        response_message = "预生成点TCP局部坐标超出行程，当前组无可执行点";
         bind_data.first.back() = 0;
         bind_all_data.push_back(bind_data);
         return false;

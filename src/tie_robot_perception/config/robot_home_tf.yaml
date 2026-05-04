@@ -1,7 +1,7 @@
 home_cabin_mm:
-  x: 0.0
-  y: 0.0
-  z: 0.0
+  x: 161.2
+  y: 917.1
+  z: 510.2
 base_to_camera_mm:
   x: 0.0
   y: 0.0

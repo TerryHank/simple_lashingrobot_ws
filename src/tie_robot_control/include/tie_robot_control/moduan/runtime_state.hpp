@@ -115,6 +115,7 @@ extern float last_y;
 
 constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
 constexpr uint8_t kProcessImageModeBindCheck = 2;
+constexpr uint8_t kProcessImageModeExecutionRefine = 4;
 constexpr double kBindMaxHeightMm = 95.0;
 constexpr double kTcpTravelMinZMm = 0.0;
 constexpr double kTcpTravelMaxZMm = 140.0;

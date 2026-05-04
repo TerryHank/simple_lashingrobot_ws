@@ -211,7 +211,7 @@ def build_detection_summary_log(
             + (
                 "按path_points.json规划工作区边界"
                 if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
-                else "白框ROI，并在边缘按全局工作区自适应裁剪"
+                else "按手动工作区或path_points.json规划工作区边界"
             )
         ),
     ]

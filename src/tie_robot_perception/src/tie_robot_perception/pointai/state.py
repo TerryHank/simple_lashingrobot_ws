@@ -33,8 +33,6 @@ def initialize_processor_state(self):
     self.threshold = 45
     self.minLineLength = 60
     self.maxLineGap = 150
-    self.roi_center_x, self.roi_center_y = 362, 258
-    self.roi_width, self.roi_height = 313, 277
     self.key = None
     self.min_depth = 910
     self.max_depth = 1060
@@ -43,15 +41,8 @@ def initialize_processor_state(self):
     self.fps = 0
     self.offset_x, self.offset_y = 0, 0
     self.multiple = 0.996
-    self.x1, self.y1 = 160, 0
-    self.x2, self.y2 = 523, 80
-    self.x3, self.y3 = 80, 406
-    self.x4, self.y4 = 187, 480
+    self.tcp_occlusion_mask_rect = (160, 0, 523, 80)
     self.start_time = time.time()
-    self.roi_bottom_left_x = 205
-    self.roi_bottom_left_y = 358
-    self.roi_top_right_x = 440
-    self.roi_top_right_y = 120
     self.filter_points = True
     self.half_size = 20
     self.non_shuiguan_count = 0
@@ -78,6 +69,7 @@ def initialize_processor_state(self):
     self.image_infrared = None
     self.result_display_points = []
     self.current_result_request_mode = PROCESS_IMAGE_MODE_DEFAULT
+    self.current_linear_module_position_mm = None
     self.last_detection_debug = {}
     self.show_candidate_labels = rospy.get_param("~show_candidate_labels", False)
     self.jump_bind_enabled = False
@@ -90,6 +82,12 @@ def initialize_processor_state(self):
     self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 360.0))
     self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 320.0))
     self.travel_range_max_z_mm = float(rospy.get_param("~travel_range_max_z_mm", 140.0))
+    self.execution_refine_tcp_roi_min_x_mm = float(rospy.get_param("~execution_refine_tcp_roi_min_x_mm", 0.0))
+    self.execution_refine_tcp_roi_max_x_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_x_mm", 380.0))
+    self.execution_refine_tcp_roi_min_y_mm = float(rospy.get_param("~execution_refine_tcp_roi_min_y_mm", 0.0))
+    self.execution_refine_tcp_roi_max_y_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_y_mm", 3330.0))
+    self.execution_refine_tcp_roi_min_z_mm = float(rospy.get_param("~execution_refine_tcp_roi_min_z_mm", 0.0))
+    self.execution_refine_tcp_roi_max_z_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_z_mm", 3160.0))
     self.matrix_selection_max_x_mm = float(rospy.get_param("~matrix_selection_max_x_mm", 500.0))
     self.matrix_selection_max_y_mm = float(rospy.get_param("~matrix_selection_max_y_mm", 500.0))
     self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 500.0))
@@ -98,8 +96,6 @@ def initialize_processor_state(self):
     self.world_image_seq = 0
     self.plane_z = None
     self.pose_matrix = None
-    self.point1 = (20, 114)
-    self.point2 = (620, 460)
     self.stamp = rospy.Time.now()
     self.camera_matrix = None
     self.dist_coeffs = None

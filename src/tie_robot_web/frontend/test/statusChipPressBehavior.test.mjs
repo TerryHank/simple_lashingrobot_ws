@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { UIController } from "../src/ui/UIController.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const frontendRoot = resolve(__dirname, "..");
 
 function createFakeStatusChip({ statusId = "chassis", statusAction = "", statusLongAction = "" } = {}) {
   const listeners = new Map();
@@ -89,17 +95,18 @@ for (const [statusId, level, shortAction, longAction, label] of expectedActionsB
   assert.equal(chip.actionLabel.textContent, label, `${statusId}/${level} visible action label`);
 }
 
-let scheduledCallback = null;
-let scheduledDelay = null;
+const scheduledTimers = [];
 let clearedTimer = false;
 global.window = {
   setTimeout(callback, delay) {
-    scheduledCallback = callback;
-    scheduledDelay = delay;
-    return 7;
+    const timerId = scheduledTimers.length + 7;
+    scheduledTimers.push({ timerId, callback, delay, cleared: false });
+    return timerId;
   },
   clearTimeout(timerId) {
-    if (timerId === 7) {
+    const timer = scheduledTimers.find((item) => item.timerId === timerId);
+    if (timer) {
+      timer.cleared = true;
       clearedTimer = true;
     }
   },
@@ -127,10 +134,11 @@ chip.dispatch("pointerdown", {
   preventDefault() {},
 });
 assert.equal(chip.classList.contains("is-long-press-charging"), true);
-assert.equal(scheduledDelay, 800);
+assert.equal(scheduledTimers.at(-1).delay, 2000);
 chip.dispatch("pointerup");
 assert.equal(clearedTimer, true);
 assert.equal(chip.classList.contains("is-long-press-charging"), false);
+assert.equal(chip.classList.contains("is-long-press-complete"), false);
 chip.dispatch("click", {
   preventDefault() {},
   stopPropagation() {},
@@ -138,8 +146,7 @@ chip.dispatch("click", {
 assert.deepEqual(calls, [{ statusId: "chassis", actionId: "stopCabinSubsystem" }]);
 
 calls.length = 0;
-scheduledCallback = null;
-scheduledDelay = null;
+scheduledTimers.length = 0;
 clearedTimer = false;
 
 chip.dispatch("pointerdown", {
@@ -147,12 +154,22 @@ chip.dispatch("pointerdown", {
   preventDefault() {},
 });
 assert.equal(chip.classList.contains("is-long-press-charging"), true);
-assert.equal(scheduledDelay, 800);
-scheduledCallback();
+assert.equal(scheduledTimers.at(-1).delay, 2000);
+scheduledTimers.at(-1).callback();
 assert.equal(chip.classList.contains("is-long-press-charging"), false);
+assert.equal(chip.classList.contains("is-long-press-complete"), true);
+assert.equal(scheduledTimers.at(-1).delay, 240);
 chip.dispatch("pointerup");
 chip.dispatch("click", {
   preventDefault() {},
   stopPropagation() {},
 });
 assert.deepEqual(calls, [{ statusId: "chassis", actionId: "restartCabinSubsystem" }]);
+
+const stylesheetText = readFileSync(resolve(frontendRoot, "src/styles/app.css"), "utf-8");
+assert.match(stylesheetText, /animation:\s*status-charge-fill 2s linear forwards/);
+assert.match(stylesheetText, /animation:\s*status-charge-sweep 2s ease-out forwards/);
+assert.match(stylesheetText, /\.system-status-item::after[\s\S]*width:\s*100%;/);
+assert.match(stylesheetText, /transform:\s*translateX\(-100%\);/);
+assert.match(stylesheetText, /\.system-status-item\.is-long-press-complete::before[\s\S]*transform:\s*scaleX\(1\);/);
+assert.match(stylesheetText, /@keyframes status-charge-sweep[\s\S]*transform:\s*translateX\(100%\);/);

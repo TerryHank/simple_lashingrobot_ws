@@ -13,8 +13,8 @@ const SCEPTER_FRAME = "Scepter_depth_frame";
 const GRIPPER_FRAME = "gripper_frame";
 const ROBOT_BODY_SIZE_METERS = 0.7;
 const TCP_TOOL_SIZE_METERS = {
-  x: 0.2,
-  y: 0.1,
+  x: 0.1,
+  y: 0.2,
   z: 0.2,
 };
 const FREE_VIEW_POSITION = new THREE.Vector3(2.6, -3.0, 2.0);
@@ -60,6 +60,19 @@ function toVector3Meters(point) {
     Number(point?.y || 0),
     Number(point?.z || 0),
   );
+}
+
+function normalizeLinearModuleLocalPositionMm(localPosition) {
+  if (!localPosition) {
+    return null;
+  }
+  const x = Number(localPosition.x);
+  const y = Number(localPosition.y);
+  const z = Number(localPosition.z);
+  if (![x, y, z].every(Number.isFinite)) {
+    return null;
+  }
+  return { x, y, z };
 }
 
 function isPlanningPointMarker(marker) {
@@ -291,6 +304,7 @@ export class Scene3DView {
     this.layerState = {};
     this.transformMap = new Map();
     this.cachedWorldTransforms = new Map();
+    this.linearModuleLocalPositionMm = null;
     this.sourcePointCloudPositions = {
       filteredWorldCoord: new Float32Array(),
       rawWorldCoord: new Float32Array(),
@@ -631,9 +645,10 @@ export class Scene3DView {
       this.robotGroup.visible = false;
     }
 
-    if (gripperTransform) {
+    const tcpToolPosition = this.getLinearModuleTcpWorldPosition() || gripperTransform?.position || null;
+    if (tcpToolPosition) {
       this.tcpToolGroup.visible = this.layerState.showRobot !== false;
-      this.applyCustomDisplayPose(this.tcpToolGroup, gripperTransform.position);
+      this.applyCustomDisplayPose(this.tcpToolGroup, tcpToolPosition);
     } else {
       this.tcpToolGroup.visible = false;
     }
@@ -813,25 +828,37 @@ export class Scene3DView {
     };
   }
 
-  getLinearModuleGlobalPositionMm(localPosition) {
+  setLinearModuleLocalPosition(localPosition) {
+    this.linearModuleLocalPositionMm = normalizeLinearModuleLocalPositionMm(localPosition);
+    this.applyFrameTransforms();
+    return this.getLinearModuleGlobalPositionMm(this.linearModuleLocalPositionMm);
+  }
+
+  getLinearModuleTcpWorldPosition(localPosition = this.linearModuleLocalPositionMm) {
     const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
     if (!gripperTransform) {
       return null;
     }
 
-    const localX = Number(localPosition?.x);
-    const localY = Number(localPosition?.y);
-    const localZ = Number(localPosition?.z);
-    if (![localX, localY, localZ].every(Number.isFinite)) {
+    const normalizedPosition = normalizeLinearModuleLocalPositionMm(localPosition);
+    if (!normalizedPosition) {
       return null;
     }
 
     const localPoint = new THREE.Vector3(
-      localX / 1000.0,
-      localY / 1000.0,
-      localZ / 1000.0,
+      normalizedPosition.x / 1000.0,
+      normalizedPosition.y / 1000.0,
+      normalizedPosition.z / 1000.0,
     ).applyQuaternion(gripperTransform.quaternion);
-    const globalPoint = gripperTransform.position.clone().add(localPoint);
+    return gripperTransform.position.clone().add(localPoint);
+  }
+
+  getLinearModuleGlobalPositionMm(localPosition) {
+    const globalPoint = this.getLinearModuleTcpWorldPosition(localPosition);
+    if (!globalPoint) {
+      return null;
+    }
+
     return {
       x: globalPoint.x * 1000.0,
       y: globalPoint.y * 1000.0,

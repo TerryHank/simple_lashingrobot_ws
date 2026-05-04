@@ -303,6 +303,16 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
             ["full_workspace", "full_workspace"],
         )
 
+    def test_surface_dp_debug_base_images_overlay_rectified_intersections(self):
+        publish_source = _function_source(MANUAL_WORKSPACE_S2_PATH, "publish_scan_surface_dp_base_images")
+        debug_source = _function_source(MANUAL_WORKSPACE_S2_PATH, "publish_scan_surface_dp_debug_image")
+        manual_workspace_text = MANUAL_WORKSPACE_S2_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("draw_scan_surface_dp_debug_points", manual_workspace_text)
+        self.assertIn('overlay_points=surface_result.get("rectified_intersections", [])', publish_source)
+        self.assertIn('"scan_surface_dp_completed_surface_image_pub"', publish_source)
+        self.assertIn('encoding = "bgr8" if rendered_image.ndim == 3 else "mono8"', debug_source)
+
 
 if __name__ == "__main__":
     unittest.main()

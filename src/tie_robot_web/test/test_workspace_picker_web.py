@@ -974,6 +974,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("TOPICS.camera.depthImage", image_topic_catalog)
         self.assertIn("TOPICS.camera.filteredWorldCoord", image_topic_catalog)
         self.assertIn("TOPICS.camera.rawWorldCoord", image_topic_catalog)
+        self.assertIn("TOPICS.algorithm.scanSurfaceDpBaseImage", image_topic_catalog)
+        self.assertIn("TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage", image_topic_catalog)
+        self.assertIn("TOPICS.algorithm.executionRefineBaseImage", image_topic_catalog)
         self.assertIn('id: "all"', log_topic_catalog)
         self.assertIn('id: "algorithm"', log_topic_catalog)
         self.assertIn('id: "cabin"', log_topic_catalog)
@@ -1306,7 +1309,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("const DIRECT_CABIN_MOVE_TARGET = Object.freeze({", app_logic)
-        self.assertIn("x: -260,", app_logic)
+        self.assertIn("x: 490,", app_logic)
         self.assertIn("y: 1700,", app_logic)
         self.assertIn("z: 3197,", app_logic)
         self.assertIn('export const RECOGNITION_POSE_KEY = "tie_robot_frontend_recognition_pose";', storage)
@@ -1315,7 +1318,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.recognitionPose = loadRecognitionPose(DIRECT_CABIN_MOVE_TARGET);", app_logic)
         self.assertIn('if (taskAction === "setRecognitionPose")', app_logic)
         self.assertIn("handleSetRecognitionPose()", app_logic)
-        self.assertIn("const pose = this.sceneView.getCurrentCabinPositionMm();", app_logic)
+        self.assertIn("const pose = this.cabinRemoteController.getCurrentRawCabinPositionMm();", app_logic)
         self.assertIn("saveRecognitionPose(pose);", app_logic)
         self.assertIn("const payload = { ...this.recognitionPose, speed: this.getGlobalCabinMoveSpeed() };", app_logic)
         self.assertIn("准备直接移动到位姿", app_logic)
@@ -1332,10 +1335,14 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_DIR / "modules" / "execution_actions.mjs"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("x=-260, y=1700, z=3197", task_action_controller)
+        self.assertIn("x=${Math.round(fixedScanPose.x)}, y=${Math.round(fixedScanPose.y)}, z=${Math.round(fixedScanPose.z)}", task_action_controller)
+        self.assertIn("use_fixed_scan_pose_override: true", task_action_controller)
+        self.assertIn("fixed_scan_pose_x_mm: fixedPose.x", task_action_controller)
         self.assertIn("全局索驱速度", task_action_controller)
         self.assertNotIn("speed=100", task_action_controller)
-        self.assertIn("x=-260, y=1700, z=3197", execution_actions)
+        self.assertIn("x=490, y=1700, z=3197", execution_actions)
+        self.assertIn("use_fixed_scan_pose_override: true", execution_actions)
+        self.assertIn("fixed_scan_pose_x_mm: 490", execution_actions)
         self.assertIn("全局索驱速度", execution_actions)
         self.assertNotIn("speed=100", execution_actions)
 
@@ -1497,7 +1504,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('this.buildTopicFromRegistry("algorithm.manualWorkspaceS2Points")', ros_connection_controller)
         self.assertIn("this.callbacks.onWorkspaceS2Overlay?.(message)", ros_connection_controller)
         self.assertIn("this.callbacks.onVisualRecognitionPoints?.(message)", ros_connection_controller)
-        self.assertIn("当前图像图层会等待视觉识别点位覆盖层", task_action_controller)
+        self.assertIn("当前画面无运动视觉记录", task_action_controller)
+        self.assertIn("pseudo_slam_points.json", task_action_controller)
+        self.assertIn("pseudo_slam_bind_path.json", task_action_controller)
         self.assertIn("handleVisualRecognitionPointsMessage(message)", app_logic)
         self.assertIn("showVisualRecognitionOverlayMessage(message)", app_logic)
         self.assertIn("if (this.surfaceDpOverlayRequested) {", app_logic)
@@ -1516,7 +1525,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("if (this.surfaceDpOverlayRequested) {\n          return;\n        }", execution_overlay_body)
         self.assertNotIn("this.showVisualRecognitionOverlayMessage(message);", execution_overlay_body)
 
-    def test_visual_recognition_uses_canonical_service_and_result_image_topic(self):
+    def test_visual_recognition_uses_scan_action_and_result_image_topic(self):
         topic_registry = TOPIC_REGISTRY.read_text(encoding="utf-8")
         ros_connection_controller = (
             FRONTEND_SRC_DIR / "controllers" / "RosConnectionController.js"
@@ -1528,17 +1537,23 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('recognizeOnce: "/perception/lashing/recognize_once"', topic_registry)
+        self.assertIn('processImage: "/pointAI/process_image"', topic_registry)
         self.assertIn('manualWorkspaceS2ResultRaw: "/perception/lashing/result_image"', topic_registry)
+        self.assertIn('scanSurfaceDpBaseImage: "/perception/lashing/scan_surface_dp_base_image"', topic_registry)
+        self.assertIn('scanSurfaceDpCompletedSurfaceImage: "/perception/lashing/scan_surface_dp_completed_surface_image"', topic_registry)
+        self.assertIn('executionRefineBaseImage: "/perception/lashing/execution_refine_base_image"', topic_registry)
         self.assertIn('manualWorkspaceS2Points: "/perception/lashing/points_camera"', topic_registry)
         self.assertIn('coordinatePoint: "/perception/lashing/points_camera"', topic_registry)
-        self.assertIn("lashingRecognizeOnceService: new ROSLIB.Service({", ros_connection_controller)
-        self.assertIn("name: SERVICES.algorithm.recognizeOnce", ros_connection_controller)
-        self.assertIn("serviceType: SERVICE_TYPES.trigger", ros_connection_controller)
-        self.assertIn("callLashingRecognizeOnceService()", ros_connection_controller)
-        self.assertIn("this.resources.lashingRecognizeOnceService.callService(", ros_connection_controller)
-        self.assertIn("const result = await this.rosConnection.callLashingRecognizeOnceService();", task_action_controller)
-        self.assertIn("Boolean(resources?.lashingRecognizeOnceService)", app_logic)
+        self.assertIn("processImageService: new ROSLIB.Service({", ros_connection_controller)
+        self.assertIn("name: SERVICES.algorithm.processImage", ros_connection_controller)
+        self.assertIn("serviceType: SERVICE_TYPES.algorithm.processImage", ros_connection_controller)
+        self.assertIn("callProcessImageService({", ros_connection_controller)
+        self.assertIn("startPseudoSlamScanActionClient: new ROSLIB.ActionClient({", ros_connection_controller)
+        self.assertIn("serverName: ACTIONS.cabin.startPseudoSlamScan", ros_connection_controller)
+        self.assertIn("this.sendActionGoal(resources.startPseudoSlamScanActionClient", task_action_controller)
+        self.assertIn("goalMessage: { enable_capture_gate: false, scan_strategy: 3 }", task_action_controller)
+        self.assertIn("Boolean(resources?.startPseudoSlamScanActionClient)", app_logic)
+        self.assertNotIn("callLashingRecognizeOnceService", task_action_controller)
         self.assertNotIn("this.resources.runWorkspaceS2Publisher.advertise();", ros_connection_controller)
         self.assertNotIn("runWorkspaceS2Publisher.publish", task_action_controller)
         self.assertNotIn("resources?.runWorkspaceS2Publisher", task_action_controller)
@@ -1564,6 +1579,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.workspaceView.setOverlayEnabled(isOverlayCompatibleImageTopic(selectedTopic));", app_logic)
         self.assertIn("图像卡片已切换到", app_logic)
         self.assertIn("TOPICS.algorithm.resultImageRaw", image_topic_catalog)
+        self.assertIn("TOPICS.algorithm.scanSurfaceDpBaseImage", image_topic_catalog)
+        self.assertIn("TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage", image_topic_catalog)
+        self.assertIn("TOPICS.algorithm.executionRefineBaseImage", image_topic_catalog)
         self.assertIn('const defaults = { mode: "raw", gamma: 1.0, overlayOpacity: 0.88 };', storage_utils)
         self.assertIn('manualWorkspaceS2Points: "/perception/lashing/points_camera"', TOPIC_REGISTRY.read_text(encoding="utf-8"))
         self.assertIn("setSavedWorkspaceGuideVisible(enabled)", workspace_canvas_view)
@@ -2760,7 +2778,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.callbacks.onWorkspaceS2Triggered?.();", task_action_controller)
         self.assertLess(
             task_action_controller.index("this.callbacks.onWorkspaceS2Triggered?.();"),
-            task_action_controller.index("await this.rosConnection.callLashingRecognizeOnceService();"),
+            task_action_controller.index("this.sendActionGoal(resources.startPseudoSlamScanActionClient"),
         )
 
     def test_s2_trigger_caches_latched_visual_points_without_replacing_backend_overlay(self):
