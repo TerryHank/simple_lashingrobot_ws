@@ -341,8 +341,6 @@ export class Scene3DView {
       rawWorldCoord: new Float32Array(),
     };
     this.sourceTiePointCameraPositions = new Float32Array();
-    this.sourceWorkspaceRangeCameraPositions = new Float32Array();
-    this.workspaceRangeMapPositions = new Float32Array();
     this.planningPointsFollowTiePoints = false;
     this.pointCounts = {
       filteredWorldCoord: 0,
@@ -494,18 +492,6 @@ export class Scene3DView {
       bindGroupLinesTemplate.material,
     );
     this.bindGroupLines.material.opacity = 0.92;
-    const workspaceRangeFrameTemplate = buildLineSegmentsObject(0x7edcff);
-    workspaceRangeFrameTemplate.material.opacity = 0.96;
-    this.workspaceRangeFrame = new THREE.LineSegments(
-      workspaceRangeFrameTemplate.geometry,
-      workspaceRangeFrameTemplate.material,
-    );
-    this.workspaceRangeCorners = buildPointsObject(0x7edcff);
-    this.workspaceRangeCorners.material.size = 0.06;
-    this.workspaceRangeCorners.material.opacity = 0.96;
-    this.workspaceRangeGroup = new THREE.Group();
-    this.workspaceRangeGroup.visible = false;
-    this.workspaceRangeGroup.add(this.workspaceRangeFrame, this.workspaceRangeCorners);
     this.scene.add(
       this.filteredPointCloud,
       this.rawPointCloud,
@@ -518,7 +504,6 @@ export class Scene3DView {
       this.bindRowLines,
       this.bindColumnLines,
       this.bindGroupLines,
-      this.workspaceRangeGroup,
     );
     this.bindPathPoints.renderOrder = 3;
     this.planningAreaCenters.renderOrder = 2;
@@ -527,8 +512,6 @@ export class Scene3DView {
     this.bindRowLines.renderOrder = 3;
     this.bindColumnLines.renderOrder = 3;
     this.bindGroupLines.renderOrder = 4;
-    this.workspaceRangeFrame.renderOrder = 5;
-    this.workspaceRangeCorners.renderOrder = 5;
 
     this.viewMode = "free";
     this.followOrigin = false;
@@ -759,7 +742,6 @@ export class Scene3DView {
     this.applyFrameTransforms();
     this.refreshPointCloudWorldPositions();
     this.refreshTiePointWorldPositions();
-    this.refreshRealtimeWorkspaceRangeWorldPositions();
   }
 
   applyFrameTransforms() {
@@ -936,36 +918,6 @@ export class Scene3DView {
     };
   }
 
-  projectRealtimeWorkspaceRangeToImage(cameraInfo) {
-    const projection = normalizeCameraProjection(cameraInfo);
-    if (!projection) {
-      return null;
-    }
-    const mapPositions = this.getRealtimeWorkspaceRangeMapPositions();
-    const points = [];
-    for (let index = 0; index < mapPositions.length; index += 3) {
-      const projected = this.projectMapPointToImagePixel(
-        new THREE.Vector3(mapPositions[index], mapPositions[index + 1], mapPositions[index + 2]),
-        cameraInfo,
-      );
-      if (!projected) {
-        continue;
-      }
-      points.push(projected);
-    }
-    if (points.length < 3) {
-      return null;
-    }
-    return {
-      points,
-      sourceSize: {
-        width: projection.width,
-        height: projection.height,
-      },
-      frameId: MAP_FRAME,
-    };
-  }
-
   setTheme(theme) {
     this.theme = theme === "light" ? "light" : "dark";
     if (this.theme === "light") {
@@ -990,8 +942,6 @@ export class Scene3DView {
       this.bindRowLines.material.color.setHex(0x1f8fb8);
       this.bindColumnLines.material.color.setHex(0xc9971f);
       this.bindGroupLines.material.color.setHex(0xd92f69);
-      this.workspaceRangeFrame.material.color.setHex(0x1f8fb8);
-      this.workspaceRangeCorners.material.color.setHex(0x1f8fb8);
       return;
     }
 
@@ -1016,8 +966,6 @@ export class Scene3DView {
     this.bindRowLines.material.color.setHex(0x35d7ff);
     this.bindColumnLines.material.color.setHex(0xffd15c);
     this.bindGroupLines.material.color.setHex(0xff4f8a);
-    this.workspaceRangeFrame.material.color.setHex(0x7edcff);
-    this.workspaceRangeCorners.material.color.setHex(0x7edcff);
   }
 
   getKnownTransformCount() {
@@ -1290,79 +1238,6 @@ export class Scene3DView {
       this.pointCounts.planningPoints = this.pointCounts.tiePoints;
     }
     return worldPositions;
-  }
-
-  captureRealtimeWorkspaceRangeMapPositions() {
-    const cameraPositions = this.sourceWorkspaceRangeCameraPositions;
-    const mapPositions = [];
-    for (let index = 0; index < cameraPositions.length; index += 3) {
-      const mapPoint = this.convertScepterPointCloudPointToMapPoint(new THREE.Vector3(
-        cameraPositions[index],
-        cameraPositions[index + 1],
-        cameraPositions[index + 2],
-      ));
-      if (!mapPoint) {
-        continue;
-      }
-      mapPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
-    }
-    if (mapPositions.length >= 9) {
-      this.workspaceRangeMapPositions = new Float32Array(mapPositions);
-    }
-    return this.workspaceRangeMapPositions;
-  }
-
-  getRealtimeWorkspaceRangeMapPositions() {
-    if (this.workspaceRangeMapPositions?.length) {
-      return this.workspaceRangeMapPositions;
-    }
-    if (this.sourceWorkspaceRangeCameraPositions?.length) {
-      return this.captureRealtimeWorkspaceRangeMapPositions();
-    }
-    return new Float32Array();
-  }
-
-  refreshRealtimeWorkspaceRangeWorldPositions() {
-    const mapPositions = this.getRealtimeWorkspaceRangeMapPositions();
-    if (this.workspaceRangeCorners?.geometry) {
-      this.workspaceRangeCorners.geometry.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute([], 3),
-      );
-      this.workspaceRangeCorners.geometry.computeBoundingSphere();
-    }
-    if (this.workspaceRangeFrame?.geometry) {
-      this.workspaceRangeFrame.geometry.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute([], 3),
-      );
-      this.workspaceRangeFrame.geometry.computeBoundingSphere();
-    }
-    if (this.workspaceRangeGroup) {
-      this.workspaceRangeGroup.visible = false;
-    }
-    return mapPositions.length / 3;
-  }
-
-  setRealtimeWorkspaceRangeMessage(message) {
-    const points = Array.isArray(message?.PointCoordinatesArray) ? message.PointCoordinatesArray : [];
-    const cameraPositions = [];
-    points.forEach((point) => {
-      const world = Array.isArray(point?.World_coord) ? point.World_coord : [];
-      if (world.length < 3) {
-        return;
-      }
-      const x = Number(world[0]);
-      const y = Number(world[1]);
-      const z = Number(world[2]);
-      if (![x, y, z].every(Number.isFinite)) {
-        return;
-      }
-      cameraPositions.push(x / 1000.0, y / 1000.0, z / 1000.0);
-    });
-    this.sourceWorkspaceRangeCameraPositions = new Float32Array(cameraPositions);
-    this.workspaceRangeMapPositions = new Float32Array();
-    return this.refreshRealtimeWorkspaceRangeWorldPositions();
   }
 
   setTiePointsMessage(message) {

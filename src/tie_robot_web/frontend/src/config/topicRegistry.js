@@ -53,7 +53,6 @@ export const TOPICS = Object.freeze({
   algorithm: Object.freeze({
     coordinatePoint: "/perception/lashing/points_camera",
     currentWorkspaceQuadPixels: "/perception/lashing/workspace/quad_pixels",
-    workspaceQuadCameraPoints: "/perception/lashing/workspace/quad_camera_points",
     manualWorkspaceS2Points: "/perception/lashing/points_camera",
     manualWorkspaceS2ResultRaw: "/perception/lashing/result_image",
     scanSurfaceDpBaseImage: "/perception/lashing/scan_surface_dp_base_image",
@@ -282,17 +281,6 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     ownerNode: "pointAINode",
     direction: "subscribe",
     usage: "同步算法层保存的工作区",
-  },
-  {
-    key: "algorithm.workspaceQuadCameraPoints",
-    name: TOPICS.algorithm.workspaceQuadCameraPoints,
-    label: "当前工作区相机角点",
-    messageType: MESSAGE_TYPES.pointsArray,
-    sourceLayer: "algorithm",
-    sourceLabel: "算法层",
-    ownerNode: "pointAINode",
-    direction: "subscribe",
-    usage: "实时工作区范围角点；前端按 TF 固定到 map 世界坐标后重新投到图像",
   },
   {
     key: "algorithm.coordinatePoint",

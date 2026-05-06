@@ -797,7 +797,6 @@ export class RosConnectionController {
       this.buildTopicFromRegistry("tf.static"),
       this.buildTopicFromRegistry("control.linearModuleState"),
       this.buildTopicFromRegistry("camera.irCameraInfo"),
-      this.buildTopicFromRegistry("algorithm.workspaceQuadCameraPoints"),
     ];
 
     subscriptions[0].subscribe((message) => this.callbacks.onSavedWorkspacePayload?.(Array.from(message.data || [])));
@@ -812,7 +811,6 @@ export class RosConnectionController {
     subscriptions[9].subscribe((message) => this.callbacks.onTfMessage?.(message));
     subscriptions[10].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
     subscriptions[11].subscribe((message) => this.callbacks.onIrCameraInfo?.(message));
-    subscriptions[12].subscribe((message) => this.callbacks.onWorkspaceRangePoints?.(message));
     this.fixedTopicSubscribers = subscriptions;
   }
 

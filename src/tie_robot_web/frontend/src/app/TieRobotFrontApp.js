@@ -256,7 +256,6 @@ export class TieRobotFrontApp {
         this.clearPlanningAreaRefresh();
         this.planningAreaRequestToken += 1;
         this.sceneView.setPlanningAreaPayload(null);
-        this.sceneView.setRealtimeWorkspaceRangeMessage(null);
         this.surfaceDpOverlayActive = false;
         this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCleared = false;
@@ -325,9 +324,6 @@ export class TieRobotFrontApp {
           this.workspaceView.setSelectedWorkspacePayload(payload);
         }
         this.refreshActionState();
-      },
-      onWorkspaceRangePoints: (message) => {
-        this.sceneView.setRealtimeWorkspaceRangeMessage(message);
       },
       onExecutionOverlay: (message) => {
         if (this.surfaceDpOverlayRequested) {
