@@ -1597,7 +1597,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('encoding.includes("32fc1")', image_utils)
         self.assertIn('encoding.includes("32fc3")', image_utils)
 
-    def test_ir_image_draws_live_tcp_workspace_boundary_overlay(self):
+    def test_ir_image_keeps_tcp_overlay_and_does_not_draw_live_workspace_in_frontend(self):
         topic_registry = TOPIC_REGISTRY.read_text(encoding="utf-8")
         ros_connection_controller = (
             FRONTEND_SRC_DIR / "controllers" / "RosConnectionController.js"
@@ -1626,16 +1626,18 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.irCameraInfo = null;", app_logic)
         self.assertIn("onIrCameraInfo: (message) => {", app_logic)
         self.assertIn("syncTcpWorkspaceBoundaryOverlay()", app_logic)
-        self.assertIn("this.sceneView.setLiveVisibleAreaMessage(message);", app_logic)
-        self.assertIn("projectLiveVisibleAreaToImage(this.irCameraInfo)", app_logic)
+        self.assertNotIn("this.sceneView.setLiveVisibleAreaMessage(message);", app_logic)
+        self.assertNotIn("projectLiveVisibleAreaToImage(this.irCameraInfo)", app_logic)
+        self.assertNotIn("syncRealtimeWorkspaceRangeOverlay()", app_logic)
         self.assertIn("this.workspaceView.setTcpWorkspaceBoundary(boundary);", app_logic)
         self.assertIn("projectTcpWorkspaceBoundaryToImage(cameraInfo)", scene_view)
         self.assertIn("GRIPPER_FRAME", scene_view)
         self.assertNotIn("applyDistortion", scene_view)
         self.assertIn("setTcpWorkspaceBoundary(boundary)", workspace_canvas_view)
-        self.assertIn('id="irBaseBoundaryLayer"', ui_controller)
-        self.assertIn("baseBoundaryLayer: this.refs.irBaseBoundaryLayer", ui_controller)
-        self.assertIn("renderRealtimeWorkspaceBoundaryLayer()", workspace_canvas_view)
+        self.assertNotIn('id="irBaseBoundaryLayer"', ui_controller)
+        self.assertNotIn("baseBoundaryLayer: this.refs.irBaseBoundaryLayer", ui_controller)
+        self.assertNotIn("renderRealtimeWorkspaceBoundaryLayer()", workspace_canvas_view)
+        self.assertNotIn("setRealtimeWorkspaceBoundary(", workspace_canvas_view)
         self.assertNotIn("drawRealtimeWorkspaceBoundary()", workspace_canvas_view)
         self.assertIn("drawTcpWorkspaceBoundary()", workspace_canvas_view)
         self.assertIn("TCP_WORKSPACE_BOUNDARY_MM", overlay_utils)

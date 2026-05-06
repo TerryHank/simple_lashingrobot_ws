@@ -112,6 +112,9 @@ const rosConnection = {
 const controller = new TaskActionController({
   rosConnection,
   workspaceView,
+  getBindGroupPointCount() {
+    return 6;
+  },
   callbacks: {
     onResultMessage: (message) => resultMessages.push(message),
     onLog: (message, level) => logs.push({ message, level }),
@@ -128,7 +131,7 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.deepEqual(processImageCalls, []);
 assert.equal(actionGoals.length, 1);
 assert.equal(actionGoals.at(-1)?.actionClient, scanActionClient);
-assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3 });
+assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3, bind_group_point_count: 6 });
 assert.equal(actionGoals.at(-1)?.sent, true);
 assert.match(resultMessages.at(-1), /Surface-DP|视觉识别/);
 assert.equal(logs.some((entry) => /自动触发.*视觉识别/.test(entry.message)), true);
@@ -153,6 +156,9 @@ const fixedScanController = new TaskActionController({
   getRecognitionPose() {
     return { x: 490, y: 1700, z: 3197 };
   },
+  getBindGroupPointCount() {
+    return 9;
+  },
   callbacks: {
     onResultMessage: (message) => fixedScanMessages.push(message),
     onLog: (message, level) => logs.push({ message, level }),
@@ -169,6 +175,7 @@ assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   fixed_scan_pose_x_mm: 490,
   fixed_scan_pose_y_mm: 1700,
   fixed_scan_pose_z_mm: 3197,
+  bind_group_point_count: 9,
 });
 assert.equal(fixedScanMessages.some((message) => message.includes("x=490, y=1700, z=3197")), true);
 

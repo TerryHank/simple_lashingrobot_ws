@@ -163,7 +163,16 @@ constexpr int kMotionWaitLogIntervalSec = 2;
 constexpr int kExecutionArrivalSoftTimeoutSec = kMotionWaitTimeoutSec;
 constexpr int kExecutionArrivalSoftTimeoutLogIntervalSec = 10;
 
-tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner_config()
+int normalize_requested_bind_group_point_count(int requested_group_point_count)
+{
+    if (requested_group_point_count <= 0) {
+        return 4;
+    }
+    return std::min(64, std::max(1, requested_group_point_count));
+}
+
+tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner_config(
+    int requested_group_point_count = 4)
 {
     tie_robot_process::planning::DynamicBindPlannerConfig config;
     config.tcp_max_x_mm = kTravelMaxXMm;
@@ -178,6 +187,8 @@ tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner
     config.matrix_column_threshold_mm = 45.0f;
     config.snake_row_tolerance_mm = kDynamicBindSnakeRowToleranceMm;
     config.seed_neighbor_count = kDynamicBindSeedNeighborCount;
+    config.requested_group_point_count =
+        normalize_requested_bind_group_point_count(requested_group_point_count);
     return config;
 }
 
@@ -2733,6 +2744,7 @@ bool run_pseudo_slam_scan(
     PseudoSlamScanStrategy scan_strategy,
     bool enable_capture_gate,
     std::string& message,
+    int requested_bind_group_point_count,
     const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override)
 {
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
@@ -3271,7 +3283,8 @@ bool run_pseudo_slam_scan(
         return false;
     }
 
-    const auto dynamic_bind_planner_config = build_dynamic_bind_planner_config();
+    const auto dynamic_bind_planner_config =
+        build_dynamic_bind_planner_config(requested_bind_group_point_count);
     std::vector<tie_robot_msgs::PointCoords> bind_path_world_points;
     std::vector<tie_robot_process::planning::DynamicBindGridIndex> bind_path_grid_indices;
     bind_path_world_points.reserve(merged_world_points.size());
@@ -3353,6 +3366,16 @@ bool run_pseudo_slam_scan(
             bind_group_count++;
             bind_point_count += static_cast<int>(bind_group.bind_points_world.size());
         }
+    }
+    if (bind_area_entries.empty()) {
+        std::ostringstream oss;
+        oss << "无法规划：视觉调试设置的每组"
+            << dynamic_bind_planner_config.requested_group_point_count
+            << "个绑扎点在当前路径规划高度和线性模组工作范围内无法形成可达分组，请调小每组点数或调整路径高度";
+        message = oss.str();
+        printCurrentTime();
+        ros_log_printf("Cabin_Warn: %s。\n", message.c_str());
+        return false;
     }
 
     BindExecutionPathOriginPose execution_path_origin =

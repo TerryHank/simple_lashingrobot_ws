@@ -124,6 +124,44 @@ struct GridPairCandidate
     std::vector<GridPointRef> refs;
 };
 
+struct GridRectangleShape
+{
+    int row_count = 1;
+    int column_count = 1;
+};
+
+int normalize_requested_group_point_count(const DynamicBindPlannerConfig& config)
+{
+    return std::max(1, config.requested_group_point_count);
+}
+
+std::vector<GridRectangleShape> build_requested_group_rectangle_shapes(
+    const DynamicBindPlannerConfig& config)
+{
+    const int requested_count = normalize_requested_group_point_count(config);
+    std::vector<GridRectangleShape> shapes;
+    for (int row_count = 1; row_count <= requested_count; ++row_count) {
+        if (requested_count % row_count != 0) {
+            continue;
+        }
+        const int column_count = requested_count / row_count;
+        shapes.push_back(GridRectangleShape{row_count, column_count});
+    }
+
+    std::sort(shapes.begin(), shapes.end(), [](const GridRectangleShape& lhs, const GridRectangleShape& rhs) {
+        const int lhs_squareness = std::abs(lhs.row_count - lhs.column_count);
+        const int rhs_squareness = std::abs(rhs.row_count - rhs.column_count);
+        if (lhs_squareness != rhs_squareness) {
+            return lhs_squareness < rhs_squareness;
+        }
+        if (lhs.row_count != rhs.row_count) {
+            return lhs.row_count < rhs.row_count;
+        }
+        return lhs.column_count < rhs.column_count;
+    });
+    return shapes;
+}
+
 CandidateWorldBounds compute_candidate_world_bounds(const std::vector<GridPointRef>& refs)
 {
     CandidateWorldBounds bounds;
@@ -376,6 +414,27 @@ int build_grid_group_snake_traversal_order(int row_index, int column_index, int 
     const int column_band_count = std::max((column_count + 1) / 2, 1);
     const int row_band_index = row_index / 2;
     const int column_band_index = column_index / 2;
+    const bool moving_along_positive_x = (row_band_index % 2) == 0;
+    const int column_order_index =
+        moving_along_positive_x
+            ? column_band_index
+            : (column_band_count - 1 - column_band_index);
+    return row_band_index * column_band_count + column_order_index;
+}
+
+int build_grid_rectangle_group_snake_traversal_order(
+    int row_index,
+    int column_index,
+    int column_count,
+    const GridRectangleShape& shape)
+{
+    const int safe_row_count = std::max(shape.row_count, 1);
+    const int safe_column_count = std::max(shape.column_count, 1);
+    const int column_band_count = std::max(
+        (column_count + safe_column_count - 1) / safe_column_count,
+        1);
+    const int row_band_index = row_index / safe_row_count;
+    const int column_band_index = column_index / safe_column_count;
     const bool moving_along_positive_x = (row_band_index % 2) == 0;
     const int column_order_index =
         moving_along_positive_x
@@ -735,6 +794,74 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_fixed_two_by_tw
     return selected_candidates;
 }
 
+std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_rectangle_tiling(
+    const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
+    int row_count,
+    int column_count,
+    const DynamicBindPlannerConfig& config)
+{
+    std::vector<GridSquareCandidate> selected_candidates;
+    if (row_count <= 0 || column_count <= 0) {
+        return selected_candidates;
+    }
+
+    auto find_cell_refs = [&](int row_index, int column_index) -> const std::vector<GridPointRef>* {
+        const auto cell_it = point_refs_by_grid_cell.find(encode_grid_cell_key(row_index, column_index));
+        if (cell_it == point_refs_by_grid_cell.end() || cell_it->second.empty()) {
+            return nullptr;
+        }
+        return &cell_it->second;
+    };
+
+    const std::vector<GridRectangleShape> shapes =
+        build_requested_group_rectangle_shapes(config);
+    for (const auto& shape : shapes) {
+        if (shape.row_count <= 0 ||
+            shape.column_count <= 0 ||
+            shape.row_count > row_count ||
+            shape.column_count > column_count) {
+            continue;
+        }
+        for (int row_index = 0; row_index + shape.row_count <= row_count; row_index += shape.row_count) {
+            for (int column_index = 0; column_index + shape.column_count <= column_count; column_index += shape.column_count) {
+                std::vector<GridPointRef> refs;
+                refs.reserve(static_cast<size_t>(shape.row_count * shape.column_count));
+                bool complete_rectangle = true;
+                for (int local_row = 0; local_row < shape.row_count && complete_rectangle; ++local_row) {
+                    for (int local_column = 0; local_column < shape.column_count; ++local_column) {
+                        const auto* cell_refs = find_cell_refs(
+                            row_index + local_row,
+                            column_index + local_column);
+                        if (cell_refs == nullptr) {
+                            complete_rectangle = false;
+                            break;
+                        }
+                        refs.push_back(cell_refs->front());
+                    }
+                }
+                if (!complete_rectangle ||
+                    static_cast<int>(refs.size()) != shape.row_count * shape.column_count) {
+                    continue;
+                }
+
+                selected_candidates.push_back(GridSquareCandidate{
+                    row_index,
+                    column_index,
+                    build_grid_rectangle_group_snake_traversal_order(
+                        row_index,
+                        column_index,
+                        column_count,
+                        shape),
+                    0.0,
+                    std::move(refs),
+                });
+            }
+        }
+    }
+
+    return selected_candidates;
+}
+
 std::vector<GridSquareCandidate> select_grid_group_candidates_by_adjacency_matching(
     const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
     int row_count,
@@ -1029,7 +1156,217 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_adjacency_match
     return selected_candidates;
 }
 
+std::vector<tie_robot_msgs::PointCoords> collect_world_points_from_grid_refs(
+    const std::vector<GridPointRef>& refs)
+{
+    std::vector<tie_robot_msgs::PointCoords> world_points;
+    world_points.reserve(refs.size());
+    for (const auto& ref : refs) {
+        if (ref.point != nullptr) {
+            world_points.push_back(*ref.point);
+        }
+    }
+    return world_points;
+}
+
+bool is_group_reachable_from_centered_dynamic_pose(
+    const std::vector<GridPointRef>& refs,
+    float fallback_cabin_height,
+    const tf2::Transform& gripper_from_base_link,
+    const DynamicBindPlannerConfig& config)
+{
+    if (refs.empty()) {
+        return false;
+    }
+    const std::vector<tie_robot_msgs::PointCoords> world_points =
+        collect_world_points_from_grid_refs(refs);
+    if (world_points.size() != refs.size()) {
+        return false;
+    }
+
+    const internal::DynamicBindPlanningCandidatePose candidate_pose =
+        internal::build_dynamic_bind_candidate_pose_from_world_point(
+            world_points,
+            gripper_from_base_link,
+            config);
+    const CabinPoint candidate_cabin_point{candidate_pose.cabin_x, candidate_pose.cabin_y};
+    const float candidate_cabin_z = internal::clamp_bind_execution_cabin_z(
+        candidate_pose.cabin_z > 0.0f ? candidate_pose.cabin_z : fallback_cabin_height,
+        config);
+    for (const auto& world_point : world_points) {
+        tie_robot_msgs::PointCoords local_point;
+        internal::transform_cabin_world_point_to_planned_gripper_point(
+            world_point,
+            candidate_cabin_point,
+            candidate_cabin_z,
+            gripper_from_base_link,
+            local_point);
+        if (!internal::is_local_bind_point_in_range(local_point, config)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::pair<int, int> compute_group_grid_span(const std::vector<GridPointRef>& refs)
+{
+    if (refs.empty()) {
+        return {0, 0};
+    }
+    int min_row = refs.front().row_index;
+    int max_row = refs.front().row_index;
+    int min_column = refs.front().column_index;
+    int max_column = refs.front().column_index;
+    for (const auto& ref : refs) {
+        min_row = std::min(min_row, ref.row_index);
+        max_row = std::max(max_row, ref.row_index);
+        min_column = std::min(min_column, ref.column_index);
+        max_column = std::max(max_column, ref.column_index);
+    }
+    return {max_row - min_row + 1, max_column - min_column + 1};
+}
+
+std::string build_bind_group_type_from_refs(
+    const std::vector<GridPointRef>& refs,
+    const DynamicBindPlannerConfig& config)
+{
+    const std::pair<int, int> span = compute_group_grid_span(refs);
+    if (refs.size() == 2U && normalize_requested_group_point_count(config) == 4) {
+        return "matrix_2x2_edge_pair";
+    }
+    if (span.first > 0 &&
+        span.second > 0 &&
+        span.first * span.second == static_cast<int>(refs.size())) {
+        return "matrix_" + std::to_string(span.first) + "x" + std::to_string(span.second);
+    }
+    return "matrix_custom_" + std::to_string(refs.size());
+}
+
 }  // namespace
+
+float get_dynamic_bind_world_axis_value(
+    const tie_robot_msgs::PointCoords& world_point,
+    DynamicBindWorldAxis axis)
+{
+    return world_point.World_coord[axis == DynamicBindWorldAxis::kX ? 0 : 1];
+}
+
+DynamicBindGridAxisMapping infer_dynamic_bind_grid_axis_mapping(
+    const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
+    const std::vector<DynamicBindGridIndex>& grid_indices)
+{
+    struct AxisSpanAccumulator
+    {
+        int count = 0;
+        float min_x = std::numeric_limits<float>::max();
+        float max_x = std::numeric_limits<float>::lowest();
+        float min_y = std::numeric_limits<float>::max();
+        float max_y = std::numeric_limits<float>::lowest();
+
+        void add(const tie_robot_msgs::PointCoords& point)
+        {
+            const float x = point.World_coord[0];
+            const float y = point.World_coord[1];
+            if (!std::isfinite(x) || !std::isfinite(y)) {
+                return;
+            }
+            count++;
+            min_x = std::min(min_x, x);
+            max_x = std::max(max_x, x);
+            min_y = std::min(min_y, y);
+            max_y = std::max(max_y, y);
+        }
+
+        float span_x() const
+        {
+            return count > 0 ? max_x - min_x : 0.0f;
+        }
+
+        float span_y() const
+        {
+            return count > 0 ? max_y - min_y : 0.0f;
+        }
+    };
+
+    auto mean_span_for_axis = [](
+        const std::unordered_map<int, AxisSpanAccumulator>& accumulators,
+        DynamicBindWorldAxis axis) {
+        double span_sum = 0.0;
+        int group_count = 0;
+        for (const auto& entry : accumulators) {
+            const AxisSpanAccumulator& accumulator = entry.second;
+            if (accumulator.count < 2) {
+                continue;
+            }
+            span_sum += axis == DynamicBindWorldAxis::kX
+                ? static_cast<double>(accumulator.span_x())
+                : static_cast<double>(accumulator.span_y());
+            group_count++;
+        }
+        if (group_count <= 0) {
+            return std::numeric_limits<float>::quiet_NaN();
+        }
+        return static_cast<float>(span_sum / static_cast<double>(group_count));
+    };
+
+    DynamicBindGridAxisMapping mapping;
+
+    std::unordered_map<int, const tie_robot_msgs::PointCoords*> point_by_global_index;
+    for (const auto& world_point : planning_world_points) {
+        if (world_point.idx > 0) {
+            point_by_global_index[world_point.idx] = &world_point;
+        }
+    }
+
+    std::unordered_map<int, AxisSpanAccumulator> rows_by_index;
+    std::unordered_map<int, AxisSpanAccumulator> cols_by_index;
+    for (const auto& grid_index : grid_indices) {
+        if (grid_index.global_idx <= 0 ||
+            grid_index.global_row < 0 ||
+            grid_index.global_col < 0) {
+            continue;
+        }
+        const auto point_it = point_by_global_index.find(grid_index.global_idx);
+        if (point_it == point_by_global_index.end() || point_it->second == nullptr) {
+            continue;
+        }
+        rows_by_index[grid_index.global_row].add(*point_it->second);
+        cols_by_index[grid_index.global_col].add(*point_it->second);
+    }
+
+    mapping.row_mean_span_x_mm = mean_span_for_axis(rows_by_index, DynamicBindWorldAxis::kX);
+    mapping.row_mean_span_y_mm = mean_span_for_axis(rows_by_index, DynamicBindWorldAxis::kY);
+    mapping.col_mean_span_x_mm = mean_span_for_axis(cols_by_index, DynamicBindWorldAxis::kX);
+    mapping.col_mean_span_y_mm = mean_span_for_axis(cols_by_index, DynamicBindWorldAxis::kY);
+
+    const bool has_all_span_evidence =
+        std::isfinite(mapping.row_mean_span_x_mm) &&
+        std::isfinite(mapping.row_mean_span_y_mm) &&
+        std::isfinite(mapping.col_mean_span_x_mm) &&
+        std::isfinite(mapping.col_mean_span_y_mm);
+    if (!has_all_span_evidence) {
+        mapping.row_mean_span_x_mm = std::isfinite(mapping.row_mean_span_x_mm) ? mapping.row_mean_span_x_mm : 0.0f;
+        mapping.row_mean_span_y_mm = std::isfinite(mapping.row_mean_span_y_mm) ? mapping.row_mean_span_y_mm : 0.0f;
+        mapping.col_mean_span_x_mm = std::isfinite(mapping.col_mean_span_x_mm) ? mapping.col_mean_span_x_mm : 0.0f;
+        mapping.col_mean_span_y_mm = std::isfinite(mapping.col_mean_span_y_mm) ? mapping.col_mean_span_y_mm : 0.0f;
+        return mapping;
+    }
+
+    const float row_x_col_y_score =
+        mapping.row_mean_span_x_mm + mapping.col_mean_span_y_mm;
+    const float row_y_col_x_score =
+        mapping.row_mean_span_y_mm + mapping.col_mean_span_x_mm;
+    if (row_x_col_y_score + 1e-3f < row_y_col_x_score) {
+        mapping.row_axis = DynamicBindWorldAxis::kX;
+        mapping.col_axis = DynamicBindWorldAxis::kY;
+        mapping.inferred_from_spans = true;
+    } else if (row_y_col_x_score + 1e-3f < row_x_col_y_score) {
+        mapping.row_axis = DynamicBindWorldAxis::kY;
+        mapping.col_axis = DynamicBindWorldAxis::kX;
+        mapping.inferred_from_spans = true;
+    }
+    return mapping;
+}
 
 std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_scan_world(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
@@ -1172,19 +1509,33 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
 
     int area_index = 1;
     std::unordered_set<long long> emitted_cell_keys;
+    const int requested_group_point_count = normalize_requested_group_point_count(config);
 
     auto emit_group = [&](const std::vector<GridPointRef>& group_refs) {
         if (group_refs.empty()) {
             return;
         }
-        if (group_refs.size() != 2U && group_refs.size() != 4U) {
+        const bool default_edge_pair =
+            requested_group_point_count == 4 &&
+            group_refs.size() == 2U &&
+            are_adjacent_grid_refs(group_refs[0], group_refs[1]);
+        if (static_cast<int>(group_refs.size()) != requested_group_point_count && !default_edge_pair) {
             return;
         }
-        if (group_refs.size() == 2U && !are_adjacent_grid_refs(group_refs[0], group_refs[1])) {
+        const std::pair<int, int> group_span = compute_group_grid_span(group_refs);
+        if (!default_edge_pair &&
+            group_span.first * group_span.second != static_cast<int>(group_refs.size())) {
             return;
         }
         const std::vector<GridPointRef> ordered_group_refs =
             order_grid_refs_by_world_y_then_x(group_refs);
+        if (!is_group_reachable_from_centered_dynamic_pose(
+                ordered_group_refs,
+                cabin_height,
+                gripper_from_base_link,
+                config)) {
+            return;
+        }
         for (const auto& ref : ordered_group_refs) {
             const long long cell_key = encode_grid_cell_key(ref.row_index, ref.column_index);
             if (emitted_cell_keys.count(cell_key) > 0) {
@@ -1194,8 +1545,7 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
 
         PseudoSlamBindGroup bind_group;
         bind_group.group_index = 1;
-        bind_group.group_type =
-            ordered_group_refs.size() == 4U ? "matrix_2x2" : "matrix_2x2_edge_pair";
+        bind_group.group_type = build_bind_group_type_from_refs(ordered_group_refs, config);
         for (const auto& ref : ordered_group_refs) {
             if (ref.point == nullptr) {
                 continue;
@@ -1226,7 +1576,13 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
     };
 
     std::vector<GridSquareCandidate> selected_square_candidates =
-        has_provided_grid
+        requested_group_point_count != 4
+            ? select_grid_group_candidates_by_requested_rectangle_tiling(
+                  point_refs_by_grid_cell,
+                  static_cast<int>(row_keys.size()),
+                  static_cast<int>(column_keys.size()),
+                  config)
+            : has_provided_grid
             ? select_grid_group_candidates_by_fixed_two_by_two_tiling(
                   point_refs_by_grid_cell,
                   static_cast<int>(row_keys.size()),

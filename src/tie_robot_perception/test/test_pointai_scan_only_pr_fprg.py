@@ -613,6 +613,48 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertNotIn("cv2.rectangle(result_image, self.point1, self.point2, 255, 2)", callback_text)
         self.assertNotIn("self.draw_scan_workspace_overlay(result_image)", callback_text)
 
+    def test_realtime_result_image_draws_live_visible_area_boundary_in_backend_ir_frame(self):
+        image_buffers_path = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "image_buffers.py"
+        )
+        image_buffers_text = image_buffers_path.read_text(encoding="utf-8")
+        callback_start = image_buffers_text.index("def image_callback(self, msg):")
+        callback_end = image_buffers_text.index("def camera_info_callback", callback_start)
+        callback_text = image_buffers_text[callback_start:callback_end]
+
+        self.assertIn("draw_live_visible_area_boundary(result_image", callback_text)
+        self.assertIn('getattr(self, "image_raw_world", None)', callback_text)
+        self.assertNotIn("self.draw_scan_workspace_overlay(result_image)", callback_text)
+
+    def test_live_visible_area_overlay_draws_gray_boundary_from_raw_world_depth(self):
+        from tie_robot_perception.pointai.live_visible_area_overlay import (
+            draw_live_visible_area_boundary,
+        )
+
+        result_image = np.zeros((80, 100), dtype=np.uint8)
+        raw_world = np.zeros((80, 100, 3), dtype=np.float32)
+        raw_world[15:65, 20:75, 0] = 10.0
+        raw_world[15:65, 20:75, 1] = 20.0
+        raw_world[15:65, 20:75, 2] = 500.0
+
+        did_draw = draw_live_visible_area_boundary(
+            result_image,
+            raw_world,
+            gray_value=180,
+            thickness=1,
+        )
+
+        self.assertTrue(did_draw)
+        self.assertEqual(int(result_image[15, 20]), 180)
+        self.assertEqual(int(result_image[64, 74]), 180)
+        self.assertEqual(int(result_image[40, 50]), 0)
+        self.assertEqual(int(result_image[14, 20]), 0)
+
     def test_manual_workspace_s2_result_image_does_not_draw_manual_quad_frame(self):
         rendering_path = (
             WORKSPACE_ROOT

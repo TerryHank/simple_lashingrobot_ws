@@ -1,9 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import {
-  decodeFloat32XYZImage,
-  extractFloat32XYZImageValidPixelBoundary,
-} from "../utils/irImageUtils.js";
+import { decodeFloat32XYZImage } from "../utils/irImageUtils.js";
 import {
   TCP_WORKSPACE_BOUNDARY_MM,
   buildTcpWorkspaceBoundaryPlanesMm,
@@ -346,8 +343,6 @@ export class Scene3DView {
     this.sourceTiePointCameraPositions = new Float32Array();
     this.sourceWorkspaceRangeCameraPositions = new Float32Array();
     this.workspaceRangeMapPositions = new Float32Array();
-    this.sourceLiveVisibleAreaCameraPositions = new Float32Array();
-    this.liveVisibleAreaMapPositions = new Float32Array();
     this.planningPointsFollowTiePoints = false;
     this.pointCounts = {
       filteredWorldCoord: 0,
@@ -971,36 +966,6 @@ export class Scene3DView {
     };
   }
 
-  projectLiveVisibleAreaToImage(cameraInfo) {
-    const projection = normalizeCameraProjection(cameraInfo);
-    if (!projection) {
-      return null;
-    }
-    const mapPositions = this.getLiveVisibleAreaMapPositions();
-    const points = [];
-    for (let index = 0; index < mapPositions.length; index += 3) {
-      const projected = this.projectMapPointToImagePixel(
-        new THREE.Vector3(mapPositions[index], mapPositions[index + 1], mapPositions[index + 2]),
-        cameraInfo,
-      );
-      if (!projected) {
-        continue;
-      }
-      points.push(projected);
-    }
-    if (points.length < 3) {
-      return null;
-    }
-    return {
-      points,
-      sourceSize: {
-        width: projection.width,
-        height: projection.height,
-      },
-      frameId: MAP_FRAME,
-    };
-  }
-
   setTheme(theme) {
     this.theme = theme === "light" ? "light" : "dark";
     if (this.theme === "light") {
@@ -1357,36 +1322,6 @@ export class Scene3DView {
     return new Float32Array();
   }
 
-  captureLiveVisibleAreaMapPositions() {
-    const cameraPositions = this.sourceLiveVisibleAreaCameraPositions;
-    const mapPositions = [];
-    for (let index = 0; index < cameraPositions.length; index += 3) {
-      const mapPoint = this.convertScepterPointCloudPointToMapPoint(new THREE.Vector3(
-        cameraPositions[index],
-        cameraPositions[index + 1],
-        cameraPositions[index + 2],
-      ));
-      if (!mapPoint) {
-        continue;
-      }
-      mapPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
-    }
-    if (mapPositions.length >= 9) {
-      this.liveVisibleAreaMapPositions = new Float32Array(mapPositions);
-    }
-    return this.liveVisibleAreaMapPositions;
-  }
-
-  getLiveVisibleAreaMapPositions() {
-    if (this.liveVisibleAreaMapPositions?.length) {
-      return this.liveVisibleAreaMapPositions;
-    }
-    if (this.sourceLiveVisibleAreaCameraPositions?.length) {
-      return this.captureLiveVisibleAreaMapPositions();
-    }
-    return new Float32Array();
-  }
-
   refreshRealtimeWorkspaceRangeWorldPositions() {
     const mapPositions = this.getRealtimeWorkspaceRangeMapPositions();
     if (this.workspaceRangeCorners?.geometry) {
@@ -1407,25 +1342,6 @@ export class Scene3DView {
       this.workspaceRangeGroup.visible = false;
     }
     return mapPositions.length / 3;
-  }
-
-  setLiveVisibleAreaMessage(message) {
-    const boundary = extractFloat32XYZImageValidPixelBoundary(message);
-    if (!boundary) {
-      this.sourceLiveVisibleAreaCameraPositions = new Float32Array();
-      this.liveVisibleAreaMapPositions = new Float32Array();
-      return 0;
-    }
-
-    this.sourceLiveVisibleAreaCameraPositions = new Float32Array(
-      boundary.cameraPointsMm.flatMap((point) => [
-        Number(point.x) / 1000.0,
-        Number(point.y) / 1000.0,
-        Number(point.z) / 1000.0,
-      ]),
-    );
-    this.liveVisibleAreaMapPositions = new Float32Array();
-    return this.getLiveVisibleAreaMapPositions().length / 3;
   }
 
   setRealtimeWorkspaceRangeMessage(message) {

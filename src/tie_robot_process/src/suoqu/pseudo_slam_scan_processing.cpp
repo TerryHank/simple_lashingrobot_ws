@@ -1554,6 +1554,11 @@ bool load_scan_artifacts_for_execution(
     return true;
 }
 
+const char* live_visual_world_axis_name(DynamicBindWorldAxis axis)
+{
+    return axis == DynamicBindWorldAxis::kX ? "world_x" : "world_y";
+}
+
 bool load_live_visual_checkerboard_grid(
     const nlohmann::json& points_json,
     LiveVisualCheckerboardGrid& checkerboard_grid,
@@ -1570,10 +1575,14 @@ bool load_live_visual_checkerboard_grid(
             return false;
         }
 
-        std::unordered_map<int, float> row_sums_by_global_row;
+        std::unordered_map<int, float> row_x_sums_by_global_row;
+        std::unordered_map<int, float> row_y_sums_by_global_row;
         std::unordered_map<int, int> row_counts_by_global_row;
-        std::unordered_map<int, float> col_sums_by_global_col;
+        std::unordered_map<int, float> col_x_sums_by_global_col;
+        std::unordered_map<int, float> col_y_sums_by_global_col;
         std::unordered_map<int, int> col_counts_by_global_col;
+        std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+        std::vector<tie_robot_process::planning::DynamicBindGridIndex> grid_indices;
         for (const auto& point_json : points_json["pseudo_slam_points"]) {
             if (!point_json.value("is_planning_checkerboard_member", false)) {
                 continue;
@@ -1585,15 +1594,32 @@ bool load_live_visual_checkerboard_grid(
                 continue;
             }
 
-            row_sums_by_global_row[global_row] +=
-                point_json.value("y", point_json.value("world_y", 0.0f));
+            const int global_idx = point_json.value("global_idx", point_json.value("idx", -1));
+            const float world_x = point_json.value("x", point_json.value("world_x", 0.0f));
+            const float world_y = point_json.value("y", point_json.value("world_y", 0.0f));
+            row_x_sums_by_global_row[global_row] += world_x;
+            row_y_sums_by_global_row[global_row] += world_y;
             row_counts_by_global_row[global_row] += 1;
-            col_sums_by_global_col[global_col] +=
-                point_json.value("x", point_json.value("world_x", 0.0f));
+            col_x_sums_by_global_col[global_col] += world_x;
+            col_y_sums_by_global_col[global_col] += world_y;
             col_counts_by_global_col[global_col] += 1;
+            if (global_idx > 0) {
+                tie_robot_msgs::PointCoords world_point;
+                world_point.idx = global_idx;
+                world_point.World_coord[0] = world_x;
+                world_point.World_coord[1] = world_y;
+                world_point.World_coord[2] = point_json.value("z", point_json.value("world_z", 0.0f));
+                planning_world_points.push_back(world_point);
+
+                tie_robot_process::planning::DynamicBindGridIndex grid_index;
+                grid_index.global_idx = global_idx;
+                grid_index.global_row = global_row;
+                grid_index.global_col = global_col;
+                grid_indices.push_back(grid_index);
+            }
 
             PseudoSlamCheckerboardInfo info;
-            info.global_idx = point_json.value("global_idx", point_json.value("idx", -1));
+            info.global_idx = global_idx;
             info.global_row = global_row;
             info.global_col = global_col;
             info.checkerboard_parity = point_json.value("planning_checkerboard_parity", -1);
@@ -1606,16 +1632,42 @@ bool load_live_visual_checkerboard_grid(
             return false;
         }
 
-        for (const auto& entry : row_sums_by_global_row) {
+        const auto axis_mapping =
+            tie_robot_process::planning::infer_dynamic_bind_grid_axis_mapping(
+                planning_world_points,
+                grid_indices
+            );
+        checkerboard_grid.row_world_axis = axis_mapping.row_axis;
+        checkerboard_grid.col_world_axis = axis_mapping.col_axis;
+        checkerboard_grid.axis_mapping_inferred_from_spans = axis_mapping.inferred_from_spans;
+        printCurrentTime();
+        ros_log_printf(
+            "Cabin_log: live_visual棋盘格匹配轴向 row=%s col=%s（span row x/y=%.1f/%.1f, col x/y=%.1f/%.1f, inferred=%s）。\n",
+            live_visual_world_axis_name(checkerboard_grid.row_world_axis),
+            live_visual_world_axis_name(checkerboard_grid.col_world_axis),
+            axis_mapping.row_mean_span_x_mm,
+            axis_mapping.row_mean_span_y_mm,
+            axis_mapping.col_mean_span_x_mm,
+            axis_mapping.col_mean_span_y_mm,
+            checkerboard_grid.axis_mapping_inferred_from_spans ? "true" : "false"
+        );
+
+        for (const auto& entry : row_counts_by_global_row) {
             const int global_row = entry.first;
+            const float axis_sum = checkerboard_grid.row_world_axis == DynamicBindWorldAxis::kX
+                ? row_x_sums_by_global_row[global_row]
+                : row_y_sums_by_global_row[global_row];
             checkerboard_grid.row_centers_by_global_row[global_row] =
-                entry.second / static_cast<float>(row_counts_by_global_row[global_row]);
+                axis_sum / static_cast<float>(entry.second);
         }
 
-        for (const auto& entry : col_sums_by_global_col) {
+        for (const auto& entry : col_counts_by_global_col) {
             const int global_col = entry.first;
+            const float axis_sum = checkerboard_grid.col_world_axis == DynamicBindWorldAxis::kX
+                ? col_x_sums_by_global_col[global_col]
+                : col_y_sums_by_global_col[global_col];
             checkerboard_grid.col_centers_by_global_col[global_col] =
-                entry.second / static_cast<float>(col_counts_by_global_col[global_col]);
+                axis_sum / static_cast<float>(entry.second);
         }
     } catch (const std::exception&) {
         error_message = "pseudo_slam_points.json读取失败";
@@ -1637,27 +1689,32 @@ bool classify_live_visual_point_into_checkerboard(
         return false;
     }
 
+    const float row_axis_value =
+        tie_robot_process::planning::get_dynamic_bind_world_axis_value(
+            world_point,
+            checkerboard_grid.row_world_axis
+        );
+    const float col_axis_value =
+        tie_robot_process::planning::get_dynamic_bind_world_axis_value(
+            world_point,
+            checkerboard_grid.col_world_axis
+        );
+
     const int global_col = find_nearest_checkerboard_center_key(
-        world_point.World_coord[0],
+        col_axis_value,
         checkerboard_grid.col_centers_by_global_col
     );
     const int global_row = find_nearest_checkerboard_center_key(
-        world_point.World_coord[1],
+        row_axis_value,
         checkerboard_grid.row_centers_by_global_row
     );
     if (global_row < 0 || global_col < 0) {
         return false;
     }
 
-    if (std::fabs(
-            world_point.World_coord[0] -
-            checkerboard_grid.col_centers_by_global_col.at(global_col)
-        ) >
+    if (std::fabs(col_axis_value - checkerboard_grid.col_centers_by_global_col.at(global_col)) >
             kPseudoSlamCheckerboardAxisThresholdMm ||
-        std::fabs(
-            world_point.World_coord[1] -
-            checkerboard_grid.row_centers_by_global_row.at(global_row)
-        ) >
+        std::fabs(row_axis_value - checkerboard_grid.row_centers_by_global_row.at(global_row)) >
             kPseudoSlamCheckerboardAxisThresholdMm) {
         return false;
     }

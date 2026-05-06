@@ -2,6 +2,94 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-07 04:43 - 视觉调试每组绑扎点数可配置
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 视觉调试页新增每组点数，StartPseudoSlamScan 服务/action 透传 bind_group_point_count；动态绑扎规划按 requested_group_point_count 生成矩形候选，默认 4 保持 2x2，6 点可按可达性选择 2x3 或 3x2，9 点等在当前路径高度和线性模组可达盒内无法覆盖全组时返回无法规划提示。
+
+### 影响范围
+
+- `CHANGELOG.md`
+- `src/tie_robot_msgs/srv/StartPseudoSlamScan.srv`
+- `src/tie_robot_msgs/action/StartPseudoSlamScanTask.action`
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/*.test.mjs 全部通过；python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py；python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py；./devel/lib/tie_robot_process/test_dynamic_bind_planning；catkin_make -DCATKIN_WHITELIST_PACKAGES=tie_robot_hw\;tie_robot_msgs\;tie_robot_process\;tie_robot_web`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 04:36 - live_visual 微调匹配轴向按扫描行列推断
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 账本+微调执行链中，MODE_EXECUTION_REFINE 返回相机点后会先转 map 再归入扫描账本棋盘格。当前 Surface-DP 行列在现场数据中 row 稳定对应 world_x、col 稳定对应 world_y，不能再硬编码 row=world_y/col=world_x；live_visual 现在从 pseudo_slam_points 的规划行列 span 推断 row/col 对应世界轴，再用该轴向做 80mm 棋盘格归类和 30mm/6mm 微调门限。
+
+### 影响范围
+
+- `src/tie_robot_process/include/tie_robot_process/planning/dynamic_bind_planning.hpp`
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/src/suoqu/pseudo_slam_scan_processing.cpp`
+- `src/tie_robot_process/src/suoqu/suoqu_runtime_internal.hpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; source /opt/ros/noetic/setup.bash && catkin_make run_tests_tie_robot_process_gtest_test_dynamic_bind_planning; source /opt/ros/noetic/setup.bash && catkin_make bind_task_executor_node cabin_motion_controller_node suoquNode`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 04:17 - 当前视野边界贴边可视化
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 实时相机可视边界来自 /Scepter/worldCoord/raw_world_coord 的有效 3D 像素边缘，并在 IR 底层 SVG 绘制；raw 边界抽样需过滤 z<=0 的无效深度，投影时少量点失败不隐藏整条边界。若边界几何上贴着整幅图像边缘，SVG 仅在显示层向内收 8px 画出，避免绿线被图像边框吃掉；线性模组/TCP 青蓝范围仍由 overlay canvas 保留。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/irImageUtils.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/workspaceRealtimeRangeFrame.test.mjs`
+- `src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceCanvasViewOverlay.test.mjs && node test/irImageLayerOverlayControls.test.mjs && node test/workspaceRealtimeRangeFrame.test.mjs && node test/workspaceCanvasInteractionMode.test.mjs && node test/imageHoverCoordinateReadout.test.mjs && node test/tcpWorkspaceOverlay.test.mjs; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_image_panel_supports_project_image_topics_and_overlay_switching src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_ir_image_draws_live_tcp_workspace_boundary_overlay; npm run build`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-07 04:00 - 连接徽标长按重启中动画
 
 <!-- AGENT-MEMORY: entry -->

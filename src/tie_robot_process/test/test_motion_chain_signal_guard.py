@@ -263,6 +263,31 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("path_origin_y", record_body)
         self.assertIn("move_path_origin_z", record_body)
 
+    def test_live_visual_checkerboard_matching_uses_inferred_grid_world_axes(self):
+        runtime_header = (
+            PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
+        ).read_text(encoding="utf-8")
+        scan_processing = (
+            PROCESS_DIR / "src" / "suoqu" / "pseudo_slam_scan_processing.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("DynamicBindWorldAxis row_world_axis", runtime_header)
+        self.assertIn("DynamicBindWorldAxis col_world_axis", runtime_header)
+        self.assertIn("infer_dynamic_bind_grid_axis_mapping", scan_processing)
+
+        load_start = scan_processing.index("bool load_live_visual_checkerboard_grid(")
+        load_end = scan_processing.index("\nbool classify_live_visual_point_into_checkerboard", load_start)
+        load_body = scan_processing[load_start:load_end]
+        self.assertIn("axis_mapping.row_axis", load_body)
+        self.assertIn("axis_mapping.col_axis", load_body)
+
+        classify_start = scan_processing.index("bool classify_live_visual_point_into_checkerboard(")
+        classify_end = scan_processing.index("\nstd::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_non_checkerboard_points", classify_start)
+        classify_body = scan_processing[classify_start:classify_end]
+        self.assertIn("checkerboard_grid.row_world_axis", classify_body)
+        self.assertIn("checkerboard_grid.col_world_axis", classify_body)
+        self.assertIn("get_dynamic_bind_world_axis_value", classify_body)
+
     def test_frontend_pause_resume_uses_long_press_for_return_to_start(self):
         catalog = (
             WEB_DIR / "frontend" / "src" / "config" / "controlPanelCatalog.js"

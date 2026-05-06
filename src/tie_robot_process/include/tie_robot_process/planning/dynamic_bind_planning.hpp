@@ -44,6 +44,23 @@ struct DynamicBindGridIndex
     int global_col = -1;
 };
 
+enum class DynamicBindWorldAxis
+{
+    kX = 0,
+    kY = 1,
+};
+
+struct DynamicBindGridAxisMapping
+{
+    DynamicBindWorldAxis row_axis = DynamicBindWorldAxis::kY;
+    DynamicBindWorldAxis col_axis = DynamicBindWorldAxis::kX;
+    bool inferred_from_spans = false;
+    float row_mean_span_x_mm = 0.0f;
+    float row_mean_span_y_mm = 0.0f;
+    float col_mean_span_x_mm = 0.0f;
+    float col_mean_span_y_mm = 0.0f;
+};
+
 struct DynamicBindPlannerConfig
 {
     float tcp_max_x_mm = 380.0f;
@@ -58,7 +75,16 @@ struct DynamicBindPlannerConfig
     float matrix_column_threshold_mm = 45.0f;
     float snake_row_tolerance_mm = 90.0f;
     int seed_neighbor_count = 8;
+    int requested_group_point_count = 4;
 };
+
+float get_dynamic_bind_world_axis_value(
+    const tie_robot_msgs::PointCoords& world_point,
+    DynamicBindWorldAxis axis);
+
+DynamicBindGridAxisMapping infer_dynamic_bind_grid_axis_mapping(
+    const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
+    const std::vector<DynamicBindGridIndex>& grid_indices);
 
 std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_scan_world(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,

@@ -73,48 +73,16 @@ const DEFAULT_IMAGE_OVERLAY_LAYER_STATE = Object.freeze({
   showLinearModuleBindRange: true,
 });
 
-const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
-const LIVE_VISIBLE_BOUNDARY_EDGE_INSET_PX = 8;
-
-function formatSvgNumber(value) {
-  const rounded = Number(Number(value).toFixed(3));
-  return String(Object.is(rounded, -0) ? 0 : rounded);
-}
-
-function buildVisibleBoundaryDisplayPoints(points, sourceSize) {
-  const width = Number(sourceSize?.width);
-  const height = Number(sourceSize?.height);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return points;
-  }
-  const inset = Math.min(
-    LIVE_VISIBLE_BOUNDARY_EDGE_INSET_PX,
-    Math.max(0, width / 2 - 1),
-    Math.max(0, height / 2 - 1),
-  );
-  if (inset <= 0) {
-    return points;
-  }
-  const maxX = Math.max(inset, width - inset);
-  const maxY = Math.max(inset, height - inset);
-  return points.map((point) => ({
-    x: Math.min(Math.max(point.x, inset), maxX),
-    y: Math.min(Math.max(point.y, inset), maxY),
-  }));
-}
-
 export class WorkspaceCanvasView {
   constructor({
     canvas,
     overlayCanvas,
-    baseBoundaryLayer = null,
     onSelectionChanged,
     onMessage,
     onHoverPixelChanged,
   }) {
     this.canvas = canvas;
     this.overlayCanvas = overlayCanvas;
-    this.baseBoundaryLayer = baseBoundaryLayer;
     this.ctx = canvas.getContext("2d");
     this.overlayCtx = overlayCanvas.getContext("2d");
     this.onSelectionChanged = onSelectionChanged;
@@ -125,7 +93,6 @@ export class WorkspaceCanvasView {
     this.lastVisualRecognitionPointsMessage = null;
     this.visualRecognitionPointSourceSize = null;
     this.tcpWorkspaceBoundary = null;
-    this.realtimeWorkspaceBoundary = null;
     this.savedWorkspacePoints = [];
     this.savedWorkspaceSourceSize = null;
     this.selectedPoints = [];
@@ -222,11 +189,6 @@ export class WorkspaceCanvasView {
     this.drawOverlay();
   }
 
-  setRealtimeWorkspaceBoundary(boundary) {
-    this.realtimeWorkspaceBoundary = normalizeTcpWorkspaceBoundary(boundary);
-    this.renderRealtimeWorkspaceBoundaryLayer();
-  }
-
   setOverlaySource(source) {
     void source;
     this.drawOverlay();
@@ -293,10 +255,8 @@ export class WorkspaceCanvasView {
     this.canvas.height = imageData.height;
     this.overlayCanvas.width = imageData.width;
     this.overlayCanvas.height = imageData.height;
-    this.syncRealtimeWorkspaceBoundaryLayerSize();
     this.ctx.putImageData(imageData, 0, 0);
     this.drawWorkspacePolylines();
-    this.renderRealtimeWorkspaceBoundaryLayer();
     this.drawOverlay();
   }
 
@@ -470,87 +430,6 @@ export class WorkspaceCanvasView {
       this.overlayCtx.stroke();
     });
     this.overlayCtx.restore();
-  }
-
-  syncRealtimeWorkspaceBoundaryLayerSize() {
-    const layer = this.baseBoundaryLayer;
-    if (!layer) {
-      return;
-    }
-    const sourceSize = this.getCurrentImageSize();
-    if (!sourceSize) {
-      return;
-    }
-    layer.setAttribute("viewBox", `0 0 ${sourceSize.width} ${sourceSize.height}`);
-    layer.setAttribute("width", String(sourceSize.width));
-    layer.setAttribute("height", String(sourceSize.height));
-    layer.setAttribute("preserveAspectRatio", "xMidYMid meet");
-  }
-
-  clearRealtimeWorkspaceBoundaryLayer() {
-    const layer = this.baseBoundaryLayer;
-    if (!layer) {
-      return;
-    }
-    layer.replaceChildren?.();
-    layer.setAttribute("data-visible", "false");
-  }
-
-  renderRealtimeWorkspaceBoundaryLayer() {
-    const layer = this.baseBoundaryLayer;
-    if (!layer) {
-      return;
-    }
-    const boundary = this.realtimeWorkspaceBoundary;
-    const sourceSize = boundary?.sourceSize || this.getCurrentImageSize();
-    if (!boundary || !sourceSize) {
-      this.clearRealtimeWorkspaceBoundaryLayer();
-      return;
-    }
-
-    const points = boundary.points.map((point) => ({
-      x: Number(point.x),
-      y: Number(point.y),
-    }));
-    if (
-      points.length < 3
-      || points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))
-    ) {
-      this.clearRealtimeWorkspaceBoundaryLayer();
-      return;
-    }
-
-    const documentRef = layer.ownerDocument || (typeof document !== "undefined" ? document : null);
-    if (!documentRef?.createElementNS) {
-      this.clearRealtimeWorkspaceBoundaryLayer();
-      return;
-    }
-
-    layer.setAttribute("viewBox", `0 0 ${sourceSize.width} ${sourceSize.height}`);
-    layer.setAttribute("width", String(sourceSize.width));
-    layer.setAttribute("height", String(sourceSize.height));
-    layer.setAttribute("preserveAspectRatio", "xMidYMid meet");
-
-    const displayPoints = buildVisibleBoundaryDisplayPoints(points, sourceSize);
-
-    const polygon = documentRef.createElementNS(SVG_NAMESPACE, "polygon");
-    polygon.setAttribute("class", "live-visible-area-polygon");
-    polygon.setAttribute(
-      "points",
-      displayPoints.map((point) => `${formatSvgNumber(point.x)},${formatSvgNumber(point.y)}`).join(" "),
-    );
-
-    const corners = documentRef.createElementNS(SVG_NAMESPACE, "g");
-    corners.setAttribute("class", "live-visible-area-corners");
-    displayPoints.forEach((point) => {
-      const circle = documentRef.createElementNS(SVG_NAMESPACE, "circle");
-      circle.setAttribute("cx", formatSvgNumber(point.x));
-      circle.setAttribute("cy", formatSvgNumber(point.y));
-      circle.setAttribute("r", "4.8");
-      corners.appendChild?.(circle);
-    });
-    layer.replaceChildren?.(polygon, corners);
-    layer.setAttribute("data-visible", "true");
   }
 
   drawVisualRecognitionPoints() {

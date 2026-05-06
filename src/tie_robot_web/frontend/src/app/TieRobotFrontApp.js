@@ -257,14 +257,12 @@ export class TieRobotFrontApp {
         this.planningAreaRequestToken += 1;
         this.sceneView.setPlanningAreaPayload(null);
         this.sceneView.setRealtimeWorkspaceRangeMessage(null);
-        this.sceneView.setLiveVisibleAreaMessage(null);
         this.surfaceDpOverlayActive = false;
         this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCleared = false;
         this.irCameraInfo = null;
         this.imageHoverWorldCoordMessage = null;
         this.workspaceView.setTcpWorkspaceBoundary(null);
-        this.workspaceView.setRealtimeWorkspaceBoundary(null);
         this.workspaceView.setHoverCoordinateReadout(null);
         this.legacyCommandController?.reset();
         this.ui.syncControlToggleStates(this.legacyCommandController?.getToggleStateSnapshot());
@@ -312,17 +310,13 @@ export class TieRobotFrontApp {
         this.displayedImageTopicName = topicName || DEFAULT_IMAGE_TOPIC;
         this.workspaceView.setBaseImageMessage(message);
         this.syncTcpWorkspaceBoundaryOverlay();
-        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onIrCameraInfo: (message) => {
         this.irCameraInfo = message;
         this.syncTcpWorkspaceBoundaryOverlay();
-        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onImageHoverWorldCoord: (message) => {
         this.imageHoverWorldCoordMessage = message;
-        this.sceneView.setLiveVisibleAreaMessage(message);
-        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onSavedWorkspacePayload: (payload) => {
         this.workspaceView.setSavedWorkspacePayload(payload);
@@ -334,7 +328,6 @@ export class TieRobotFrontApp {
       },
       onWorkspaceRangePoints: (message) => {
         this.sceneView.setRealtimeWorkspaceRangeMessage(message);
-        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onExecutionOverlay: (message) => {
         if (this.surfaceDpOverlayRequested) {
@@ -395,7 +388,6 @@ export class TieRobotFrontApp {
         this.viewerStore.updateIn("scene", { tfFrameCount });
         this.ui.setGripperTfCalibration(this.sceneView.getCameraToTcpCalibration());
         this.syncTcpWorkspaceBoundaryOverlay();
-        this.syncRealtimeWorkspaceRangeOverlay();
         this.syncCabinRemoteOperationState();
         this.refreshBottomLinearModulePosition();
       },
@@ -423,6 +415,7 @@ export class TieRobotFrontApp {
       workspaceView: this.workspaceView,
       getRecognitionPose: () => this.recognitionPose,
       getExecutionMode: () => this.visualDebugSettings?.executionMode,
+      getBindGroupPointCount: () => this.visualDebugSettings?.bindGroupPointCount,
       callbacks: {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
@@ -496,16 +489,6 @@ export class TieRobotFrontApp {
     }
     const boundary = this.sceneView.projectTcpWorkspaceBoundaryToImage(this.irCameraInfo);
     this.workspaceView.setTcpWorkspaceBoundary(boundary);
-    return boundary;
-  }
-
-  syncRealtimeWorkspaceRangeOverlay() {
-    if (!this.irCameraInfo) {
-      this.workspaceView.setRealtimeWorkspaceBoundary(null);
-      return null;
-    }
-    const boundary = this.sceneView.projectLiveVisibleAreaToImage(this.irCameraInfo);
-    this.workspaceView.setRealtimeWorkspaceBoundary(boundary);
     return boundary;
   }
 
@@ -1535,7 +1518,6 @@ export class TieRobotFrontApp {
     this.displayedImageTopicName = selectedTopic || DEFAULT_IMAGE_TOPIC;
     this.workspaceView.setOverlayEnabled(isOverlayCompatibleImageTopic(selectedTopic));
     this.syncTcpWorkspaceBoundaryOverlay();
-    this.syncRealtimeWorkspaceRangeOverlay();
     this.syncImageHoverCoordinateSubscription({ suppressLog: true });
     const subscriptionResult = this.rosConnectionController.updateDisplayedImageSubscription(selectedTopic);
     if (!suppressLog && subscriptionResult?.changed) {
@@ -1575,14 +1557,13 @@ export class TieRobotFrontApp {
 
   syncImageHoverCoordinateSubscription({ suppressLog = false } = {}) {
     const hoverEnabled = this.activeSettingsPage !== "workspace";
-    const enabled = hoverEnabled || this.displayedImageTopicName === TOPICS.camera.irImage;
-    const subscriptionResult = this.rosConnectionController.updateImageHoverCoordinateSubscription({ enabled });
+    const subscriptionResult = this.rosConnectionController.updateImageHoverCoordinateSubscription({ enabled: hoverEnabled });
     if (!hoverEnabled) {
       this.workspaceView.setHoverCoordinateReadout(null);
     }
     if (!suppressLog && subscriptionResult?.changed) {
       this.addLog(
-        hoverEnabled ? "图像悬停坐标已开启。" : "工作区选点模式已开启，图像悬停坐标暂停；当前视野边界继续更新。",
+        hoverEnabled ? "图像悬停坐标已开启。" : "工作区选点模式已开启，图像悬停坐标暂停。",
         "info",
       );
     }
@@ -1665,7 +1646,6 @@ export class TieRobotFrontApp {
     const sceneCalibration = this.sceneView.applyCameraToTcpCalibration(appliedCalibration) || appliedCalibration;
     this.ui.setGripperTfCalibration(sceneCalibration, { forceInputs: true });
     this.syncTcpWorkspaceBoundaryOverlay();
-    this.syncRealtimeWorkspaceRangeOverlay();
     this.addLog(
       `相机-TCP外参已热更新：x=${Math.round(Number(result.applied.x))}mm y=${Math.round(Number(result.applied.y))}mm z=${Math.round(Number(result.applied.z))}mm`,
       "success",

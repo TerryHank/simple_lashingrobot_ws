@@ -51,6 +51,7 @@ void executeStartPseudoSlamScanAction(
     scan_srv.request.fixed_scan_pose_x_mm = goal->fixed_scan_pose_x_mm;
     scan_srv.request.fixed_scan_pose_y_mm = goal->fixed_scan_pose_y_mm;
     scan_srv.request.fixed_scan_pose_z_mm = goal->fixed_scan_pose_z_mm;
+    scan_srv.request.bind_group_point_count = goal->bind_group_point_count;
     if (!g_service_clients.chassis_scan_with_options_client.call(scan_srv)) {
         result.success = false;
         result.message = "扫描建图服务调用失败";

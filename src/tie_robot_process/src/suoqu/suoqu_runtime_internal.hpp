@@ -91,8 +91,13 @@ struct PseudoSlamMarkerExecutionState
     std::unordered_set<int> active_dispatch_global_indices;
 };
 
+using DynamicBindWorldAxis = tie_robot_process::planning::DynamicBindWorldAxis;
+
 struct LiveVisualCheckerboardGrid
 {
+    DynamicBindWorldAxis row_world_axis = DynamicBindWorldAxis::kY;
+    DynamicBindWorldAxis col_world_axis = DynamicBindWorldAxis::kX;
+    bool axis_mapping_inferred_from_spans = false;
     std::unordered_map<int, float> row_centers_by_global_row;
     std::unordered_map<int, float> col_centers_by_global_col;
     std::unordered_map<long long, PseudoSlamCheckerboardInfo> info_by_cell_key;
@@ -483,6 +488,7 @@ bool run_pseudo_slam_scan(
     PseudoSlamScanStrategy scan_strategy,
     bool enable_capture_gate,
     std::string& message,
+    int requested_bind_group_point_count = 4,
     const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override = PseudoSlamFixedScanPoseOverride{}
 );
 bool run_current_area_bind_from_scan_test(std::string& message);

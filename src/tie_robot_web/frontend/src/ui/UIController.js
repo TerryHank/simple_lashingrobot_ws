@@ -367,14 +367,6 @@ export class UIController {
             <div class="panel-content image-panel-content">
               <div class="canvas-stage">
                 <canvas id="irCanvas" width="640" height="480"></canvas>
-                <svg
-                  id="irBaseBoundaryLayer"
-                  class="ir-base-boundary-layer"
-                  viewBox="0 0 640 480"
-                  preserveAspectRatio="xMidYMid meet"
-                  aria-hidden="true"
-                  data-visible="false"
-                ></svg>
                 <canvas id="overlayCanvas" width="640" height="480"></canvas>
               </div>
             </div>
@@ -467,6 +459,10 @@ export class UIController {
                         <div class="field">
                           <label for="visualDebugStableFrameCount">释放帧数</label>
                           <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindGroupPointCount">每组点数</label>
+                          <input id="visualDebugBindGroupPointCount" type="number" min="1" max="64" step="1" value="4" />
                         </div>
                       </div>
                       <div class="field-grid compact-grid visual-debug-bind-range-grid">
@@ -1001,7 +997,6 @@ export class UIController {
   bindRefs() {
     this.refs.sceneBackground = this.rootElement.querySelector("#sceneBackground");
     this.refs.irCanvas = this.rootElement.querySelector("#irCanvas");
-    this.refs.irBaseBoundaryLayer = this.rootElement.querySelector("#irBaseBoundaryLayer");
     this.refs.overlayCanvas = this.rootElement.querySelector("#overlayCanvas");
     this.refs.sceneViewMode = this.rootElement.querySelector("#sceneViewMode");
     this.refs.sceneViewModeButtons = [...this.rootElement.querySelectorAll("[data-scene-view-mode]")];
@@ -1051,6 +1046,7 @@ export class UIController {
     this.refs.settingsLayerLogList = this.rootElement.querySelector("#settingsLayerLogList");
     this.refs.visualDebugExecutionModeInputs = [...this.rootElement.querySelectorAll("input[name='visualDebugExecutionMode']")];
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
+    this.refs.visualDebugBindGroupPointCount = this.rootElement.querySelector("#visualDebugBindGroupPointCount");
     this.refs.visualDebugBindRangeXMin = this.rootElement.querySelector("#visualDebugBindRangeXMin");
     this.refs.visualDebugBindRangeXMax = this.rootElement.querySelector("#visualDebugBindRangeXMax");
     this.refs.visualDebugBindRangeYMin = this.rootElement.querySelector("#visualDebugBindRangeYMin");
@@ -2055,7 +2051,6 @@ export class UIController {
   getCanvasRefs() {
     return {
       canvas: this.refs.irCanvas,
-      baseBoundaryLayer: this.refs.irBaseBoundaryLayer,
       overlayCanvas: this.refs.overlayCanvas,
     };
   }
@@ -2296,12 +2291,17 @@ export class UIController {
       stableFrameCount: Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugStableFrameCount?.value || "3"))),
       requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
       executionMode: Number.isFinite(executionMode) ? executionMode : DEFAULT_GLOBAL_EXECUTION_MODE,
+      bindGroupPointCount: Math.min(
+        64,
+        Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugBindGroupPointCount?.value || "4"))),
+      ),
       linearModuleBindRangeMm: this.getVisualDebugBindRangeInputs(),
     };
   }
 
   setVisualDebugSettings(settings) {
     const stableFrameCount = Math.max(1, Math.round(Number(settings?.stableFrameCount) || 3));
+    const bindGroupPointCount = Math.min(64, Math.max(1, Math.round(Number(settings?.bindGroupPointCount) || 4)));
     const executionMode = Number.isFinite(Number(settings?.executionMode))
       ? Math.round(Number(settings.executionMode))
       : DEFAULT_GLOBAL_EXECUTION_MODE;
@@ -2317,6 +2317,9 @@ export class UIController {
     }
     if (this.refs.visualDebugStableFrameCount) {
       this.refs.visualDebugStableFrameCount.value = String(stableFrameCount);
+    }
+    if (this.refs.visualDebugBindGroupPointCount) {
+      this.refs.visualDebugBindGroupPointCount.value = String(bindGroupPointCount);
     }
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
@@ -2737,6 +2740,7 @@ export class UIController {
     [
       ...this.refs.visualDebugExecutionModeInputs,
       this.refs.visualDebugStableFrameCount,
+      this.refs.visualDebugBindGroupPointCount,
       ...VISUAL_DEBUG_BIND_RANGE_AXES.flatMap((axisConfig) => [
         this.refs[axisConfig.minRef],
         this.refs[axisConfig.maxRef],

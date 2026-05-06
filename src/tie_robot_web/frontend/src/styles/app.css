@@ -2128,8 +2128,7 @@ a {
   border: 0;
 }
 
-.canvas-stage canvas,
-.ir-base-boundary-layer {
+.canvas-stage canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -2143,31 +2142,6 @@ a {
 #irCanvas {
   z-index: 1;
   cursor: crosshair;
-}
-
-.ir-base-boundary-layer {
-  z-index: 2;
-  pointer-events: none;
-  overflow: visible;
-}
-
-.ir-base-boundary-layer[data-visible="false"] {
-  display: none;
-}
-
-.live-visible-area-polygon {
-  fill: rgba(78, 227, 165, 0.1);
-  stroke: rgba(78, 227, 165, 0.98);
-  stroke-width: 2.4;
-  stroke-dasharray: 8 5;
-  vector-effect: non-scaling-stroke;
-}
-
-.live-visible-area-corners circle {
-  fill: rgba(78, 227, 165, 0.94);
-  stroke: rgba(4, 11, 21, 0.9);
-  stroke-width: 1.3;
-  vector-effect: non-scaling-stroke;
 }
 
 .image-panel-resize-handle {

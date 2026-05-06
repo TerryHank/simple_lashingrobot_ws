@@ -29,6 +29,12 @@ function normalizePositiveNumber(value, fallback) {
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback;
 }
 
+function normalizeBindGroupPointCount(value, fallback = 4) {
+  const numericValue = Number(value);
+  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : fallback;
+  return Math.min(64, Math.max(1, roundedValue));
+}
+
 function normalizeGlobalExecutionMode(value, fallback = DEFAULT_GLOBAL_EXECUTION_MODE) {
   const numericValue = Number(value);
   const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : fallback;
@@ -295,6 +301,7 @@ export function loadVisualDebugSettings() {
     stableFrameCount: 3,
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: DEFAULT_GLOBAL_EXECUTION_MODE,
+    bindGroupPointCount: 4,
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(),
   };
   try {
@@ -307,6 +314,7 @@ export function loadVisualDebugSettings() {
       stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(parsed?.stableFrameCount, defaults.stableFrameCount))),
       requestMode: defaults.requestMode,
       executionMode: normalizeGlobalExecutionMode(parsed?.executionMode, defaults.executionMode),
+      bindGroupPointCount: normalizeBindGroupPointCount(parsed?.bindGroupPointCount, defaults.bindGroupPointCount),
       linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(parsed?.linearModuleBindRangeMm, defaults.linearModuleBindRangeMm),
     };
   } catch {
@@ -319,6 +327,7 @@ export function saveVisualDebugSettings(value) {
     stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(value?.stableFrameCount, 3))),
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: normalizeGlobalExecutionMode(value?.executionMode),
+    bindGroupPointCount: normalizeBindGroupPointCount(value?.bindGroupPointCount),
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(value?.linearModuleBindRangeMm),
   };
   try {

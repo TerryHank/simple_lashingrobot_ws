@@ -68,6 +68,26 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("fixed_scan_pose_override.enabled", suoqu_node)
         self.assertIn("fixed_scan_pose_override.x_mm", suoqu_node)
 
+    def test_scan_action_carries_visual_debug_bind_group_point_count(self):
+        srv = (WORKSPACE_ROOT / "tie_robot_msgs" / "srv" / "StartPseudoSlamScan.srv").read_text(encoding="utf-8")
+        action = (
+            WORKSPACE_ROOT / "tie_robot_msgs" / "action" / "StartPseudoSlamScanTask.action"
+        ).read_text(encoding="utf-8")
+        action_bridge = (
+            WORKSPACE_ROOT / "tie_robot_web" / "src" / "web_bridge" / "action_bridge.cpp"
+        ).read_text(encoding="utf-8")
+        service_orchestration = (
+            PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("uint16 bind_group_point_count", srv)
+        self.assertIn("uint16 bind_group_point_count", action)
+        self.assertIn("scan_srv.request.bind_group_point_count = goal->bind_group_point_count", action_bridge)
+        self.assertIn("req.bind_group_point_count", service_orchestration)
+        self.assertIn("requested_group_point_count", suoqu_node)
+        self.assertIn("无法规划", suoqu_node)
+
     def test_single_point_bind_calls_atomic_backend_service_without_frontend_visual_split(self):
         task_action_controller = (
             WEB_DIR / "frontend" / "src" / "controllers" / "TaskActionController.js"

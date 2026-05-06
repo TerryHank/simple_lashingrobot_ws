@@ -8,6 +8,7 @@ bool use_fixed_scan_pose_override
 float32 fixed_scan_pose_x_mm
 float32 fixed_scan_pose_y_mm
 float32 fixed_scan_pose_z_mm
+uint16 bind_group_point_count
 ---
 bool success
 string message

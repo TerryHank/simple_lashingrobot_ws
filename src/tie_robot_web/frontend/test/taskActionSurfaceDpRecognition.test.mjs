@@ -95,7 +95,7 @@ const result = await controller.triggerSavedWorkspaceS2();
 
 assert.equal(result, true);
 assert.deepEqual(processImageCalls, []);
-assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3 });
+assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3, bind_group_point_count: 4 });
 assert.equal(actionGoals.at(-1)?.actionClient, scanActionClient);
 assert.equal(actionGoals.at(-1)?.sent, true);
 assert.equal(callbackEvents.some(([event]) => event === "workspaceS2Triggered"), true);
@@ -142,7 +142,7 @@ const independentActionCountBefore = actionGoals.length;
 assert.equal(await independentController.triggerSavedWorkspaceS2(), true);
 assert.equal(actionGoals.length, independentActionCountBefore + 1);
 assert.equal(actionGoals.at(-1)?.actionClient, independentActionClient);
-assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3 });
+assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3, bind_group_point_count: 4 });
 assert.deepEqual(processImageCalls, []);
 
 const appText = readFileSync(resolve(frontendRoot, "src/app/TieRobotFrontApp.js"), "utf-8");
@@ -183,8 +183,8 @@ assert.equal(actionGoals.length, pendingActionCountBefore + 2);
 assert.deepEqual(
   actionGoals.slice(-2).map((goal) => goal.goalMessage),
   [
-    { enable_capture_gate: false, scan_strategy: 3 },
-    { enable_capture_gate: false, scan_strategy: 3 },
+    { enable_capture_gate: false, scan_strategy: 3, bind_group_point_count: 4 },
+    { enable_capture_gate: false, scan_strategy: 3, bind_group_point_count: 4 },
   ],
 );
 assert.deepEqual(processImageCalls, []);
