@@ -29,23 +29,111 @@ function extractPointPixel(point) {
   return { x, y };
 }
 
+function normalizeTcpWorkspacePlane(plane) {
+  const points = Array.isArray(plane?.points)
+    ? plane.points.map((point) => {
+      const x = Number(point?.x);
+      const y = Number(point?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return null;
+      }
+      return { x, y, inside: Boolean(point?.inside) };
+    })
+    : [];
+  if (points.length !== 4 || points.some((point) => !point)) {
+    return null;
+  }
+  const z = Number(plane?.z);
+  return {
+    z: Number.isFinite(z) ? z : null,
+    points,
+  };
+}
+
+function normalizeTcpWorkspaceBoundary(boundary) {
+  const explicitPlanes = Array.isArray(boundary?.planes)
+    ? boundary.planes.map((plane) => normalizeTcpWorkspacePlane(plane)).filter(Boolean)
+    : [];
+  const fallbackPlane = normalizeTcpWorkspacePlane(boundary);
+  const planes = explicitPlanes.length ? explicitPlanes : (fallbackPlane ? [fallbackPlane] : []);
+  if (!planes.length) {
+    return null;
+  }
+  return {
+    points: planes[0].points,
+    planes,
+    sourceSize: normalizeImageSize(boundary?.sourceSize),
+    frameId: boundary?.frameId || "gripper_frame",
+  };
+}
+
+const DEFAULT_IMAGE_OVERLAY_LAYER_STATE = Object.freeze({
+  showImageRecognitionResult: true,
+  showImageScanPoints: true,
+  showLinearModuleBindRange: true,
+});
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const LIVE_VISIBLE_BOUNDARY_EDGE_INSET_PX = 8;
+
+function formatSvgNumber(value) {
+  const rounded = Number(Number(value).toFixed(3));
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+function buildVisibleBoundaryDisplayPoints(points, sourceSize) {
+  const width = Number(sourceSize?.width);
+  const height = Number(sourceSize?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return points;
+  }
+  const inset = Math.min(
+    LIVE_VISIBLE_BOUNDARY_EDGE_INSET_PX,
+    Math.max(0, width / 2 - 1),
+    Math.max(0, height / 2 - 1),
+  );
+  if (inset <= 0) {
+    return points;
+  }
+  const maxX = Math.max(inset, width - inset);
+  const maxY = Math.max(inset, height - inset);
+  return points.map((point) => ({
+    x: Math.min(Math.max(point.x, inset), maxX),
+    y: Math.min(Math.max(point.y, inset), maxY),
+  }));
+}
+
 export class WorkspaceCanvasView {
-  constructor({ canvas, overlayCanvas, onSelectionChanged, onMessage }) {
+  constructor({
+    canvas,
+    overlayCanvas,
+    baseBoundaryLayer = null,
+    onSelectionChanged,
+    onMessage,
+    onHoverPixelChanged,
+  }) {
     this.canvas = canvas;
     this.overlayCanvas = overlayCanvas;
+    this.baseBoundaryLayer = baseBoundaryLayer;
     this.ctx = canvas.getContext("2d");
     this.overlayCtx = overlayCanvas.getContext("2d");
     this.onSelectionChanged = onSelectionChanged;
     this.onMessage = onMessage;
+    this.onHoverPixelChanged = onHoverPixelChanged;
     this.lastImageMessage = null;
     this.lastExecutionResultMessage = null;
     this.lastVisualRecognitionPointsMessage = null;
     this.visualRecognitionPointSourceSize = null;
     this.tcpWorkspaceBoundary = null;
+    this.realtimeWorkspaceBoundary = null;
     this.savedWorkspacePoints = [];
+    this.savedWorkspaceSourceSize = null;
     this.selectedPoints = [];
+    this.workspacePickingEnabled = false;
+    this.hoverCoordinateReadout = null;
     this.displaySettings = { mode: "raw", gamma: 1.0, overlayOpacity: 0.88 };
     this.overlayEnabled = true;
+    this.imageOverlayLayerState = { ...DEFAULT_IMAGE_OVERLAY_LAYER_STATE };
     this.savedWorkspaceGuideVisible = false;
     this.dragState = { activeIndex: -1, moved: false };
     this.suppressNextCanvasClick = false;
@@ -56,7 +144,7 @@ export class WorkspaceCanvasView {
     this.canvas.addEventListener("pointerdown", (event) => this.handlePointerDown(event));
     this.canvas.addEventListener("pointermove", (event) => this.handlePointerMove(event));
     this.canvas.addEventListener("pointerup", () => this.handlePointerUp());
-    this.canvas.addEventListener("pointerleave", () => this.handlePointerUp());
+    this.canvas.addEventListener("pointerleave", () => this.handlePointerLeave());
   }
 
   setDisplaySettings(settings) {
@@ -70,9 +158,33 @@ export class WorkspaceCanvasView {
     this.drawOverlay();
   }
 
+  setImageOverlayLayerState(state = {}) {
+    const nextState = { ...this.imageOverlayLayerState };
+    Object.keys(DEFAULT_IMAGE_OVERLAY_LAYER_STATE).forEach((key) => {
+      if (typeof state?.[key] === "boolean") {
+        nextState[key] = state[key];
+      }
+    });
+    this.imageOverlayLayerState = nextState;
+    this.drawOverlay();
+  }
+
   setSavedWorkspaceGuideVisible(enabled) {
     this.savedWorkspaceGuideVisible = Boolean(enabled);
     this.draw();
+  }
+
+  setWorkspacePickingEnabled(enabled) {
+    this.workspacePickingEnabled = Boolean(enabled);
+    if (this.workspacePickingEnabled) {
+      this.setHoverCoordinateReadout(null);
+      this.onHoverPixelChanged?.(null);
+    }
+  }
+
+  setHoverCoordinateReadout(readout) {
+    this.hoverCoordinateReadout = readout && readout.pixel ? readout : null;
+    this.drawOverlay();
   }
 
   setBaseImageMessage(message) {
@@ -106,9 +218,13 @@ export class WorkspaceCanvasView {
   }
 
   setTcpWorkspaceBoundary(boundary) {
-    void boundary;
-    this.tcpWorkspaceBoundary = null;
+    this.tcpWorkspaceBoundary = normalizeTcpWorkspaceBoundary(boundary);
     this.drawOverlay();
+  }
+
+  setRealtimeWorkspaceBoundary(boundary) {
+    this.realtimeWorkspaceBoundary = normalizeTcpWorkspaceBoundary(boundary);
+    this.renderRealtimeWorkspaceBoundaryLayer();
   }
 
   setOverlaySource(source) {
@@ -118,12 +234,16 @@ export class WorkspaceCanvasView {
 
   setSavedWorkspacePoints(points) {
     this.savedWorkspacePoints = Array.isArray(points) ? points : [];
+    this.savedWorkspaceSourceSize = this.getCurrentImageSize();
     this.draw();
+    this.drawOverlay();
   }
 
-  setSavedWorkspacePayload(payload) {
+  setSavedWorkspacePayload(payload, { sourceSize = null } = {}) {
     this.savedWorkspacePoints = parseWorkspaceQuadPayload(payload);
+    this.savedWorkspaceSourceSize = normalizeImageSize(sourceSize) || this.getCurrentImageSize();
     this.draw();
+    this.drawOverlay();
   }
 
   setSelectedWorkspacePayload(payload) {
@@ -173,8 +293,10 @@ export class WorkspaceCanvasView {
     this.canvas.height = imageData.height;
     this.overlayCanvas.width = imageData.width;
     this.overlayCanvas.height = imageData.height;
+    this.syncRealtimeWorkspaceBoundaryLayerSize();
     this.ctx.putImageData(imageData, 0, 0);
     this.drawWorkspacePolylines();
+    this.renderRealtimeWorkspaceBoundaryLayer();
     this.drawOverlay();
   }
 
@@ -185,14 +307,250 @@ export class WorkspaceCanvasView {
 
   drawOverlay() {
     this.overlayCtx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-    if (this.overlayEnabled && this.lastExecutionResultMessage) {
+    if (
+      this.overlayEnabled
+      && this.imageOverlayLayerState.showImageRecognitionResult !== false
+      && this.lastExecutionResultMessage
+    ) {
       const imageData = sensorImageToImageData(this.lastExecutionResultMessage, { mode: "raw", gamma: 1.0, overlayOpacity: 1.0 });
       if (imageData.width === this.overlayCanvas.width && imageData.height === this.overlayCanvas.height) {
         this.overlayCtx.putImageData(imageData, 0, 0);
       }
     }
-    this.drawVisualRecognitionPoints();
+    if (this.overlayEnabled && this.imageOverlayLayerState.showLinearModuleBindRange !== false) {
+      this.drawTcpWorkspaceBoundary();
+    }
+    if (this.overlayEnabled && this.imageOverlayLayerState.showImageScanPoints !== false) {
+      this.drawVisualRecognitionPoints();
+    }
+    this.drawHoverCoordinateReadout();
     this.overlayCanvas.style.opacity = String(this.displaySettings.overlayOpacity);
+  }
+
+  drawHoverCoordinateReadout() {
+    const readout = this.hoverCoordinateReadout;
+    if (!readout || this.overlayCanvas.width <= 0 || this.overlayCanvas.height <= 0) {
+      return;
+    }
+
+    const sourceSize = normalizeImageSize(readout.sourceSize) || this.getCurrentImageSize();
+    if (!sourceSize) {
+      return;
+    }
+    const xScale = this.overlayCanvas.width / sourceSize.width;
+    const yScale = this.overlayCanvas.height / sourceSize.height;
+    const x = Number(readout.pixel.x) * xScale;
+    const y = Number(readout.pixel.y) * yScale;
+    if (![x, y].every(Number.isFinite)) {
+      return;
+    }
+
+    const lines = Array.isArray(readout.lines) && readout.lines.length
+      ? readout.lines.map((line) => String(line))
+      : [String(readout.text || "")].filter(Boolean);
+    if (!lines.length) {
+      return;
+    }
+
+    this.overlayCtx.save();
+    this.overlayCtx.font = "13px monospace";
+    this.overlayCtx.textBaseline = "top";
+    this.overlayCtx.lineWidth = 1.5;
+    this.overlayCtx.strokeStyle = "rgba(255, 255, 255, 0.92)";
+    this.overlayCtx.beginPath();
+    this.overlayCtx.moveTo(x - 9, y);
+    this.overlayCtx.lineTo(x + 9, y);
+    this.overlayCtx.moveTo(x, y - 9);
+    this.overlayCtx.lineTo(x, y + 9);
+    this.overlayCtx.stroke();
+
+    const paddingX = 7;
+    const paddingY = 5;
+    const lineHeight = 16;
+    const textWidth = Math.max(...lines.map((line) => this.overlayCtx.measureText(line).width));
+    const boxWidth = textWidth + paddingX * 2;
+    const boxHeight = lines.length * lineHeight + paddingY * 2;
+    const placeRight = x < this.overlayCanvas.width * 0.58;
+    const placeBelow = y < this.overlayCanvas.height * 0.58;
+    const rawLabelX = placeRight ? x + 14 : x - boxWidth - 14;
+    const rawLabelY = placeBelow ? y + 14 : y - boxHeight - 14;
+    const labelX = Math.min(Math.max(rawLabelX, 4), Math.max(4, this.overlayCanvas.width - boxWidth - 4));
+    const labelY = Math.min(Math.max(rawLabelY, 4), Math.max(4, this.overlayCanvas.height - boxHeight - 4));
+
+    this.overlayCtx.fillStyle = "rgba(4, 11, 21, 0.84)";
+    this.overlayCtx.fillRect(labelX, labelY, boxWidth, boxHeight);
+    this.overlayCtx.strokeStyle = "rgba(255, 210, 92, 0.82)";
+    this.overlayCtx.strokeRect?.(labelX, labelY, boxWidth, boxHeight);
+    this.overlayCtx.fillStyle = "rgba(255, 243, 211, 0.98)";
+    lines.forEach((line, index) => {
+      this.overlayCtx.fillText(line, labelX + paddingX, labelY + paddingY + index * lineHeight);
+    });
+    this.overlayCtx.restore();
+  }
+
+  drawTcpWorkspaceBoundary() {
+    const boundary = this.tcpWorkspaceBoundary;
+    if (!boundary || this.overlayCanvas.width <= 0 || this.overlayCanvas.height <= 0) {
+      return;
+    }
+
+    const sourceSize = boundary.sourceSize || this.getCurrentImageSize();
+    if (!sourceSize) {
+      return;
+    }
+
+    const xScale = this.overlayCanvas.width / sourceSize.width;
+    const yScale = this.overlayCanvas.height / sourceSize.height;
+    const planes = Array.isArray(boundary.planes) && boundary.planes.length
+      ? boundary.planes
+      : [{ points: boundary.points }];
+    const scaledPlanes = planes
+      .map((plane) => ({
+        ...plane,
+        points: Array.isArray(plane.points)
+          ? plane.points.map((point) => ({
+            x: Number(point.x) * xScale,
+            y: Number(point.y) * yScale,
+          }))
+          : [],
+      }))
+      .filter((plane) => (
+        plane.points.length === 4
+        && plane.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      ));
+
+    if (!scaledPlanes.length) {
+      return;
+    }
+
+    this.overlayCtx.save();
+    this.overlayCtx.lineWidth = 2.1;
+    this.overlayCtx.setLineDash([7, 5]);
+    scaledPlanes.forEach((plane, index) => {
+      const primaryPlane = index === 0;
+      this.overlayCtx.strokeStyle = primaryPlane
+        ? "rgba(126, 220, 255, 0.96)"
+        : "rgba(126, 220, 255, 0.70)";
+      this.overlayCtx.fillStyle = primaryPlane
+        ? "rgba(126, 220, 255, 0.08)"
+        : "rgba(126, 220, 255, 0.04)";
+      this.overlayCtx.beginPath();
+      this.overlayCtx.moveTo(plane.points[0].x, plane.points[0].y);
+      plane.points.slice(1).forEach((point) => this.overlayCtx.lineTo(point.x, point.y));
+      this.overlayCtx.closePath();
+      if (primaryPlane) {
+        this.overlayCtx.fill();
+      }
+      this.overlayCtx.stroke();
+    });
+
+    if (scaledPlanes.length >= 2) {
+      const [nearPlane, farPlane] = scaledPlanes;
+      this.overlayCtx.strokeStyle = "rgba(126, 220, 255, 0.48)";
+      this.overlayCtx.lineWidth = 1.6;
+      this.overlayCtx.setLineDash([4, 5]);
+      for (let index = 0; index < 4; index += 1) {
+        const nearPoint = nearPlane.points[index];
+        const farPoint = farPlane.points[index];
+        this.overlayCtx.beginPath();
+        this.overlayCtx.moveTo(nearPoint.x, nearPoint.y);
+        this.overlayCtx.lineTo(farPoint.x, farPoint.y);
+        this.overlayCtx.stroke();
+      }
+    }
+
+    this.overlayCtx.setLineDash([]);
+    this.overlayCtx.fillStyle = "rgba(126, 220, 255, 0.92)";
+    this.overlayCtx.strokeStyle = "rgba(4, 11, 21, 0.86)";
+    this.overlayCtx.lineWidth = 1.2;
+    scaledPlanes[0].points.forEach((point) => {
+      this.overlayCtx.beginPath();
+      this.overlayCtx.arc(point.x, point.y, 4.5, 0, Math.PI * 2);
+      this.overlayCtx.fill();
+      this.overlayCtx.stroke();
+    });
+    this.overlayCtx.restore();
+  }
+
+  syncRealtimeWorkspaceBoundaryLayerSize() {
+    const layer = this.baseBoundaryLayer;
+    if (!layer) {
+      return;
+    }
+    const sourceSize = this.getCurrentImageSize();
+    if (!sourceSize) {
+      return;
+    }
+    layer.setAttribute("viewBox", `0 0 ${sourceSize.width} ${sourceSize.height}`);
+    layer.setAttribute("width", String(sourceSize.width));
+    layer.setAttribute("height", String(sourceSize.height));
+    layer.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  }
+
+  clearRealtimeWorkspaceBoundaryLayer() {
+    const layer = this.baseBoundaryLayer;
+    if (!layer) {
+      return;
+    }
+    layer.replaceChildren?.();
+    layer.setAttribute("data-visible", "false");
+  }
+
+  renderRealtimeWorkspaceBoundaryLayer() {
+    const layer = this.baseBoundaryLayer;
+    if (!layer) {
+      return;
+    }
+    const boundary = this.realtimeWorkspaceBoundary;
+    const sourceSize = boundary?.sourceSize || this.getCurrentImageSize();
+    if (!boundary || !sourceSize) {
+      this.clearRealtimeWorkspaceBoundaryLayer();
+      return;
+    }
+
+    const points = boundary.points.map((point) => ({
+      x: Number(point.x),
+      y: Number(point.y),
+    }));
+    if (
+      points.length < 3
+      || points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y))
+    ) {
+      this.clearRealtimeWorkspaceBoundaryLayer();
+      return;
+    }
+
+    const documentRef = layer.ownerDocument || (typeof document !== "undefined" ? document : null);
+    if (!documentRef?.createElementNS) {
+      this.clearRealtimeWorkspaceBoundaryLayer();
+      return;
+    }
+
+    layer.setAttribute("viewBox", `0 0 ${sourceSize.width} ${sourceSize.height}`);
+    layer.setAttribute("width", String(sourceSize.width));
+    layer.setAttribute("height", String(sourceSize.height));
+    layer.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+    const displayPoints = buildVisibleBoundaryDisplayPoints(points, sourceSize);
+
+    const polygon = documentRef.createElementNS(SVG_NAMESPACE, "polygon");
+    polygon.setAttribute("class", "live-visible-area-polygon");
+    polygon.setAttribute(
+      "points",
+      displayPoints.map((point) => `${formatSvgNumber(point.x)},${formatSvgNumber(point.y)}`).join(" "),
+    );
+
+    const corners = documentRef.createElementNS(SVG_NAMESPACE, "g");
+    corners.setAttribute("class", "live-visible-area-corners");
+    displayPoints.forEach((point) => {
+      const circle = documentRef.createElementNS(SVG_NAMESPACE, "circle");
+      circle.setAttribute("cx", formatSvgNumber(point.x));
+      circle.setAttribute("cy", formatSvgNumber(point.y));
+      circle.setAttribute("r", "4.8");
+      corners.appendChild?.(circle);
+    });
+    layer.replaceChildren?.(polygon, corners);
+    layer.setAttribute("data-visible", "true");
   }
 
   drawVisualRecognitionPoints() {
@@ -254,23 +612,7 @@ export class WorkspaceCanvasView {
     this.ctx.lineWidth = 2;
     this.ctx.font = "18px monospace";
 
-    if (this.savedWorkspaceGuideVisible && this.savedWorkspacePoints.length >= 2) {
-      this.ctx.strokeStyle = "#6aa6ff";
-      this.ctx.fillStyle = "#6aa6ff";
-      this.ctx.setLineDash([10, 6]);
-      this.ctx.beginPath();
-      this.ctx.moveTo(this.savedWorkspacePoints[0].x, this.savedWorkspacePoints[0].y);
-      for (let index = 1; index < this.savedWorkspacePoints.length; index += 1) {
-        this.ctx.lineTo(this.savedWorkspacePoints[index].x, this.savedWorkspacePoints[index].y);
-      }
-      if (this.savedWorkspacePoints.length === 4) {
-        this.ctx.closePath();
-      }
-      this.ctx.stroke();
-      this.ctx.setLineDash([]);
-    }
-
-    if (this.selectedPoints.length) {
+    if (this.workspacePickingEnabled && this.selectedPoints.length) {
       this.ctx.strokeStyle = "#4de3a5";
       this.ctx.fillStyle = "#ffae42";
       if (this.selectedPoints.length >= 2) {
@@ -300,6 +642,9 @@ export class WorkspaceCanvasView {
   }
 
   handleCanvasClick(event) {
+    if (!this.workspacePickingEnabled) {
+      return;
+    }
     if (this.suppressNextCanvasClick) {
       this.suppressNextCanvasClick = false;
       return;
@@ -325,6 +670,9 @@ export class WorkspaceCanvasView {
   }
 
   handlePointerDown(event) {
+    if (!this.workspacePickingEnabled) {
+      return;
+    }
     if (!this.lastImageMessage || !this.selectedPoints.length) {
       return;
     }
@@ -344,6 +692,10 @@ export class WorkspaceCanvasView {
   }
 
   handlePointerMove(event) {
+    if (!this.workspacePickingEnabled) {
+      this.emitHoverPixelFromPointerEvent(event);
+      return;
+    }
     if (this.dragState.activeIndex < 0 || !this.lastImageMessage) {
       return;
     }
@@ -369,5 +721,28 @@ export class WorkspaceCanvasView {
       this.suppressNextCanvasClick = true;
       this.notifySelectionChanged();
     }
+  }
+
+  handlePointerLeave() {
+    this.handlePointerUp();
+    if (!this.workspacePickingEnabled) {
+      this.onHoverPixelChanged?.(null);
+      this.setHoverCoordinateReadout(null);
+    }
+  }
+
+  emitHoverPixelFromPointerEvent(event) {
+    if (!this.lastImageMessage) {
+      this.onHoverPixelChanged?.(null);
+      return;
+    }
+    const point = mapCanvasClickToImagePixel({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      rect: this.canvas.getBoundingClientRect(),
+      imageWidth: Number(this.lastImageMessage.width),
+      imageHeight: Number(this.lastImageMessage.height),
+    });
+    this.onHoverPixelChanged?.(point);
   }
 }

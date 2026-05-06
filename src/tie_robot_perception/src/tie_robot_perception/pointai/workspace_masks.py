@@ -80,6 +80,51 @@ def build_manual_workspace_quad_pixels_message(self, manual_workspace=None):
     return Float32MultiArray(data=payload)
 
 
+def build_manual_workspace_quad_points_message(self, manual_workspace=None):
+    manual_workspace = self.load_manual_workspace_quad() if manual_workspace is None else manual_workspace
+    if manual_workspace is None:
+        return None
+
+    corner_pixels = manual_workspace.get("corner_pixels")
+    corner_world_camera_frame = manual_workspace.get("corner_world_camera_frame")
+    if (
+        not isinstance(corner_pixels, list)
+        or not isinstance(corner_world_camera_frame, list)
+        or len(corner_pixels) != 4
+        or len(corner_world_camera_frame) != 4
+    ):
+        return None
+
+    points_array_msg = PointsArray()
+    points_array_msg.PointCoordinatesArray = []
+    for index, (pixel_point, camera_point) in enumerate(zip(corner_pixels, corner_world_camera_frame), start=1):
+        if (
+            not isinstance(pixel_point, (list, tuple))
+            or not isinstance(camera_point, (list, tuple))
+            or len(pixel_point) != 2
+            or len(camera_point) != 3
+        ):
+            return None
+
+        point_msg = PointCoords()
+        point_msg.is_shuiguan = False
+        point_msg.Angle = 0.0
+        point_msg.idx = index
+        point_msg.Pix_coord = [int(round(pixel_point[0])), int(round(pixel_point[1]))]
+        point_msg.World_coord = [
+            float(camera_point[0]),
+            float(camera_point[1]),
+            float(camera_point[2]),
+        ]
+        point_msg.has_grid_index = False
+        point_msg.global_row = -1
+        point_msg.global_col = -1
+        points_array_msg.PointCoordinatesArray.append(point_msg)
+
+    points_array_msg.count = len(points_array_msg.PointCoordinatesArray)
+    return points_array_msg
+
+
 def publish_current_manual_workspace_quad_pixels(self):
     publisher = getattr(self, "manual_workspace_quad_pixels_pub", None)
     if publisher is None:
@@ -90,6 +135,10 @@ def publish_current_manual_workspace_quad_pixels(self):
         return
     publisher.publish(message)
     self.lashing_workspace_quad_pixels_pub.publish(message)
+    points_publisher = getattr(self, "lashing_workspace_quad_points_pub", None)
+    points_message = self.build_manual_workspace_quad_points_message()
+    if points_publisher is not None and points_message is not None:
+        points_publisher.publish(points_message)
 
 
 def load_manual_workspace_quad(self):
@@ -361,9 +410,9 @@ def get_execution_refine_tcp_roi_bounds(self):
         "min_x": float(getattr(self, "execution_refine_tcp_roi_min_x_mm", 0.0)),
         "max_x": float(getattr(self, "execution_refine_tcp_roi_max_x_mm", 380.0)),
         "min_y": float(getattr(self, "execution_refine_tcp_roi_min_y_mm", 0.0)),
-        "max_y": float(getattr(self, "execution_refine_tcp_roi_max_y_mm", 3330.0)),
+        "max_y": float(getattr(self, "execution_refine_tcp_roi_max_y_mm", 330.0)),
         "min_z": float(getattr(self, "execution_refine_tcp_roi_min_z_mm", 0.0)),
-        "max_z": float(getattr(self, "execution_refine_tcp_roi_max_z_mm", 3160.0)),
+        "max_z": float(getattr(self, "execution_refine_tcp_roi_max_z_mm", 160.0)),
     }
 
 
@@ -452,8 +501,8 @@ def is_point_in_matrix_selection_pixel_mask(self, pixel_x, pixel_y, pixel_mask=N
 
 def is_point_in_travel_range(self, calibrated_x, calibrated_y):
     return (
-        0 <= calibrated_x <= getattr(self, "travel_range_max_x_mm", 360.0)
-        and 0 <= calibrated_y <= getattr(self, "travel_range_max_y_mm", 320.0)
+        0 <= calibrated_x <= getattr(self, "travel_range_max_x_mm", 380.0)
+        and 0 <= calibrated_y <= getattr(self, "travel_range_max_y_mm", 330.0)
     )
 
 
@@ -466,6 +515,6 @@ def is_point_in_matrix_selection_range(self, calibrated_x, calibrated_y):
 
 def is_point_in_display_bind_range(self, calibrated_x, calibrated_y):
     return (
-        0 <= calibrated_x <= getattr(self, "display_bind_range_max_x_mm", 500.0)
-        and 0 <= calibrated_y <= getattr(self, "display_bind_range_max_y_mm", 360.0)
+        0 <= calibrated_x <= getattr(self, "display_bind_range_max_x_mm", 380.0)
+        and 0 <= calibrated_y <= getattr(self, "display_bind_range_max_y_mm", 330.0)
     )

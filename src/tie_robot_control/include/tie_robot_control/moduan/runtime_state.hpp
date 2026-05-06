@@ -110,6 +110,7 @@ extern std::unique_ptr<tie_robot_hw::driver::LinearModuleDriver> g_linear_module
 extern std::atomic<bool> g_moduan_driver_enabled;
 extern std::atomic<bool> g_use_remote_moduan_driver;
 extern std::atomic<bool> moduan_plc_execution_state;
+extern std::atomic<bool> moduan_return_zero_ordered_requested;
 extern float last_x;
 extern float last_y;
 
@@ -117,10 +118,6 @@ constexpr uint8_t kProcessImageModeAdaptiveHeight = 1;
 constexpr uint8_t kProcessImageModeBindCheck = 2;
 constexpr uint8_t kProcessImageModeExecutionRefine = 4;
 constexpr double kBindMaxHeightMm = 95.0;
-constexpr double kTcpTravelMinZMm = 0.0;
-constexpr double kTcpTravelMaxZMm = 140.0;
-constexpr double kTravelMaxXMm = 360.0;
-constexpr double kTravelMaxYMm = 320.0;
 constexpr double kPrecomputedFastModuleSpeedMmPerSec = 400.0;
 constexpr const char* kBindHeightExcessMessageKey = "BIND_HEIGHT_EXCESS_MM=";
 constexpr int kFinishAllTimeoutSec = 30;

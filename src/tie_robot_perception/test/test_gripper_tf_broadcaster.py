@@ -28,7 +28,7 @@ class GripperTFBroadcasterTest(unittest.TestCase):
         self.assertIn("child_frame: gripper_frame", config_text)
         self.assertIn("translation_mm:", config_text)
         self.assertIn("rotation_rpy:", config_text)
-        self.assertIn("yaw: 3.141592653589793", config_text)
+        self.assertIn("yaw: 1.5707963267948966", config_text)
 
     def test_api_launch_does_not_start_gripper_tf_broadcaster(self):
         launch_text = (TIE_ROBOT_BRINGUP_DIR / "launch" / "api.launch").read_text(
@@ -232,9 +232,9 @@ class GripperTFBroadcasterTest(unittest.TestCase):
 
         self.assertAlmostEqual(config["rotation_rpy"]["roll"], 0.0)
         self.assertAlmostEqual(config["rotation_rpy"]["pitch"], 0.0)
-        self.assertAlmostEqual(config["rotation_rpy"]["yaw"], 3.141592653589793)
-        self.assertAlmostEqual(abs(transform.transform.rotation.z), 1.0)
-        self.assertAlmostEqual(transform.transform.rotation.w, 0.0, places=6)
+        self.assertAlmostEqual(config["rotation_rpy"]["yaw"], 1.5707963267948966)
+        self.assertAlmostEqual(transform.transform.rotation.z, 0.7071067811865475)
+        self.assertAlmostEqual(transform.transform.rotation.w, 0.7071067811865476)
 
     def test_pointai_no_longer_contains_legacy_workspace_tf_publishers(self):
         pointai_text = (TIE_ROBOT_PERCEPTION_DIR / "src" / "tie_robot_perception" / "pointai" / "processor.py").read_text(

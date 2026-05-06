@@ -1,7 +1,10 @@
 import { ROSLIB } from "../vendor/roslib.js";
 import {
+  DEFAULT_GLOBAL_EXECUTION_MODE,
   FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
   FRONTEND_VISUAL_RECOGNITION_MODE_LABEL,
+  GLOBAL_EXECUTION_MODE_OPTIONS,
+  PROCESS_IMAGE_REQUEST_MODES,
 } from "../config/visualRecognitionMode.js";
 import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
@@ -45,11 +48,20 @@ function buildFixedScanGoalMessage(pose) {
   };
 }
 
+function normalizeGlobalExecutionMode(value) {
+  const numericValue = Number(value);
+  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : DEFAULT_GLOBAL_EXECUTION_MODE;
+  return GLOBAL_EXECUTION_MODE_OPTIONS.some((option) => option.id === roundedValue)
+    ? roundedValue
+    : DEFAULT_GLOBAL_EXECUTION_MODE;
+}
+
 export class TaskActionController {
-  constructor({ rosConnection, workspaceView, getRecognitionPose = null, callbacks = {} }) {
+  constructor({ rosConnection, workspaceView, getRecognitionPose = null, getExecutionMode = null, callbacks = {} }) {
     this.rosConnection = rosConnection;
     this.workspaceView = workspaceView;
     this.getRecognitionPose = getRecognitionPose;
+    this.getExecutionMode = getExecutionMode;
     this.callbacks = callbacks;
     this.pendingWorkspaceQuadSubmission = null;
   }
@@ -60,14 +72,16 @@ export class TaskActionController {
         return this.publishWorkspaceQuad();
       case "runSavedS2":
         return this.triggerSavedWorkspaceS2();
+      case "executionVisionOnly":
+        return this.triggerExecutionRefineVisionOnly();
       case "triggerSingleBind":
         return this.triggerSinglePointBind();
       case "scanPlan":
         return this.triggerPseudoSlamScan();
       case "startExecution":
-        return this.triggerExecutionLayer(true);
+        return this.triggerExecutionLayer({ useExecutionMemory: false, clearExecutionMemory: false });
       case "startExecutionKeepMemory":
-        return this.triggerExecutionLayer(false);
+        return this.triggerExecutionLayer({ useExecutionMemory: true, clearExecutionMemory: false });
       case "runBindPathTest":
         return this.triggerBindPathDirectTest();
       default:
@@ -149,6 +163,30 @@ export class TaskActionController {
     this.report(`单点绑扎完成: ${result.message || "末端已完成当前视觉点位绑扎"}`, "success");
   }
 
+  async triggerExecutionRefineVisionOnly() {
+    const resources = this.rosConnection.getResources();
+    if (!resources?.processImageService) {
+      this.report("ROS 还没连好，暂时不能触发执行层视觉单侧。", "warn");
+      return false;
+    }
+
+    this.workspaceView.setExecutionOverlayMessage(null);
+    this.callbacks.onResultMessage?.(
+      "正在触发执行层视觉单侧：只请求一次平面去除 + Hough 视觉，不执行线性模组单点绑扎。",
+    );
+    this.callbacks.onLog?.("已触发执行层视觉单侧 process_image mode=4", "success");
+    const result = await this.rosConnection.callProcessImageService({
+      requestMode: PROCESS_IMAGE_REQUEST_MODES.EXECUTION_REFINE,
+    });
+    const level = result?.success ? "success" : "error";
+    const pointCount = Number(result?.count || 0);
+    this.report(
+      `执行层视觉单侧${result?.success ? "完成" : "失败"}: 点数=${pointCount}，${result?.message || "无消息"}`,
+      level,
+    );
+    return Boolean(result?.success);
+  }
+
   handleSavedWorkspacePayload(payload) {
     return this.confirmPendingWorkspaceQuadSubmission(payload);
   }
@@ -221,7 +259,7 @@ export class TaskActionController {
     const fixedScanPose = normalizeFixedScanPoseMm(this.getRecognitionPose?.());
     this.callbacks.onResultMessage?.(
       `正在执行固定工作区扫描：移动到 x=${Math.round(fixedScanPose.x)}, y=${Math.round(fixedScanPose.y)}, z=${Math.round(fixedScanPose.z)}，` +
-        "索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发视觉识别并动态规划，点位覆盖层会显示在当前图像图层。",
+        "索驱速度使用“索驱遥控”页里的全局索驱速度，然后触发视觉识别并动态规划，结果会叠加到红外原图。",
     );
     this.callbacks.onLog?.("已触发固定扫描建图任务", "success");
     return this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
@@ -232,21 +270,24 @@ export class TaskActionController {
     });
   }
 
-  triggerExecutionLayer(clearExecutionMemory) {
+  triggerExecutionLayer({ useExecutionMemory = false, clearExecutionMemory = false } = {}) {
     const resources = this.rosConnection.getResources();
     if (!resources?.executionModeService || !resources?.startGlobalWorkActionClient) {
       this.report("ROS 还没连好，暂时不能开始执行层", "warn");
       return;
     }
     this.workspaceView.setExecutionOverlayMessage(null);
-    this.callbacks.onResultMessage?.(
-      "执行结果覆盖层会叠加到可兼容图像底图。",
-    );
+    this.callbacks.onResultMessage?.("执行结果会叠加到红外原图。");
     this.callbacks.onLog?.(
-      clearExecutionMemory ? "准备清记忆并开始执行层" : "准备保留记忆直接开始执行层",
+      !useExecutionMemory
+        ? "准备开始执行层（执行记忆关闭）"
+        : clearExecutionMemory
+          ? "准备清记忆并开始执行层"
+          : "准备按执行记忆续跑",
       "success",
     );
-    const request = new ROSLIB.ServiceRequest({ execution_mode: 1 });
+    const executionMode = normalizeGlobalExecutionMode(this.getExecutionMode?.());
+    const request = new ROSLIB.ServiceRequest({ execution_mode: executionMode });
     resources.executionModeService.callService(
       request,
       (response) => {
@@ -255,7 +296,11 @@ export class TaskActionController {
           return;
         }
         this.sendActionGoal(resources.startGlobalWorkActionClient, {
-          goalMessage: { clear_execution_memory: clearExecutionMemory, execution_mode: 1 },
+          goalMessage: {
+            clear_execution_memory: clearExecutionMemory,
+            use_execution_memory: useExecutionMemory,
+            execution_mode: executionMode,
+          },
           feedbackPrefix: "执行层进行中",
           successPrefix: "执行层任务完成",
           failurePrefix: "执行层任务失败",

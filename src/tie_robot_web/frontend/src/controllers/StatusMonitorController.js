@@ -4,6 +4,86 @@ import { ROSLIB } from "../vendor/roslib.js";
 
 const DIAGNOSTIC_STALE_MS = 3000;
 
+const MODUAN_ALARM_VALUE_LABELS = [
+  ["error_x", "X轴异常"],
+  ["error_y", "Y轴异常"],
+  ["error_z", "Z轴异常"],
+  ["error_lashing", "绑扎枪报警"],
+  ["error_motor", "旋转电机异常"],
+];
+
+const LINEAR_MODULE_ALARM_VALUE_LABELS = [
+  ["linear_module_error_flag_X", "X轴异常"],
+  ["linear_module_error_flag_Y", "Y轴异常"],
+  ["linear_module_error_flag_Z", "Z轴异常"],
+  ["motor_error_flag", "旋转电机异常"],
+];
+
+const CABIN_ALARM_VALUE_LABELS = [
+  ["device_alarm", "索驱设备报警"],
+  ["internal_calc_error", "索驱内部计算异常"],
+];
+
+function uniqueLabels(labels) {
+  const seen = new Set();
+  return labels.filter((label) => {
+    const normalized = String(label || "").trim();
+    if (!normalized || seen.has(normalized)) {
+      return false;
+    }
+    seen.add(normalized);
+    return true;
+  });
+}
+
+function isAlarmValue(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value !== 0;
+  }
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (["true", "yes", "on", "alarm", "error", "fault"].includes(normalized)) {
+    return true;
+  }
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) && numeric !== 0;
+}
+
+function collectAlarmLabelsFromObject(source, valueLabels) {
+  return uniqueLabels(valueLabels
+    .filter(([key]) => isAlarmValue(source?.[key]))
+    .map(([, label]) => label));
+}
+
+function diagnosticValuesToObject(status) {
+  return (Array.isArray(status?.values) ? status.values : []).reduce((accumulator, item) => {
+    if (item?.key) {
+      accumulator[item.key] = item.value;
+    }
+    return accumulator;
+  }, {});
+}
+
+function collectDiagnosticAlarmLabels(status, monitorId) {
+  const values = diagnosticValuesToObject(status);
+  if (monitorId === "moduan") {
+    return collectAlarmLabelsFromObject(values, MODUAN_ALARM_VALUE_LABELS);
+  }
+  if (monitorId === "chassis") {
+    return collectAlarmLabelsFromObject(values, CABIN_ALARM_VALUE_LABELS);
+  }
+  return [];
+}
+
+function collectLinearModuleAlarmLabels(message) {
+  return collectAlarmLabelsFromObject(message, LINEAR_MODULE_ALARM_VALUE_LABELS);
+}
+
 function diagnosticLevelToUiLevel(level) {
   switch (Number(level)) {
     case 0:
@@ -38,6 +118,7 @@ export class StatusMonitorController {
     this.subscriptions = [];
     this.lastValues = new Map();
     this.diagnosticCache = new Map();
+    this.alarmSources = new Map();
   }
 
   setConnectionState(level, detail) {
@@ -50,6 +131,26 @@ export class StatusMonitorController {
       this.callbacks.onLog?.(`状态变化 ${statusId} -> ${detail}`, level);
       this.lastValues.set(statusId, rawValue);
     }
+  }
+
+  setAlarmLabels(sourceId, labels = []) {
+    const normalizedLabels = uniqueLabels(labels);
+    if (normalizedLabels.length > 0) {
+      this.alarmSources.set(sourceId, normalizedLabels);
+    } else {
+      this.alarmSources.delete(sourceId);
+    }
+    this.emitAlarmState();
+  }
+
+  emitAlarmState() {
+    const labels = uniqueLabels([...this.alarmSources.values()].flat());
+    this.callbacks.onAlarmState?.(labels);
+  }
+
+  clearAlarmState() {
+    this.alarmSources.clear();
+    this.emitAlarmState();
   }
 
   start(ros) {
@@ -78,6 +179,7 @@ export class StatusMonitorController {
         if (!cached) {
           const detail = `${monitor.label}状态未上报`;
           this.emitStatus(monitor.id, "warn", detail, `missing:${detail}`);
+          this.setAlarmLabels(`diagnostic:${monitor.id}`, []);
           return;
         }
         const stale = now - cached.receivedAt > DIAGNOSTIC_STALE_MS;
@@ -86,6 +188,10 @@ export class StatusMonitorController {
           : formatDiagnosticDetail(cached.status);
         const level = stale ? "warn" : diagnosticLevelToUiLevel(cached.status.level);
         this.emitStatus(monitor.id, level, detail, `${cached.status.level}:${detail}`);
+        this.setAlarmLabels(
+          `diagnostic:${monitor.id}`,
+          stale ? [] : collectDiagnosticAlarmLabels(cached.status, monitor.id),
+        );
       });
     });
     this.subscriptions.push(diagnosticsTopic);
@@ -99,15 +205,9 @@ export class StatusMonitorController {
       const voltage = Number(message?.robot_battery_voltage);
       this.callbacks.onBatteryVoltage?.(voltage);
       if (this.lastValues.get("robot_battery_voltage") !== voltage) {
-        const detail = Number.isFinite(voltage) && voltage > 0
-          ? `机器人电压 ${voltage.toFixed(1)}V`
-          : "机器人电压无效";
-        this.callbacks.onLog?.(
-          `状态变化 电压 -> ${detail}`,
-          Number.isFinite(voltage) && voltage > 0 ? "info" : "warn",
-        );
         this.lastValues.set("robot_battery_voltage", voltage);
       }
+      this.setAlarmLabels("telemetry:moduan", collectLinearModuleAlarmLabels(message));
     });
     this.subscriptions.push(telemetryTopic);
   }
@@ -123,6 +223,7 @@ export class StatusMonitorController {
     this.subscriptions = [];
     this.lastValues.clear();
     this.diagnosticCache.clear();
+    this.clearAlarmState();
     this.callbacks.onBatteryVoltage?.(Number.NaN);
     this.callbacks.onStatusChip?.("chassis", "warn", "索驱状态未上报");
     this.callbacks.onStatusChip?.("moduan", "warn", "末端状态未上报");

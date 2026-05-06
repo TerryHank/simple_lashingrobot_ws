@@ -1,5 +1,6 @@
 #include "tie_robot_control/moduan/error_handling.hpp"
 
+#include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <exception>
@@ -22,6 +23,21 @@ void handle_system_error(const std::string& error_msg) {
     }
     printCurrentTime();
     ros_log_printf("Moduan_log: 暂停中。\n");
+}
+
+void clear_system_error()
+{
+    bool had_error = false;
+    {
+        std::lock_guard<std::mutex> lock(error_msg_mutex);
+        had_error = error_detected.load(std::memory_order_acquire);
+        error_detected.store(false, std::memory_order_release);
+        last_error_msg.clear();
+    }
+    if (had_error) {
+        printCurrentTime();
+        ros_log_printf("Moduan_log: 软件全局错误标志已清除。\n");
+    }
 }
 
 void signalHandler(int signum)

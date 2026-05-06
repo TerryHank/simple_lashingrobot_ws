@@ -9,7 +9,7 @@ base_to_camera_mm:
 base_to_camera_rpy:
   roll: 3.141592653589793
   pitch: 0.0
-  yaw: 0.0
+  yaw: -1.5707963267948966
 cabin_to_map_sign:
   x: 1.0
   y: 1.0

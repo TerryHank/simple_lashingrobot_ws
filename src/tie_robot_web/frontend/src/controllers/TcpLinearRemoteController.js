@@ -10,9 +10,9 @@ const TCP_LINEAR_REMOTE_DIRECTION_DEFINITIONS = {
 };
 
 const TCP_LINEAR_TRAVEL_LIMITS_MM = Object.freeze({
-  x: { min: 0, max: 360 },
-  y: { min: 0, max: 320 },
-  z: { min: 0, max: 140 },
+  x: { min: 0, max: 380 },
+  y: { min: 0, max: 330 },
+  z: { min: 0, max: 160 },
 });
 
 function sanitizeNumber(value, fallback = 0) {

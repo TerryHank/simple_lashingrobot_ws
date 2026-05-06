@@ -85,7 +85,7 @@ export function triggerWorkspaceCenterScanPoseMove() {
   });
 }
 
-export function triggerExecutionLayer(clearExecutionMemory = true) {
+export function triggerExecutionLayer({ useExecutionMemory = false, clearExecutionMemory = false } = {}) {
   if (!state.executionModeService || !state.startGlobalWorkActionClient) {
     setStatus("ROS 还没连好，暂时不能开始执行层", "warn");
     return;
@@ -94,9 +94,11 @@ export function triggerExecutionLayer(clearExecutionMemory = true) {
   state.lastExecutionResultImageMessage = null;
   drawS2Overlay();
   setStatus(
-    clearExecutionMemory
+    !useExecutionMemory
+      ? "已切到视觉精校执行，执行记忆关闭，正在开始执行层..."
+      : clearExecutionMemory
       ? "已切到视觉精校执行，正在清记忆并开始执行层..."
-      : "已切到视觉精校执行，正在保留记忆直接开始执行层...",
+      : "已切到视觉精校执行，正在按执行记忆续跑...",
     "success",
   );
   if (resultStatusEl) {
@@ -110,6 +112,7 @@ export function triggerExecutionLayer(clearExecutionMemory = true) {
         actionClient: state.startGlobalWorkActionClient,
         goalMessage: {
           clear_execution_memory: clearExecutionMemory,
+          use_execution_memory: useExecutionMemory,
           execution_mode: 1,
         },
       });

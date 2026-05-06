@@ -67,8 +67,8 @@ def _apply_transposed_rotation(rotation_matrix, vector):
     ]
 
 
-def camera_coord_to_tcp_jaw_coord(camera_coord, config=None, current_tcp_mm=None):
-    """Convert Scepter camera millimeter coordinates into gripper/TCP local coordinates."""
+def camera_coord_to_tcp_jaw_coord(camera_coord, config=None):
+    """Convert Scepter camera millimeter coordinates into gripper_frame TCP coordinates."""
     if config is None:
         config = _load_tcp_display_config()
 
@@ -86,18 +86,11 @@ def camera_coord_to_tcp_jaw_coord(camera_coord, config=None, current_tcp_mm=None
         rotation["yaw"],
     )
     gripper_coord = _apply_transposed_rotation(rotation_matrix, parent_delta)
-    if not current_tcp_mm:
-        return gripper_coord
-
-    return [
-        gripper_coord[0] - float(current_tcp_mm.get("x", 0.0)),
-        gripper_coord[1] - float(current_tcp_mm.get("y", 0.0)),
-        gripper_coord[2] - float(current_tcp_mm.get("z", 0.0)),
-    ]
+    return gripper_coord
 
 
-def camera_channels_to_tcp_jaw_channels(x_channel, y_channel, z_channel, config=None, current_tcp_mm=None):
-    """Vectorized camera-channel conversion into gripper/TCP coordinates."""
+def camera_channels_to_tcp_jaw_channels(x_channel, y_channel, z_channel, config=None):
+    """Vectorized camera-channel conversion into gripper_frame TCP coordinates."""
     if config is None:
         config = _load_tcp_display_config()
 
@@ -131,10 +124,5 @@ def camera_channels_to_tcp_jaw_channels(x_channel, y_channel, z_channel, config=
         + (rotation_matrix[1][2] * parent_delta_y)
         + (rotation_matrix[2][2] * parent_delta_z)
     )
-
-    if current_tcp_mm:
-        gripper_x = gripper_x - float(current_tcp_mm.get("x", 0.0))
-        gripper_y = gripper_y - float(current_tcp_mm.get("y", 0.0))
-        gripper_z = gripper_z - float(current_tcp_mm.get("z", 0.0))
 
     return gripper_x, gripper_y, gripper_z

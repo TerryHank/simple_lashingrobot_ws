@@ -15,6 +15,9 @@ function buildFloatMessage(command, parameters) {
   if (command.id === 18) {
     return { data: 3 };
   }
+  if (command.id === 25) {
+    return { data: 2 };
+  }
   if (command.id === 19) {
     return { data: Number(parameters.globalZ) || 0 };
   }
@@ -177,6 +180,56 @@ export class LegacyCommandController {
     const humanState = nextValue ? "已开启" : "已关闭";
     this.callbacks.onResultMessage?.(`${label}，${humanState}`);
     this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，状态=${humanState}`, "success");
+    return { value: nextValue, label, tone };
+  }
+
+  handleToggleLongPress(toggleId, parameters) {
+    const definition = getControlToggleDefinition(toggleId);
+    if (!definition) {
+      this.callbacks.onResultMessage?.(`未识别的开关动作: ${toggleId}`);
+      this.callbacks.onLog?.(`未识别的开关动作: ${toggleId}`, "warn");
+      return null;
+    }
+
+    const currentValue = this.toggleStates.has(toggleId)
+      ? this.toggleStates.get(toggleId)
+      : Boolean(definition.initialValue);
+    const longPressCommandId = currentValue
+      ? definition.longPressCommandId
+      : definition.inactiveLongPressCommandId;
+    const longPressRequired = currentValue
+      ? definition.activeRequiresLongPress
+      : definition.inactiveRequiresLongPress;
+    if (!longPressRequired || !longPressCommandId) {
+      return this.handleToggle(toggleId, parameters);
+    }
+
+    const resources = this.rosConnection.getResources();
+    if (!resources?.ros) {
+      this.callbacks.onResultMessage?.(`ROS 未连接，无法执行: ${definition.activeLabel}`);
+      this.callbacks.onLog?.(`ROS 未连接，无法执行长按开关: ${toggleId}`, "warn");
+      return null;
+    }
+
+    const command = LEGACY_COMMANDS.find((item) => item.id === longPressCommandId);
+    if (!command) {
+      this.callbacks.onResultMessage?.(`开关 ${toggleId} 缺少长按命令`);
+      this.callbacks.onLog?.(`开关 ${toggleId} 缺少长按命令`, "error");
+      return null;
+    }
+
+    const publisher = this.getOrCreatePublisher(resources.ros, command.topic, command.type);
+    const payload = this.buildMessagePayload(command, parameters);
+    publisher.publish(new ROSLIB.Message(payload));
+
+    const nextValue = false;
+    this.toggleStates.set(toggleId, nextValue);
+    const label = definition.inactiveLabel;
+    const tone = definition.inactiveTone;
+    this.callbacks.onResultMessage?.(
+      `${command.name}已下发，当前工作停止后，等待线性模组Z轴先归零，再让索驱回到执行起点`,
+    );
+    this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，状态=恢复回起点`, "success");
     return { value: nextValue, label, tone };
   }
 

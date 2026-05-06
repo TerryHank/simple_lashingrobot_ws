@@ -271,6 +271,47 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         )
         self.assertNotIn("try_scan_only_manual_workspace_s2", wait_loop_text)
 
+    def test_all_visual_trigger_modes_wait_for_release_frame_count(self):
+        service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        manual_workspace_s2_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "manual_workspace_s2.py"
+        ).read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        start_index = service_text.index("def wait_for_stable_point_coords(self, request_mode):")
+        end_index = service_text.index("def handle_process_image(self, req):", start_index)
+        wait_loop_text = service_text[start_index:end_index]
+
+        self.assertIn("def run_visual_detection_with_release_frames(self, request_mode):", service_text)
+        self.assertIn("cls.run_visual_detection_with_release_frames = process_image_service.run_visual_detection_with_release_frames", processor_text)
+        self.assertIn("release_frame_only_modes = {", wait_loop_text)
+        self.assertIn("PROCESS_IMAGE_MODE_SCAN_ONLY", wait_loop_text)
+        self.assertIn("PROCESS_IMAGE_MODE_EXECUTION_REFINE", wait_loop_text)
+        self.assertIn("if request_mode in release_frame_only_modes:", wait_loop_text)
+        self.assertIn("len(stable_snapshots) >= mode_frame_count", wait_loop_text)
+        self.assertNotIn("if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:\n            result = self.evaluate_point_coords_for_mode", wait_loop_text)
+
+        self.assertIn("self.run_visual_detection_with_release_frames(PROCESS_IMAGE_MODE_SCAN_ONLY)", manual_workspace_s2_text)
+        manual_callback_start = manual_workspace_s2_text.index("def manual_workspace_s2_callback(self, msg):")
+        recognize_start = manual_workspace_s2_text.index("def handle_lashing_recognize_once(self, _req):")
+        direct_trigger_text = manual_workspace_s2_text[manual_callback_start:]
+        manual_callback_text = manual_workspace_s2_text[manual_callback_start:recognize_start]
+        recognize_text = manual_workspace_s2_text[recognize_start:]
+        self.assertNotIn("self.run_manual_workspace_s2()", manual_callback_text)
+        self.assertNotIn("self.run_manual_workspace_s2()", recognize_text)
+        self.assertIn("run_visual_detection_with_release_frames", direct_trigger_text)
+
     def test_project_logs_record_scan_only_pr_fprg_rule(self):
         changelog_text = CHANGELOG_PATH.read_text(encoding="utf-8")
         knowledge_text = PR_FPRG_KNOWLEDGE_PATH.read_text(encoding="utf-8")
@@ -353,7 +394,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("self.lashing_points_camera_pub.publish(points_array_msg)", rendering_text)
         self.assertIn("self.lashing_workspace_quad_pixels_pub.publish(message)", workspace_masks_text)
         self.assertIn("def handle_lashing_recognize_once(self, _req):", manual_workspace_s2_text)
-        self.assertIn("self.run_manual_workspace_s2()", manual_workspace_s2_text)
+        self.assertIn("self.run_visual_detection_with_release_frames(PROCESS_IMAGE_MODE_SCAN_ONLY)", manual_workspace_s2_text)
 
     def test_raw_camera_bind_point_tf_uses_scepter_depth_frame_and_meters(self):
         import rospy
@@ -588,7 +629,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertNotIn("cv2.polylines(result_image, [polygon_points], True, (220, 220, 220), 2)", render_text)
 
-    def test_execution_refine_result_label_shows_tcp_jaw_coordinate(self):
+    def test_execution_refine_result_label_shows_absolute_tcp_jaw_coordinate(self):
         from tie_robot_perception.pointai import rendering
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
@@ -599,8 +640,8 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         original_converter = rendering.camera_coord_to_tcp_jaw_coord
         converter_calls = []
 
-        def fake_converter(camera_coord, current_tcp_mm=None):
-            converter_calls.append((camera_coord, current_tcp_mm))
+        def fake_converter(camera_coord):
+            converter_calls.append(camera_coord)
             return [50.6, -2.3, 14.0]
 
         rendering.camera_coord_to_tcp_jaw_coord = fake_converter
@@ -614,28 +655,84 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         finally:
             rendering.camera_coord_to_tcp_jaw_coord = original_converter
 
-        self.assertEqual(label, "3, tcp=(50.6,-2.3,14.0), SEL")
+        self.assertEqual(label, "3, tcp=(51,-2,14), SEL")
         self.assertEqual(
             converter_calls,
-            [([-65.6, 72.3, 854.0], {"x": 300.0, "y": 0.0, "z": 100.0})],
+            [[-65.6, 72.3, 854.0]],
         )
         self.assertNotIn("cam=", label)
 
-    def test_tcp_display_can_report_current_moving_tcp_relative_coordinate(self):
+    def test_result_display_label_rounds_camera_coordinates_to_integer_mm(self):
+        from tie_robot_perception.pointai import rendering
+        from tie_robot_perception.pointai.constants import (
+            PROCESS_IMAGE_MODE_BIND_CHECK,
+            PROCESS_IMAGE_MODE_SCAN_ONLY,
+        )
+
+        class BindCheckProcessor:
+            current_result_request_mode = PROCESS_IMAGE_MODE_BIND_CHECK
+
+        class ScanOnlyProcessor:
+            current_result_request_mode = PROCESS_IMAGE_MODE_SCAN_ONLY
+
+        bind_check_label = rendering.format_result_display_label(
+            BindCheckProcessor(),
+            4,
+            [-65.6, 72.3, 854.4],
+            "SEL",
+        )
+        scan_only_label = rendering.format_result_display_label(
+            ScanOnlyProcessor(),
+            5,
+            [-65.6, 72.3, 854.4],
+            "SEL",
+        )
+
+        self.assertEqual(bind_check_label, "4, cam=(-66,72,854), SEL")
+        self.assertEqual(scan_only_label, "5, cam=(-66,72,854), SEL")
+
+    def test_tcp_display_helpers_expose_only_camera_to_gripper_frame_transform(self):
+        import inspect
+        from tie_robot_perception.pointai import tcp_display
+
+        self.assertNotIn(
+            "current_tcp_mm",
+            inspect.signature(tcp_display.camera_coord_to_tcp_jaw_coord).parameters,
+        )
+        self.assertNotIn(
+            "current_tcp_mm",
+            inspect.signature(tcp_display.camera_channels_to_tcp_jaw_channels).parameters,
+        )
+
+    def test_tcp_display_returns_gripper_frame_coordinates_without_extra_axis_mapping(self):
         from tie_robot_perception.pointai.tcp_display import camera_coord_to_tcp_jaw_coord
 
         config = {
-            "translation_mm": {"x": 285.0, "y": 70.0, "z": 740.0},
-            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 3.141592653589793},
+            "translation_mm": {"x": 10.0, "y": 20.0, "z": 30.0},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 0.0},
         }
 
-        relative_coord = camera_coord_to_tcp_jaw_coord(
-            [-65.6, 72.3, 854.0],
-            config=config,
-            current_tcp_mm={"x": 300.0, "y": 0.0, "z": 100.0},
-        )
+        absolute_coord = camera_coord_to_tcp_jaw_coord([15.0, 26.0, 39.0], config=config)
 
-        self.assertEqual([round(value, 1) for value in relative_coord], [50.6, -2.3, 14.0])
+        self.assertEqual([round(value, 1) for value in absolute_coord], [5.0, 6.0, 9.0])
+
+    def test_tcp_display_axes_match_image_upper_right_origin(self):
+        from tie_robot_perception.pointai.tcp_display import camera_coord_to_tcp_jaw_coord
+
+        config = {
+            "translation_mm": {"x": 285.0, "y": -310.0, "z": 740.0},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 1.5707963267948966},
+        }
+
+        upper_right_point = camera_coord_to_tcp_jaw_coord([285.0, -310.0, 838.0], config=config)
+        lower_right_point = camera_coord_to_tcp_jaw_coord([285.0, -188.0, 836.0], config=config)
+        upper_left_point = camera_coord_to_tcp_jaw_coord([163.0, -310.0, 836.0], config=config)
+
+        self.assertEqual([round(value, 1) for value in upper_right_point], [0.0, 0.0, 98.0])
+        self.assertEqual([round(value, 1) for value in lower_right_point], [122.0, 0.0, 96.0])
+        self.assertEqual([round(value, 1) for value in upper_left_point], [0.0, 122.0, 96.0])
+        self.assertLess(upper_right_point[0], lower_right_point[0])
+        self.assertLess(upper_right_point[1], upper_left_point[1])
 
     def test_tcp_display_vectorized_channels_match_scalar_coordinate_conversion(self):
         from tie_robot_perception.pointai.tcp_display import (
@@ -645,7 +742,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         config = {
             "translation_mm": {"x": 285.0, "y": 70.0, "z": 740.0},
-            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 3.141592653589793},
+            "rotation_rpy": {"roll": 0.0, "pitch": 0.0, "yaw": 1.5707963267948966},
         }
         x_channel = np.array([[285.0, -65.6]], dtype=np.float32)
         y_channel = np.array([[70.0, 72.3]], dtype=np.float32)
@@ -760,6 +857,109 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(
             list(points_array.PointCoordinatesArray[0].World_coord),
             [123.0, -456.0, 1789.0],
+        )
+
+    def test_manual_workspace_s2_carries_surface_dp_grid_indices(self):
+        from tie_robot_perception.pointai import manual_workspace_s2
+
+        class DummyProcessor:
+            fixed_z_value = 0.0
+
+            def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
+                return [float(pixel_x), float(pixel_y), 1000.0], [pixel_x, pixel_y], False
+
+            def sort_polygon_indices_clockwise(self, points):
+                return [0, 1, 2, 3]
+
+        points_array, _display_points = manual_workspace_s2.build_manual_workspace_s2_points_array(
+            DummyProcessor(),
+            [[12, 18], [32, 18], [12, 42], [32, 42]],
+            np.ones((80, 80), dtype=np.uint8),
+            rectified_intersections=[[10.0, 20.0], [30.0, 20.0], [10.0, 40.0], [30.0, 40.0]],
+            grid_vertical_lines=[10.0, 30.0],
+            grid_horizontal_lines=[20.0, 40.0],
+        )
+
+        self.assertEqual(points_array.count, 4)
+        grid_cells = [
+            (
+                bool(point.has_grid_index),
+                int(point.global_row),
+                int(point.global_col),
+            )
+            for point in points_array.PointCoordinatesArray
+        ]
+        self.assertEqual(
+            grid_cells,
+            [
+                (True, 0, 0),
+                (True, 0, 1),
+                (True, 1, 0),
+                (True, 1, 1),
+            ],
+        )
+
+    def test_manual_workspace_s2_orders_points_from_upper_right_tcp_origin(self):
+        from tie_robot_perception.pointai import manual_workspace_s2
+
+        class DummyProcessor:
+            fixed_z_value = 0.0
+
+            def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
+                return [float(pixel_x), float(pixel_y), 1000.0], [pixel_x, pixel_y], False
+
+            def sort_polygon_indices_clockwise(self, points):
+                return [0, 1, 2, 3]
+
+        points_array, display_points = manual_workspace_s2.build_manual_workspace_s2_points_array(
+            DummyProcessor(),
+            [[12, 42], [32, 18], [32, 42], [12, 18]],
+            np.ones((80, 80), dtype=np.uint8),
+            rectified_intersections=[[10.0, 40.0], [30.0, 20.0], [30.0, 40.0], [10.0, 20.0]],
+            grid_vertical_lines=[10.0, 30.0],
+            grid_horizontal_lines=[20.0, 40.0],
+        )
+
+        ordered_pixels = [
+            list(point.Pix_coord)
+            for point in points_array.PointCoordinatesArray
+        ]
+        ordered_indices = [
+            (int(point.idx), int(point.global_row), int(point.global_col))
+            for point in points_array.PointCoordinatesArray
+        ]
+
+        self.assertEqual(ordered_pixels, [[32, 18], [12, 18], [32, 42], [12, 42]])
+        self.assertEqual(ordered_indices, [(1, 0, 0), (2, 0, 1), (3, 1, 0), (4, 1, 1)])
+        self.assertEqual([display_point[0] for display_point in display_points], [1, 2, 3, 4])
+        self.assertEqual([display_point[1] for display_point in display_points], ordered_pixels)
+
+    def test_execution_refine_outputs_are_ordered_as_tcp_snake_rows_from_upper_right_origin(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        centers = [
+            (30, [12, 18], [-25.0, 32.0, 837.0]),
+            (10, [12, 42], [121.0, -100.0, 838.0]),
+            (40, [32, 18], [126.0, 22.0, 836.0]),
+            (20, [32, 42], [-29.0, -92.0, 839.0]),
+        ]
+
+        ordered_centers = matrix_selection.select_output_centers_for_mode(
+            object(),
+            PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+            centers,
+            [],
+        )
+
+        self.assertEqual(
+            [(center[0], center[1]) for center in ordered_centers],
+            [
+                (10, [12, 42]),
+                (20, [32, 42]),
+                (30, [12, 18]),
+                (40, [32, 18]),
+            ],
         )
 
     def test_manual_workspace_s2_logs_raw_camera_coord_without_cabin_projection(self):
@@ -2205,9 +2405,13 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32", ros_interfaces_text)
         self.assertIn("'/web/pointAI/set_stable_frame_count'", ros_interfaces_text)
         self.assertIn("self.set_stable_frame_count_callback", ros_interfaces_text)
+        self.assertIn("'/web/pointAI/set_execution_refine_tcp_roi'", ros_interfaces_text)
+        self.assertIn("self.set_execution_refine_tcp_roi_callback", ros_interfaces_text)
         self.assertIn("def set_stable_frame_count_callback(self, msg):", runtime_config_text)
         self.assertIn("self.stable_frame_count = max(1, int(getattr(msg, \"data\", 1)))", runtime_config_text)
         self.assertIn('rospy.set_param("~stable_frame_count", int(self.stable_frame_count))', runtime_config_text)
+        self.assertIn("def set_execution_refine_tcp_roi_callback(self, msg):", runtime_config_text)
+        self.assertIn('rospy.set_param("~execution_refine_tcp_roi_min_x_mm"', runtime_config_text)
 
     def test_colab_training_package_includes_full_non_rgb_modality_set(self):
         colab_script = WORKSPACE_ROOT.parent / "notebooks" / "pr_fprg_multimodal_segmentation_colab.py"
@@ -2505,10 +2709,15 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         ]
 
         for expected in (
+            'self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 380.0))',
+            'self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 330.0))',
+            'self.travel_range_max_z_mm = float(rospy.get_param("~travel_range_max_z_mm", 160.0))',
+            'self.display_bind_range_max_x_mm = float(rospy.get_param("~display_bind_range_max_x_mm", 380.0))',
+            'self.display_bind_range_max_y_mm = float(rospy.get_param("~display_bind_range_max_y_mm", 330.0))',
             'self.execution_refine_tcp_roi_min_x_mm = float(rospy.get_param("~execution_refine_tcp_roi_min_x_mm", 0.0))',
             'self.execution_refine_tcp_roi_max_x_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_x_mm", 380.0))',
-            'self.execution_refine_tcp_roi_max_y_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_y_mm", 3330.0))',
-            'self.execution_refine_tcp_roi_max_z_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_z_mm", 3160.0))',
+            'self.execution_refine_tcp_roi_max_y_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_y_mm", 330.0))',
+            'self.execution_refine_tcp_roi_max_z_mm = float(rospy.get_param("~execution_refine_tcp_roi_max_z_mm", 160.0))',
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, state_text)

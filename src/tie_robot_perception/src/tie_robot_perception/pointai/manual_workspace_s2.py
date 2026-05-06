@@ -340,6 +340,8 @@ def build_manual_workspace_s2_points_array(
     rectified_intersections=None,
     rectified_geometry=None,
     manual_workspace=None,
+    grid_vertical_lines=None,
+    grid_horizontal_lines=None,
 ):
     points_array_msg = PointsArray()
     points_array_msg.PointCoordinatesArray = []
@@ -349,9 +351,49 @@ def build_manual_workspace_s2_points_array(
         points_array_msg.count = 0
         return points_array_msg, display_points
 
-    point_index = 1
-    del rectified_intersections, rectified_geometry, manual_workspace
-    for intersection_pixel in intersection_pixels:
+    def find_nearest_grid_line_index(value, line_positions):
+        if line_positions is None or len(line_positions) <= 0:
+            return -1
+        best_index = -1
+        best_gap = None
+        for line_index, line_position in enumerate(line_positions):
+            try:
+                gap = abs(float(value) - float(line_position))
+            except (TypeError, ValueError):
+                continue
+            if best_gap is None or gap < best_gap:
+                best_gap = gap
+                best_index = int(line_index)
+        return best_index
+
+    def reverse_vertical_grid_index_from_right(left_to_right_index, line_positions):
+        if line_positions is None or len(line_positions) <= 0 or left_to_right_index < 0:
+            return int(left_to_right_index)
+        return int(len(line_positions) - 1 - left_to_right_index)
+
+    def sort_point_record_from_upper_right(record):
+        point_msg = record["point_msg"]
+        pixel_x = int(point_msg.Pix_coord[0])
+        pixel_y = int(point_msg.Pix_coord[1])
+        if bool(point_msg.has_grid_index):
+            return (
+                0,
+                int(point_msg.global_row),
+                int(point_msg.global_col),
+                pixel_y,
+                -pixel_x,
+                int(record["source_index"]),
+            )
+        return (
+            1,
+            pixel_y,
+            -pixel_x,
+            int(record["source_index"]),
+        )
+
+    point_records = []
+    del rectified_geometry, manual_workspace
+    for intersection_source_index, intersection_pixel in enumerate(intersection_pixels):
         pixel_x = int(intersection_pixel[0])
         pixel_y = int(intersection_pixel[1])
         if (
@@ -367,7 +409,7 @@ def build_manual_workspace_s2_points_array(
             continue
         log_manual_workspace_s2_camera_distance(
             self,
-            point_index,
+            len(point_records) + 1,
             pixel_x,
             pixel_y,
             camera_coord,
@@ -376,28 +418,52 @@ def build_manual_workspace_s2_points_array(
         point_msg = PointCoords()
         point_msg.is_shuiguan = False
         point_msg.Angle = -45
-        point_msg.idx = point_index
+        point_msg.idx = 0
         point_msg.Pix_coord = [pixel_x, pixel_y]
         point_msg.World_coord = [
             float(camera_coord[0]),
             float(camera_coord[1]),
             float(camera_coord[2]),
         ]
+        point_msg.has_grid_index = False
+        point_msg.global_row = -1
+        point_msg.global_col = -1
+        if (
+            rectified_intersections is not None
+            and intersection_source_index < len(rectified_intersections)
+        ):
+            rectified_point = rectified_intersections[intersection_source_index]
+            if rectified_point is not None and len(rectified_point) >= 2:
+                grid_col_left_to_right = find_nearest_grid_line_index(rectified_point[0], grid_vertical_lines)
+                grid_row = find_nearest_grid_line_index(rectified_point[1], grid_horizontal_lines)
+                if grid_row >= 0 and grid_col_left_to_right >= 0:
+                    point_msg.has_grid_index = True
+                    point_msg.global_row = int(grid_row)
+                    point_msg.global_col = reverse_vertical_grid_index_from_right(
+                        grid_col_left_to_right,
+                        grid_vertical_lines,
+                    )
+        point_records.append({
+            "source_index": intersection_source_index,
+            "point_msg": point_msg,
+            "status": "selected",
+            "status_detail": "S2",
+        })
+
+    point_records = sorted(point_records, key=sort_point_record_from_upper_right)
+    for point_index, record in enumerate(point_records, start=1):
+        point_msg = record["point_msg"]
+        point_msg.idx = point_index
         points_array_msg.PointCoordinatesArray.append(point_msg)
         display_points.append(
             (
                 point_index,
-                [pixel_x, pixel_y],
-                [
-                    float(camera_coord[0]),
-                    float(camera_coord[1]),
-                    float(camera_coord[2]),
-                ],
-                "selected",
-                "S2",
+                [int(point_msg.Pix_coord[0]), int(point_msg.Pix_coord[1])],
+                [float(value) for value in point_msg.World_coord],
+                record["status"],
+                record["status_detail"],
             )
         )
-        point_index += 1
 
     points_array_msg.count = len(points_array_msg.PointCoordinatesArray)
     return points_array_msg, display_points
@@ -456,6 +522,8 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
         rectified_intersections=surface_result.get("rectified_intersections", []),
         rectified_geometry=rectified_geometry,
         manual_workspace=s2_inputs["manual_workspace"],
+        grid_vertical_lines=vertical_lines,
+        grid_horizontal_lines=horizontal_lines,
     )
     if points_array_msg.count <= 0:
         return {
@@ -548,6 +616,11 @@ def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):
     points_array_msg, display_points = self.build_manual_workspace_s2_points_array(
         image_intersections,
         s2_inputs["workspace_mask"],
+        rectified_intersections=rectified_intersections,
+        rectified_geometry=s2_inputs["rectified_geometry"],
+        manual_workspace=s2_inputs["manual_workspace"],
+        grid_vertical_lines=vertical_lines,
+        grid_horizontal_lines=horizontal_lines,
     )
     result_image = self.render_manual_workspace_s2_result_image(
         s2_inputs["workspace_mask"],
@@ -635,13 +708,13 @@ def manual_workspace_s2_callback(self, msg):
     if not bool(getattr(msg, "data", False)):
         return
 
-    result = self.run_manual_workspace_s2()
+    result = self.run_visual_detection_with_release_frames(PROCESS_IMAGE_MODE_SCAN_ONLY)
     if not result.get("success", False):
         rospy.logwarn("pointAI manual workspace Surface-DP failed: %s", result.get("message", "unknown error"))
 
 
 def handle_lashing_recognize_once(self, _req):
-    result = self.run_manual_workspace_s2()
+    result = self.run_visual_detection_with_release_frames(PROCESS_IMAGE_MODE_SCAN_ONLY)
     success = bool(result.get("success", False))
     message = str(result.get("message", "视觉识别完成" if success else "视觉识别失败"))
     return TriggerResponse(success=success, message=message)

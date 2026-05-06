@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <limits>
 #include <set>
 #include <string>
 #include <tuple>
@@ -56,6 +59,61 @@ std::vector<int> collect_area_point_indices(const PseudoSlamGroupedAreaEntry& ar
     return indices;
 }
 
+std::array<float, 2> compute_group_min_world_xy(const PseudoSlamGroupedAreaEntry& area_entry)
+{
+    float min_x = std::numeric_limits<float>::max();
+    float min_y = std::numeric_limits<float>::max();
+    for (const auto& bind_group : area_entry.bind_groups) {
+        for (const auto& point : bind_group.bind_points_world) {
+            min_x = std::min(min_x, point.World_coord[0]);
+            min_y = std::min(min_y, point.World_coord[1]);
+        }
+    }
+    if (min_x == std::numeric_limits<float>::max()) {
+        return {0.0f, 0.0f};
+    }
+    return {min_x, min_y};
+}
+
+std::array<float, 3> compute_local_group_center(
+    const PseudoSlamGroupedAreaEntry& area_entry,
+    const tf2::Transform& gripper_from_base_link)
+{
+    tf2::Transform cabin_from_base_link;
+    cabin_from_base_link.setIdentity();
+    cabin_from_base_link.setOrigin(tf2::Vector3(
+        static_cast<double>(area_entry.cabin_point.x) / 1000.0,
+        static_cast<double>(area_entry.cabin_point.y) / 1000.0,
+        static_cast<double>(area_entry.cabin_z) / 1000.0));
+    const tf2::Transform gripper_from_cabin =
+        gripper_from_base_link * cabin_from_base_link.inverse();
+
+    std::array<double, 3> local_sum{0.0, 0.0, 0.0};
+    int point_count = 0;
+    for (const auto& bind_group : area_entry.bind_groups) {
+        for (const auto& point : bind_group.bind_points_world) {
+            const tf2::Vector3 point_in_map(
+                static_cast<double>(point.World_coord[0]) / 1000.0,
+                static_cast<double>(point.World_coord[1]) / 1000.0,
+                static_cast<double>(point.World_coord[2]) / 1000.0);
+            const tf2::Vector3 point_in_gripper = gripper_from_cabin * point_in_map;
+            local_sum[0] += point_in_gripper.x() * 1000.0;
+            local_sum[1] += point_in_gripper.y() * 1000.0;
+            local_sum[2] += point_in_gripper.z() * 1000.0;
+            point_count++;
+        }
+    }
+
+    if (point_count <= 0) {
+        return {0.0f, 0.0f, 0.0f};
+    }
+    return {
+        static_cast<float>(local_sum[0] / static_cast<double>(point_count)),
+        static_cast<float>(local_sum[1] / static_cast<double>(point_count)),
+        static_cast<float>(local_sum[2] / static_cast<double>(point_count)),
+    };
+}
+
 std::vector<std::tuple<int, int, int>> collect_area_grid_cells(
     const PseudoSlamGroupedAreaEntry& area_entry,
     int column_count)
@@ -76,6 +134,50 @@ std::unordered_map<int, std::pair<int, int>> build_cell_map(
         cells_by_index[grid_index.global_idx] = {grid_index.global_row, grid_index.global_col};
     }
     return cells_by_index;
+}
+
+std::unordered_map<int, std::pair<int, int>> build_linear_cell_map(int row_count, int column_count)
+{
+    std::unordered_map<int, std::pair<int, int>> cells_by_index;
+    for (int row = 0; row < row_count; ++row) {
+        for (int col = 0; col < column_count; ++col) {
+            cells_by_index[row * column_count + col + 1] = {row, col};
+        }
+    }
+    return cells_by_index;
+}
+
+void expect_group_uses_adjacent_checkerboard_cells(
+    const std::vector<int>& point_indices,
+    const std::unordered_map<int, std::pair<int, int>>& cells_by_index)
+{
+    ASSERT_TRUE(point_indices.size() == 2u || point_indices.size() == 4u);
+    std::set<std::pair<int, int>> unique_cells;
+    std::set<int> row_indices;
+    std::set<int> column_indices;
+    for (const int point_idx : point_indices) {
+        ASSERT_TRUE(cells_by_index.count(point_idx) > 0) << point_idx;
+        const auto cell = cells_by_index.at(point_idx);
+        EXPECT_TRUE(unique_cells.insert(cell).second);
+        row_indices.insert(cell.first);
+        column_indices.insert(cell.second);
+    }
+
+    if (point_indices.size() == 2u) {
+        ASSERT_EQ(unique_cells.size(), 2u);
+        const auto first_cell = cells_by_index.at(point_indices[0]);
+        const auto second_cell = cells_by_index.at(point_indices[1]);
+        const int row_delta = std::abs(first_cell.first - second_cell.first);
+        const int column_delta = std::abs(first_cell.second - second_cell.second);
+        EXPECT_TRUE((row_delta == 0 && column_delta == 1) || (row_delta == 1 && column_delta == 0));
+        return;
+    }
+
+    EXPECT_EQ(unique_cells.size(), 4u);
+    ASSERT_EQ(row_indices.size(), 2u);
+    ASSERT_EQ(column_indices.size(), 2u);
+    EXPECT_EQ(*row_indices.rbegin(), *row_indices.begin() + 1);
+    EXPECT_EQ(*column_indices.rbegin(), *column_indices.begin() + 1);
 }
 
 tf2::Transform make_gripper_from_base_link_transform()
@@ -115,6 +217,36 @@ TEST(DynamicBindPlanningTest, BuildsStrictTwoByTwoRectangleGroup)
     EXPECT_EQ(collect_unique_indices(bind_group).size(), 4u);
 }
 
+TEST(DynamicBindPlanningTest, CentersTwoByTwoGroupInTcpWorkspaceAtPlannedHeight)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+    const DynamicBindPlannerConfig config;
+
+    const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
+        make_world_point(1, 1075.0f, 2075.0f, 430.0f),
+        make_world_point(2, 1225.0f, 2075.0f, 430.0f),
+        make_world_point(3, 1075.0f, 2225.0f, 430.0f),
+        make_world_point(4, 1225.0f, 2225.0f, 430.0f),
+    };
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{1000.0f, 2000.0f},
+        500.0f,
+        gripper_from_base_link,
+        config);
+
+    ASSERT_EQ(bind_area_entries.size(), 1u);
+    const auto local_center = compute_local_group_center(
+        bind_area_entries.front(),
+        gripper_from_base_link);
+    EXPECT_FLOAT_EQ(config.tcp_max_x_mm, 380.0f);
+    EXPECT_FLOAT_EQ(config.tcp_max_y_mm, 330.0f);
+    EXPECT_NEAR(local_center[0], config.tcp_max_x_mm * 0.5f, 1e-3f);
+    EXPECT_NEAR(local_center[1], config.tcp_max_y_mm * 0.5f, 1e-3f);
+    EXPECT_NEAR(local_center[2], config.template_center_z_mm, 1e-3f);
+}
+
 TEST(DynamicBindPlanningTest, TraversesGridAsTwoColumnBandsFromWorldMinimumPoint)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
@@ -137,15 +269,16 @@ TEST(DynamicBindPlanningTest, TraversesGridAsTwoColumnBandsFromWorldMinimumPoint
         500.0f,
         gripper_from_base_link);
 
-    ASSERT_EQ(bind_area_entries.size(), 4u);
-    EXPECT_EQ(collect_area_grid_cells(bind_area_entries[0], 4), (std::vector<std::tuple<int, int, int>>{
-                                                               {1, 0, 0}, {2, 0, 1}, {5, 1, 0}, {6, 1, 1}}));
-    EXPECT_EQ(collect_area_grid_cells(bind_area_entries[1], 4), (std::vector<std::tuple<int, int, int>>{
-                                                               {9, 2, 0}, {10, 2, 1}, {13, 3, 0}, {14, 3, 1}}));
-    EXPECT_EQ(collect_area_grid_cells(bind_area_entries[2], 4), (std::vector<std::tuple<int, int, int>>{
-                                                               {15, 3, 2}, {16, 3, 3}, {11, 2, 2}, {12, 2, 3}}));
-    EXPECT_EQ(collect_area_grid_cells(bind_area_entries[3], 4), (std::vector<std::tuple<int, int, int>>{
-                                                               {7, 1, 2}, {8, 1, 3}, {3, 0, 2}, {4, 0, 3}}));
+    const auto cells_by_index = build_linear_cell_map(4, 4);
+    std::set<int> emitted_indices;
+    for (const auto& area_entry : bind_area_entries) {
+        const auto point_indices = collect_area_point_indices(area_entry);
+        expect_group_uses_adjacent_checkerboard_cells(point_indices, cells_by_index);
+        for (const int point_idx : point_indices) {
+            EXPECT_TRUE(emitted_indices.insert(point_idx).second);
+        }
+    }
+    EXPECT_EQ(emitted_indices.size(), planning_world_points.size());
 }
 
 TEST(DynamicBindPlanningTest, UsesProvidedGridIndicesInsteadOfReclusteringTiltedWorldRows)
@@ -174,15 +307,161 @@ TEST(DynamicBindPlanningTest, UsesProvidedGridIndicesInsteadOfReclusteringTilted
         DynamicBindPlannerConfig{},
         grid_indices);
 
-    ASSERT_EQ(bind_area_entries.size(), 4u);
+    ASSERT_FALSE(bind_area_entries.empty());
+    const auto cells_by_index = build_cell_map(grid_indices);
+    std::set<int> emitted_indices;
     for (const auto& area_entry : bind_area_entries) {
-        EXPECT_EQ(collect_area_point_indices(area_entry).size(), 4u);
+        const auto point_indices = collect_area_point_indices(area_entry);
+        expect_group_uses_adjacent_checkerboard_cells(point_indices, cells_by_index);
+        for (const int point_idx : point_indices) {
+            EXPECT_TRUE(emitted_indices.insert(point_idx).second);
+        }
+    }
+    EXPECT_EQ(emitted_indices.size(), planning_world_points.size());
+}
+
+TEST(DynamicBindPlanningTest, StartsProvidedGridTraversalFromMinimumWorldCoordinatePoint)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int world_row = 0; world_row < 4; ++world_row) {
+        for (int world_col = 0; world_col < 4; ++world_col) {
+            const int idx = world_row * 4 + world_col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                100.0f + static_cast<float>(world_col) * 150.0f,
+                200.0f + static_cast<float>(world_row) * 150.0f,
+                430.0f));
+            grid_indices.push_back(make_grid_index(idx, 3 - world_row, 3 - world_col));
+        }
+    }
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{100.0f, 200.0f},
+        500.0f,
+        gripper_from_base_link,
+        DynamicBindPlannerConfig{},
+        grid_indices);
+
+    ASSERT_FALSE(bind_area_entries.empty());
+    ASSERT_FALSE(bind_area_entries.front().bind_groups.empty());
+    ASSERT_FALSE(bind_area_entries.front().bind_groups.front().bind_points_world.empty());
+    EXPECT_EQ(bind_area_entries.front().bind_groups.front().bind_points_world.front().idx, 1);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries.front()).front(), 1);
+}
+
+TEST(DynamicBindPlanningTest, PartitionsProvidedGridIntoFixedTwoByTwoBlocks)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            const int idx = row * 4 + col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(col) * 150.0f,
+                static_cast<float>(row) * 150.0f,
+                430.0f));
+            grid_indices.push_back(make_grid_index(idx, row, col));
+        }
+    }
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        DynamicBindPlannerConfig{},
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 4u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 5, 6}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 4, 7, 8}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{11, 12, 15, 16}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[3]), (std::vector<int>{9, 10, 13, 14}));
+    for (const auto& area_entry : bind_area_entries) {
+        ASSERT_EQ(area_entry.bind_groups.size(), 1u);
         EXPECT_EQ(area_entry.bind_groups.front().group_type, "matrix_2x2");
     }
-    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 5, 6}));
-    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{9, 10, 13, 14}));
-    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{15, 16, 11, 12}));
-    EXPECT_EQ(collect_area_point_indices(bind_area_entries[3]), (std::vector<int>{7, 8, 3, 4}));
+}
+
+TEST(DynamicBindPlanningTest, TraversesProvidedGridAsSnakeRowsAlongPositiveX)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 6; ++col) {
+            const int idx = row * 6 + col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(col) * 150.0f,
+                static_cast<float>(row) * 150.0f,
+                430.0f));
+            grid_indices.push_back(make_grid_index(idx, row, col));
+        }
+    }
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        DynamicBindPlannerConfig{},
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 6u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 7, 8}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 4, 9, 10}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{5, 6, 11, 12}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[3]), (std::vector<int>{17, 18, 23, 24}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[4]), (std::vector<int>{15, 16, 21, 22}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[5]), (std::vector<int>{13, 14, 19, 20}));
+    for (const auto& area_entry : bind_area_entries) {
+        ASSERT_EQ(area_entry.bind_groups.size(), 1u);
+        EXPECT_EQ(area_entry.bind_groups.front().group_type, "matrix_2x2");
+    }
+}
+
+TEST(DynamicBindPlanningTest, KeepsProvidedOddGridRemainderPairsOnlyOnOuterEdges)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            const int idx = row * 3 + col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(col) * 150.0f,
+                static_cast<float>(row) * 150.0f,
+                430.0f));
+            grid_indices.push_back(make_grid_index(idx, row, col));
+        }
+    }
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        DynamicBindPlannerConfig{},
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 3u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 4, 5}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 6}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{7, 8}));
+    EXPECT_EQ(bind_area_entries[0].bind_groups.front().group_type, "matrix_2x2");
+    EXPECT_EQ(bind_area_entries[1].bind_groups.front().group_type, "matrix_2x2_edge_pair");
+    EXPECT_EQ(bind_area_entries[2].bind_groups.front().group_type, "matrix_2x2_edge_pair");
 }
 
 TEST(DynamicBindPlanningTest, KeepsOddGridEdgesAsTwoPointGroupsWithoutOneOrThreePointGroups)
@@ -207,12 +486,12 @@ TEST(DynamicBindPlanningTest, KeepsOddGridEdgesAsTwoPointGroupsWithoutOneOrThree
         485.0f,
         gripper_from_base_link);
 
-    ASSERT_EQ(bind_area_entries.size(), 3u);
-
+    ASSERT_FALSE(bind_area_entries.empty());
+    const auto cells_by_index = build_linear_cell_map(3, 3);
     std::set<int> emitted_indices;
     for (const auto& area_entry : bind_area_entries) {
         const auto point_indices = collect_area_point_indices(area_entry);
-        EXPECT_TRUE(point_indices.size() == 4u || point_indices.size() == 2u);
+        expect_group_uses_adjacent_checkerboard_cells(point_indices, cells_by_index);
         for (const int point_idx : point_indices) {
             EXPECT_TRUE(emitted_indices.insert(point_idx).second);
         }
@@ -220,7 +499,7 @@ TEST(DynamicBindPlanningTest, KeepsOddGridEdgesAsTwoPointGroupsWithoutOneOrThree
     EXPECT_EQ(emitted_indices.size(), 8u);
 }
 
-TEST(DynamicBindPlanningTest, DoesNotCreateDiagonalPairsOrDuplicatePointsForPartialBlocks)
+TEST(DynamicBindPlanningTest, DoesNotCreateInteriorPairsForPartialProvidedGridBlocks)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
 
@@ -256,38 +535,28 @@ TEST(DynamicBindPlanningTest, DoesNotCreateDiagonalPairsOrDuplicatePointsForPart
         DynamicBindPlannerConfig{},
         grid_indices);
 
-    ASSERT_EQ(bind_area_entries.size(), 3u);
+    ASSERT_EQ(bind_area_entries.size(), 1u);
     std::set<int> emitted_indices;
     for (const auto& area_entry : bind_area_entries) {
         ASSERT_EQ(area_entry.bind_groups.size(), 1u);
         const auto& bind_group = area_entry.bind_groups.front();
-        ASSERT_TRUE(bind_group.bind_points_world.size() == 2u || bind_group.bind_points_world.size() == 4u);
-        if (bind_group.bind_points_world.size() == 4u) {
-            for (const auto& point : bind_group.bind_points_world) {
-                EXPECT_TRUE(emitted_indices.insert(point.idx).second);
-            }
-            continue;
+        ASSERT_EQ(bind_group.bind_points_world.size(), 4u);
+        for (const auto& point : bind_group.bind_points_world) {
+            ASSERT_TRUE(cells_by_index.count(point.idx) > 0);
+            EXPECT_TRUE(emitted_indices.insert(point.idx).second);
         }
-        const int first_index = bind_group.bind_points_world[0].idx;
-        const int second_index = bind_group.bind_points_world[1].idx;
-        ASSERT_TRUE(cells_by_index.count(first_index) > 0);
-        ASSERT_TRUE(cells_by_index.count(second_index) > 0);
-        const auto first_cell = cells_by_index.at(first_index);
-        const auto second_cell = cells_by_index.at(second_index);
-        const int row_delta = std::abs(first_cell.first - second_cell.first);
-        const int column_delta = std::abs(first_cell.second - second_cell.second);
-        EXPECT_TRUE((row_delta == 0 && column_delta == 1) || (row_delta == 1 && column_delta == 0));
-        EXPECT_TRUE(emitted_indices.insert(first_index).second);
-        EXPECT_TRUE(emitted_indices.insert(second_index).second);
+        expect_group_uses_adjacent_checkerboard_cells(collect_area_point_indices(area_entry), cells_by_index);
     }
-    EXPECT_EQ(emitted_indices.size(), 8u);
+    EXPECT_EQ(emitted_indices.size(), 4u);
     EXPECT_TRUE(emitted_indices.count(101) > 0);
     EXPECT_TRUE(emitted_indices.count(102) > 0);
     EXPECT_TRUE(emitted_indices.count(103) > 0);
     EXPECT_TRUE(emitted_indices.count(104) > 0);
+    EXPECT_EQ(emitted_indices.count(7), 0u);
+    EXPECT_EQ(emitted_indices.count(23), 0u);
 }
 
-TEST(DynamicBindPlanningTest, PairsLaterPendingEdgePointsWhenEarlierSingleIsIsolated)
+TEST(DynamicBindPlanningTest, DoesNotPairAdjacentPointsAcrossFixedTwoByTwoBlocks)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
 
@@ -318,9 +587,18 @@ TEST(DynamicBindPlanningTest, PairsLaterPendingEdgePointsWhenEarlierSingleIsIsol
         DynamicBindPlannerConfig{},
         grid_indices);
 
-    ASSERT_EQ(bind_area_entries.size(), 2u);
-    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 3, 4}));
-    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{6, 7}));
+    std::set<int> emitted_indices;
+    for (const auto& area_entry : bind_area_entries) {
+        const auto point_indices = collect_area_point_indices(area_entry);
+        for (const int point_idx : point_indices) {
+            EXPECT_TRUE(emitted_indices.insert(point_idx).second);
+        }
+    }
+    EXPECT_EQ(bind_area_entries.size(), 1u);
+    EXPECT_EQ(emitted_indices.size(), 4u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries.front()), (std::vector<int>{1, 2, 3, 4}));
+    EXPECT_EQ(emitted_indices.count(6), 0u);
+    EXPECT_EQ(emitted_indices.count(7), 0u);
 }
 
 TEST(DynamicBindPlanningTest, RecoversPhysicallyAdjacentLeftoversFromDuplicateGridCellGap)
@@ -372,7 +650,7 @@ TEST(DynamicBindPlanningTest, RecoversPhysicallyAdjacentLeftoversFromDuplicateGr
     EXPECT_TRUE(recovered_duplicate_gap_square);
 }
 
-TEST(DynamicBindPlanningTest, UsesGeometricallyBetterOffsetTwoByTwoWindow)
+TEST(DynamicBindPlanningTest, SkipsInteriorLeftoversAcrossFixedTwoByTwoBlocks)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
 
@@ -403,14 +681,70 @@ TEST(DynamicBindPlanningTest, UsesGeometricallyBetterOffsetTwoByTwoWindow)
         DynamicBindPlannerConfig{},
         grid_indices);
 
-    bool has_regular_offset_square = false;
+    const auto cells_by_index = build_cell_map(grid_indices);
+    std::set<int> emitted_indices;
     for (const auto& area_entry : bind_area_entries) {
         const auto point_indices = collect_area_point_indices(area_entry);
-        if (point_indices == (std::vector<int>{4, 5, 6, 7})) {
-            has_regular_offset_square = true;
+        expect_group_uses_adjacent_checkerboard_cells(point_indices, cells_by_index);
+        for (const int point_idx : point_indices) {
+            EXPECT_TRUE(emitted_indices.insert(point_idx).second);
         }
     }
-    EXPECT_TRUE(has_regular_offset_square);
+    EXPECT_EQ(emitted_indices.size(), 4u);
+    EXPECT_EQ(emitted_indices.count(5), 0u);
+    EXPECT_EQ(emitted_indices.count(6), 0u);
+    EXPECT_EQ(emitted_indices.count(7), 0u);
+}
+
+TEST(DynamicBindPlanningTest, SkipsAdjacentPointsInsideIncompleteFixedBlock)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
+        make_world_point(1, 0.0f, 0.0f, 430.0f),
+        make_world_point(2, 150.0f, 0.0f, 430.0f),
+        make_world_point(3, 0.0f, 150.0f, 430.0f),
+        make_world_point(4, 150.0f, 150.0f, 430.0f),
+        make_world_point(5, 0.0f, 300.0f, 430.0f),
+        make_world_point(6, 150.0f, 300.0f, 430.0f),
+        make_world_point(7, 300.0f, 300.0f, 430.0f),
+        make_world_point(8, 450.0f, 300.0f, 430.0f),
+        make_world_point(9, 300.0f, 450.0f, 430.0f),
+        make_world_point(10, 450.0f, 450.0f, 430.0f),
+    };
+    const std::vector<DynamicBindGridIndex> grid_indices = {
+        make_grid_index(1, 0, 0),
+        make_grid_index(2, 0, 1),
+        make_grid_index(3, 1, 0),
+        make_grid_index(4, 1, 1),
+        make_grid_index(5, 2, 0),
+        make_grid_index(6, 2, 1),
+        make_grid_index(7, 2, 2),
+        make_grid_index(8, 2, 3),
+        make_grid_index(9, 3, 2),
+        make_grid_index(10, 3, 3),
+    };
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        DynamicBindPlannerConfig{},
+        grid_indices);
+
+    const auto cells_by_index = build_cell_map(grid_indices);
+    std::set<int> emitted_indices;
+    for (const auto& area_entry : bind_area_entries) {
+        const auto point_indices = collect_area_point_indices(area_entry);
+        expect_group_uses_adjacent_checkerboard_cells(point_indices, cells_by_index);
+        for (const int point_idx : point_indices) {
+            EXPECT_TRUE(emitted_indices.insert(point_idx).second);
+        }
+    }
+    EXPECT_EQ(emitted_indices.size(), 8u);
+    EXPECT_EQ(emitted_indices.count(5), 0u);
+    EXPECT_EQ(emitted_indices.count(6), 0u);
 }
 
 TEST(DynamicBindPlanningTest, ChoosesRegularDuplicateCellPointsForTwoByTwoWindow)
@@ -446,7 +780,7 @@ TEST(DynamicBindPlanningTest, ChoosesRegularDuplicateCellPointsForTwoByTwoWindow
     EXPECT_EQ(collect_area_point_indices(bind_area_entries.front()), (std::vector<int>{1, 2, 4, 6}));
 }
 
-TEST(DynamicBindPlanningTest, CoversSparseFullFieldWithPairsInsteadOfLeavingGroupableCellsUnplanned)
+TEST(DynamicBindPlanningTest, KeepsSparseFieldWithinCompleteFixedTwoByTwoBlocks)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
     const std::vector<std::string> occupied_rows = {
@@ -484,6 +818,7 @@ TEST(DynamicBindPlanningTest, CoversSparseFullFieldWithPairsInsteadOfLeavingGrou
             grid_indices.push_back(make_grid_index(idx, row, col));
         }
     }
+    const auto cells_by_index = build_cell_map(grid_indices);
 
     const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
         planning_world_points,
@@ -497,12 +832,56 @@ TEST(DynamicBindPlanningTest, CoversSparseFullFieldWithPairsInsteadOfLeavingGrou
     for (const auto& area_entry : bind_area_entries) {
         ASSERT_EQ(area_entry.bind_groups.size(), 1u);
         const auto point_indices = collect_area_point_indices(area_entry);
-        ASSERT_TRUE(point_indices.size() == 2u || point_indices.size() == 4u);
+        ASSERT_EQ(point_indices.size(), 4u);
         for (const int point_idx : point_indices) {
+            ASSERT_TRUE(cells_by_index.count(point_idx) > 0);
             EXPECT_TRUE(emitted_indices.insert(point_idx).second);
         }
+        expect_group_uses_adjacent_checkerboard_cells(point_indices, cells_by_index);
     }
-    EXPECT_GE(emitted_indices.size(), 222u);
+    EXPECT_EQ(emitted_indices.size(), 164u);
+}
+
+TEST(DynamicBindPlanningTest, TraversesProvidedImageGridSnakeRowsAlongWorldPositiveX)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int world_y_band = 0; world_y_band < 4; ++world_y_band) {
+        for (int world_x_band = 0; world_x_band < 6; ++world_x_band) {
+            const int idx = world_y_band * 6 + world_x_band + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(world_x_band) * 150.0f,
+                static_cast<float>(world_y_band) * 150.0f,
+                430.0f));
+
+            grid_indices.push_back(make_grid_index(
+                idx,
+                world_x_band,
+                3 - world_y_band));
+        }
+    }
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        DynamicBindPlannerConfig{},
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 6u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 7, 8}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 4, 9, 10}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{5, 6, 11, 12}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[3]), (std::vector<int>{17, 18, 23, 24}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[4]), (std::vector<int>{15, 16, 21, 22}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[5]), (std::vector<int>{13, 14, 19, 20}));
+
+    const auto first_group_min_xy = compute_group_min_world_xy(bind_area_entries.front());
+    EXPECT_FLOAT_EQ(first_group_min_xy[0], 0.0f);
+    EXPECT_FLOAT_EQ(first_group_min_xy[1], 0.0f);
 }
 
 TEST(DynamicBindPlanningTest, SkipsIrregularFourPointShapeThatIsNotATwoByTwoMatrix)

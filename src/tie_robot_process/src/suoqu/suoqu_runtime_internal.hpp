@@ -54,7 +54,9 @@ struct Cabin_State
 enum class GlobalExecutionMode
 {
     kSlamPrecomputed = 0,
-    kLiveVisual = 1,
+    kLedgerWithRefine = 1,
+    kLiveVisual = kLedgerWithRefine,
+    kPlannedPathRefineOnly = 2,
 };
 
 enum class PseudoSlamScanStrategy
@@ -129,9 +131,9 @@ using BindExecutionPathOriginPose = tie_robot_process::planning::BindExecutionPa
 constexpr int MOTION_COMMAND_STATUS_RETRY_LOG_INTERVAL_SEC = 2;
 constexpr uint8_t kProcessImageModeScanOnly = 3;
 constexpr uint8_t kProcessImageModeExecutionRefine = 4;
-constexpr float kTravelMaxXMm = 360.0f;
-constexpr float kTravelMaxYMm = 320.0f;
-constexpr float kTravelMaxZMm = 140.0f;
+constexpr float kTravelMaxXMm = 380.0f;
+constexpr float kTravelMaxYMm = 330.0f;
+constexpr float kTravelMaxZMm = 160.0f;
 constexpr float kBindExecutionCabinMinZMm = 485.0f;
 constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
 constexpr float kPseudoSlamClosePointClusterXYToleranceMm = 100.0f;
@@ -156,9 +158,10 @@ constexpr float kCurrentAreaBindTestMinCabinSpeedMmPerSec = 450.0f;
 constexpr float kExecutionArrivalToleranceMm = 40.0f;
 constexpr int kExecutionArrivalStableSampleCount = 2;
 constexpr float kExecutionArrivalPoseDeltaToleranceMm = 5.0f;
-constexpr float kDynamicBindTemplateCenterXMm = 150.0f;
-constexpr float kDynamicBindTemplateCenterYMm = 150.0f;
+constexpr float kDynamicBindTemplateCenterXMm = 190.0f;
+constexpr float kDynamicBindTemplateCenterYMm = 165.0f;
 constexpr float kDynamicBindTemplateCenterZMm = 70.0f;
+constexpr float kDynamicBindNominalGridSpacingMm = 150.0f;
 constexpr float kDynamicBindSnakeRowToleranceMm = 90.0f;
 constexpr int kDynamicBindSeedNeighborCount = 8;
 constexpr int kPseudoSlamScanFrameCount = 2;
@@ -263,7 +266,6 @@ bool transform_cabin_world_point_to_gripper_point(
     const tie_robot_msgs::PointCoords& world_point,
     tie_robot_msgs::PointCoords& gripper_point
 );
-bool is_local_bind_point_in_range(const tie_robot_msgs::PointCoords& point);
 std::vector<tie_robot_msgs::PointCoords> dedupe_world_points(
     const std::vector<tie_robot_msgs::PointCoords>& input_points
 );
@@ -352,7 +354,8 @@ bool load_scan_artifacts_for_execution(
     nlohmann::json& bind_path_json,
     const BindExecutionMemory& bind_execution_memory,
     const std::string& current_path_signature,
-    std::string& error_message
+    std::string& error_message,
+    bool use_execution_memory = true
 );
 bool load_live_visual_checkerboard_grid(
     const nlohmann::json& points_json,
@@ -484,8 +487,9 @@ bool run_pseudo_slam_scan(
 );
 bool run_current_area_bind_from_scan_test(std::string& message);
 bool run_bind_path_direct_test(std::string& message);
-bool run_live_visual_global_work(std::string& message);
-bool run_bind_from_scan(std::string& message);
+bool run_live_visual_global_work(std::string& message, bool use_execution_memory = true);
+bool run_planned_path_refine_only_global_work(std::string& message, bool use_execution_memory = true);
+bool run_bind_from_scan(std::string& message, bool use_execution_memory = true);
 
 bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
 bool cabinDriverStartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);

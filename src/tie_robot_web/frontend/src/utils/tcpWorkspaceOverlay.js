@@ -1,15 +1,55 @@
 export const TCP_WORKSPACE_BOUNDARY_MM = Object.freeze({
   x: Object.freeze({ min: 0, max: 380 }),
   y: Object.freeze({ min: 0, max: 330 }),
-  z: 0,
+  z: Object.freeze({ min: 0, max: 160 }),
 });
 
-export function buildTcpWorkspaceBoundaryPointsMm(bounds = TCP_WORKSPACE_BOUNDARY_MM) {
-  const xMin = Number(bounds?.x?.min);
-  const xMax = Number(bounds?.x?.max);
-  const yMin = Number(bounds?.y?.min);
-  const yMax = Number(bounds?.y?.max);
-  const z = Number(bounds?.z);
+function normalizeAxisRangeMm(value, fallback) {
+  const fallbackMin = Number(fallback?.min);
+  const fallbackMax = Number(fallback?.max);
+  const min = Number(value?.min);
+  const max = Number(value?.max);
+  if (![min, max].every(Number.isFinite)) {
+    return {
+      min: fallbackMin,
+      max: fallbackMax,
+    };
+  }
+  return min <= max
+    ? { min, max }
+    : { min: max, max: min };
+}
+
+export function normalizeTcpWorkspaceBoundaryMm(
+  bounds = TCP_WORKSPACE_BOUNDARY_MM,
+  fallback = TCP_WORKSPACE_BOUNDARY_MM,
+) {
+  return {
+    x: normalizeAxisRangeMm(bounds?.x, fallback.x),
+    y: normalizeAxisRangeMm(bounds?.y, fallback.y),
+    z: normalizeAxisRangeMm(bounds?.z, fallback.z),
+  };
+}
+
+function resolveTcpWorkspaceZLevels(bounds = TCP_WORKSPACE_BOUNDARY_MM) {
+  const normalizedBounds = normalizeTcpWorkspaceBoundaryMm(bounds);
+  const zMin = Number(normalizedBounds.z.min);
+  const zMax = Number(normalizedBounds.z.max);
+  if (![zMin, zMax].every(Number.isFinite)) {
+    return [];
+  }
+  return zMin === zMax ? [zMin] : [zMin, zMax];
+}
+
+export function buildTcpWorkspaceBoundaryPointsMm(bounds = TCP_WORKSPACE_BOUNDARY_MM, zOverride = null) {
+  const normalizedBounds = normalizeTcpWorkspaceBoundaryMm(bounds);
+  const xMin = Number(normalizedBounds.x.min);
+  const xMax = Number(normalizedBounds.x.max);
+  const yMin = Number(normalizedBounds.y.min);
+  const yMax = Number(normalizedBounds.y.max);
+  const z = zOverride === null || zOverride === undefined
+    ? resolveTcpWorkspaceZLevels(normalizedBounds)[0]
+    : Number(zOverride);
   if (![xMin, xMax, yMin, yMax, z].every(Number.isFinite)) {
     return [];
   }
@@ -19,6 +59,22 @@ export function buildTcpWorkspaceBoundaryPointsMm(bounds = TCP_WORKSPACE_BOUNDAR
     { x: xMax, y: yMax, z },
     { x: xMin, y: yMax, z },
   ];
+}
+
+export function buildTcpWorkspaceBoundaryPlanesMm(bounds = TCP_WORKSPACE_BOUNDARY_MM) {
+  return resolveTcpWorkspaceZLevels(bounds)
+    .map((z) => ({ z, points: buildTcpWorkspaceBoundaryPointsMm(bounds, z) }))
+    .filter((plane) => plane.points.length === 4);
+}
+
+export function buildTcpWorkspaceBoundaryGripperPointsMm(bounds = TCP_WORKSPACE_BOUNDARY_MM, zOverride = null) {
+  return buildTcpWorkspaceBoundaryPointsMm(bounds, zOverride);
+}
+
+export function buildTcpWorkspaceBoundaryGripperPlanesMm(bounds = TCP_WORKSPACE_BOUNDARY_MM) {
+  return resolveTcpWorkspaceZLevels(bounds)
+    .map((z) => ({ z, points: buildTcpWorkspaceBoundaryGripperPointsMm(bounds, z) }))
+    .filter((plane) => plane.points.length === 4);
 }
 
 export function normalizeCameraProjection(cameraInfo) {

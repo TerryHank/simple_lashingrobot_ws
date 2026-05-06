@@ -300,14 +300,16 @@ def evaluate_point_coords_for_mode(self, point_coords, request_mode):
     if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
         result["success"] = True
         result["message"] = (
-            "扫描模式已直接输出整个矩形画幅内、规划工作区内的相机原始坐标点"
+            f"扫描模式已满足{getattr(self, 'stable_frame_count', 3)}帧释放，"
+            "输出整个矩形画幅内、规划工作区内的相机原始坐标点"
         )
         return result
 
     if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
         result["success"] = True
         result["message"] = (
-            "执行微调模式已直接输出当前局部可执行范围内的相机原始坐标点"
+            f"执行微调模式已满足{getattr(self, 'stable_frame_count', 3)}帧释放，"
+            "输出当前局部可执行范围内的相机原始坐标点"
         )
         return result
 
@@ -366,6 +368,10 @@ def wait_for_stable_point_coords(self, request_mode):
     rate = rospy.Rate(self.process_request_rate_hz)
     mode_frame_count = getattr(self, "stable_frame_count", 3)
     mode_tolerance_mm = getattr(self, "stable_z_tolerance_mm", 5.0)
+    release_frame_only_modes = {
+        PROCESS_IMAGE_MODE_SCAN_ONLY,
+        PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+    }
 
     while not rospy.is_shutdown():
         if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
@@ -412,9 +418,22 @@ def wait_for_stable_point_coords(self, request_mode):
                 continue
 
             latest_point_coords = point_coords
-            result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
-            result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
-            return result
+            snapshot = self.build_coordinate_snapshot(point_coords)
+            stable_snapshots.append(snapshot)
+            stable_snapshots = stable_snapshots[-mode_frame_count:]
+            if len(stable_snapshots) >= mode_frame_count:
+                result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
+                result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
+                return result
+
+            rospy.loginfo_throttle(
+                2.0,
+                "pointAI等待执行微调视觉释放帧: %d/%d帧",
+                len(stable_snapshots),
+                mode_frame_count,
+            )
+            rate.sleep()
+            continue
 
         if self.load_manual_workspace_quad() is None:
             missing_workspace_message = (
@@ -450,22 +469,25 @@ def wait_for_stable_point_coords(self, request_mode):
             continue
 
         latest_point_coords = point_coords
-        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-            result = self.evaluate_point_coords_for_mode(latest_point_coords, request_mode)
-            result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
-            return result
-
-        if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
+        if request_mode in release_frame_only_modes:
+            snapshot = self.build_coordinate_snapshot(point_coords)
+        elif request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             snapshot = self.build_coordinate_snapshot(point_coords)
         else:
             snapshot = self.build_z_snapshot(point_coords)
 
-        if stable_snapshots and tuple(item[0] for item in snapshot) != tuple(item[0] for item in stable_snapshots[-1]):
+        if (
+            request_mode not in release_frame_only_modes
+            and stable_snapshots
+            and tuple(item[0] for item in snapshot) != tuple(item[0] for item in stable_snapshots[-1])
+        ):
             stable_snapshots = []
         stable_snapshots.append(snapshot)
         stable_snapshots = stable_snapshots[-mode_frame_count:]
 
-        if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
+        if request_mode in release_frame_only_modes:
+            is_stable = len(stable_snapshots) >= mode_frame_count
+        elif request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             is_stable = self.is_stable_coordinate_window(
                 stable_snapshots,
                 frame_count=mode_frame_count,
@@ -484,7 +506,14 @@ def wait_for_stable_point_coords(self, request_mode):
                 result["single_frame_elapsed_ms"] = single_frame_elapsed_ms
                 return result
 
-        if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
+        if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+            rospy.loginfo_throttle(
+                2.0,
+                "pointAI等待扫描视觉释放帧: %d/%d帧",
+                len(stable_snapshots),
+                mode_frame_count,
+            )
+        elif request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
             rospy.loginfo_throttle(
                 2.0,
                 "pointAI等待绑扎点坐标稳定: %d/%d帧，坐标容差在+-%.1fmm内",
@@ -512,13 +541,22 @@ def wait_for_stable_point_coords(self, request_mode):
     }
 
 
+def run_visual_detection_with_release_frames(self, request_mode):
+    self.current_result_request_mode = request_mode
+    self.mark_visual_process_request()
+    result = self.wait_for_stable_point_coords(request_mode)
+    self.mark_visual_process_result(
+        bool(result.get("success", False)),
+        str(result.get("message", "")),
+    )
+    return result
+
+
 def handle_process_image(self, req):
     request_mode = self.get_request_mode(req)
-    self.current_result_request_mode = request_mode
     start_time = time.perf_counter()
-    self.mark_visual_process_request()
     try:
-        result = self.wait_for_stable_point_coords(request_mode)
+        result = self.run_visual_detection_with_release_frames(request_mode)
         out_of_height_points = list(
             zip(
                 result.get("out_of_height_point_indices", []),
@@ -545,7 +583,6 @@ def handle_process_image(self, req):
             elapsed_sec,
             single_frame_elapsed_ms=single_frame_elapsed_ms,
         )
-        self.mark_visual_process_result(response.success, response.message)
         return response
 
     except Exception as e:

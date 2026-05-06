@@ -46,6 +46,15 @@ from tie_robot_perception.perception.workspace_s2 import (
 from .constants import *
 from .tcp_display import camera_coord_to_tcp_jaw_coord
 
+
+def format_display_mm(value):
+    return str(int(math.floor(float(value) + 0.5)))
+
+
+def format_display_coord_triplet_mm(coord):
+    return ",".join(format_display_mm(coord[index]) for index in range(3))
+
+
 def get_text_bbox(self, text, position, font=cv2.FONT_HERSHEY_SIMPLEX, font_scale=0.23, thickness=1):
     (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
     x, y = position
@@ -185,20 +194,16 @@ def render_manual_workspace_s2_result_image(self, workspace_mask, line_segments,
 
 
 def format_result_display_label(self, display_idx, world_coord, status_text):
+    camera_coord_text = format_display_coord_triplet_mm(world_coord)
     if self.current_result_request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-        return f"{display_idx}, {world_coord}, {status_text}"
+        return f"{display_idx}, cam=({camera_coord_text}), {status_text}"
 
     if self.current_result_request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-        tcp_x, tcp_y, tcp_z = camera_coord_to_tcp_jaw_coord(
-            world_coord,
-            current_tcp_mm=getattr(self, "current_linear_module_position_mm", None),
-        )
-        return f"{display_idx}, tcp=({tcp_x:.1f},{tcp_y:.1f},{tcp_z:.1f}), {status_text}"
+        tcp_x, tcp_y, tcp_z = camera_coord_to_tcp_jaw_coord(world_coord)
+        tcp_coord_text = format_display_coord_triplet_mm((tcp_x, tcp_y, tcp_z))
+        return f"{display_idx}, tcp=({tcp_coord_text}), {status_text}"
 
-    camera_x = float(world_coord[0])
-    camera_y = float(world_coord[1])
-    camera_z = float(world_coord[2])
-    return f"{display_idx}, cam=({camera_x:.1f},{camera_y:.1f},{camera_z:.1f}), {status_text}"
+    return f"{display_idx}, cam=({camera_coord_text}), {status_text}"
 
 
 def publish_manual_workspace_s2_result(self, result_image, points_array_msg):

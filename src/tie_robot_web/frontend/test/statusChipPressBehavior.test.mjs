@@ -16,9 +16,18 @@ function createFakeStatusChip({ statusId = "chassis", statusAction = "", statusL
   const chip = {
     dataset: { statusId, statusAction, statusLongAction },
     disabled: false,
-    className: "",
     title: "",
     attributes: new Map(),
+    get className() {
+      return [...classNames].join(" ");
+    },
+    set className(value) {
+      classNames.clear();
+      String(value || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((name) => classNames.add(name));
+    },
     classList: {
       add(name) {
         classNames.add(name);
@@ -134,7 +143,9 @@ chip.dispatch("pointerdown", {
   preventDefault() {},
 });
 assert.equal(chip.classList.contains("is-long-press-charging"), true);
-assert.equal(scheduledTimers.at(-1).delay, 2000);
+assert.equal(scheduledTimers.at(-1).delay, 500);
+UIController.prototype.setStatusChipState.call({ rootElement: makeRootForChip(chip) }, "chassis", "success", "状态刷新");
+assert.equal(chip.classList.contains("is-long-press-charging"), true);
 chip.dispatch("pointerup");
 assert.equal(clearedTimer, true);
 assert.equal(chip.classList.contains("is-long-press-charging"), false);
@@ -154,7 +165,7 @@ chip.dispatch("pointerdown", {
   preventDefault() {},
 });
 assert.equal(chip.classList.contains("is-long-press-charging"), true);
-assert.equal(scheduledTimers.at(-1).delay, 2000);
+assert.equal(scheduledTimers.at(-1).delay, 500);
 scheduledTimers.at(-1).callback();
 assert.equal(chip.classList.contains("is-long-press-charging"), false);
 assert.equal(chip.classList.contains("is-long-press-complete"), true);
@@ -167,8 +178,8 @@ chip.dispatch("click", {
 assert.deepEqual(calls, [{ statusId: "chassis", actionId: "restartCabinSubsystem" }]);
 
 const stylesheetText = readFileSync(resolve(frontendRoot, "src/styles/app.css"), "utf-8");
-assert.match(stylesheetText, /animation:\s*status-charge-fill 2s linear forwards/);
-assert.match(stylesheetText, /animation:\s*status-charge-sweep 2s ease-out forwards/);
+assert.match(stylesheetText, /animation:\s*status-charge-fill 0\.5s linear forwards/);
+assert.match(stylesheetText, /animation:\s*status-charge-sweep 0\.5s ease-out forwards/);
 assert.match(stylesheetText, /\.system-status-item::after[\s\S]*width:\s*100%;/);
 assert.match(stylesheetText, /transform:\s*translateX\(-100%\);/);
 assert.match(stylesheetText, /\.system-status-item\.is-long-press-complete::before[\s\S]*transform:\s*scaleX\(1\);/);

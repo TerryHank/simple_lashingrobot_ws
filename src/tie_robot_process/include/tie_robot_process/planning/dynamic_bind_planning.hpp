@@ -46,13 +46,14 @@ struct DynamicBindGridIndex
 
 struct DynamicBindPlannerConfig
 {
-    float tcp_max_x_mm = 360.0f;
-    float tcp_max_y_mm = 320.0f;
-    float tcp_max_z_mm = 140.0f;
+    float tcp_max_x_mm = 380.0f;
+    float tcp_max_y_mm = 330.0f;
+    float tcp_max_z_mm = 160.0f;
     float bind_execution_cabin_min_z_mm = 485.0f;
-    float template_center_x_mm = 150.0f;
-    float template_center_y_mm = 150.0f;
+    float template_center_x_mm = 190.0f;
+    float template_center_y_mm = 165.0f;
     float template_center_z_mm = 70.0f;
+    float nominal_grid_spacing_mm = 150.0f;
     float matrix_row_threshold_mm = 40.0f;
     float matrix_column_threshold_mm = 45.0f;
     float snake_row_tolerance_mm = 90.0f;

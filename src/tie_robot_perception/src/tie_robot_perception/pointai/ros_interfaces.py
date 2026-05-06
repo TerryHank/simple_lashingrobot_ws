@@ -19,6 +19,7 @@ def register_ros_interfaces(self):
     rospy.Subscriber('/web/pointAI/set_workspace_quad', Float32MultiArray, self.manual_workspace_quad_callback)
     rospy.Subscriber('/web/pointAI/run_workspace_s2', Bool, self.manual_workspace_s2_callback)
     rospy.Subscriber('/web/pointAI/set_stable_frame_count', Int32, self.set_stable_frame_count_callback)
+    rospy.Subscriber('/web/pointAI/set_execution_refine_tcp_roi', Float32MultiArray, self.set_execution_refine_tcp_roi_callback)
     rospy.Subscriber('/web/pointAI/move_to_workspace_center_scan_pose', Bool, self.workspace_center_scan_pose_callback)
     rospy.Subscriber('/web/pointAI/set_height_threshold', Float32, self.fixed_z_value_callback)
     rospy.Subscriber('/web/moduan/send_odd_points', Bool, self.jump_bind_callback)
@@ -81,6 +82,12 @@ def register_ros_interfaces(self):
     self.lashing_workspace_quad_pixels_pub = rospy.Publisher(
         '/perception/lashing/workspace/quad_pixels',
         Float32MultiArray,
+        queue_size=1,
+        latch=True,
+    )
+    self.lashing_workspace_quad_points_pub = rospy.Publisher(
+        '/perception/lashing/workspace/quad_camera_points',
+        PointsArray,
         queue_size=1,
         latch=True,
     )

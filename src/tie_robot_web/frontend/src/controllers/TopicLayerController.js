@@ -6,13 +6,17 @@ import {
 } from "../config/topicLayerCatalog.js";
 
 export class TopicLayerController {
-  constructor({ ui, sceneView, callbacks = {} }) {
+  constructor({ ui, sceneView, callbacks = {}, initialState = null }) {
     this.ui = ui;
     this.sceneView = sceneView;
     this.callbacks = callbacks;
     this.state = {
       ...DEFAULT_TOPIC_LAYER_STATE,
-      tfAxisFrameVisibility: { ...DEFAULT_TOPIC_LAYER_STATE.tfAxisFrameVisibility },
+      ...initialState,
+      tfAxisFrameVisibility: {
+        ...DEFAULT_TOPIC_LAYER_STATE.tfAxisFrameVisibility,
+        ...(initialState?.tfAxisFrameVisibility || {}),
+      },
     };
     this.stats = {
       filteredWorldCoordCount: 0,

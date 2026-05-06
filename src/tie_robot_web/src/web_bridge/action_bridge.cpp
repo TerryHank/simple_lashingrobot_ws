@@ -3,6 +3,20 @@
 namespace tie_robot_web {
 namespace web_bridge {
 
+std::string start_global_work_execution_mode_name(uint8_t execution_mode)
+{
+    switch (execution_mode) {
+        case 0:
+            return "slam_precomputed";
+        case 1:
+            return "ledger_with_refine";
+        case 2:
+            return "planned_path_refine_only";
+        default:
+            return "unknown";
+    }
+}
+
 void executeStartPseudoSlamScanAction(
     const tie_robot_msgs::StartPseudoSlamScanTaskGoalConstPtr& goal)
 {
@@ -60,16 +74,24 @@ void executeStartGlobalWorkAction(
     auto& server = *g_start_global_work_action_server;
     tie_robot_msgs::StartGlobalWorkTaskResult result;
     const bool clear_execution_memory = goal->clear_execution_memory;
-    const bool live_visual_mode = goal->execution_mode >= 1;
-    const std::string execution_mode_name = live_visual_mode ? "live_visual" : "slam_precomputed";
+    const bool use_execution_memory = goal->use_execution_memory;
+    const std::string execution_mode_name =
+        start_global_work_execution_mode_name(goal->execution_mode);
+    const std::string execution_memory_mode_name = !use_execution_memory
+        ? "执行记忆关闭直接开始"
+        : clear_execution_memory
+            ? "清空记忆后开始"
+            : "按执行记忆续跑";
 
     printCurrentTime();
     logMessage(
         "/web/cabin/start_global_work",
         "收到开始全局作业Action目标，模式="
-            + std::string(clear_execution_memory ? "清空记忆后开始" : "保留记忆直接开始")
+            + execution_memory_mode_name
             + "，执行模式="
-            + execution_mode_name);
+            + execution_mode_name
+            + "，执行记忆="
+            + std::string(use_execution_memory ? "开启" : "关闭"));
 
     if (server.isPreemptRequested()) {
         result.success = false;
@@ -98,6 +120,7 @@ void executeStartGlobalWorkAction(
     tie_robot_msgs::StartGlobalWork start_work_srv;
     start_work_srv.request.command = "全局运动请求";
     start_work_srv.request.clear_execution_memory = goal->clear_execution_memory;
+    start_work_srv.request.use_execution_memory = goal->use_execution_memory;
     if (!g_service_clients.chassis_start_work_with_options_client.call(start_work_srv)) {
         log_trigger_service_transport_failure("/cabin/start_work_with_options");
         result.success = false;

@@ -2,6 +2,1991 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-07 04:00 - 连接徽标长按重启中动画
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端顶部“连接成功”徽标长按触发 restartRosStack 后，现在会像索驱、末端、视觉状态胶囊一样进入 pending：禁用按钮、显示“重启中”、保留连接成功主标签并启用旋转/滑入动画；连接状态刷新不会打断该 pending 反馈，完成后恢复“长按重启”。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-DMeuumwo.js`
+- `src/tie_robot_web/web/assets/app/index-g9fs5hgq.css`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node --test test/*.test.mjs; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:56 - 当前视野边界改为IR底层SVG
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 用户要求当前可视区域边界不要通过 overlay canvas 重绘，避免高频 clearRect/stroke 消耗。前端图像层现在在 irCanvas 和 overlayCanvas 之间新增 irBaseBoundaryLayer SVG，实时视野边界只更新 SVG polygon/circle DOM 属性；overlayCanvas 继续只承载算法结果、线模范围、识别点和悬停读数。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceCanvasViewOverlay.test.mjs && node test/irImageLayerOverlayControls.test.mjs && node test/workspaceRealtimeRangeFrame.test.mjs && node test/workspaceCanvasInteractionMode.test.mjs; node test/imageHoverCoordinateReadout.test.mjs && node test/tcpWorkspaceOverlay.test.mjs; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_image_panel_supports_project_image_topics_and_overlay_switching src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_ir_image_draws_live_tcp_workspace_boundary_overlay; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:53 - 长按暂停恢复回起点跨进程中止
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 修复长按暂停/恢复作业未可靠清空当前末端任务并回执行起点的问题：末端 driver 与 motion_controller 已拆成两个进程，长按 /web/moduan/hand_sovle_warn data=2 必须同时让 driver 先写 IS_STOP=1 停止当前线性模组队列，并让 motion_controller 收到同一长按信号后置 moduan_return_zero_ordered_requested，使 ExecuteBindPoints Action/FINISHALL 等待中止；随后 /moduan/return_zero_ordered 才能接管 Z 优先回零和索驱回执行起点。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_control/test/test_single_point_bind_chain.py; python3 src/tie_robot_control/test/test_moduan_error_reset.py; python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; source /opt/ros/noetic/setup.bash && catkin_make --pkg tie_robot_control`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:46 - 当前视野边界不是扫描工作区
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 纠正图像绿色边界语义：用户要看的不是保存给扫描层识别位姿的手动工作区，而是索驱当前位置下相机当前帧实际可见物理区域边界。前端绿色边界应由 /Scepter/worldCoord/raw_world_coord 当前帧有效 3D 像素边界生成，经当前 TF 固定到 map 后再用 IR camera_info 投回图像；/perception/lashing/workspace/quad_camera_points 只代表保存的扫描工作区角点，不应用作当前视野边界。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/irImageUtils.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/workspaceRealtimeRangeFrame.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceRealtimeRangeFrame.test.mjs; node test/workspaceCanvasViewOverlay.test.mjs; node test/irImageLayerOverlayControls.test.mjs; node test/imageHoverCoordinateReadout.test.mjs; node test/tcpWorkspaceOverlay.test.mjs; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_image_panel_supports_project_image_topics_and_overlay_switching src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_ir_image_draws_live_tcp_workspace_boundary_overlay; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:35 - 线模范围与工作区投影区分
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 修正 2026-05-07 03:14 的误写口径：图像层不要关闭线性模组/TCP 工作范围蓝色投影，用户要关闭的是旧的工作区蓝色像素框。动态图像工作区投影应使用 /perception/lashing/workspace/quad_camera_points 的相机角点，前端按 TF 固定到 map 后再投回 IR 图像，并用非蓝色样式与线模范围区分；若看不到投影，优先检查 quad_camera_points、IR camera_info 和 TF 三者是否同时到达。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs`
+- `src/tie_robot_web/frontend/test/workspaceRealtimeRangeFrame.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceCanvasViewOverlay.test.mjs; node test/irImageLayerOverlayControls.test.mjs; node test/workspaceRealtimeRangeFrame.test.mjs; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_image_panel_supports_project_image_topics_and_overlay_switching src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_ir_image_draws_live_tcp_workspace_boundary_overlay; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:14 - 图像工作区投影口径收口
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端工作区显示口径收口：不要再把实时工作区作为 3D Scene 蓝色框显示，也不要在图像层恢复旧的蓝色已保存工作区框或 TCP 范围投影框。实时工作区应先按 TF 固定到 map 世界坐标，再用当前 IR 相机内参和 TF 动态投回图像；手工选区折线只在工作区选点模式显示。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceRealtimeRangeFrame.test.mjs; node test/workspaceCanvasViewOverlay.test.mjs; node test/irImageLayerOverlayControls.test.mjs; node test/workspaceCanvasInteractionMode.test.mjs; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_image_panel_supports_project_image_topics_and_overlay_switching src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_ir_image_draws_live_tcp_workspace_boundary_overlay; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:08 - 连接成功长按重启充能动画
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端顶部“连接成功”连接徽标的长按重启 ROS 现在复用 0.5 秒充能填充和扫光动画；renderConnectionBadgeState 会保留 is-long-press-charging / is-long-press-complete，避免连接状态刷新打断长按反馈。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-BZ3CPdKG.css`
+- `src/tie_robot_web/web/assets/app/index-CHpVrKeG.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/connectionBadgeAlarmBehavior.test.mjs; node test/statusChipPressBehavior.test.mjs; for test_file in test/*.test.mjs; do node "$test_file" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:08 - TCP线模移动遇软件错误不再死等
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 现场点击TCP线性模组移动后反复打印 waiting on current target pt，是因为 move_linear_module_to_target 在 error_detected 软件全局错误标志为真时进入 while(is_error) 死等，服务不返回；前端后续看到的暂停/恢复回起点日志来自另外的暂停/长按控制，不是TCP移动主动发起。现在 raw_single_move 在下发任何轴坐标前检测 error_detected，若存在软件错误立即返回失败消息，提示先复位报警或排查PLC错误，不再刷 waiting on current target pt。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_control.test.test_single_point_bind_chain src.tie_robot_control.test.test_moduan_error_reset; python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; node --test src/tie_robot_web/frontend/test/*.test.mjs; source /opt/ros/noetic/setup.bash && catkin_make --only-pkg-with-deps tie_robot_control`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 03:00 - 暂停/恢复长按回执行起点顺序收紧
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 暂停/恢复作业按钮长按不是回Home或索驱原点，而是回本轮执行起点：前端长按仍发命令25 (/web/moduan/hand_sovle_warn data=2)，process层收到data=2后先标记当前自动链终止回起点，再显式停止索驱当前运动；停止失败则不继续回起点。停止成功后调用/moduan/return_zero_ordered，control层在当前末端执行链让出后按线性模组Z轴先归零、再X/Y归零，最后process层移动索驱回记录或从pseudo_slam_bind_path恢复出的执行起点。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `src/tie_robot_web/frontend/src/controllers/LegacyCommandController.js`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-CN7T3Hck.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; node --test src/tie_robot_web/frontend/test/*.test.mjs; npm run build; source /opt/ros/noetic/setup.bash && catkin_make --only-pkg-with-deps tie_robot_process`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:55 - 暂停作业长按也直接回执行起点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端 pauseResume 控制现在短按仍按原语义：未暂停时短按‘暂停作业’发 data=1 暂停，已暂停时短按‘恢复作业’发 data=1 恢复当前流程；长按无论在‘暂停作业’还是‘恢复作业’显示态，都发命令25，即 /web/moduan/hand_sovle_warn data=2，进入末端Z优先回零后索驱回执行起点链路。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/src/controllers/LegacyCommandController.js`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-Cy-jzLzT.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; node --test src/tie_robot_web/frontend/test/*.test.mjs; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:41 - 长按恢复起点缺失时从绑扎路径兜底
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 现场长按恢复作业出现‘没有可用的执行起点记录’后没有后续，是因为 process 层 recover_paused_execution_to_start 在 execution_pause_return_pose 无效时提前返回，未调用 /moduan/return_zero_ordered；control 层收到 data=2 只设置 moduan_return_zero_ordered_requested 并等待执行链让出，不会自行回零。已新增从当前 pseudo_slam_bind_path.json 的 path_origin 或首个 area.cabin_pose 兜底恢复回起点目标，成功后继续执行末端 Z 优先回零和索驱回起点。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; source /opt/ros/noetic/setup.bash && catkin_make --only-pkg-with-deps tie_robot_process`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:35 - 连接徽标长按重启与报警短按复位
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端顶部“连接成功”连接徽标语义收口：ROS 已连接且无报警时短按不再触发报警复位，只保留长按 0.5 秒重启 ROS；状态监控上报报警后，徽标切为报警文案，短按发布 resetAllAlarms 报警复位，长按仍重启 ROS。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-oqQalhgV.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node --test src/tie_robot_web/frontend/test/*.test.mjs; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:34 - live_visual长按恢复记录规划原点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 修复默认账本+微调/live_visual执行分支长按恢复不回起点的问题：run_live_visual_global_work 开始时清理暂停状态，并在回规划原点前把 path_origin_x/y 与 clamp 后的 Z 记录为 execution_pause_return_pose。暂停 stop 遇到索驱 0x0013/status_word=0x00000004 设备未运动时视为已停止，避免空停污染错误日志。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp;src/tie_robot_hw/src/driver/cabin_driver.cpp;src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; python3 -m unittest src.tie_robot_process.test.test_cabin_tcp_transport_contract; python3 -m unittest src.tie_robot_process.test.test_cabin_protocol_contract; catkin_make --pkg tie_robot_hw tie_robot_process`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:27 - TCP线模遥控改走驱动原子移动
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- TCP线性模组遥控不再走 /moduan/single_move -> execute_bind_points -> FINISHALL 等待链。驱动节点新增 /moduan/driver/raw_single_move，直接调用 move_linear_module_to_target 写三轴目标并等待各轴到位；前端 SERVICES.moduan.singleMove 指向该 raw 服务。兼容入口 /moduan/single_move 仅转发 raw 服务或在 compat_all 中调用同一原子函数，不再包装 PointCoords。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_control/test/test_single_point_bind_chain.py; python3 src/tie_robot_web/test/test_tcp_linear_remote_raw_move.py; npm run build (src/tie_robot_web/frontend); source /opt/ros/noetic/setup.bash && catkin_make --pkg tie_robot_control`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:24 - 线性模组报警复位同步清软件全局错误
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 现场出现Z轴目标0且当前位置0仍报等待到位收到全局错误标志，根因是PLC报警复位后C++进程内error_detected/last_error_msg未清；新增clear_system_error()并在/web/moduan/hand_sovle_warn手动报警复位成功后调用，避免旧软件错误继续中断wait_linear_module_axis_arrival。
+
+### 影响范围
+
+- `src/tie_robot_control/include/tie_robot_control/moduan/error_handling.hpp;src/tie_robot_control/src/moduan/error_handling.cpp;src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp;src/tie_robot_control/test/test_moduan_error_reset.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `moduan`
+- `error-reset`
+- `field-debug`
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_moduan_error_reset.py; python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py; bash -lc 'source /opt/ros/noetic/setup.bash && catkin_make --pkg tie_robot_control'`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 02:09 - 全局执行层增加账本微调模式选择
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 视觉调试选项卡新增全局执行模式选择，默认账本+微调；开始执行层按模式派发，不再因为 pseudo_slam_bind_path.json 存在就短路到纯账本执行。
+
+### 影响范围
+
+- `src/tie_robot_msgs/srv/SetExecutionMode.srv`
+- `src/tie_robot_msgs/action/StartGlobalWorkTask.action`
+- `src/tie_robot_process/src/suoqu/service_orchestration.cpp`
+- `src/tie_robot_process/src/suoqu/suoqu_runtime_internal.hpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_web/src/web_bridge/action_bridge.cpp`
+- `src/tie_robot_web/frontend/src/config/visualRecognitionMode.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+
+### 关键决策
+
+- 全局执行模式 0=执行账本/run_bind_from_scan，1=账本+微调/run_live_visual_global_work，2=规划路径+纯微调/run_planned_path_refine_only_global_work。
+- 规划路径+纯微调只沿 pseudo_slam_bind_path.json 的 area.cabin_pose 移动，到位后每个区域调用 /moduan/sg；该模式不读取、不写入 bind_execution_memory.json。
+- SetExecutionMode.srv 与 StartGlobalWorkTask.action 保留 MODE_LIVE_VISUAL=1，同时新增 MODE_LEDGER_WITH_REFINE=1 作为更准确语义，默认值为账本+微调。
+
+### 标签
+
+- `global-execution`
+- `visual-debug`
+- `ledger-refine`
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `for f in test/*.test.mjs; do printf 'RUN %s\n' "$f"; node "$f" || exit 1; done (src/tie_robot_web/frontend)`
+- `npm run build (src/tie_robot_web/frontend)`
+- `source /opt/ros/noetic/setup.bash && catkin_make -DCATKIN_WHITELIST_PACKAGES=""`
+
+### 后续注意
+
+- 全局执行误差排查时先确认视觉调试页当前 executionMode；默认应走 ledger_with_refine，而不是历史的纯账本短路路径。
+
+## 2026-05-07 01:57 - 撤销前端动态拆包恢复同步3D
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 用户反馈动态拆包后三维刷新变慢，已撤销‘去做1’方案：TieRobotFrontApp 恢复静态导入 Scene3DView/TerminalController，Scene3DView 恢复静态 OrbitControls，main.js 恢复同步 app.init()；删除 frontendCodeSplitting.test.mjs 和动态拆包产物。当前构建回到单个主 chunk，Vite 大 chunk 警告会重新出现，这是按用户要求换回先前三维刷新路径。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js; src/tie_robot_web/frontend/src/views/Scene3DView.js; src/tie_robot_web/frontend/src/main.js; src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 不继续追求 dynamic import 拆包；优先恢复同步 3D/终端加载以避免三维刷新变慢。
+
+### 标签
+
+- `frontend`
+- `vite`
+- `rollback`
+- `3d`
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && for test_file in test/*.test.mjs; do node "$test_file" || exit 1; done; npm run build（通过，预期出现大 chunk 警告）`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 01:42 - 前端重模块动态拆包（已撤销）
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 此条为历史方案，已在 `2026-05-07 01:57 - 撤销前端动态拆包恢复同步3D` 中撤销；不要继承动态加载 3D/终端的实现。原方案曾将 Scene3DView、TerminalController、three/OrbitControls 改为 dynamic import 以消除 Vite 大 chunk 警告，但用户反馈三维刷新变慢后已回退。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js; src/tie_robot_web/frontend/src/views/Scene3DView.js; src/tie_robot_web/frontend/src/main.js; src/tie_robot_web/frontend/test/frontendCodeSplitting.test.mjs; src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 已撤销，不再作为当前工程决策。
+
+### 标签
+
+- `frontend`
+- `vite`
+- `code-splitting`
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && for test_file in test/*.test.mjs; do node "$test_file" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 01:26 - 相机视角隐藏机器人本体且俯视可拖动
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 显示与视角中切到相机视角时，3D Scene 会隐藏 base_link 对应的机器人本体 robotGroup，避免相机视角被自身模型遮挡；切回自由视角或俯视视角时按机器图层恢复。本页俯视视角保持严格沿世界 z- 方向看，但 OrbitControls 保持启用并允许平移拖动，关闭旋转以避免视角倾斜。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js; src/tie_robot_web/frontend/test/sceneViewModeBehavior.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `frontend`
+- `scene3d`
+- `view-mode`
+
+### 验证证据
+
+- `node test/sceneViewModeBehavior.test.mjs && node test/gripperTfCalibration.test.mjs && node test/topicLayerStatePersistence.test.mjs && node test/visualDebugSettings.test.mjs; npm run build; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 01:18 - 工作区范围固定为map实时投影
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 确认工作区后，前端不再把 /perception/lashing/workspace/quad_pixels 保存像素四边形画成黄色静态框；/perception/lashing/workspace/quad_camera_points 到达时会按当时 TF 固定成 map 世界坐标，并在图像 overlay 中按当前相机 TF/camera_info 实时投影，所以相机移动到工作区边界时边界会在画面中移动显现。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/workspaceRealtimeRangeFrame.test.mjs`
+- `src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceCanvasViewOverlay.test.mjs; node test/workspaceRealtimeRangeFrame.test.mjs; for test_file in test/*.mjs; do node "" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 01:18 - 单点绑扎区域内蛇形点序
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- /moduan/sg 单点绑扎执行微调返回多个点时，控制侧在 Scepter_depth_frame->gripper_frame TF 转换后按 TCP 局部 x 分行、y 交替方向蛇形排序再下发 execute_bind_points；pointAI MODE_EXECUTION_REFINE 服务响应和执行底图编号也同步改为同一 TCP 蛇形点序。扫描建图点序不随本次修改改变。
+
+### 影响范围
+
+- `CHANGELOG.md;src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp;src/tie_robot_control/test/test_single_point_bind_chain.py;src/tie_robot_perception/src/tie_robot_perception/pointai/matrix_selection.py;src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `single-bind`
+- `execution-order`
+- `snake-sort`
+
+### 验证证据
+
+- `python3 src/tie_robot_control/test/test_single_point_bind_chain.py; source /opt/ros/noetic/setup.bash && source devel/setup.bash && python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py PointAIScanOnlyPrFrpgTest.test_execution_refine_outputs_are_ordered_as_tcp_snake_rows_from_upper_right_origin; source /opt/ros/noetic/setup.bash && catkin_make --only-pkg-with-deps tie_robot_control`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 01:15 - 视觉触发统一按释放帧数放行
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- pointAI 所有视觉检测触发入口统一按视觉调试页 stable_frame_count/释放帧数放行：/pointAI/process_image 的 scan-only 和 execution-refine 不再首帧返回，而是累计到释放帧数；/web/pointAI/run_workspace_s2 与 /perception/lashing/recognize_once 也改走同一 release-frame 入口。前端 runSavedS2、executionVisionOnly、triggerSingleBind、scanPlan、startExecution、startExecutionKeepMemory 触发前会同步当前释放帧数。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py; src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py; src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py; src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js; src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py; src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `vision`
+- `frontend`
+- `pointai`
+
+### 验证证据
+
+- `PYTHONPATH=/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py; node test/taskActionController.test.mjs && node test/taskActionSurfaceDpRecognition.test.mjs && node test/visualDebugSettings.test.mjs; npm run build; py_compile; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 01:00 - 执行链只保留视觉范围校验
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 现场口径固定：绑扎点从视觉识别到下发只走 pointAI 视觉/TCP ROI 一层范围校验；控制层 execute_bind_points、手动 /moduan/move 和 pseudo_slam_bind_path 预生成组加载不再用旧 X[0,360]/Y[0,320]/Z[0,160] 或类似硬范围二次拒绝点位。pointAI 与前端 TCP 线模遥控默认显示统一到 X[0,380]/Y[0,330]/Z[0,160]mm。
+
+### 影响范围
+
+- `CHANGELOG.md;src/tie_robot_control/src/moduan/linear_module_executor.cpp;src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp;src/tie_robot_process/src/suoquNode.cpp;src/tie_robot_perception/src/tie_robot_perception/pointai/state.py;src/tie_robot_web/frontend/src/controllers/TcpLinearRemoteController.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `视觉校验`
+- `TCP ROI`
+- `执行链`
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py -k trusts_visual; python3 -m unittest src/tie_robot_process/test/test_tcp_travel_range_config.py; python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_execution_refine_hough_uses_tcp_coordinate_box_as_roi; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_tcp_linear_module_remote_page_and_ros_flow_exist; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:56 - 红外叠加不再强制切换图像话题
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 修正前端红外叠加口径：/pointAI/result_image_raw 和视觉识别结果只缓存/叠加到红外原图，结果话题到达时不再调用 setSelectedImageTopic(TOPICS.camera.irImage)，避免用户切换到扫描底图、执行底图、彩色/深度等图像层后被后台结果帧自动拉回红外原图。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/irImageLayerOverlayControls.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/irImageLayerOverlayControls.test.mjs; for test_file in test/*.test.mjs; do node "" || exit 1; done; npm run build (src/tie_robot_web/frontend)`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:51 - 前端执行结果统一叠加到红外原图
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 图像卡片不再把 /pointAI/result_image_raw 暴露为独立执行结果图层；执行/视觉结果图继续后台订阅并统一叠加到红外原图。显示与视角/图层设置新增红外识别结果、红外扫描点控制，线性模组范围开关也同步控制 IR 上的 TCP 范围投影。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/imageTopicCatalog.js`
+- `src/tie_robot_web/frontend/src/config/topicLayerCatalog.js`
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `for test_file in src/tie_robot_web/frontend/test/*.test.mjs; do node "" || exit 1; done; npm run build (src/tie_robot_web/frontend)`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:50 - 前端连接胶囊聚合报警与复位
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 右上角主连接胶囊现在聚合索驱/末端报警：ROS 连接成功且存在报警时变为黄色，并直接显示首个报警摘要（如“X轴异常等2项报警”），title 展示完整报警列表；短按发布 /web/moduan/hand_sovle_warn=1 复位报警并清空前端报警状态，长按 0.5 秒改为重启 ROS。末端报警来源同时兼容 /moduan/moduan_gesture_data 错误标志和 /diagnostics 中 tie_robot/moduan_driver，索驱报警读取 /diagnostics 的 device_alarm/internal_calc_error。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/StatusMonitorController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs`
+- `src/tie_robot_web/frontend/test/statusMonitorController.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-DKL8vGqn.js`
+- `src/tie_robot_web/web/assets/app/index-Q578f7rt.css`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/connectionBadgeAlarmBehavior.test.mjs; node test/statusMonitorController.test.mjs; node test/statusChipPressBehavior.test.mjs; node test/rosConnectionController.test.mjs; node test/systemControlCatalog.test.mjs; for f in test/*.test.mjs; do node "$f" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:38 - 图像卡片选点与悬停坐标分离
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端图像卡片现在只有在设置页切到“工作区选点”时才响应点击/拖拽选点；其他设置页下点击不再新增工作区角点，而是用鼠标悬停像素采样 /Scepter/worldCoord/raw_world_coord，并按“显示与视角”里的图像悬停坐标设置显示 map 世界坐标、gripper_frame 工具坐标或 Scepter_depth_frame 相机坐标。悬停显示只做前端 TF 换算，不改变 pointAI 原始相机点语义。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/utils/irImageUtils.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `frontend`
+- `tf`
+- `workspace`
+- `coordinate-display`
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/*.mjs 全部通过；git diff --check；npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:29 - 实时工作区范围框
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 确认工作区后，pointAI 继续发布 /perception/lashing/workspace/quad_pixels 像素四边形，并新增 /perception/lashing/workspace/quad_camera_points（tie_robot_msgs/PointsArray，World_coord 为 Scepter_depth_frame 下的相机坐标 mm）。前端订阅该实时话题，在 Scene3DView 中通过 TF 转到 map 世界坐标绘制工作区范围框；该框属于实时图层，不走静态 bind-path/API 图层。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/workspace_masks.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `frontend`
+- `perception`
+- `tf`
+- `workspace`
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/workspaceRealtimeRangeFrame.test.mjs; node src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs; frontend/test/*.mjs 全部通过; python3 -m py_compile pointAI 改动文件; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:10 - 三维绑扎范围增加独立图层开关
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 显示与视角/图层设置新增showLinearModuleBindRange状态和“绑扎范围”开关，用于单独控制gripper_frame下线性模组绑扎范围长方体显示。该状态随topic layer preference持久化；范围实体不再被showRobot硬联动隐藏，只要gripper_frame TF可用且开关开启即可单独查看。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/topicLayerCatalog.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs`
+- `src/tie_robot_web/frontend/test/topicLayerStatePersistence.test.mjs`
+- `src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs`
+- `CHANGELOG.md`
+- `src/tie_robot_web/web`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `for test_file in src/tie_robot_web/frontend/test/*.test.mjs; do node ""; done；npm run build (src/tie_robot_web/frontend)`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 00:02 - 动态绑扎路径改按世界X蛇形
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- pseudo_slam预生成绑扎路径的2x2候选组排序已改为直接依据绑扎点World_coord：先按世界Y聚成蛇形行带，再在每带沿世界X+ / X-交替遍历。视觉S2的global_row/global_col只用于棋盘相邻关系，不再作为世界Y/X轴排序依据，避免当前相机安装和图像轴语义导致长边走成世界Y。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `devel/lib/tie_robot_process/test_dynamic_bind_planning；source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 23:52 - TCP执行Z行程上限统一为160mm
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 现场日志显示预生成点 z=141~147mm 被 moduan_driver_node 按 Z[0,140] 拒绝。根因是执行层/动态规划/pointAI travel range 仍保留旧 140mm 上限，已统一到 Z[0,160]mm；视觉 ROI、3D/IR 显示、执行下发和规划过滤的 Z 上限不应再漂移。
+
+### 影响范围
+
+- `src/tie_robot_control/include/tie_robot_control/moduan/runtime_state.hpp`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_process/include/tie_robot_process/planning/dynamic_bind_planning.hpp`
+- `src/tie_robot_process/src/suoqu/suoqu_runtime_internal.hpp`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/state.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_tcp_travel_range_config.py; python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_visual_debug_runtime_controls_are_exposed_to_frontend src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_execution_refine_hough_uses_tcp_coordinate_box_as_roi; source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 23:34 - 线性模组绑扎范围可调并驱动3D/IR/pointAI ROI
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 视觉调试设置新增线性模组绑扎范围 linearModuleBindRangeMm，默认 x[0,380]/y[0,330]/z[0,160]mm；该范围持久化到 tie_robot_frontend_visual_debug_settings，并由 Scene3DView 用 gripper_frame 下的透明长方体显示，IR TCP 工作范围投影复用同一范围，同时前端通过 `/web/pointAI/set_execution_refine_tcp_roi` 下发给 pointAI 更新执行微调 TCP ROI 和 ROS 参数。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/tcpWorkspaceOverlay.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && for test_file in test/*.mjs; do node "$test_file" || exit 1; done`
+- `python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_visual_debug_runtime_controls_are_exposed_to_frontend src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_execution_refine_hough_uses_tcp_coordinate_box_as_roi`
+- `cd src/tie_robot_web/frontend && npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 23:16 - 相机机械安装姿态更新为base yaw负90
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 现场确认 Scepter_depth_frame 在 base_link 下的机械安装姿态应为：相机 -X 与 base_link +Y 重合、相机 +Y 与 base_link -X 重合、相机 +Z 朝地面（base_link -Z）。已将 robot_home_tf.yaml 和 robot_tf_broadcaster 默认 base_to_camera_rpy 改为 roll=pi,pitch=0,yaw=-pi/2。
+
+### 影响范围
+
+- `src/tie_robot_perception/config/robot_home_tf.yaml`
+- `src/tie_robot_perception/scripts/robot_tf_broadcaster.py`
+- `src/tie_robot_perception/test/test_robot_tf_broadcaster.py`
+
+### 关键决策
+
+- base_link->Scepter_depth_frame 机械相机外参使用 yaw=-pi/2，不再使用 yaw=0。
+
+### 标签
+
+- `tf`
+- `camera`
+- `robot-home`
+- `scepter`
+
+### 验证证据
+
+- `2026-05-06: python3 -m unittest src/tie_robot_perception/test/test_robot_tf_broadcaster.py -> Ran 7 tests OK; rosnode kill /robot_tf_broadcaster 后 respawn；tf_echo base_link Scepter_depth_frame 显示 RPY degree [180`
+- `0`
+- `-90]。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 22:41 - 执行图tcp标签显示绝对gripper坐标
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 执行微调结果图的 tcp=(x,y,z) 显示必须是相机坐标经 Scepter_depth_frame -> gripper_frame 后的绝对虎口/TCP坐标；不得再减 current_linear_module_position_mm 或生成当前虎口相对坐标。camera_coord_to_tcp_jaw_coord / camera_channels_to_tcp_jaw_channels 只暴露相机到 gripper_frame 的 TF 转换，不接受 current_tcp_mm。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/tcp_display.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/rendering.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/matrix_selection.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+
+### 关键决策
+
+- TCP/工具坐标系只有 gripper_frame 一个语义；结果图标签、ROI 和输出排序使用同一 camera->gripper TF 结果。
+
+### 标签
+
+- `tf`
+- `pointai`
+- `tcp-display`
+- `execution-refine`
+
+### 验证证据
+
+- `2026-05-06: python3 -m unittest src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py -> Ran 103 tests OK; rg current_tcp_mm src/tie_robot_perception/src/tie_robot_perception -> no matches.`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 22:19 - TCP坐标系收口到gripper_frame
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：排查执行层识别结果坐标后确认，TCP工具坐标系就是gripper_frame，感知侧、前端红外投影和执行层都不得再做tcp.x=380-gripper_y、tcp.y=gripper_x这类额外显示换轴。Scepter_depth_frame->gripper_frame TF已改为右上角原点口径：x+对应图像从上到下，y+对应图像从右到左；pointAI tcp_display只做与TF等价的相机点到gripper_frame变换，前端TCP范围直接投gripper_frame边界点。
+
+### 影响范围
+
+- `src/tie_robot_perception/config/gripper_tf.yaml`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/tcp_display.py`
+- `src/tie_robot_web/frontend/src/utils/tcpWorkspaceOverlay.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `pointAI 103 tests OK; gripper_tf_broadcaster 14 tests OK; frontend *.test.mjs OK; npm run build OK`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 22:06 - 执行层tcp标签改用右上角工具坐标
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：进一步修正执行层识别结果图 tcp=(...) 标签。此前只修了点序排序，但标签仍直接显示 gripper 投影轴值，导致横向变化落在 tcp.x、纵向变化落在 tcp.y，现场出现点1在点3上方但 x 不小于点3。现在 pointAI 的 tcp_display 与前端 TCP 范围投影保持同一工具坐标口径：tcp.x=380-gripper_y、tcp.y=gripper_x、tcp.z=gripper_z，再减去当前线性模组位置；执行层 Hough 输出排序也按该工具 tcp 坐标小到大。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/tcp_display.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/matrix_selection.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash; PYTHONPATH=src/tie_robot_perception/src:devel/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py; python3 src/tie_robot_perception/test/test_scan_surface_dp_runtime.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; python3 src/tie_robot_control/test/test_single_point_bind_chain.py; py_compile tcp_display/matrix/rendering/workspace_masks`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 21:49 - 绑扎点识别按右上角TCP原点排序
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：修正 pointAI 识别结果排序口径。扫描 Surface-DP 生成 PointsArray/结果图编号时，global_row 按画面上到下，global_col 按画面右到左（右上角为TCP工具原点）；执行层 Hough 输出也按像素轴 x+=向下、y+=向左排序。同步把执行层 TCP ROI 默认范围修正为 x[0,380]/y[0,330]/z[0,160]mm，避免旧错误默认值扩大范围门。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/matrix_selection.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/state.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/workspace_masks.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash; PYTHONPATH=src/tie_robot_perception/src:devel/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py; python3 src/tie_robot_perception/test/test_scan_surface_dp_runtime.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; python3 src/tie_robot_control/test/test_single_point_bind_chain.py; py_compile pointai modules`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 21:40 - 三维TCP坐标轴跟随运动TCP
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：前端三维橙色 TCP 工具方块叠加了线性模组当前位置后显示实际运动 TCP 位姿；gripper_frame/TCP 坐标轴的显示位置也应跟随这个实际运动 TCP 方块移动。注意这只是三维显示层的坐标轴位置，底层 TF 计算、投影和静态 Scepter_depth_frame->gripper_frame 外参仍保持原始 transformMap 语义。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs; frontend *.mjs tests; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 21:20 - 控制面板执行层视觉单侧
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：控制面板新增“执行层视觉单侧”按钮，语义是只调用 /pointAI/process_image request_mode=4（平面去除 + Hough 执行层视觉），不调用 /moduan/sg 或线性模组单点绑扎链。TCP工具坐标范围投影只作为红外图像覆盖层显示，不放入设置页视觉调试配置项。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/frontend/test/taskActionController.test.mjs`
+- `src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `frontend *.mjs tests; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 21:04 - TCP红外范围投影增加z160顶面
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：红外原图 TCP 工作范围覆盖层不再绘制 TCP z=0 x0-380 y0-330 这类说明文字；投影数据默认包含 TCP 工具坐标系 x[0,380]、y[0,330] 的 z=0 底面和 z=160 顶面，前端画两层矩形并用虚线连接对应角点。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/tcpWorkspaceOverlay.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`
+- `src/tie_robot_web/frontend/test/tcpWorkspaceOverlay.test.mjs`
+- `src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/tcpWorkspaceOverlay.test.mjs; node src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs; node src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs; frontend *.mjs tests; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 20:57 - 坐标显示统一到1mm精度
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：用户明确所有坐标系与显示点只需要 1mm 显示精度。后续前端 UI、IR 叠字、TF/Home/TCP/线模等坐标文本应四舍五入为整数 mm；底层 TF、规划、JSON、控制命令仍保留原始浮点用于计算和运动。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/rendering.py`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/coordinateDisplayPrecision.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/coordinateDisplayPrecision.test.mjs; node src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs; python3 -m unittest src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 20:44 - TCP红外覆盖层只做工具到gripper轴映射
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 更正上一条关于 gripper_tf yaw 的判断：TF 到前端三维口径保持正确，Scepter_depth_frame->gripper_frame 继续使用 yaw=pi；不要为了红外原图 TCP 覆盖层改 gripper_tf.yaml 的旋转。红外 overlay 的根因是把 TCP 工具坐标 x/y 直接当成 gripper_frame x/y 投影。现场像素级轴向为工具 x+ 从上到下、工具 y+ 从右到左，因此 overlay 投影前应做工具坐标到 gripper 投影点映射：tool_x 沿 -gripper_y，tool_y 沿 +gripper_x；前端实现为 buildTcpWorkspaceBoundaryGripperPointsMm，Scene3DView.projectTcpWorkspaceBoundaryToImage 使用该映射后再走 TF/CameraInfo 投影。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/tcpWorkspaceOverlay.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/test/tcpWorkspaceOverlay.test.mjs`
+- `src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs`
+- `src/tie_robot_perception/config/gripper_tf.yaml`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `frontend .mjs tests; gripper_tf_broadcaster + single_point_bind_chain unittest; pointai_scan_only_pr_fprg unittest; npm frontend build; tf_echo confirms yaw=180deg; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 20:37 - TCP gripper轴向修正为图像x下y左
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：现场确认 IR 画面像素轴向为 gripper x+ 从上到下、gripper y+ 从右到左，z+ 朝地面；Scepter_depth_frame->gripper_frame 不应继续用 yaw=pi。已将 src/tie_robot_perception/config/gripper_tf.yaml 的 rotation_rpy.yaw 从 pi 改为 pi/2，并重启 tie-robot-rosbridge.service 使运行时 TF 生效。tf_echo Scepter_depth_frame gripper_frame 显示 quaternion z/w=0.707/0.707、yaw=90deg。前端 TCP 工作区投影继续直接按 TF 投 gripper 坐标，不做 330-y 之类显示层翻转。
+
+### 影响范围
+
+- `src/tie_robot_perception/config/gripper_tf.yaml`
+- `src/tie_robot_perception/test/test_gripper_tf_broadcaster.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `frontend .mjs tests; gripper_tf_broadcaster + single_point_bind_chain unittest; pointai_scan_only_pr_fprg unittest with ROS PYTHONPATH appended; npm frontend build; tf_echo yaw=90deg; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 19:35 - 暂停恢复短按继续当前流程长按回起点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：暂停作业的最终语义修正为：短按恢复作业恢复当前工作流程，长按恢复作业才执行线性模组Z优先回零后索驱回起点。process层将 execution_pause_requested 与 execution_return_to_start_requested 拆开：暂停时停止索驱并挂起等待；短按 data=1 清暂停，wait_cabin_axis_stable_arrival 会重发 TCP_Move 当前目标并继续到位门控；长按 data=2 设置 return_to_start，当前自动链退出后 recover_paused_execution_to_start 调用 /moduan/return_zero_ordered 再让索驱回起点。control层新增 moduan_return_zero_ordered_requested：wait_for_plc_finish_all 对短暂停留等待恢复，对长按回起点请求返回失败释放执行锁，随后 /moduan/return_zero_ordered 可有序回零。前端 pauseResume 仍保留 longPressCommandId=25；短按走 deactivateCommandId=13(data=1)，长按走 command 25(data=2)。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/include/tie_robot_control/moduan/runtime_state.hpp`
+- `src/tie_robot_control/src/moduan/runtime_state.cpp`
+- `src/tie_robot_web/frontend/src/controllers/LegacyCommandController.js`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_control/test/test_single_point_bind_chain.py; for test_file in src/tie_robot_web/frontend/test/*.mjs; do node "$test_file"; done; source /opt/ros/noetic/setup.bash && catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_hw;tie_robot_msgs;tie_robot_process;tie_robot_control'; npm --prefix src/tie_robot_web/frontend run build; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; devel/lib/tie_robot_process/test_dynamic_bind_planning; git diff --check; systemctl is-active tie-robot-driver-suoqu.service tie-robot-driver-moduan.service tie-robot-backend.service tie-robot-frontend.service; rosservice type /moduan/return_zero_ordered`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 19:20 - 暂停作业改为执行层硬暂停与长按回起点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：前端暂停作业现在同时闩锁执行层 execution_pause_abort_requested 并立即下发索驱停止；即使末端 moduan_work 正忙，bind_from_scan 也不会在末端返回后继续移动下一组。前端恢复作业短按只提示需要长按，不再发送旧 data=1 恢复；长按发送 /web/moduan/hand_sovle_warn data=2。process 层收到 data=2 后先调用 /moduan/return_zero_ordered，让线性模组按 Z 轴先回 0、再 X/Y 回 0，然后索驱回到本轮执行起点，且旧自动任务保持终止。control 层新增 /moduan/return_zero_ordered Trigger 服务，wait_for_plc_finish_all 会在人工暂停时返回失败而不是等 FINISHALL 后误报成功。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_web/frontend/src/controllers/LegacyCommandController.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/src/config/legacyCommandCatalog.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_control/test/test_single_point_bind_chain.py; for test_file in src/tie_robot_web/frontend/test/*.mjs; do node "$test_file"; done; source /opt/ros/noetic/setup.bash && catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_hw;tie_robot_msgs;tie_robot_process;tie_robot_control'; npm --prefix src/tie_robot_web/frontend run build; systemctl is-active tie-robot-driver-suoqu.service tie-robot-driver-moduan.service tie-robot-backend.service tie-robot-frontend.service; rosservice type /moduan/return_zero_ordered`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 18:52 - bind_from_scan末端完成后索驱切换保护
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：现场日志显示区域1末端FINISHALL完成并清零后，约1ms内立刻向区域2下发/cabin/driver/raw_move，索驱上位机关闭TCP，导致0x0012 raw_move失败，后续0x0001心跳断开只是同一TCP会话的连带现象。bind_from_scan现在在每组/moduan/execute_bind_points成功后，等待/moduan_work连续空闲3个100ms采样再允许下一次索驱移动；索驱驱动层CabinDriver::moveToPose对可重试TCP发送/等待/接收失败会断开重连并仅对0x0012绝对位姿重发一次，moveByOffset仍不自动重发以避免相对运动重复执行。前端web静态产物已重建并清理旧hash chunk，当前构建不再包含电压状态变化日志或旧执行记忆goal结构。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_hw/src/driver/cabin_driver.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `src/tie_robot_web/web`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; devel/lib/tie_robot_process/test_dynamic_bind_planning; python3 src/tie_robot_control/test/test_single_point_bind_chain.py; node src/tie_robot_web/frontend/test/*.mjs; npm --prefix src/tie_robot_web/frontend run build; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_hw;tie_robot_msgs;tie_robot_process'; git diff --check; systemctl is-active tie-robot-driver-suoqu.service tie-robot-backend.service tie-robot-frontend.service`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 18:39 - 执行层首区直接移动与raw_move错误透传
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：bind_from_scan不再先移动到pseudo_slam_bind_path.json的path_origin.z作为执行前置高度；开始执行层会直接进入区域循环，区域1第一条索驱raw_move就是首个area.cabin_pose，例如现场(-823.75,433.17,503.25)，避免先到同XY的487.0再补Z。远程/cabin/driver/raw_move调用新增8秒服务返回超时保护，并在失败时把目标点、速度和驱动层返回message（含connection closed by peer、request_command、request_frame等detail）写入last_cabin_transport_error_detail，StartGlobalWorkAction会通过compose_cabin_failure_message把最近底层错误透传到前端。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/src/suoqu/cabin_transport.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; devel/lib/tie_robot_process/test_dynamic_bind_planning; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_hw;tie_robot_msgs;tie_robot_process'; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 18:11 - 绑扎路径改为x+长边蛇形
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：用户要求索驱蛇形规划以x+为长路径正方向推进。动态绑扎固定2x2分组的traversal_order已从按两列带蛇形改为按两行带蛇形：每两行形成一个row band，偶数row band沿x+遍历各2x2块，奇数row band反向沿x-返回；这样首条长路径从世界最小角点出发沿x+展开。同步更新了4x4、4x6和3x3边缘pair的回归顺序断言，以及pseudo_slam扫描完成日志口径。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `make -C build test_dynamic_bind_planning -j8; devel/lib/tie_robot_process/test_dynamic_bind_planning; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; catkin_make -DCATKIN_WHITELIST_PACKAGES="tie_robot_hw;tie_robot_msgs;tie_robot_process"; git diff --check; sudo -n systemctl restart tie-robot-backend.service`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 17:56 - 执行层等待改为到位门控
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：用户明确要求执行层索驱等待不要按固定总时长硬失败，而是严格按到位门控推进。当前bind_from_scan等执行链中的wait_cabin_axis_stable_arrival保留30秒软超时日志，但软超时后若索驱仍在运动、坐标仍变化，或已进入容差等待稳定样本，就持续等待到位；不再设置180秒硬超时。真正失败条件收口为索驱状态字异常，或索驱已停止但仍未到位。这样任务链只有在当前步骤真实完成后才进入下一步单点/分组绑扎。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; devel/lib/tie_robot_process/test_dynamic_bind_planning; catkin_make -DCATKIN_WHITELIST_PACKAGES="tie_robot_hw;tie_robot_msgs;tie_robot_process"; git diff --check; sudo -n systemctl restart tie-robot-backend.service; rostopic echo -n1 /cabin/cabin_data_upload`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 17:48 - 执行层等待索驱运动软超时
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：现场开始执行层在bind_from_scan回规划原点时，X轴30秒等待超时但motion_status=1，底层索驱随后继续到达原点，导致任务线程已失败退出、不会进入后续/moduan/execute_bind_points单点绑扎。修复为执行层stable轴等待区分30秒软超时和180秒硬超时：软超时时若索驱仍在运动，或已进入容差但还在凑稳定样本，继续等待并记录Cabin_Warn；只有停止仍不到位或硬超时时才失败。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_motion_chain_signal_guard.py; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; devel/lib/tie_robot_process/test_dynamic_bind_planning; catkin_make -DCATKIN_WHITELIST_PACKAGES="tie_robot_hw;tie_robot_msgs;tie_robot_process"; git diff --check; sudo -n systemctl restart tie-robot-backend.service`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 17:43 - 前端不再记录机器人电压状态变化日志
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：前端 StatusMonitorController 仍会更新 header 电压徽标，但不再把线性模组 telemetry 中的 robot_battery_voltage 变化写入前端日志；像“[前端] 状态变化 电压 -> 机器人电压 52.9V”这类提示不再显示。新增 statusMonitorController.test.mjs 锁定该行为。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/StatusMonitorController.js`
+- `src/tie_robot_web/frontend/test/statusMonitorController.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && node test/statusMonitorController.test.mjs && for test_file in test/*.mjs; do node "$test_file" || exit 1; done && npm run build; sudo systemctl restart tie-robot-frontend.service && systemctl show tie-robot-frontend.service --property=ActiveState`
+- `SubState --no-pager`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 17:28 - 2x2组中心对齐TCP工作区中心
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：动态绑扎索驱路径候选位姿调整为让每个2x2组在规划高度下的TCP局部点中心对齐虎口工作区中心。TCP执行范围从X[0,360]/Y[0,320]收口到用户现场口径X[0,380]/Y[0,330]，对应模板目标中心为(190,165,70)mm。为避免中心变更影响2x2几何评分，新增nominal_grid_spacing_mm=150mm，square/pair评分不再复用template_center_x_mm。旧pseudo_slam_bind_path.json不会自动变化，需重新扫描规划生成新cabin_pose。
+
+### 影响范围
+
+- `src/tie_robot_process/include/tie_robot_process/planning/dynamic_bind_planning.hpp`
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/src/suoqu/suoqu_runtime_internal.hpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `devel/lib/tie_robot_process/test_dynamic_bind_planning 17/17 passed; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py OK; catkin_make -DCATKIN_WHITELIST_PACKAGES=tie_robot_hw`
+- `tie_robot_msgs`
+- `tie_robot_process passed; git diff --check clean; tie-robot-backend.service active after restart`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 14:37 - 执行层默认关闭执行记忆
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：开始执行层默认不再清空、不读取、不校验、不写入bind_execution_memory.json。前端普通开始发送use_execution_memory=false、clear_execution_memory=false；“记忆续跑开始”才发送use_execution_memory=true。StartGlobalWork.srv和StartGlobalWorkTask.action新增use_execution_memory，web_action_bridge透传到/cabin/start_work_with_options，后端仅在clear_execution_memory && use_execution_memory时重置记忆；run_bind_from_scan/run_live_visual_global_work在记忆关闭时只校验pseudo_slam_points.json与pseudo_slam_bind_path.json彼此scan_session_id/path_signature一致，不再和当前路径配置或执行记忆校验。
+
+### 影响范围
+
+- `src/tie_robot_msgs/action/StartGlobalWorkTask.action`
+- `src/tie_robot_msgs/srv/StartGlobalWork.srv`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/src/web_bridge/action_bridge.cpp`
+- `src/tie_robot_process/src/suoqu/service_orchestration.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; npm --prefix src/tie_robot_web/frontend run build; catkin_make -DCATKIN_WHITELIST_PACKAGES=tie_robot_hw`
+- `tie_robot_msgs`
+- `tie_robot_process`
+- `tie_robot_web; rosapi验证StartGlobalWorkTaskGoal含use_execution_memory且/cabin/start_work_with_options Args含use_execution_memory`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 14:19 - 执行层点击无反应与 rosbridge 消息缓存
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 排查开始执行层无反应：PointCoords.msg 变更后只重启 backend/run.launch 不够，运行中的 rosbridge/rosapi 会继续持有旧 PointsArray md5，导致 /perception/lashing/points_camera Dropping connection，并可能让前端 Action/话题桥接表现异常。处理方式：sudo -n systemctl restart tie-robot-rosbridge.service 后 sudo -n systemctl start tie-robot-backend.service；验证 /rosapi/message_details tie_robot_msgs/PointsArray 包含 has_grid_index/global_row/global_col，且 /web/cabin/start_global_work/goal 上 rosbridge 发布、web_action_bridge_node 订阅。
+
+### 影响范围
+
+- `src/tie_robot_msgs/msg/PointCoords.msg src/tie_robot_web/src/web_bridge/action_bridge.cpp src/tie_robot_process/src/suoqu/service_orchestration.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `rosbridge`
+- `execution-layer`
+- `md5`
+- `runtime`
+
+### 验证证据
+
+- `systemctl is-active tie-robot-rosbridge.service tie-robot-backend.service tie-robot-frontend.service; rosapi message_details PointsArray includes has_grid_index/global_row/global_col; rostopic info /web/cabin/start_global_work/goal`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 14:02 - 绑扎执行路径改为列带蛇形
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：用户指出索驱规划路径应为蛇形而非Z字形。动态绑扎规划固定2x2分组的traversal_order改为按2列带蛇形排序：偶数列带从世界最小角起点端向末端走，奇数列带反向回来，避免每列都从同一端开始造成跨列长斜跳。新增TraversesProvidedGridAsSnakeColumnsWithoutZJump回归测试。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `catkin_make; devel/lib/tie_robot_process/test_dynamic_bind_planning; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 13:56 - 显示与视角图层开关持久化
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：设置页“显示与视角”的图层/视角状态开始持久化到 localStorage key tie_robot_frontend_topic_layer_state。TieRobotFrontApp 启动时通过 loadTopicLayerStatePreference 恢复 TopicLayerController 初始状态；用户修改显示组件开关或视角控制后调用 saveTopicLayerStatePreference 保存 controller.getState()。保存内容包含机器、坐标轴、点云、规划点/绑扎点、行/列连线、2x2成组、索驱路径、TF轴显示、点云参数、视角模式和跟随原点。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/controllers/TopicLayerController.js`
+- `src/tie_robot_web/frontend/test/topicLayerStatePersistence.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && node test/topicLayerStatePersistence.test.mjs && for test_file in test/*.mjs; do node "$test_file" || exit 1; done && npm run build; sudo systemctl restart tie-robot-frontend.service && systemctl show tie-robot-frontend.service --property=ActiveState`
+- `SubState --no-pager`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 13:50 - 绑扎2x2成组改为严格DP棋盘块
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：后端动态绑扎规划在有Surface-DP行列编号时，不再用相邻匹配凑组，而是按固定2x2棋盘块生成matrix_2x2；仅奇数行/列最外侧剩余点生成matrix_2x2_edge_pair。扫描写bind_path时优先使用merged_world_points中的完整显式global_row/global_col DP网格点，避免只用planning checkerboard成员导致16x16网格被滤成232点后产生大量2点组。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_scan_artifact_write_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `catkin_make; devel/lib/tie_robot_process/test_dynamic_bind_planning; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 13:34 - 前端恢复2x2成组可视化
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 用户要求恢复2x2成组可视化。前端新增独立showBindGroups图层和显示与视角中的“2x2成组”开关；成组层只消费pseudo_slam_bind_path.json的areas/groups执行分组，matrix_2x2画闭合四边框，matrix_2x2_edge_pair画成组边，并用独立颜色/z偏移区别于DP行列线。行列网格仍使用完整DP grid_points。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/bindPathGeometry.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/config/topicLayerCatalog.js`
+- `src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs`
+- `src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/*.test.mjs通过；相关Python unittest 4项通过；npm run build通过；服务重启后/index.html加载index-BPuBT63s.js；API确认grid_point_count=256、areas=98、groups=98；本地账本成组线段数146。完整test_workspace_picker_web.py仍有5个既有无关失败。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 13:27 - 前端行列线严格使用DP行列编号
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 用户指出3D行/列线仍缺很多并询问是否严格按后端行列。复查发现前端此前只用236个planning checkerboard点，且行线/列线排序仍按世界X/Y；实际pseudo_slam_points.json中256个识别点都有Surface-DP global_row/global_col。已改为/api/planning/bind-path暴露全部DP行列grid_points(当前256点/16行/16列，含20个非planning点并携带outlier标记)，前端行线按同row内global_col升序、列线按同col内global_row升序连接，不再用世界坐标排序。
+
+### 影响范围
+
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_web/frontend/src/utils/bindPathGeometry.js`
+- `src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/*.test.mjs通过；相关Python unittest 4项通过；npm run build通过；curl /api/planning/bind-path确认grid_point_count=256 rows=16 cols=16 non_planning=20；完整test_workspace_picker_web.py仍保留5个既有无关失败。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 13:12 - 前端行列线改用完整可规划grid点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 修复3D中部分绑扎点未被行/列线穿起来的问题：根因是前端点层显示/cabin/pseudo_slam_markers原始点，而行/列线只从pseudo_slam_bind_path.json执行分组点生成；当前现场账本中执行分组228点，可规划棋盘格236点，导致8个可规划但未匹配执行分组的点不在线上。/api/planning/bind-path 现在从pseudo_slam_points.json按scan_session_id/path_signature对齐后暴露grid_points完整可规划点集；前端行/列线和绑扎点优先使用grid_points，raw marker点仅作为无bind path时的回退。
+
+### 影响范围
+
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_web/frontend/src/utils/bindPathGeometry.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/*.test.mjs 全部通过；npm run build 通过；test_bind_path_payload_exposes_full_planning_grid_points_for_row_column_lines 和相关Scene3D静态测试通过；完整test_workspace_picker_web.py仍保留5个既有无关失败。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 12:59 - 前端3D显示绑扎行列和独立图层
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 三维Scene的显示与视角面板新增绑扎点、行/列连线、索驱路径三个独立图层开关；bind path JSON中的global_row/global_col用于生成每行/每列穿过绑扎点的独立连线。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/bindPathGeometry.js;src/tie_robot_web/frontend/src/views/Scene3DView.js;src/tie_robot_web/frontend/src/ui/UIController.js;src/tie_robot_web/frontend/src/config/topicLayerCatalog.js`
+
+### 关键决策
+
+- 新增frontend/src/utils/bindPathGeometry.js纯几何工具，从pseudo_slam_bind_path.json的areas/groups/points生成绑扎点坐标和row/column线段；Scene3DView新增bindPathPoints、bindRowLines、bindColumnLines，索驱路径由showCabinPath控制，绑扎点由showBindPoints控制，行列线由showBindGridLines控制。
+
+### 标签
+
+- `frontend`
+- `threejs`
+- `bind_path`
+- `visualization`
+
+### 验证证据
+
+- `frontend全部node test/*.test.mjs通过；npm run build通过并重建src/tie_robot_web/web；git diff --check通过；相关Python静态用例scene_view/tf_axes/topic_layers筛选通过。全量test_workspace_picker_web.py仍有5个既有失败，分别在IR TCP边界、状态胶囊、TF guard、toolbar、旧panel守护。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 12:52 - 绑扎路径按世界坐标最小角定向
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 动态绑扎规划使用DP显式行列时，行列数字方向可能与世界坐标X/Y方向相反，排序必须从世界坐标最小绑扎点开始。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp;src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- build_dynamic_bind_area_entries_from_scan_world根据规划点在行/列key上的世界Y/X均值判断是否反转row_keys/column_keys，使dense row/col的0,0对应世界坐标最小角；组内点继续保持棋盘行列顺序。
+
+### 标签
+
+- `pseudo_slam`
+- `dynamic_bind_planning`
+- `grid_order`
+
+### 验证证据
+
+- `新增并通过DynamicBindPlanningTest.StartsProvidedGridTraversalFromMinimumWorldCoordinatePoint；完整test_dynamic_bind_planning 13/13通过；test_scan_artifact_write_guard 10/10通过；git diff --check通过；catkin_make -DCATKIN_WHITELIST_PACKAGES=""通过。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 12:48 - 前端 header 长按0.5秒重启
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：header 中索驱、末端、视觉三个状态胶囊长按重启阈值从 1 秒改为 0.5 秒，充能填充/扫光动画同步改为 0.5s；tooltip 文案改为“长按0.5秒重启”。构建后已重启 tie-robot-frontend.service 并确认 active/running。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && node test/statusChipPressBehavior.test.mjs && for test_file in test/*.mjs; do node "$test_file" || exit 1; done && npm run build; sudo systemctl restart tie-robot-frontend.service && systemctl show tie-robot-frontend.service --property=ActiveState`
+- `SubState --no-pager`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 12:43 - Surface-DP行列直通绑扎规划
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 将扫描绑扎点行列来源从 process 侧 80mm 世界坐标聚类改为优先使用 Surface-DP 收束底图行列：PointCoords 新增 has_grid_index/global_row/global_col；manual_workspace_s2 在 DP 交点输出时按最近 vertical_lines/horizontal_lines 填充行列；suoquNode 在 Scepter_depth_frame->map 变换后保留这些字段；build_checkerboard_info_by_global_index 若检测到显式 DP 行列则直接用它构建 checkerboard_info，只有没有显式行列时才回退旧 cluster_checkerboard_axis_centers 80mm 聚类。
+
+### 影响范围
+
+- `src/tie_robot_msgs/msg/PointCoords.msg;src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py;src/tie_robot_process/src/suoquNode.cpp;src/tie_robot_process/src/suoqu/pseudo_slam_scan_processing.cpp;src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py;src/tie_robot_process/test/test_scan_artifact_write_guard.py`
+
+### 关键决策
+
+- 扫描规划行列以 Surface-DP 收束底图行列为第一来源，不再在 process 侧优先靠 80mm 世界坐标聚类重猜。
+
+### 标签
+
+- `surface-dp`
+- `checkerboard`
+- `planning`
+- `ros-msg`
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py: 10/10 pass; PYTHONPATH=src/tie_robot_perception/src:devel/lib/python3/dist-packages python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py: 98/98 pass; python3 src/tie_robot_perception/test/test_scan_surface_dp_runtime.py: 10/10 pass; catkin_make test_dynamic_bind_planning && devel/lib/tie_robot_process/test_dynamic_bind_planning: 12/12 pass; git diff --check relevant files: pass; catkin_make whitelist tie_robot_msgs/tie_robot_hw/tie_robot_perception/tie_robot_process/tie_robot_web: pass; catkin_make -DCATKIN_WHITELIST_PACKAGES="": pass`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 12:22 - 绑扎点成组改为棋盘格邻接最大匹配
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 将动态绑扎点成组从固定 2x2 分块/补边逻辑改为基于 planning_global_row/planning_global_col 的行列邻接最大匹配：同一棋盘格内曼哈顿相邻点可成 2 点组，两个相邻匹配边可合并为合法 2x2；不再因旧固定块边界漏掉可相邻成组的点。无棋盘格索引、仅世界坐标聚类时仍要求存在完整 2x2 棋盘结构作为防噪声门槛。当前旧 pseudo_slam 数据未重生成：文件内仍为旧规划 160 点；用同一批 planning 棋盘格估算，新规则可覆盖 226/228 个唯一格点，仅 2 个无相邻匹配。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp;src/tie_robot_process/test/test_dynamic_bind_planning.cpp;src/tie_robot_process/src/suoquNode.cpp;src/tie_robot_process/test/test_scan_artifact_write_guard.py`
+
+### 关键决策
+
+- 绑扎点组生成以棋盘格行列邻接覆盖优先，禁止再用固定 2x2 分块作为能否成组的硬边界。
+
+### 标签
+
+- `planning`
+- `bind-path`
+- `checkerboard`
+
+### 验证证据
+
+- `catkin_make test_dynamic_bind_planning && devel/lib/tie_robot_process/test_dynamic_bind_planning: 12/12 pass; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py: 9/9 pass; git diff --check relevant files: pass; catkin_make whitelist tie_robot_msgs/tie_robot_hw/tie_robot_process/tie_robot_web: pass; catkin_make -DCATKIN_WHITELIST_PACKAGES="": pass`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 11:57 - 固定棋盘块内允许相邻2点组
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 用户指出严格行列后漏点更多。根因是 dynamic_bind_planning 只输出完整固定2x2，导致同一固定棋盘块内缺1-2格时，明明相邻的点也被跳过。已改为：固定行列块仍不滑动、不跨块；完整2x2输出4点组；不完整固定块内若存在相邻两点，则输出一个matrix_2x2_edge_pair；单点或对角点仍不规划。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `catkin_make test_dynamic_bind_planning && devel/lib/tie_robot_process/test_dynamic_bind_planning; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_process;tie_robot_web'; catkin_make -DCATKIN_WHITELIST_PACKAGES=''`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 11:53 - 前端 header 长按1秒并保持充能动画
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06：header 中索驱、末端、视觉三个状态胶囊长按重启阈值改为 1 秒，充能填充/扫光动画也改为 1s。修复现场看不到充能动画的问题：setStatusChipState 状态刷新会重写 className，之前会擦掉 is-long-press-charging/is-long-press-complete；现在刷新时保留这两个长按动画态，同时提高填充可见度。构建后重启 tie-robot-frontend.service 并确认 active/running。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && node test/statusChipPressBehavior.test.mjs && for test_file in test/*.mjs; do node "$test_file" || exit 1; done && npm run build; sudo systemctl restart tie-robot-frontend.service && systemctl show tie-robot-frontend.service --property=ActiveState`
+- `SubState --no-pager`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 11:45 - 绑扎路径使用planning棋盘格行列
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 修正 pseudo_slam_bind_path 生成链路：bind_path_checkerboard_info_by_idx 改用规划过滤后的 checkerboard_info_by_idx，而不是 raw merged_checkerboard_info_by_idx；路径规划和 pseudo_slam_points.json 的 planning_global_row/planning_global_col 统一同源，避免严格行列分组时可视化行列与实际路径行列不一致。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_scan_artifact_write_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; catkin_make test_dynamic_bind_planning && devel/lib/tie_robot_process/test_dynamic_bind_planning; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_process;tie_robot_web'; catkin_make -DCATKIN_WHITELIST_PACKAGES=''`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-06 11:23 - 扫描绑扎点严格行列分组
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-06 将 dynamic_bind_planning 的绑扎点成组从覆盖优先滑动 DP 改为严格行列固定分块：提供 global_row/global_col 时按 0..max 真实网格展开，不压缩缺行缺列；两列一带、两行一块，只输出完整固定 2x2，只有最后一行/最后一列允许真实边缘 2 点组；内部残点不再滑窗或补偿成组。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `catkin_make test_dynamic_bind_planning && devel/lib/tie_robot_process/test_dynamic_bind_planning; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_process;tie_robot_web'; catkin_make -DCATKIN_WHITELIST_PACKAGES=''`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-05 04:44 - 执行微调改用TCP坐标执行盒ROI
 
 <!-- AGENT-MEMORY: entry -->

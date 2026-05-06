@@ -15,6 +15,8 @@ def bind_image_processor_methods(cls):
     cls.save_runtime_config = runtime_config.save_runtime_config
     cls.fixed_z_value_callback = runtime_config.fixed_z_value_callback
     cls.set_stable_frame_count_callback = runtime_config.set_stable_frame_count_callback
+    cls.set_execution_refine_tcp_roi_bounds = runtime_config.set_execution_refine_tcp_roi_bounds
+    cls.set_execution_refine_tcp_roi_callback = runtime_config.set_execution_refine_tcp_roi_callback
     cls.linear_module_state_callback = runtime_config.linear_module_state_callback
     cls.load_scan_planning_workspace = runtime_config.load_scan_planning_workspace
     cls.load_workspace_center_scan_pose_target = runtime_config.load_workspace_center_scan_pose_target
@@ -36,6 +38,7 @@ def bind_image_processor_methods(cls):
     cls.draw_travel_range_overlay = rendering.draw_travel_range_overlay
     cls.save_manual_workspace_quad = workspace_masks.save_manual_workspace_quad
     cls.build_manual_workspace_quad_pixels_message = workspace_masks.build_manual_workspace_quad_pixels_message
+    cls.build_manual_workspace_quad_points_message = workspace_masks.build_manual_workspace_quad_points_message
     cls.publish_current_manual_workspace_quad_pixels = workspace_masks.publish_current_manual_workspace_quad_pixels
     cls.load_manual_workspace_quad = workspace_masks.load_manual_workspace_quad
     cls.manual_workspace_quad_callback = workspace_masks.manual_workspace_quad_callback
@@ -108,6 +111,7 @@ def bind_image_processor_methods(cls):
     cls.score_matrix_candidate = matrix_selection.score_matrix_candidate
     cls.sort_matrix_points = matrix_selection.sort_matrix_points
     cls.get_selected_point_numbers = matrix_selection.get_selected_point_numbers
+    cls.sort_centers_by_image_tcp_axes = staticmethod(matrix_selection.sort_centers_by_image_tcp_axes)
     cls.select_output_centers_for_mode = matrix_selection.select_output_centers_for_mode
     cls.select_display_matrix_centers = matrix_selection.select_display_matrix_centers
     cls.build_matrix_display_points = matrix_selection.build_matrix_display_points
@@ -131,4 +135,5 @@ def bind_image_processor_methods(cls):
     cls.evaluate_point_coords_for_mode = process_image_service.evaluate_point_coords_for_mode
     cls.build_process_image_response = process_image_service.build_process_image_response
     cls.wait_for_stable_point_coords = process_image_service.wait_for_stable_point_coords
+    cls.run_visual_detection_with_release_frames = process_image_service.run_visual_detection_with_release_frames
     cls.handle_process_image = process_image_service.handle_process_image

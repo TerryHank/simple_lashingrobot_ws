@@ -1,4 +1,17 @@
-import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
+import {
+  DEFAULT_GLOBAL_EXECUTION_MODE,
+  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+  GLOBAL_EXECUTION_MODE_OPTIONS,
+} from "../config/visualRecognitionMode.js";
+import { normalizeTcpWorkspaceBoundaryMm } from "./tcpWorkspaceOverlay.js";
+import {
+  DEFAULT_TOPIC_LAYER_STATE,
+  IMAGE_HOVER_COORDINATE_FRAMES,
+  POINT_CLOUD_SOURCES,
+  SCENE_VIEW_MODES,
+  TF_AXIS_FRAMES,
+  TOPIC_LAYER_MODES,
+} from "../config/topicLayerCatalog.js";
 
 export const DISPLAY_PREFERENCES_KEY = "tie_robot_frontend_display_preferences";
 export const VIEWER_LAYOUT_PREFIX = "tie_robot_frontend_layout_";
@@ -9,10 +22,19 @@ export const CABIN_REMOTE_SETTINGS_KEY = "tie_robot_frontend_cabin_remote_settin
 export const NETWORK_PING_SETTINGS_KEY = "tie_robot_frontend_network_ping_settings";
 export const RECOGNITION_POSE_KEY = "tie_robot_frontend_recognition_pose";
 export const VISUAL_DEBUG_SETTINGS_KEY = "tie_robot_frontend_visual_debug_settings";
+export const TOPIC_LAYER_STATE_KEY = "tie_robot_frontend_topic_layer_state";
 
 function normalizePositiveNumber(value, fallback) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback;
+}
+
+function normalizeGlobalExecutionMode(value, fallback = DEFAULT_GLOBAL_EXECUTION_MODE) {
+  const numericValue = Number(value);
+  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : fallback;
+  return GLOBAL_EXECUTION_MODE_OPTIONS.some((option) => option.id === roundedValue)
+    ? roundedValue
+    : fallback;
 }
 
 function normalizeCabinPose(value, fallback = null) {
@@ -25,6 +47,58 @@ function normalizeCabinPose(value, fallback = null) {
     return pose;
   }
   return fallback ? normalizeCabinPose(fallback, null) : null;
+}
+
+function normalizeBoolean(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeOption(value, options, fallback) {
+  return options.some((option) => option.id === value) ? value : fallback;
+}
+
+function normalizeUnitNumber(value, fallback) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue)
+    ? Math.min(1, Math.max(0, numericValue))
+    : fallback;
+}
+
+function normalizeTopicLayerState(value = null) {
+  const defaults = DEFAULT_TOPIC_LAYER_STATE;
+  const planningFallback = value?.showPlanningMarkers;
+  const tfAxisFrameVisibility = TF_AXIS_FRAMES.reduce((accumulator, frame) => {
+    accumulator[frame.id] = normalizeBoolean(
+      value?.tfAxisFrameVisibility?.[frame.id],
+      defaults.tfAxisFrameVisibility[frame.id],
+    );
+    return accumulator;
+  }, {});
+  return {
+    mode: normalizeOption(value?.mode, TOPIC_LAYER_MODES, defaults.mode),
+    pointCloudSource: normalizeOption(value?.pointCloudSource, POINT_CLOUD_SOURCES, defaults.pointCloudSource),
+    showRobot: normalizeBoolean(value?.showRobot, defaults.showRobot),
+    showAxes: normalizeBoolean(value?.showAxes, defaults.showAxes),
+    showPointCloud: normalizeBoolean(value?.showPointCloud, defaults.showPointCloud),
+    showTiePoints: normalizeBoolean(value?.showTiePoints, defaults.showTiePoints),
+    showBindPoints: normalizeBoolean(value?.showBindPoints, normalizeBoolean(planningFallback, defaults.showBindPoints)),
+    showBindGridLines: normalizeBoolean(value?.showBindGridLines, normalizeBoolean(planningFallback, defaults.showBindGridLines)),
+    showBindGroups: normalizeBoolean(value?.showBindGroups, normalizeBoolean(planningFallback, defaults.showBindGroups)),
+    showCabinPath: normalizeBoolean(value?.showCabinPath, normalizeBoolean(planningFallback, defaults.showCabinPath)),
+    showLinearModuleBindRange: normalizeBoolean(value?.showLinearModuleBindRange, defaults.showLinearModuleBindRange),
+    showImageRecognitionResult: normalizeBoolean(value?.showImageRecognitionResult, defaults.showImageRecognitionResult),
+    showImageScanPoints: normalizeBoolean(value?.showImageScanPoints, defaults.showImageScanPoints),
+    tfAxisFrameVisibility,
+    pointSize: normalizePositiveNumber(value?.pointSize, defaults.pointSize),
+    pointOpacity: normalizeUnitNumber(value?.pointOpacity, defaults.pointOpacity),
+    viewMode: normalizeOption(value?.viewMode, SCENE_VIEW_MODES, defaults.viewMode),
+    followOrigin: normalizeBoolean(value?.followOrigin, defaults.followOrigin),
+    imageHoverCoordinateFrame: normalizeOption(
+      value?.imageHoverCoordinateFrame,
+      IMAGE_HOVER_COORDINATE_FRAMES,
+      defaults.imageHoverCoordinateFrame,
+    ),
+  };
 }
 
 export function loadDisplayPreferences() {
@@ -217,7 +291,12 @@ export function saveRecognitionPose(value) {
 }
 
 export function loadVisualDebugSettings() {
-  const defaults = { stableFrameCount: 3, requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE };
+  const defaults = {
+    stableFrameCount: 3,
+    requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+    executionMode: DEFAULT_GLOBAL_EXECUTION_MODE,
+    linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(),
+  };
   try {
     const raw = localStorage.getItem(VISUAL_DEBUG_SETTINGS_KEY);
     if (!raw) {
@@ -227,6 +306,8 @@ export function loadVisualDebugSettings() {
     return {
       stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(parsed?.stableFrameCount, defaults.stableFrameCount))),
       requestMode: defaults.requestMode,
+      executionMode: normalizeGlobalExecutionMode(parsed?.executionMode, defaults.executionMode),
+      linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(parsed?.linearModuleBindRangeMm, defaults.linearModuleBindRangeMm),
     };
   } catch {
     return defaults;
@@ -237,9 +318,31 @@ export function saveVisualDebugSettings(value) {
   const payload = {
     stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(value?.stableFrameCount, 3))),
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+    executionMode: normalizeGlobalExecutionMode(value?.executionMode),
+    linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(value?.linearModuleBindRangeMm),
   };
   try {
     localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export function loadTopicLayerStatePreference() {
+  try {
+    const raw = localStorage.getItem(TOPIC_LAYER_STATE_KEY);
+    if (!raw) {
+      return normalizeTopicLayerState();
+    }
+    return normalizeTopicLayerState(JSON.parse(raw));
+  } catch {
+    return normalizeTopicLayerState();
+  }
+}
+
+export function saveTopicLayerStatePreference(value) {
+  try {
+    localStorage.setItem(TOPIC_LAYER_STATE_KEY, JSON.stringify(normalizeTopicLayerState(value)));
   } catch {
     // ignore storage failures
   }

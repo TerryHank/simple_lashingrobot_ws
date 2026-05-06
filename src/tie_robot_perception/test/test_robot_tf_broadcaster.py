@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import math
 import struct
 import sys
 import tempfile
@@ -46,7 +47,48 @@ class RobotTFBroadcasterTest(unittest.TestCase):
         self.assertIn("cabin_to_map_sign:", config_text)
         self.assertIn("z: 460.0", config_text)
         self.assertIn("x: 1.0", config_text)
+        self.assertIn("roll: 3.141592653589793", config_text)
+        self.assertIn("yaw: -1.5707963267948966", config_text)
         self.assertNotIn("base_to_camera", request_text)
+
+    def test_default_base_to_camera_rotation_matches_installed_camera_axes(self):
+        config = robot_tf_broadcaster.normalize_robot_home_config({})
+        self.assertAlmostEqual(config["base_to_camera_rpy"]["roll"], math.pi)
+        self.assertAlmostEqual(config["base_to_camera_rpy"]["pitch"], 0.0)
+        self.assertAlmostEqual(config["base_to_camera_rpy"]["yaw"], -math.pi / 2.0)
+
+        _base_transform, scepter_transform = robot_tf_broadcaster.build_transforms(
+            "map",
+            "base_link",
+            "Scepter_depth_frame",
+            {"x": 0.0, "y": 0.0, "z": 0.0},
+            config,
+            stamp=None,
+        )
+        quat = scepter_transform.transform.rotation
+        rotation_matrix = robot_tf_broadcaster.quaternion_matrix([
+            quat.x,
+            quat.y,
+            quat.z,
+            quat.w,
+        ])[:3, :3]
+
+        camera_x_axis_in_base = rotation_matrix.dot([1.0, 0.0, 0.0])
+        camera_y_axis_in_base = rotation_matrix.dot([0.0, 1.0, 0.0])
+        camera_z_axis_in_base = rotation_matrix.dot([0.0, 0.0, 1.0])
+
+        self.assertEqual(
+            [round(value, 6) for value in camera_x_axis_in_base],
+            [0.0, -1.0, 0.0],
+        )
+        self.assertEqual(
+            [round(value, 6) for value in camera_y_axis_in_base],
+            [-1.0, 0.0, 0.0],
+        )
+        self.assertEqual(
+            [round(value, 6) for value in camera_z_axis_in_base],
+            [0.0, 0.0, -1.0],
+        )
 
     def test_tf_stack_passes_robot_home_config_to_robot_tf_broadcaster(self):
         launch_text = (TIE_ROBOT_BRINGUP_DIR / "launch" / "tf_stack.launch").read_text(

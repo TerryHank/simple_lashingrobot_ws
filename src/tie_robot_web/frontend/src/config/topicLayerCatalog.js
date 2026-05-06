@@ -19,6 +19,12 @@ export const SCENE_VIEW_MODES = [
   { id: "top", label: "俯视视角" },
 ];
 
+export const IMAGE_HOVER_COORDINATE_FRAMES = [
+  { id: "map", label: "世界 map" },
+  { id: "gripper_frame", label: "工具 TCP" },
+  { id: "Scepter_depth_frame", label: "相机 Scepter" },
+];
+
 export const TF_AXIS_FRAMES = [
   { id: "map", label: "索驱世界 map" },
   { id: "base_link", label: "机器 base_link" },
@@ -41,35 +47,65 @@ export const MODE_PRESETS = {
     showAxes: false,
     showPointCloud: true,
     showTiePoints: false,
-    showPlanningMarkers: false,
+    showBindPoints: false,
+    showBindGridLines: false,
+    showBindGroups: false,
+    showCabinPath: false,
+    showLinearModuleBindRange: false,
+    showImageRecognitionResult: false,
+    showImageScanPoints: false,
   },
   onlyPlanningPoints: {
     showRobot: false,
     showAxes: true,
     showPointCloud: false,
     showTiePoints: false,
-    showPlanningMarkers: true,
+    showBindPoints: true,
+    showBindGridLines: true,
+    showBindGroups: true,
+    showCabinPath: true,
+    showLinearModuleBindRange: false,
+    showImageRecognitionResult: true,
+    showImageScanPoints: true,
   },
   pointCloudAndPlanningPoints: {
     showRobot: true,
     showAxes: true,
     showPointCloud: true,
     showTiePoints: false,
-    showPlanningMarkers: true,
+    showBindPoints: true,
+    showBindGridLines: true,
+    showBindGroups: true,
+    showCabinPath: true,
+    showLinearModuleBindRange: true,
+    showImageRecognitionResult: true,
+    showImageScanPoints: true,
   },
   machineOnly: {
     showRobot: true,
     showAxes: true,
     showPointCloud: false,
     showTiePoints: false,
-    showPlanningMarkers: false,
+    showBindPoints: false,
+    showBindGridLines: false,
+    showBindGroups: false,
+    showCabinPath: false,
+    showLinearModuleBindRange: true,
+    showImageRecognitionResult: false,
+    showImageScanPoints: false,
   },
   all: {
     showRobot: true,
     showAxes: true,
     showPointCloud: true,
     showTiePoints: false,
-    showPlanningMarkers: true,
+    showBindPoints: true,
+    showBindGridLines: true,
+    showBindGroups: true,
+    showCabinPath: true,
+    showLinearModuleBindRange: true,
+    showImageRecognitionResult: true,
+    showImageScanPoints: true,
   },
 };
 
@@ -80,12 +116,19 @@ export const DEFAULT_TOPIC_LAYER_STATE = {
   showAxes: true,
   showPointCloud: false,
   showTiePoints: false,
-  showPlanningMarkers: true,
+  showBindPoints: true,
+  showBindGridLines: true,
+  showBindGroups: true,
+  showCabinPath: true,
+  showLinearModuleBindRange: true,
+  showImageRecognitionResult: true,
+  showImageScanPoints: true,
   tfAxisFrameVisibility: DEFAULT_TF_AXIS_FRAME_VISIBILITY,
   pointSize: 0.035,
   pointOpacity: 0.78,
   viewMode: "free",
   followOrigin: false,
+  imageHoverCoordinateFrame: "map",
 };
 
 export function applyModePreset(mode, currentState) {
@@ -108,4 +151,8 @@ export function getPointCloudSourceLabel(source) {
 
 export function getSceneViewModeLabel(viewMode) {
   return getLabel(SCENE_VIEW_MODES, viewMode);
+}
+
+export function getImageHoverCoordinateFrameLabel(frameId) {
+  return getLabel(IMAGE_HOVER_COORDINATE_FRAMES, frameId);
 }

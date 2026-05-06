@@ -366,8 +366,8 @@ void clear_finishall_flag_if_needed()
 
 bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chrono::seconds timeout)
 {
-    const auto start_time = std::chrono::steady_clock::now();
-    auto last_log_time = start_time;
+    auto active_wait_start_time = std::chrono::steady_clock::now();
+    auto last_log_time = active_wait_start_time;
     while (true)
     {
         int finishall_flag = 0;
@@ -382,11 +382,44 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
             cur_z = module_state.Z;
         }
 
+        if (moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Warn: 等待FINISHALL期间收到长按恢复回起点请求，停止本轮末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                cur_x,
+                cur_y,
+                cur_z
+            );
+            return false;
+        }
+
+        if (handle_pause_interrupt) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Warn: 等待FINISHALL期间收到人工暂停，暂停当前末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                cur_x,
+                cur_y,
+                cur_z
+            );
+            while (handle_pause_interrupt && !moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
+                std::this_thread::sleep_for(poll_interval);
+            }
+            if (moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
+                printCurrentTime();
+                ros_log_printf("Moduan_Warn: 人工暂停期间收到长按恢复回起点请求，停止本轮末端执行等待。\n");
+                return false;
+            }
+            active_wait_start_time = std::chrono::steady_clock::now();
+            last_log_time = active_wait_start_time;
+            printCurrentTime();
+            ros_log_printf("Moduan_log: 人工暂停已解除，恢复当前末端执行等待。\n");
+        }
+
         if (finishall_flag) break;
 
         const auto now = std::chrono::steady_clock::now();
         const auto elapsed_sec =
-            std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+            std::chrono::duration_cast<std::chrono::seconds>(now - active_wait_start_time).count();
         if (elapsed_sec >= timeout.count()) {
             printCurrentTime();
             ros_log_printf(
@@ -427,22 +460,26 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
     return true;
 }
 
-void moveLinearModule(double x, double y, double z, double angle) {
+bool move_linear_module_to_target(double x, double y, double z, double angle, std::string& response_message)
+{
     printCurrentTime();
     ros_log_printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n", x, y, z);
-    bool is_error = false;
+    bool has_runtime_error = false;
+    std::string runtime_error_message;
     {
         std::lock_guard<std::mutex> lock(error_msg_mutex);
-        is_error = error_detected;
+        has_runtime_error = error_detected.load(std::memory_order_acquire);
+        runtime_error_message = last_error_msg;
     }
-    while (is_error)
-    {
-        {
-            std::lock_guard<std::mutex> lock(error_msg_mutex);
-            is_error = error_detected;
+    if (has_runtime_error) {
+        response_message = "线性模组当前处于软件错误状态";
+        if (!runtime_error_message.empty()) {
+            response_message += "：" + runtime_error_message;
         }
+        response_message += "；请先复位报警或排查PLC错误后再移动。";
         printCurrentTime();
-        ros_log_printf("Moduan_Error: waiting on current target pt \n");
+        ros_log_printf("Moduan_Error: %s\n", response_message.c_str());
+        return false;
     }
 
     {
@@ -459,13 +496,25 @@ void moveLinearModule(double x, double y, double z, double angle) {
 
     if (!wait_linear_module_axis_arrival(AXIS_X, x) ||
         !wait_linear_module_axis_arrival(AXIS_Y, y)) {
-        return;
+        response_message = "线性模组X/Y轴未确认到位";
+        return false;
     }
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         Set_Module_Coordinate(WZ_COORDINATE, &z, plc);
     }
-    wait_linear_module_axis_arrival(AXIS_Z, z);
+    if (!wait_linear_module_axis_arrival(AXIS_Z, z)) {
+        response_message = "线性模组Z轴未确认到位";
+        return false;
+    }
+    response_message = "线性模组原子移动完成";
+    return true;
+}
+
+void moveLinearModule(double x, double y, double z, double angle)
+{
+    std::string response_message;
+    (void)move_linear_module_to_target(x, y, z, angle, response_message);
 }
 
 int linear_module_move_origin_single(int Axis)
@@ -478,7 +527,7 @@ int linear_module_move_origin_single(int Axis)
     return 0;
 }
 
-void move_linear_module_to_origin()
+bool move_linear_module_to_origin()
 {
     double zero_target = 0;
     {
@@ -486,7 +535,7 @@ void move_linear_module_to_origin()
         Set_Module_Coordinate(WZ_COORDINATE, &zero_target, plc);
     }
     if (!wait_linear_module_axis_arrival(AXIS_Z, zero_target)) {
-        return;
+        return false;
     }
 
     {
@@ -494,8 +543,9 @@ void move_linear_module_to_origin()
         Set_Module_Coordinate(WX_COORDINATE, &zero_target, plc);
         Set_Module_Coordinate(WY_COORDINATE, &zero_target, plc);
     }
-    wait_linear_module_axis_arrival(AXIS_X, zero_target);
-    wait_linear_module_axis_arrival(AXIS_Y, zero_target);
+    const bool arrived_x = wait_linear_module_axis_arrival(AXIS_X, zero_target);
+    const bool arrived_y = wait_linear_module_axis_arrival(AXIS_Y, zero_target);
+    return arrived_x && arrived_y;
 }
 
 double max_bind_height_excess_mm(const std::vector<float>& out_of_height_z_values)
@@ -525,24 +575,6 @@ bool should_keep_jump_bind_point(const tie_robot_msgs::PointCoords& point)
         return true;
     }
     return point.idx == 1 || point.idx == 4;
-}
-
-bool is_valid_precomputed_tcp_travel_z(double local_z_mm)
-{
-    return std::isfinite(local_z_mm) &&
-           local_z_mm >= kTcpTravelMinZMm &&
-           local_z_mm <= kTcpTravelMaxZMm;
-}
-
-bool is_valid_precomputed_tcp_travel_point(double local_x_mm, double local_y_mm, double local_z_mm)
-{
-    return std::isfinite(local_x_mm) &&
-           std::isfinite(local_y_mm) &&
-           local_x_mm >= 0.0 &&
-           local_x_mm <= kTravelMaxXMm &&
-           local_y_mm >= 0.0 &&
-           local_y_mm <= kTravelMaxYMm &&
-           is_valid_precomputed_tcp_travel_z(local_z_mm);
 }
 
 void inputAllPoints(int i, double x, double y, double z, double rz)
@@ -583,7 +615,6 @@ bool execute_bind_points(
     }
 
     int selected_bind_point_count = 0;
-    int rejected_invalid_tcp_travel_count = 0;
     std::vector<tie_robot_msgs::PointCoords> selected_bind_points;
     bind_data.first.push_back(0);
 
@@ -597,26 +628,6 @@ bool execute_bind_points(
         float_t world_y = point.World_coord[1];
         float_t world_z = point.World_coord[2];
         float_t angle = point.Angle;
-
-        if (!is_valid_precomputed_tcp_travel_point(
-                static_cast<double>(world_x),
-                static_cast<double>(world_y),
-                static_cast<double>(world_z))) {
-            rejected_invalid_tcp_travel_count++;
-            printCurrentTime();
-            ros_log_printf(
-                "Moduan_Warn: 预生成点 idx=%d 的TCP局部坐标(%.2f,%.2f,%.2f)mm，不是合法TCP行程X[0.00, %.2f] Y[0.00, %.2f] Z[%.2f, %.2f]mm，已拒绝下发。\n",
-                point.idx,
-                world_x,
-                world_y,
-                world_z,
-                kTravelMaxXMm,
-                kTravelMaxYMm,
-                kTcpTravelMinZMm,
-                kTcpTravelMaxZMm
-            );
-            continue;
-        }
 
         printCurrentTime();
         ROS_INFO(
@@ -635,21 +646,6 @@ bool execute_bind_points(
 
         selected_bind_points.push_back(point);
         selected_bind_point_count++;
-    }
-
-    if (selected_bind_point_count == 0 && rejected_invalid_tcp_travel_count > 0) {
-        printCurrentTime();
-        ros_log_printf(
-            "Moduan_Warn: 当前组全部点的TCP局部坐标都超出行程X[0.00, %.2f] Y[0.00, %.2f] Z[%.2f, %.2f]mm，跳过当前组。\n",
-            kTravelMaxXMm,
-            kTravelMaxYMm,
-            kTcpTravelMinZMm,
-            kTcpTravelMaxZMm
-        );
-        response_message = "预生成点TCP局部坐标超出行程，当前组无可执行点";
-        bind_data.first.back() = 0;
-        bind_all_data.push_back(bind_data);
-        return false;
     }
 
     bind_data.first.back() = selected_bind_point_count;

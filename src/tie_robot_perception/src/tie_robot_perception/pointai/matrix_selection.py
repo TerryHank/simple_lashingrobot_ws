@@ -44,6 +44,11 @@ from tie_robot_perception.perception.workspace_s2 import (
     sort_polygon_points_clockwise,
 )
 from .constants import *
+from .tcp_display import camera_coord_to_tcp_jaw_coord
+
+
+EXECUTION_REFINE_SNAKE_ROW_TOLERANCE_MM = 40.0
+
 
 def calculate_intersections(lines):
     intersections = []
@@ -93,8 +98,8 @@ def get_selected_point_status(self, point_number):
 
 
 def get_travel_range_reject_reasons(self, calibrated_x, calibrated_y):
-    max_x = getattr(self, "travel_range_max_x_mm", 360.0)
-    max_y = getattr(self, "travel_range_max_y_mm", 320.0)
+    max_x = getattr(self, "travel_range_max_x_mm", 380.0)
+    max_y = getattr(self, "travel_range_max_y_mm", 330.0)
     reasons = []
     if calibrated_x < 0:
         reasons.append("X小于0")
@@ -404,9 +409,85 @@ def get_selected_point_numbers(self, selected_points):
     }
 
 
+def build_tcp_tool_sort_key(center_record):
+    source_idx, pixel_coord, camera_coord = center_record
+    try:
+        tcp_x, tcp_y, tcp_z = camera_coord_to_tcp_jaw_coord(camera_coord)
+        del tcp_z
+        return (
+            0,
+            float(tcp_x),
+            float(tcp_y),
+            int(source_idx),
+        )
+    except Exception:
+        return (
+            1,
+            float(pixel_coord[1]),
+            -float(pixel_coord[0]),
+            int(source_idx),
+        )
+
+
+def sort_centers_by_image_tcp_axes(centers):
+    return sorted(
+        centers,
+        key=build_tcp_tool_sort_key,
+    )
+
+
+def sort_centers_by_tcp_snake_rows(
+    centers,
+    row_tolerance_mm=EXECUTION_REFINE_SNAKE_ROW_TOLERANCE_MM,
+):
+    if len(centers) < 2:
+        return list(centers)
+
+    sorted_centers = sort_centers_by_image_tcp_axes(centers)
+    rows = []
+    row_mean_values = []
+    row_buckets = []
+    for center_record in sorted_centers:
+        sort_key = build_tcp_tool_sort_key(center_record)
+        bucket = sort_key[0]
+        row_value = float(sort_key[1])
+        if (
+            not rows
+            or bucket != row_buckets[-1]
+            or abs(row_value - row_mean_values[-1]) > float(row_tolerance_mm)
+        ):
+            rows.append([center_record])
+            row_mean_values.append(row_value)
+            row_buckets.append(bucket)
+            continue
+
+        rows[-1].append(center_record)
+        row_mean_values[-1] = (
+            row_mean_values[-1] * (len(rows[-1]) - 1) + row_value
+        ) / len(rows[-1])
+
+    ordered_centers = []
+    for row_index, row_centers in enumerate(rows):
+        ascending_column = (row_index % 2) == 0
+
+        def snake_column_sort_key(center_record):
+            sort_key = build_tcp_tool_sort_key(center_record)
+            column_value = float(sort_key[2])
+            return (
+                column_value if ascending_column else -column_value,
+                float(sort_key[1]),
+                int(sort_key[3]),
+            )
+
+        ordered_centers.extend(sorted(row_centers, key=snake_column_sort_key))
+    return ordered_centers
+
+
 def select_output_centers_for_mode(self, request_mode, in_range_centers, selected_centers):
-    if request_mode in (PROCESS_IMAGE_MODE_SCAN_ONLY, PROCESS_IMAGE_MODE_EXECUTION_REFINE):
-        return list(in_range_centers)
+    if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+        return sort_centers_by_image_tcp_axes(in_range_centers)
+    if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+        return sort_centers_by_tcp_snake_rows(in_range_centers)
     if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
         return self.sort_matrix_points(in_range_centers)
     return list(selected_centers)

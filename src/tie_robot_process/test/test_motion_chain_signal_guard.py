@@ -9,6 +9,7 @@ PROCESS_DIR = WORKSPACE_ROOT / "tie_robot_process"
 CONTROL_DIR = WORKSPACE_ROOT / "tie_robot_control"
 HW_DIR = WORKSPACE_ROOT / "tie_robot_hw"
 MSGS_DIR = WORKSPACE_ROOT / "tie_robot_msgs"
+WEB_DIR = WORKSPACE_ROOT / "tie_robot_web"
 
 
 class MotionChainSignalGuardTest(unittest.TestCase):
@@ -40,13 +41,299 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("std::atomic<bool> moduan_work_flag{false};", node)
         self.assertIn("moduan_work_flag.store(debug_mes.data", node)
 
-        self.assertIn("moduan_work_flag.load(", transport)
-        guard_index = transport.index("moduan_work_flag.load(")
-        remote_call_index = transport.index('ros::service::call("/cabin/driver/raw_move"', guard_index)
-        driver_call_index = transport.index("::g_cabin_driver->moveToPose", guard_index)
-        self.assertLess(guard_index, remote_call_index)
-        self.assertLess(guard_index, driver_call_index)
-        self.assertIn("末端绑扎/线性模组正在运动", transport[guard_index:driver_call_index])
+        move_start = transport.index("bool move_cabin_pose_via_driver(")
+        move_end = transport.index("\nbool move_cabin_incremental_via_driver", move_start)
+        move_body = transport[move_start:move_end]
+
+        self.assertIn("moduan_work_flag.load(", move_body)
+        guard_index = move_body.index("moduan_work_flag.load(")
+        remote_call_index = transport.index(
+            '"/cabin/driver/raw_move"',
+            move_start + guard_index,
+        )
+        helper_call_index = transport.index("call_remote_cabin_single_move_service", move_start + guard_index)
+        driver_call_index = transport.index("::g_cabin_driver->moveToPose", move_start + guard_index)
+        self.assertLess(move_start + guard_index, helper_call_index)
+        self.assertLess(helper_call_index, remote_call_index)
+        self.assertLess(move_start + guard_index, driver_call_index)
+        self.assertIn("末端绑扎/线性模组正在运动", move_body[guard_index:])
+
+    def test_remote_raw_move_failure_detail_is_cached_for_frontend_action_result(self):
+        transport = (
+            PROCESS_DIR / "src" / "suoqu" / "cabin_transport.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("kRemoteCabinRawMoveCallTimeoutSec", transport)
+        self.assertIn("RemoteCabinSingleMoveCallResult", transport)
+        self.assertIn("call_remote_cabin_single_move_service", transport)
+
+        move_start = transport.index("bool move_cabin_pose_via_driver(")
+        move_end = transport.index("\nbool move_cabin_incremental_via_driver", move_start)
+        move_body = transport[move_start:move_end]
+        remote_start = move_body.index('if (::use_remote_cabin_driver.load(std::memory_order_relaxed)) {')
+        remote_end = move_body.index("\n    if (!::cabin_driver_enabled.load())", remote_start)
+        remote_body = move_body[remote_start:remote_end]
+
+        self.assertIn('"/cabin/driver/raw_move"', remote_body)
+        self.assertIn("raw_move_call_result", remote_body)
+        self.assertIn("raw_move_call_result.message", remote_body)
+        self.assertIn("update_last_cabin_transport_error_detail(detail)", remote_body)
+        self.assertIn("log_cabin_error_ros(detail)", remote_body)
+        self.assertIn("目标=(", remote_body)
+        self.assertIn("raw_move_call_result.success", remote_body)
+
+        helper_start = transport.index("RemoteCabinSingleMoveCallResult call_remote_cabin_single_move_service")
+        helper_end = transport.index("\nbool stop_cabin_motion_via_driver", helper_start)
+        helper_body = transport[helper_start:helper_end]
+        self.assertIn("std::promise<RemoteCabinSingleMoveCallResult>", helper_body)
+        self.assertIn("wait_for(std::chrono::duration<double>(timeout_sec))", helper_body)
+        self.assertIn("调用索驱驱动层服务超时", helper_body)
+
+    def test_bind_from_scan_moves_directly_to_first_area_pose_without_origin_z_premove(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("bool run_bind_from_scan(")
+        end = node.index("\n// service 编排已抽到", start)
+        body = node[start:end]
+
+        self.assertNotIn("bind_from_scan先回到规划原点", body)
+        self.assertNotIn("bind_from_scan回到规划原点", body)
+        self.assertNotIn("bind_from_scan回原点时", body)
+        self.assertNotIn("move_path_origin_z", body)
+
+        area_pose_index = body.index('const auto cabin_pose = area_json["cabin_pose"];')
+        area_move_log_index = body.index("bind_from_scan区域%d移动到")
+        self.assertLess(area_pose_index, area_move_log_index)
+
+    def test_bind_from_scan_waits_for_moduan_idle_guard_after_successful_group(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool wait_for_moduan_post_bind_idle_guard(", node)
+        helper_start = node.index("bool wait_for_moduan_post_bind_idle_guard(")
+        helper_end = node.index("\nbool find_nearest_bind_area_for_current_cabin_pose", helper_start)
+        helper_body = node[helper_start:helper_end]
+        self.assertIn("kModuanPostBindIdleStableSamples", helper_body)
+        self.assertIn("kModuanPostBindIdlePollMs", helper_body)
+        self.assertIn("moduan_work_flag.load(std::memory_order_acquire)", helper_body)
+        self.assertIn("std::this_thread::sleep_for", helper_body)
+
+        start = node.index("bool run_bind_from_scan(")
+        end = node.index("\n// service 编排已抽到", start)
+        body = node[start:end]
+        execute_index = body.index("if (!execute_moduan_bind_points_via_action")
+        success_guard_index = body.index("wait_for_moduan_post_bind_idle_guard", execute_index)
+        memory_write_index = body.index("if (use_execution_memory)", execute_index)
+        self.assertLess(success_guard_index, memory_write_index)
+
+    def test_frontend_pause_suspends_then_short_resume_continues_current_workflow(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("std::atomic<bool> execution_pause_requested{false};", node)
+        self.assertIn("std::atomic<bool> execution_return_to_start_requested{false};", node)
+        self.assertIn("bool is_execution_pause_requested()", node)
+        self.assertIn("void request_execution_pause(", node)
+        self.assertIn("void resume_execution_pause(", node)
+        self.assertIn("bool wait_while_execution_paused(", node)
+
+        callback_start = node.index("void pause_interrupt_Callback(")
+        callback_end = node.index("\nvoid solve_stop_Callback", callback_start)
+        callback_body = node[callback_start:callback_end]
+        self.assertIn("request_execution_pause", callback_body)
+        self.assertIn("stop_cabin_motion_via_driver", callback_body)
+        self.assertNotIn("不可暂停索驱", callback_body)
+        self.assertNotIn("&& !moduan_work_flag.load", callback_body)
+
+        resume_start = node.index("void solve_stop_Callback(")
+        resume_end = node.index("\n/*\n    函数功能：急停", resume_start)
+        resume_body = node[resume_start:resume_end]
+        self.assertIn("debug_mes.data == 1.0", resume_body)
+        self.assertIn("resume_execution_pause", resume_body)
+        self.assertNotIn("自动任务保持人工暂停锁定", resume_body)
+
+        wait_start = node.index("bool wait_cabin_axis_stable_arrival(")
+        wait_end = node.index("\n// 规划路径前下发速度", wait_start)
+        wait_body = node[wait_start:wait_end]
+        self.assertIn("wait_while_execution_paused", wait_body)
+        self.assertIn("执行层等待轴", wait_body)
+        self.assertIn("收到人工暂停", wait_body)
+        pause_block = wait_body[wait_body.index("wait_while_execution_paused"):]
+        self.assertIn("return false;", pause_block)
+        pause_helper_start = node.index("bool wait_while_execution_paused(")
+        pause_helper_end = node.index("\nstd::vector<uint8_t> build_pseudo_slam_ir_roi_frame", pause_helper_start)
+        pause_helper_body = node[pause_helper_start:pause_helper_end]
+        self.assertIn("move_cabin_pose_via_driver", pause_helper_body)
+
+    def test_bind_from_scan_waits_on_short_pause_but_aborts_on_return_to_start(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("bool run_bind_from_scan(")
+        end = node.index("\n// service 编排已抽到", start)
+        body = node[start:end]
+
+        self.assertIn("clear_execution_pause_request();", body)
+        self.assertIn("record_execution_pause_return_pose", body)
+        self.assertIn("wait_while_execution_paused", body)
+        self.assertIn("fail_if_execution_return_to_start_requested", body)
+
+        first_pause_guard = body.index("wait_while_execution_paused")
+        first_area_move = body.index("bind_from_scan区域%d移动到")
+        self.assertLess(first_pause_guard, first_area_move)
+
+        failure_branch = body[body.index("if (!execute_moduan_bind_points_via_action"):]
+        self.assertIn("if (is_execution_return_to_start_requested())", failure_branch)
+        self.assertIn("return false;", failure_branch[:failure_branch.index("continue;")])
+
+    def test_recover_pause_command_zeroes_moduan_before_returning_cabin_to_start(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool recover_paused_execution_to_start(", node)
+        helper_start = node.index("bool recover_paused_execution_to_start(")
+        helper_end = node.index("\nbool wait_for_moduan_post_bind_idle_guard", helper_start)
+        helper_body = node[helper_start:helper_end]
+        zero_index = helper_body.index('"/moduan/return_zero_ordered"')
+        cabin_move_index = helper_body.index("move_cabin_pose_via_driver", zero_index)
+        wait_x_index = helper_body.index("wait_cabin_axis_stable_arrival(AXIS_X", cabin_move_index)
+        self.assertLess(zero_index, cabin_move_index)
+        self.assertLess(cabin_move_index, wait_x_index)
+        self.assertIn("record_execution_pause_return_pose", node)
+
+        callback_start = node.index("void solve_stop_Callback(")
+        callback_end = node.index("\n/*\n    函数功能：急停", callback_start)
+        callback_body = node[callback_start:callback_end]
+        self.assertIn("debug_mes.data == 2.0", callback_body)
+        self.assertIn("前端长按暂停/恢复作业", callback_body)
+        self.assertIn("stop_cabin_motion_via_driver", callback_body)
+        self.assertIn("recover_paused_execution_to_start", callback_body)
+        stop_index = callback_body.index("stop_cabin_motion_via_driver")
+        recover_index = callback_body.index("recover_paused_execution_to_start")
+        self.assertLess(stop_index, recover_index)
+        stop_failure_body = callback_body[callback_body.index("if (!stop_cabin_motion_via_driver"):]
+        self.assertIn("return;", stop_failure_body[:stop_failure_body.index("recover_paused_execution_to_start")])
+
+        control = (CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp").read_text(encoding="utf-8")
+        zero_start = control.index("bool move_linear_module_to_origin()")
+        zero_end = control.index("\ndouble max_bind_height_excess_mm", zero_start)
+        zero_body = control[zero_start:zero_end]
+        z_set_index = zero_body.index("Set_Module_Coordinate(WZ_COORDINATE")
+        z_wait_index = zero_body.index("wait_linear_module_axis_arrival(AXIS_Z")
+        x_set_index = zero_body.index("Set_Module_Coordinate(WX_COORDINATE")
+        y_set_index = zero_body.index("Set_Module_Coordinate(WY_COORDINATE")
+        self.assertLess(z_set_index, z_wait_index)
+        self.assertLess(z_wait_index, x_set_index)
+        self.assertLess(z_wait_index, y_set_index)
+
+        callbacks = (CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp").read_text(encoding="utf-8")
+        self.assertIn("先抬升Z轴回0，再回X/Y到0", callbacks)
+
+    def test_recover_pause_command_falls_back_to_bind_path_origin(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool load_execution_pause_return_pose_from_bind_path_json(", node)
+        helper_start = node.index("bool recover_paused_execution_to_start(")
+        helper_end = node.index("\nbool wait_for_moduan_post_bind_idle_guard", helper_start)
+        helper_body = node[helper_start:helper_end]
+
+        missing_record_index = helper_body.index("if (!get_execution_pause_return_pose(return_pose))")
+        fallback_index = helper_body.index("load_execution_pause_return_pose_from_bind_path_json", missing_record_index)
+        zero_index = helper_body.index('"/moduan/return_zero_ordered"')
+        self.assertLess(missing_record_index, fallback_index)
+        self.assertLess(fallback_index, zero_index)
+        self.assertIn("也无法从pseudo_slam_bind_path.json恢复", helper_body)
+        self.assertIn("record_execution_pause_return_pose(", helper_body[fallback_index:zero_index])
+
+    def test_live_visual_records_planning_origin_for_pause_return(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("bool run_live_visual_global_work(")
+        end = node.index("\nbool run_planned_path_refine_only_global_work", start)
+        body = node[start:end]
+
+        self.assertIn("clear_execution_pause_request();", body)
+        self.assertIn("record_execution_pause_return_pose(", body)
+
+        clear_index = body.index("clear_execution_pause_request();")
+        workflow_lock_index = body.index("std::lock_guard<std::mutex> pseudo_slam_workflow_lock")
+        self.assertLess(clear_index, workflow_lock_index)
+
+        record_index = body.index("record_execution_pause_return_pose(")
+        origin_move_index = body.index("if (!move_cabin_pose_via_driver(")
+        self.assertLess(record_index, origin_move_index)
+        record_body = body[record_index:origin_move_index]
+        self.assertIn("path_origin_x", record_body)
+        self.assertIn("path_origin_y", record_body)
+        self.assertIn("move_path_origin_z", record_body)
+
+    def test_frontend_pause_resume_uses_long_press_for_return_to_start(self):
+        catalog = (
+            WEB_DIR / "frontend" / "src" / "config" / "controlPanelCatalog.js"
+        ).read_text(encoding="utf-8")
+        legacy = (
+            WEB_DIR / "frontend" / "src" / "config" / "legacyCommandCatalog.js"
+        ).read_text(encoding="utf-8")
+        controller = (
+            WEB_DIR / "frontend" / "src" / "controllers" / "LegacyCommandController.js"
+        ).read_text(encoding="utf-8")
+        ui = (WEB_DIR / "frontend" / "src" / "ui" / "UIController.js").read_text(encoding="utf-8")
+
+        pause_start = catalog.index("pauseResume:")
+        pause_end = catalog.index("\n  lashingEnabled:", pause_start)
+        pause_body = catalog[pause_start:pause_end]
+        self.assertIn("inactiveRequiresLongPress", pause_body)
+        self.assertIn("inactiveLongPressCommandId: 25", pause_body)
+        self.assertIn("activeRequiresLongPress", pause_body)
+        self.assertIn("longPressCommandId: 25", pause_body)
+
+        self.assertIn('{ id: 25, name: "恢复回起点"', legacy)
+        self.assertIn("command.id === 25", controller)
+        self.assertIn("return { data: 2 };", controller)
+        self.assertIn("handleToggleLongPress", controller)
+        self.assertIn("inactiveRequiresLongPress", controller)
+        self.assertIn("inactiveLongPressCommandId", controller)
+        self.assertIn("activeRequiresLongPress", controller)
+        self.assertIn("const longPressCommandId = currentValue", controller)
+        self.assertIn("definition.inactiveLongPressCommandId", controller)
+        self.assertIn("当前工作停止后，等待线性模组Z轴先归零，再让索驱回到执行起点", controller)
+        self.assertNotIn("短按保持人工暂停锁定", controller)
+        self.assertNotIn("回原点", controller)
+        short_press_body = controller[controller.index("handleToggle(toggleId, parameters)"):]
+        short_press_body = short_press_body[:short_press_body.index("handleToggleLongPress")]
+        self.assertIn("resolveToggleCommand", short_press_body)
+        self.assertNotIn("activeRequiresLongPress", short_press_body)
+        self.assertIn("onControlToggle(callback)", ui)
+        self.assertIn("longPressCommandId", ui)
+        self.assertIn("is-long-press-charging", ui)
+
+    def test_cabin_driver_retries_absolute_move_once_after_retryable_transport_close(self):
+        driver = (HW_DIR / "src" / "driver" / "cabin_driver.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("kMoveToPoseTransportAttemptCount", driver)
+        self.assertIn("kMoveToPoseReconnectRetryDelay", driver)
+        self.assertIn("bool isRetryableAbsoluteMoveTransportError(", driver)
+        helper_start = driver.index("bool isRetryableAbsoluteMoveTransportError(")
+        helper_end = driver.index("\nvoid resetTransportAfterProtocolDesync", helper_start)
+        helper_body = driver[helper_start:helper_end]
+        self.assertIn("error.retryable", helper_body)
+        self.assertIn('error.code == "tcp_recv_failed"', helper_body)
+        self.assertIn('error.code == "tcp_read_wait_failed"', helper_body)
+        self.assertIn('error.code == "tcp_send_failed"', helper_body)
+
+        start = driver.index("bool CabinDriver::moveToPose(")
+        end = driver.index("\nbool CabinDriver::moveByOffset", start)
+        body = driver[start:end]
+        self.assertIn("for (int attempt = 0; attempt < kMoveToPoseTransportAttemptCount; ++attempt)", body)
+        self.assertIn("isRetryableAbsoluteMoveTransportError(transport_error)", body)
+        self.assertIn("transport_->disconnect();", body)
+        self.assertIn("std::this_thread::sleep_for(kMoveToPoseReconnectRetryDelay)", body)
+        self.assertIn("continue;", body)
+        send_index = body.index("transport_->sendAndReceive")
+        retry_index = body.index("isRetryableAbsoluteMoveTransportError(transport_error)")
+        self.assertLess(send_index, retry_index)
+
+        offset_start = driver.index("bool CabinDriver::moveByOffset(")
+        offset_end = driver.index("\nbool CabinDriver::sendStop", offset_start)
+        offset_body = driver[offset_start:offset_end]
+        self.assertNotIn("kMoveToPoseTransportAttemptCount", offset_body)
+        self.assertNotIn("isRetryableAbsoluteMoveTransportError", offset_body)
 
     def test_cabin_stop_treats_peer_close_after_stop_frame_as_delivered(self):
         driver = (HW_DIR / "src" / "driver" / "cabin_driver.cpp").read_text(encoding="utf-8")
@@ -64,6 +351,28 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertNotIn('driver_error.detail == "connection closed by peer"', body)
         self.assertIn("transport_->disconnect();", body)
         self.assertIn("error->clear();", body)
+
+    def test_cabin_stop_treats_device_not_moving_status_as_delivered(self):
+        driver = (HW_DIR / "src" / "driver" / "cabin_driver.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool isStopAlreadyIdleStatus(", driver)
+        helper_start = driver.index("bool isStopAlreadyIdleStatus(")
+        helper_end = driver.index("\nvoid resetTransportAfterProtocolDesync", helper_start)
+        helper_body = driver[helper_start:helper_end]
+        self.assertIn('error.code == "motion_command_rejected"', helper_body)
+        self.assertIn('error.message == "索驱上位机拒绝停止指令"', helper_body)
+        self.assertIn('error.detail.find("status_word=0x00000004")', helper_body)
+        self.assertIn('error.detail.find("设备未运动")', helper_body)
+
+        start = driver.index("bool CabinDriver::sendStop(")
+        end = driver.index("\nCabinStateSnapshot CabinDriver::readState", start)
+        body = driver[start:end]
+        decode_index = body.index("DriverError protocol_error = CabinProtocol::decodeStatus(0x0013, response);")
+        idle_index = body.index("isStopAlreadyIdleStatus(protocol_error)", decode_index)
+        failure_index = body.index("if (!protocol_error.code.empty())", idle_index)
+        self.assertLess(idle_index, failure_index)
+        self.assertIn("error->clear();", body[idle_index:failure_index])
+        self.assertIn("return true;", body[idle_index:failure_index])
 
     def test_cabin_driver_keeps_tcp_position_relative_frame_for_optional_remote_mode(self):
         protocol_header = (HW_DIR / "include" / "tie_robot_hw" / "driver" / "cabin_protocol.hpp").read_text(encoding="utf-8")
@@ -350,6 +659,29 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertNotIn("sg_precomputed_fast_client.call(", node)
         self.assertIn("actionlib", cmake)
         self.assertIn("<build_depend>actionlib</build_depend>", package_xml)
+
+    def test_execution_axis_wait_is_arrival_gated_instead_of_time_gated(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("kExecutionArrivalSoftTimeoutSec", node)
+        self.assertIn("kExecutionArrivalSoftTimeoutLogIntervalSec", node)
+        self.assertNotIn("kExecutionArrivalHardTimeoutSec", node)
+
+        wait_start = node.index("bool wait_cabin_axis_stable_arrival(")
+        wait_end = node.index("\n// 规划路径前下发速度", wait_start)
+        wait_body = node[wait_start:wait_end]
+        soft_timeout_index = wait_body.index("elapsed_sec >= kExecutionArrivalSoftTimeoutSec")
+
+        self.assertIn("cur_motion_status != 0", wait_body[soft_timeout_index:])
+        self.assertIn("axis_error_mm < normalized_tolerance_mm", wait_body[soft_timeout_index:])
+        self.assertIn("pose_delta_mm > kExecutionArrivalPoseDeltaToleranceMm", wait_body[soft_timeout_index:])
+        self.assertNotIn("elapsed_sec < kExecutionArrivalHardTimeoutSec", wait_body[soft_timeout_index:])
+        self.assertIn("继续等待", wait_body[soft_timeout_index:])
+        self.assertIn("索驱已停止但未到位", wait_body[soft_timeout_index:])
+
+        keep_waiting_index = wait_body.index("continue_waiting_after_soft_timeout", soft_timeout_index)
+        fail_detail_index = wait_body.index("set_last_execution_wait_error_detail", soft_timeout_index)
+        self.assertLess(keep_waiting_index, fail_detail_index)
 
 
 if __name__ == "__main__":

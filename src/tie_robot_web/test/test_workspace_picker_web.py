@@ -969,7 +969,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("TOPICS.camera.colorImage", topic_registry)
         self.assertIn("TOPICS.camera.depthImage", topic_registry)
         self.assertIn("TOPICS.camera.irImage", image_topic_catalog)
-        self.assertIn("TOPICS.algorithm.resultImageRaw", image_topic_catalog)
+        self.assertIn('resultImageRaw: "/pointAI/result_image_raw"', TOPIC_REGISTRY.read_text(encoding="utf-8"))
         self.assertIn("TOPICS.camera.colorImage", image_topic_catalog)
         self.assertIn("TOPICS.camera.depthImage", image_topic_catalog)
         self.assertIn("TOPICS.camera.filteredWorldCoord", image_topic_catalog)
@@ -1572,13 +1572,13 @@ class WorkspacePickerWebTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("syncDisplayedImageSubscription({ suppressLog = false } = {})", app_logic)
-        self.assertIn('this.workspaceView.setSavedWorkspaceGuideVisible(false);', app_logic)
+        self.assertIn('this.workspaceView.setWorkspacePickingEnabled(this.activeSettingsPage === "workspace");', app_logic)
         self.assertIn('this.ui.onSettingsPageChange((pageId) => {', app_logic)
-        self.assertIn('this.workspaceView.setSavedWorkspaceGuideVisible(pageId === "workspace");', app_logic)
+        self.assertIn('this.workspaceView.setSavedWorkspaceGuideVisible(workspacePickingEnabled);', app_logic)
         self.assertIn("this.ui.onImageTopicChange(() => {", app_logic)
         self.assertIn("this.workspaceView.setOverlayEnabled(isOverlayCompatibleImageTopic(selectedTopic));", app_logic)
         self.assertIn("图像卡片已切换到", app_logic)
-        self.assertIn("TOPICS.algorithm.resultImageRaw", image_topic_catalog)
+        self.assertIn('resultImageRaw: "/pointAI/result_image_raw"', TOPIC_REGISTRY.read_text(encoding="utf-8"))
         self.assertIn("TOPICS.algorithm.scanSurfaceDpBaseImage", image_topic_catalog)
         self.assertIn("TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage", image_topic_catalog)
         self.assertIn("TOPICS.algorithm.executionRefineBaseImage", image_topic_catalog)
@@ -1589,9 +1589,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("setVisualRecognitionPointsMessage(message", workspace_canvas_view)
         self.assertIn("drawVisualRecognitionPoints()", workspace_canvas_view)
         self.assertIn("const imageMessage = this.lastImageMessage;", workspace_canvas_view)
-        self.assertIn("if (this.savedWorkspaceGuideVisible && this.savedWorkspacePoints.length >= 2)", workspace_canvas_view)
+        self.assertNotIn('#6aa6ff', workspace_canvas_view)
         self.assertIn("setOverlayEnabled(enabled)", workspace_canvas_view)
-        self.assertIn("if (this.overlayEnabled && this.lastExecutionResultMessage)", workspace_canvas_view)
+        self.assertIn("this.imageOverlayLayerState.showImageRecognitionResult !== false", workspace_canvas_view)
         self.assertNotIn("pinnedResultImageMessage", workspace_canvas_view)
         self.assertIn('encoding.includes("mono16") || encoding.includes("16uc1")', image_utils)
         self.assertIn('encoding.includes("32fc1")', image_utils)
@@ -1611,6 +1611,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         workspace_canvas_view = (
             FRONTEND_SRC_DIR / "views" / "WorkspaceCanvasView.js"
         ).read_text(encoding="utf-8")
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
         overlay_utils = (
             FRONTEND_SRC_DIR / "utils" / "tcpWorkspaceOverlay.js"
         ).read_text(encoding="utf-8")
@@ -1623,11 +1626,17 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.irCameraInfo = null;", app_logic)
         self.assertIn("onIrCameraInfo: (message) => {", app_logic)
         self.assertIn("syncTcpWorkspaceBoundaryOverlay()", app_logic)
+        self.assertIn("this.sceneView.setLiveVisibleAreaMessage(message);", app_logic)
+        self.assertIn("projectLiveVisibleAreaToImage(this.irCameraInfo)", app_logic)
         self.assertIn("this.workspaceView.setTcpWorkspaceBoundary(boundary);", app_logic)
         self.assertIn("projectTcpWorkspaceBoundaryToImage(cameraInfo)", scene_view)
         self.assertIn("GRIPPER_FRAME", scene_view)
         self.assertNotIn("applyDistortion", scene_view)
         self.assertIn("setTcpWorkspaceBoundary(boundary)", workspace_canvas_view)
+        self.assertIn('id="irBaseBoundaryLayer"', ui_controller)
+        self.assertIn("baseBoundaryLayer: this.refs.irBaseBoundaryLayer", ui_controller)
+        self.assertIn("renderRealtimeWorkspaceBoundaryLayer()", workspace_canvas_view)
+        self.assertNotIn("drawRealtimeWorkspaceBoundary()", workspace_canvas_view)
         self.assertIn("drawTcpWorkspaceBoundary()", workspace_canvas_view)
         self.assertIn("TCP_WORKSPACE_BOUNDARY_MM", overlay_utils)
         self.assertIn("max: 380", overlay_utils)
@@ -1689,7 +1698,95 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("function buildAreaCenterPathPositions(areas, pathOrigin = null)", scene_view)
         self.assertIn("buildAreaCenterPathPositions(areas, payload?.path_origin || null)", scene_view)
         self.assertIn("buildAreaCenterPositions(areas)", scene_view)
+        self.assertIn("buildBindGroupLineSegmentPositions(areas", scene_view)
+        self.assertIn("this.bindGroupLines = new THREE.LineSegments(", scene_view)
+        self.assertIn("this.bindGroupLines.visible = showBindGroups", scene_view)
         self.assertNotIn("planningPathPositions.length ? planningPathPositions : buildSequentialLineSegmentPositions(positions)", scene_view)
+
+    def test_bind_path_payload_exposes_full_dp_grid_points_for_row_column_lines(self):
+        bind_path = {
+            "scan_session_id": "scan-a",
+            "path_signature": "sig-a",
+            "areas": [
+                {
+                    "groups": [
+                        {
+                            "points": [
+                                {
+                                    "global_idx": 1,
+                                    "global_row": 0,
+                                    "global_col": 0,
+                                    "world_x": 0,
+                                    "world_y": 0,
+                                    "world_z": 500,
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+        }
+        points_json = {
+            "scan_session_id": "scan-a",
+            "path_signature": "sig-a",
+            "pseudo_slam_points": [
+                {
+                    "global_idx": 1,
+                    "planning_global_row": 0,
+                    "planning_global_col": 0,
+                    "planning_checkerboard_parity": 0,
+                    "is_planning_checkerboard_member": True,
+                    "x": 0,
+                    "y": 0,
+                    "z": 500,
+                },
+                {
+                    "global_idx": 2,
+                    "planning_global_row": 0,
+                    "planning_global_col": 1,
+                    "planning_checkerboard_parity": 1,
+                    "is_planning_checkerboard_member": True,
+                    "x": 150,
+                    "y": 0,
+                    "z": 500,
+                },
+                {
+                    "global_idx": 3,
+                    "global_row": 0,
+                    "global_col": 2,
+                    "planning_global_row": -1,
+                    "planning_global_col": -1,
+                    "is_planning_checkerboard_member": False,
+                    "x": 300,
+                    "y": 0,
+                    "z": 500,
+                },
+            ],
+        }
+
+        enriched = self.server_module.enrich_bind_path_with_dp_grid_points(
+            bind_path,
+            points_json,
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "global_idx": point["global_idx"],
+                    "global_row": point["global_row"],
+                    "global_col": point["global_col"],
+                    "world_x": point["world_x"],
+                    "world_y": point["world_y"],
+                    "world_z": point["world_z"],
+                }
+                for point in enriched["grid_points"]
+            ],
+            [
+                {"global_idx": 1, "global_row": 0, "global_col": 0, "world_x": 0.0, "world_y": 0.0, "world_z": 500.0},
+                {"global_idx": 2, "global_row": 0, "global_col": 1, "world_x": 150.0, "world_y": 0.0, "world_z": 500.0},
+                {"global_idx": 3, "global_row": 0, "global_col": 2, "world_x": 300.0, "world_y": 0.0, "world_z": 500.0},
+            ],
+        )
 
     def test_scene_view_projects_tie_points_from_camera_frame_using_tf(self):
         scene_view = (
@@ -3160,6 +3257,8 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("SERVICE_TYPES.moduan.linearModuleMove", ros_connection)
         self.assertIn("linearModuleSingleMoveService: new ROSLIB.Service({", ros_connection)
         self.assertIn("callLinearModuleSingleMoveService({ x, y, z, angle })", ros_connection)
+        self.assertIn('singleMove: "/moduan/driver/raw_single_move"', topic_registry)
+        self.assertNotIn('singleMove: "/moduan/single_move"', topic_registry)
         self.assertIn('this.buildTopicFromRegistry("control.linearModuleState")', ros_connection)
         self.assertIn("this.callbacks.onLinearModuleState?.(message)", ros_connection)
 
@@ -3170,6 +3269,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("linear_module_position_X", tcp_remote_controller)
         self.assertIn("callLinearModuleSingleMoveService(target)", tcp_remote_controller)
         self.assertIn("clampTcpLinearTarget(target)", tcp_remote_controller)
+        self.assertIn("x: { min: 0, max: 380 }", tcp_remote_controller)
+        self.assertIn("y: { min: 0, max: 330 }", tcp_remote_controller)
+        self.assertIn("z: { min: 0, max: 160 }", tcp_remote_controller)
+        self.assertIn("行程：X 0~380mm，Y 0~330mm，Z 0~160mm。", ui_controller)
+        self.assertNotIn("X 0~360mm，Y 0~320mm，Z 0~140mm", ui_controller)
 
         scene_view = (
             FRONTEND_SRC_DIR / "views" / "Scene3DView.js"

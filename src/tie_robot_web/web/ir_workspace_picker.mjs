@@ -16,8 +16,8 @@ undoBtn.addEventListener("click", undoPoint);
 submitBtn.addEventListener("click", publishWorkspaceQuad);
 runSavedS2Btn.addEventListener("click", triggerSavedWorkspaceS2);
 moveToWorkspaceCenterScanPoseBtn.addEventListener("click", triggerWorkspaceCenterScanPoseMove);
-startExecutionBtn.addEventListener("click", () => triggerExecutionLayer(true));
-startExecutionClearMemoryBtn.addEventListener("click", () => triggerExecutionLayer(false));
+startExecutionBtn.addEventListener("click", () => triggerExecutionLayer({ useExecutionMemory: false, clearExecutionMemory: false }));
+startExecutionClearMemoryBtn.addEventListener("click", () => triggerExecutionLayer({ useExecutionMemory: true, clearExecutionMemory: false }));
 runDirectBindPathTestBtn.addEventListener("click", triggerDirectBindPathTest);
 displayModeEl.addEventListener("change", (event) => {
   updateDisplaySettings({ mode: event.target.value });

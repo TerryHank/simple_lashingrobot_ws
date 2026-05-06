@@ -1,14 +1,18 @@
 #include "tie_robot_hw/driver/cabin_driver.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <thread>
 
 namespace tie_robot_hw {
 namespace driver {
 namespace {
 
 constexpr float kIncrementalAxisEpsilonMm = 0.001f;
+constexpr int kMoveToPoseTransportAttemptCount = 2;
+constexpr auto kMoveToPoseReconnectRetryDelay = std::chrono::milliseconds(200);
 
 DriverError validateIncrementalMoveCommand(const CabinPoseCommand& command)
 {
@@ -30,6 +34,25 @@ DriverError validateIncrementalMoveCommand(const CabinPoseCommand& command)
         error.retryable = false;
     }
     return error;
+}
+
+bool isRetryableAbsoluteMoveTransportError(const DriverError& error)
+{
+    if (!error.retryable) {
+        return false;
+    }
+    return error.code == "tcp_recv_failed" ||
+           error.code == "tcp_read_wait_failed" ||
+           error.code == "tcp_send_failed" ||
+           error.code == "tcp_stale_state_response_loop";
+}
+
+bool isStopAlreadyIdleStatus(const DriverError& error)
+{
+    return error.code == "motion_command_rejected" &&
+           error.message == "索驱上位机拒绝停止指令" &&
+           error.detail.find("status_word=0x00000004") != std::string::npos &&
+           error.detail.find("设备未运动") != std::string::npos;
 }
 
 void resetTransportAfterProtocolDesync(CabinTcpTransport& transport, DriverError& protocol_error)
@@ -132,37 +155,59 @@ void CabinDriver::stop()
 
 bool CabinDriver::moveToPose(const CabinPoseCommand& command, DriverError* error)
 {
-    if (!start(error)) {
-        return false;
-    }
-
     const std::vector<uint8_t> request = CabinProtocol::buildMoveToPoseFrame(command);
-    std::vector<uint8_t> response;
-    if (!transport_->sendAndReceive(
-            request,
-            &response,
-            error,
-            8)) {
-        return false;
-    }
-
-    DriverError protocol_error = CabinProtocol::decodeStatus(0x0012, response);
-    if (!protocol_error.code.empty()) {
-        appendRequestContext(protocol_error, request);
-        resetTransportAfterProtocolDesync(*transport_, protocol_error);
-        if (error != nullptr) {
-            *error = protocol_error;
+    DriverError last_transport_error;
+    for (int attempt = 0; attempt < kMoveToPoseTransportAttemptCount; ++attempt) {
+        if (!start(error)) {
+            return false;
         }
-        return false;
+
+        DriverError transport_error;
+        std::vector<uint8_t> response;
+        if (!transport_->sendAndReceive(
+                request,
+                &response,
+                &transport_error,
+                8)) {
+            last_transport_error = transport_error;
+            if (attempt + 1 < kMoveToPoseTransportAttemptCount &&
+                isRetryableAbsoluteMoveTransportError(transport_error)) {
+                transport_->disconnect();
+                std::this_thread::sleep_for(kMoveToPoseReconnectRetryDelay);
+                continue;
+            }
+            if (error != nullptr) {
+                *error = transport_error;
+            }
+            return false;
+        }
+
+        DriverError protocol_error = CabinProtocol::decodeStatus(0x0012, response);
+        if (!protocol_error.code.empty()) {
+            appendRequestContext(protocol_error, request);
+            resetTransportAfterProtocolDesync(*transport_, protocol_error);
+            if (error != nullptr) {
+                *error = protocol_error;
+            }
+            return false;
+        }
+
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        last_state_.x_mm = command.x_mm;
+        last_state_.y_mm = command.y_mm;
+        last_state_.z_mm = command.z_mm;
+        last_state_.speed_mm_per_sec = command.speed_mm_per_sec;
+        last_state_.connected = true;
+        if (error != nullptr) {
+            error->clear();
+        }
+        return true;
     }
 
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    last_state_.x_mm = command.x_mm;
-    last_state_.y_mm = command.y_mm;
-    last_state_.z_mm = command.z_mm;
-    last_state_.speed_mm_per_sec = command.speed_mm_per_sec;
-    last_state_.connected = true;
-    return true;
+    if (error != nullptr) {
+        *error = last_transport_error;
+    }
+    return false;
 }
 
 bool CabinDriver::moveByOffset(const CabinPoseCommand& command, DriverError* error)
@@ -221,6 +266,12 @@ bool CabinDriver::sendStop(DriverError* error)
     std::vector<uint8_t> response;
     if (transport_->sendAndReceive(request, &response, &driver_error, 8)) {
         DriverError protocol_error = CabinProtocol::decodeStatus(0x0013, response);
+        if (isStopAlreadyIdleStatus(protocol_error)) {
+            if (error != nullptr) {
+                error->clear();
+            }
+            return true;
+        }
         if (!protocol_error.code.empty()) {
             appendRequestContext(protocol_error, request);
             resetTransportAfterProtocolDesync(*transport_, protocol_error);

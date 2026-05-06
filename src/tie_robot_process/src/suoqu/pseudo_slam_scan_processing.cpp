@@ -41,16 +41,6 @@ bool transform_cabin_world_point_to_gripper_point(
     return true;
 }
 
-bool is_local_bind_point_in_range(const tie_robot_msgs::PointCoords& point)
-{
-    return point.World_coord[0] >= 0.0f &&
-           point.World_coord[0] <= kTravelMaxXMm &&
-           point.World_coord[1] >= 0.0f &&
-           point.World_coord[1] <= kTravelMaxYMm &&
-           point.World_coord[2] >= 0.0f &&
-           point.World_coord[2] <= kTravelMaxZMm;
-}
-
 std::vector<tie_robot_msgs::PointCoords> dedupe_world_points(
     const std::vector<tie_robot_msgs::PointCoords>& input_points
 )
@@ -1216,52 +1206,87 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
         return checkerboard_info_by_idx;
     }
 
-    const std::vector<float> x_centers = cluster_checkerboard_axis_centers(
-        world_points,
-        0,
-        kPseudoSlamCheckerboardAxisThresholdMm
-    );
-    const std::vector<float> y_centers = cluster_checkerboard_axis_centers(
-        world_points,
-        1,
-        kPseudoSlamCheckerboardAxisThresholdMm
-    );
-    if (x_centers.empty() || y_centers.empty()) {
-        return checkerboard_info_by_idx;
-    }
-
     std::unordered_map<int, const tie_robot_msgs::PointCoords*> world_points_by_idx;
+    bool has_explicit_grid_index = false;
+    int max_explicit_global_row = -1;
+    int max_explicit_global_col = -1;
     for (const auto& world_point : world_points) {
         if (world_point.idx > 0) {
             world_points_by_idx[world_point.idx] = &world_point;
+            if (world_point.has_grid_index &&
+                world_point.global_row >= 0 &&
+                world_point.global_col >= 0) {
+                has_explicit_grid_index = true;
+                max_explicit_global_row = std::max(max_explicit_global_row, world_point.global_row);
+                max_explicit_global_col = std::max(max_explicit_global_col, world_point.global_col);
+            }
         }
+    }
+    if (world_points_by_idx.empty()) {
+        return checkerboard_info_by_idx;
+    }
+
+    if (has_explicit_grid_index) {
+        for (const auto& world_point : world_points) {
+            if (world_point.idx <= 0 ||
+                !world_point.has_grid_index ||
+                world_point.global_row < 0 ||
+                world_point.global_col < 0) {
+                continue;
+            }
+
+            PseudoSlamCheckerboardInfo info;
+            info.global_idx = world_point.idx;
+            info.global_row = world_point.global_row;
+            info.global_col = world_point.global_col;
+            checkerboard_info_by_idx[world_point.idx] = info;
+        }
+        repair_checkerboard_duplicate_cells_into_adjacent_gaps(
+            checkerboard_info_by_idx,
+            world_points_by_idx,
+            max_explicit_global_row + 1,
+            max_explicit_global_col + 1);
+    } else {
+        const std::vector<float> x_centers = cluster_checkerboard_axis_centers(
+            world_points,
+            0,
+            kPseudoSlamCheckerboardAxisThresholdMm
+        );
+        const std::vector<float> y_centers = cluster_checkerboard_axis_centers(
+            world_points,
+            1,
+            kPseudoSlamCheckerboardAxisThresholdMm
+        );
+        if (x_centers.empty() || y_centers.empty()) {
+            return checkerboard_info_by_idx;
+        }
+
+        for (const auto& world_point : world_points) {
+            if (world_point.idx <= 0) {
+                continue;
+            }
+
+            PseudoSlamCheckerboardInfo info;
+            info.global_idx = world_point.idx;
+            info.global_col = find_nearest_checkerboard_center_index(world_point.World_coord[0], x_centers);
+            info.global_row = find_nearest_checkerboard_center_index(world_point.World_coord[1], y_centers);
+            if (info.global_row < 0 || info.global_col < 0) {
+                continue;
+            }
+
+            checkerboard_info_by_idx[world_point.idx] = info;
+        }
+
+        repair_checkerboard_duplicate_cells_into_adjacent_gaps(
+            checkerboard_info_by_idx,
+            world_points_by_idx,
+            static_cast<int>(y_centers.size()),
+            static_cast<int>(x_centers.size()));
     }
 
     std::unordered_set<long long> occupied_cells;
     int phase_reference = 0;
     double nearest_origin_distance_sq = std::numeric_limits<double>::max();
-    for (const auto& world_point : world_points) {
-        if (world_point.idx <= 0) {
-            continue;
-        }
-
-        PseudoSlamCheckerboardInfo info;
-        info.global_idx = world_point.idx;
-        info.global_col = find_nearest_checkerboard_center_index(world_point.World_coord[0], x_centers);
-        info.global_row = find_nearest_checkerboard_center_index(world_point.World_coord[1], y_centers);
-        if (info.global_row < 0 || info.global_col < 0) {
-            continue;
-        }
-
-        checkerboard_info_by_idx[world_point.idx] = info;
-    }
-
-    repair_checkerboard_duplicate_cells_into_adjacent_gaps(
-        checkerboard_info_by_idx,
-        world_points_by_idx,
-        static_cast<int>(y_centers.size()),
-        static_cast<int>(x_centers.size()));
-
     for (const auto& entry : checkerboard_info_by_idx) {
         const auto point_it = world_points_by_idx.find(entry.first);
         if (point_it == world_points_by_idx.end() || point_it->second == nullptr) {
@@ -1435,7 +1460,8 @@ bool load_scan_artifacts_for_execution(
     nlohmann::json& bind_path_json,
     const BindExecutionMemory& bind_execution_memory,
     const std::string& current_path_signature,
-    std::string& error_message
+    std::string& error_message,
+    bool use_execution_memory
 )
 {
     error_message.clear();
@@ -1460,6 +1486,31 @@ bool load_scan_artifacts_for_execution(
         )) {
         error_message = bind_path_error;
         return false;
+    }
+
+    if (!use_execution_memory) {
+        const std::string points_scan_session_id =
+            points_json.value("scan_session_id", std::string());
+        const std::string bind_path_scan_session_id =
+            bind_path_json.value("scan_session_id", std::string());
+        if (points_scan_session_id.empty() ||
+            bind_path_scan_session_id.empty() ||
+            points_scan_session_id != bind_path_scan_session_id) {
+            error_message = "扫描产物scan_session_id不一致，无法在执行记忆关闭模式下执行，请重新扫描建图";
+            return false;
+        }
+
+        const std::string points_path_signature =
+            points_json.value("path_signature", std::string());
+        const std::string bind_path_signature =
+            bind_path_json.value("path_signature", std::string());
+        if (points_path_signature.empty() ||
+            bind_path_signature.empty() ||
+            points_path_signature != bind_path_signature) {
+            error_message = "扫描产物path_signature不一致，无法在执行记忆关闭模式下执行，请重新扫描建图";
+            return false;
+        }
+        return true;
     }
 
     if (!validate_scan_session_alignment(

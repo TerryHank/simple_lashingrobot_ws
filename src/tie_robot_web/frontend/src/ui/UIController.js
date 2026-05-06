@@ -7,6 +7,8 @@ import {
 import { LEGACY_PARAMETER_DEFAULTS } from "../config/legacyCommandCatalog.js";
 import {
   TF_AXIS_FRAMES,
+  IMAGE_HOVER_COORDINATE_FRAMES,
+  getImageHoverCoordinateFrameLabel,
   getPointCloudSourceLabel,
   POINT_CLOUD_SOURCES,
   SCENE_VIEW_MODES,
@@ -16,7 +18,12 @@ import {
 import { DEFAULT_IMAGE_TOPIC, IMAGE_TOPIC_OPTIONS, getImageTopicLabel } from "../config/imageTopicCatalog.js";
 import { DEFAULT_LOG_TOPIC, LOG_TOPIC_OPTIONS, getLogTopicLabel } from "../config/logTopicCatalog.js";
 import { STATUS_MONITORS } from "../config/statusMonitorCatalog.js";
-import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
+import {
+  DEFAULT_GLOBAL_EXECUTION_MODE,
+  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+  GLOBAL_EXECUTION_MODES,
+} from "../config/visualRecognitionMode.js";
+import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
 
 const DISPLAY_MODE_LABELS = {
   auto: "自动增强",
@@ -36,13 +43,14 @@ const CONNECTION_LABELS = {
 const CONNECTION_ACTIONS = {
   info: { id: "", label: "" },
   reconnecting: { id: "manualRosReconnect", label: "立即重连" },
-  success: { id: "restartRosStack", label: "重启ROS" },
+  success: { id: "", label: "长按重启" },
   manual: { id: "manualRosReconnect", label: "手动重连" },
   warn: { id: "startRosStack", label: "启动ROS" },
   error: { id: "startRosStack", label: "启动ROS" },
 };
+const CONNECTION_ALARM_ACTION = { id: "resetAllAlarms", label: "报警复位" };
 
-const STATUS_CHIP_LONG_PRESS_RESTART_MS = 2000;
+const STATUS_CHIP_LONG_PRESS_RESTART_MS = 500;
 const STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS = 240;
 
 const CABIN_POSITION_AXES = [
@@ -61,6 +69,37 @@ const TCP_LINEAR_POSITION_FIELDS = [
   { id: "y", label: "Y", key: "linear_module_position_Y", unit: "mm" },
   { id: "z", label: "Z", key: "linear_module_position_Z", unit: "mm" },
   { id: "angle", label: "角度", key: "motor_angle", unit: "deg" },
+];
+
+const LINEAR_MODULE_LOCAL_AXES = [
+  { id: "x", label: "X", unit: "mm" },
+  { id: "y", label: "Y", unit: "mm" },
+  { id: "z", label: "Z", unit: "mm" },
+  { id: "angle", label: "angle", unit: "deg" },
+];
+
+const VISUAL_DEBUG_BIND_RANGE_AXES = [
+  { axis: "x", label: "X", minRef: "visualDebugBindRangeXMin", maxRef: "visualDebugBindRangeXMax" },
+  { axis: "y", label: "Y", minRef: "visualDebugBindRangeYMin", maxRef: "visualDebugBindRangeYMax" },
+  { axis: "z", label: "Z", minRef: "visualDebugBindRangeZMin", maxRef: "visualDebugBindRangeZMax" },
+];
+
+const VISUAL_DEBUG_EXECUTION_MODE_CONTROLS = [
+  {
+    mode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
+    inputId: "visualDebugExecutionModeLedgerOnly",
+    label: "执行账本",
+  },
+  {
+    mode: GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE,
+    inputId: "visualDebugExecutionModeLedgerRefine",
+    label: "账本+微调",
+  },
+  {
+    mode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
+    inputId: "visualDebugExecutionModePureRefine",
+    label: "规划路径+纯微调",
+  },
 ];
 
 const NETWORK_PING_TARGETS = [
@@ -116,6 +155,20 @@ function normalizeCabinRemoteMoveMode(moveMode) {
   return moveMode === "relative" ? "relative" : "absolute";
 }
 
+function formatCoordinateInteger(value, fallback = "0") {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? String(Math.round(numeric)) : fallback;
+}
+
+function formatCoordinateMm(value, fallback = "--mm") {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.round(numeric)}mm` : fallback;
+}
+
+function formatCoordinateInputValue(value) {
+  return formatCoordinateInteger(value, "0");
+}
+
 export class UIController {
   constructor(rootElement, { panelRegistry = [], initialLayout = null, settingsPageOrder = [] } = {}) {
     this.rootElement = rootElement;
@@ -127,6 +180,8 @@ export class UIController {
     this.topicInventoryExpanded = new Map();
     this.layerLogExpanded = new Set();
     this.rosBackendActionPending = false;
+    this.connectionInfo = { url: "", message: "连接中", level: "info" };
+    this.connectionAlarmMessages = [];
     this.settingsHomePageId = "topics";
     this.settingsPageOrder = this.normalizeSettingsPageOrder(settingsPageOrder);
     this.settingsPageDragValue = "";
@@ -245,6 +300,7 @@ export class UIController {
                 data-has-action="false"
                 title="连接中"
               >
+                  <span class="toolbar-connection-charge" aria-hidden="true"></span>
                   <span class="toolbar-connection-text">
                     <span class="toolbar-connection-label">连接中</span>
                     <span class="toolbar-connection-action-label"></span>
@@ -311,6 +367,14 @@ export class UIController {
             <div class="panel-content image-panel-content">
               <div class="canvas-stage">
                 <canvas id="irCanvas" width="640" height="480"></canvas>
+                <svg
+                  id="irBaseBoundaryLayer"
+                  class="ir-base-boundary-layer"
+                  viewBox="0 0 640 480"
+                  preserveAspectRatio="xMidYMid meet"
+                  aria-hidden="true"
+                  data-visible="false"
+                ></svg>
                 <canvas id="overlayCanvas" width="640" height="480"></canvas>
               </div>
             </div>
@@ -361,21 +425,6 @@ export class UIController {
 
                 <section class="settings-page" data-settings-page="visualDebug" hidden>
                   <div class="settings-grid visual-debug-grid">
-                    <div class="settings-section visual-debug-control-card">
-                      <div class="section-title">视觉调试</div>
-                      <div class="field-grid compact-grid">
-                        <div class="field">
-                          <label for="visualDebugStableFrameCount">释放帧数</label>
-                          <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
-                        </div>
-                      </div>
-                      <div class="button-row">
-                        <button id="visualDebugApplyStableFrameCount" class="secondary-btn" type="button">应用帧数</button>
-                        <button id="visualDebugTrigger" class="primary-btn" type="button">触发视觉服务</button>
-                      </div>
-                      <div id="visualDebugTimingSummary" class="info-block mono">单帧=--ms 服务=--ms 释放=3帧 点数=--</div>
-                    </div>
-
                     <div class="settings-section gripper-tf-calibration-card">
                       <div class="section-title">相机-TCP外参</div>
                       <div id="gripperTfCurrent" class="info-block mono gripper-tf-current">等待 TF 链路后读取当前外参。</div>
@@ -398,9 +447,59 @@ export class UIController {
                       </div>
                     </div>
 
-                    <div class="settings-section visual-debug-log-card">
-                      <div class="section-title">视觉调试日志</div>
-                      <ul id="visualDebugLogList" class="visual-debug-log-list"></ul>
+                    <div class="settings-section visual-debug-control-card">
+                      <div class="section-title">视觉调试</div>
+                      <div class="visual-debug-execution-mode" role="radiogroup" aria-label="执行层模式">
+                        ${VISUAL_DEBUG_EXECUTION_MODE_CONTROLS.map((control) => `
+                          <label class="visual-debug-mode-option" for="${control.inputId}">
+                            <input
+                              id="${control.inputId}"
+                              name="visualDebugExecutionMode"
+                              type="radio"
+                              value="${control.mode}"
+                              ${control.mode === DEFAULT_GLOBAL_EXECUTION_MODE ? "checked" : ""}
+                            />
+                            <span>${control.label}</span>
+                          </label>
+                        `).join("")}
+                      </div>
+                      <div class="field-grid compact-grid">
+                        <div class="field">
+                          <label for="visualDebugStableFrameCount">释放帧数</label>
+                          <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
+                        </div>
+                      </div>
+                      <div class="field-grid compact-grid visual-debug-bind-range-grid">
+                        <div class="field">
+                          <label for="visualDebugBindRangeXMin">绑扎 X min (mm)</label>
+                          <input id="visualDebugBindRangeXMin" type="number" step="1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindRangeXMax">绑扎 X max (mm)</label>
+                          <input id="visualDebugBindRangeXMax" type="number" step="1" value="380" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindRangeYMin">绑扎 Y min (mm)</label>
+                          <input id="visualDebugBindRangeYMin" type="number" step="1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindRangeYMax">绑扎 Y max (mm)</label>
+                          <input id="visualDebugBindRangeYMax" type="number" step="1" value="330" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindRangeZMin">绑扎 Z min (mm)</label>
+                          <input id="visualDebugBindRangeZMin" type="number" step="1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindRangeZMax">绑扎 Z max (mm)</label>
+                          <input id="visualDebugBindRangeZMax" type="number" step="1" value="160" />
+                        </div>
+                      </div>
+                      <div class="button-row">
+                        <button id="visualDebugApplyStableFrameCount" class="secondary-btn" type="button">应用帧数</button>
+                        <button id="visualDebugTrigger" class="primary-btn" type="button">触发视觉服务</button>
+                      </div>
+                      <div id="visualDebugTimingSummary" class="info-block mono">单帧=--ms 服务=--ms 释放=3帧 点数=--</div>
                     </div>
                   </div>
                 </section>
@@ -560,6 +659,14 @@ export class UIController {
                           <input id="followOriginToggle" type="checkbox" />
                           <span>跟随原点</span>
                         </label>
+                        <div class="field">
+                          <label for="imageHoverCoordinateFrame">图像悬停坐标</label>
+                          <select id="imageHoverCoordinateFrame" class="ui-select">
+                            ${IMAGE_HOVER_COORDINATE_FRAMES.map((frame) => `
+                              <option value="${frame.id}">${frame.label}</option>
+                            `).join("")}
+                          </select>
+                        </div>
                       </div>
                     </div>
 
@@ -588,7 +695,13 @@ export class UIController {
                         <label class="checkbox-field"><input id="showRobotToggle" type="checkbox" checked /><span>机器</span></label>
                         <label class="checkbox-field"><input id="showAxesToggle" type="checkbox" checked /><span>坐标轴</span></label>
                         <label class="checkbox-field"><input id="showPointCloudToggle" type="checkbox" /><span>点云</span></label>
-                        <label class="checkbox-field"><input id="showPlanningMarkersToggle" type="checkbox" checked /><span>规划点/绑扎点</span></label>
+                        <label class="checkbox-field"><input id="showBindPointsToggle" type="checkbox" checked /><span>规划点/绑扎点</span></label>
+                        <label class="checkbox-field"><input id="showBindGridLinesToggle" type="checkbox" checked /><span>行/列连线</span></label>
+                        <label class="checkbox-field"><input id="showBindGroupsToggle" type="checkbox" checked /><span>2x2成组</span></label>
+                        <label class="checkbox-field"><input id="showCabinPathToggle" type="checkbox" checked /><span>索驱路径</span></label>
+                        <label class="checkbox-field"><input id="showLinearModuleBindRangeToggle" type="checkbox" checked /><span>线模范围区域</span></label>
+                        <label class="checkbox-field"><input id="showImageRecognitionResultToggle" type="checkbox" checked /><span>绑扎点识别结果</span></label>
+                        <label class="checkbox-field"><input id="showImageScanPointsToggle" type="checkbox" checked /><span>扫描层识别点</span></label>
                       </div>
 
                       <div class="tf-axis-frame-panel">
@@ -617,7 +730,7 @@ export class UIController {
                         </div>
                       </div>
 
-                      <div id="topicLayerSummary" class="info-block mono">模式=点云 + 规划点/绑扎点 点云源=滤波世界点云 点大小=0.035 透明度=0.78</div>
+                      <div id="topicLayerSummary" class="info-block mono">模式=点云 + 规划点/绑扎点 点云源=滤波世界点云 绑扎点=开启 行列=开启 索驱路径=开启 点大小=0.035 透明度=0.78</div>
 
                       <div class="section-title">当前数据量</div>
                       <div id="topicLayerStats" class="stats-grid"></div>
@@ -733,18 +846,6 @@ export class UIController {
                   <div class="settings-grid">
                     <div class="settings-section tcp-linear-remote-card">
                       <div class="section-title">TCP 线性模组遥控</div>
-                      <div class="info-block">
-                        这里控制的是末端 TCP 线性模组，调用 <span class="mono">/moduan/single_move</span>。
-                        后端按绝对坐标执行，按钮会基于实时上传位置做安全步进。
-                      </div>
-                      <div id="tcpLinearRemoteCurrentPosition" class="info-block tcp-linear-remote-position-grid mono">
-                        ${TCP_LINEAR_POSITION_FIELDS.map((field) => `
-                          <div class="tcp-linear-remote-position-item">
-                            <span class="tcp-linear-remote-position-label">${field.label}</span>
-                            <span class="tcp-linear-remote-position-value">等待线模状态…</span>
-                          </div>
-                        `).join("")}
-                      </div>
                       <div class="tcp-linear-remote-pad">
                         <button class="secondary-btn tcp-linear-remote-btn" type="button" data-tcp-linear-remote-axis="zPositive" disabled>Z+</button>
                         <button class="secondary-btn tcp-linear-remote-btn" type="button" data-tcp-linear-remote-axis="xPositive" disabled>X+</button>
@@ -771,7 +872,7 @@ export class UIController {
                           <input id="tcpLinearRemoteAngleStep" type="number" min="1" step="1" value="5" />
                         </div>
                       </div>
-                      <div id="tcpLinearRemoteStatus" class="info-block mono">等待线性模组状态；行程：X 0~360mm，Y 0~320mm，Z 0~140mm。</div>
+                      <div id="tcpLinearRemoteStatus" class="info-block mono">等待线性模组状态；行程：X 0~380mm，Y 0~330mm，Z 0~160mm。</div>
                     </div>
                   </div>
                 </section>
@@ -857,6 +958,7 @@ export class UIController {
               <span class="bottom-linear-module-axis" data-bottom-linear-axis="local:x">X -- mm</span>
               <span class="bottom-linear-module-axis" data-bottom-linear-axis="local:y">Y -- mm</span>
               <span class="bottom-linear-module-axis" data-bottom-linear-axis="local:z">Z -- mm</span>
+              <span class="bottom-linear-module-axis" data-bottom-linear-axis="local:angle">angle -- deg</span>
             </div>
             <div class="bottom-linear-module-row" data-bottom-linear-row="global">
               <span class="bottom-linear-module-title">线模全局</span>
@@ -899,10 +1001,12 @@ export class UIController {
   bindRefs() {
     this.refs.sceneBackground = this.rootElement.querySelector("#sceneBackground");
     this.refs.irCanvas = this.rootElement.querySelector("#irCanvas");
+    this.refs.irBaseBoundaryLayer = this.rootElement.querySelector("#irBaseBoundaryLayer");
     this.refs.overlayCanvas = this.rootElement.querySelector("#overlayCanvas");
     this.refs.sceneViewMode = this.rootElement.querySelector("#sceneViewMode");
     this.refs.sceneViewModeButtons = [...this.rootElement.querySelectorAll("[data-scene-view-mode]")];
     this.refs.followOriginToggle = this.rootElement.querySelector("#followOriginToggle");
+    this.refs.imageHoverCoordinateFrame = this.rootElement.querySelector("#imageHoverCoordinateFrame");
     this.refs.connectionBadge = this.rootElement.querySelector("#connectionBadge");
     this.refs.voltageBadge = this.rootElement.querySelector("#voltageBadge");
     this.refs.themeToggle = this.rootElement.querySelector("#themeToggle");
@@ -923,7 +1027,13 @@ export class UIController {
     this.refs.showRobotToggle = this.rootElement.querySelector("#showRobotToggle");
     this.refs.showAxesToggle = this.rootElement.querySelector("#showAxesToggle");
     this.refs.showPointCloudToggle = this.rootElement.querySelector("#showPointCloudToggle");
-    this.refs.showPlanningMarkersToggle = this.rootElement.querySelector("#showPlanningMarkersToggle");
+    this.refs.showBindPointsToggle = this.rootElement.querySelector("#showBindPointsToggle");
+    this.refs.showBindGridLinesToggle = this.rootElement.querySelector("#showBindGridLinesToggle");
+    this.refs.showBindGroupsToggle = this.rootElement.querySelector("#showBindGroupsToggle");
+    this.refs.showCabinPathToggle = this.rootElement.querySelector("#showCabinPathToggle");
+    this.refs.showLinearModuleBindRangeToggle = this.rootElement.querySelector("#showLinearModuleBindRangeToggle");
+    this.refs.showImageRecognitionResultToggle = this.rootElement.querySelector("#showImageRecognitionResultToggle");
+    this.refs.showImageScanPointsToggle = this.rootElement.querySelector("#showImageScanPointsToggle");
     this.refs.tfAxisFrameToggles = [...this.rootElement.querySelectorAll("[data-tf-axis-frame]")];
     this.refs.pointSizeRange = this.rootElement.querySelector("#pointSizeRange");
     this.refs.pointOpacityRange = this.rootElement.querySelector("#pointOpacityRange");
@@ -939,7 +1049,14 @@ export class UIController {
     this.refs.statusCapsuleGrid = this.rootElement.querySelector("#statusCapsuleGrid");
     this.refs.logList = this.rootElement.querySelector("#logList");
     this.refs.settingsLayerLogList = this.rootElement.querySelector("#settingsLayerLogList");
+    this.refs.visualDebugExecutionModeInputs = [...this.rootElement.querySelectorAll("input[name='visualDebugExecutionMode']")];
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
+    this.refs.visualDebugBindRangeXMin = this.rootElement.querySelector("#visualDebugBindRangeXMin");
+    this.refs.visualDebugBindRangeXMax = this.rootElement.querySelector("#visualDebugBindRangeXMax");
+    this.refs.visualDebugBindRangeYMin = this.rootElement.querySelector("#visualDebugBindRangeYMin");
+    this.refs.visualDebugBindRangeYMax = this.rootElement.querySelector("#visualDebugBindRangeYMax");
+    this.refs.visualDebugBindRangeZMin = this.rootElement.querySelector("#visualDebugBindRangeZMin");
+    this.refs.visualDebugBindRangeZMax = this.rootElement.querySelector("#visualDebugBindRangeZMax");
     this.refs.visualDebugApplyStableFrameCount = this.rootElement.querySelector("#visualDebugApplyStableFrameCount");
     this.refs.visualDebugTrigger = this.rootElement.querySelector("#visualDebugTrigger");
     this.refs.visualDebugTimingSummary = this.rootElement.querySelector("#visualDebugTimingSummary");
@@ -1019,12 +1136,18 @@ export class UIController {
       this.refs.showRobotToggle,
       this.refs.showAxesToggle,
       this.refs.showPointCloudToggle,
-      this.refs.showPlanningMarkersToggle,
+      this.refs.showBindPointsToggle,
+      this.refs.showBindGridLinesToggle,
+      this.refs.showBindGroupsToggle,
+      this.refs.showCabinPathToggle,
+      this.refs.showLinearModuleBindRangeToggle,
+      this.refs.showImageRecognitionResultToggle,
+      this.refs.showImageScanPointsToggle,
       ...this.refs.tfAxisFrameToggles,
       this.refs.pointSizeRange,
       this.refs.pointOpacityRange,
     ].filter(Boolean);
-    this.refs.sceneInputs = [this.refs.followOriginToggle].filter(Boolean);
+    this.refs.sceneInputs = [this.refs.followOriginToggle, this.refs.imageHoverCoordinateFrame].filter(Boolean);
     this.enhanceSelectControls();
     this.refs.settingsPageSelect?.addEventListener("change", () => this.setSettingsPage(this.refs.settingsPageSelect.value));
     this.bindGb28181LocalControls();
@@ -1930,7 +2053,11 @@ export class UIController {
   }
 
   getCanvasRefs() {
-    return { canvas: this.refs.irCanvas, overlayCanvas: this.refs.overlayCanvas };
+    return {
+      canvas: this.refs.irCanvas,
+      baseBoundaryLayer: this.refs.irBaseBoundaryLayer,
+      overlayCanvas: this.refs.overlayCanvas,
+    };
   }
 
   getSceneContainer() {
@@ -1965,12 +2092,19 @@ export class UIController {
       showAxes: this.refs.showAxesToggle.checked,
       showPointCloud: this.refs.showPointCloudToggle.checked,
       showTiePoints: false,
-      showPlanningMarkers: this.refs.showPlanningMarkersToggle.checked,
+      showBindPoints: this.refs.showBindPointsToggle.checked,
+      showBindGridLines: this.refs.showBindGridLinesToggle.checked,
+      showBindGroups: this.refs.showBindGroupsToggle.checked,
+      showCabinPath: this.refs.showCabinPathToggle.checked,
+      showLinearModuleBindRange: this.refs.showLinearModuleBindRangeToggle.checked,
+      showImageRecognitionResult: this.refs.showImageRecognitionResultToggle.checked,
+      showImageScanPoints: this.refs.showImageScanPointsToggle.checked,
       tfAxisFrameVisibility: this.getTfAxisFrameVisibility(),
       pointSize: Number.parseFloat(this.refs.pointSizeRange.value),
       pointOpacity: Number.parseFloat(this.refs.pointOpacityRange.value),
       viewMode: this.getSelectedSceneViewMode(),
       followOrigin: this.refs.followOriginToggle.checked,
+      imageHoverCoordinateFrame: this.getSelectedImageHoverCoordinateFrame(),
     };
   }
 
@@ -1985,7 +2119,13 @@ export class UIController {
     return {
       viewMode: this.getSelectedSceneViewMode(),
       followOrigin: this.refs.followOriginToggle.checked,
+      imageHoverCoordinateFrame: this.getSelectedImageHoverCoordinateFrame(),
     };
+  }
+
+  getSelectedImageHoverCoordinateFrame() {
+    const currentValue = this.refs.imageHoverCoordinateFrame?.value || "map";
+    return IMAGE_HOVER_COORDINATE_FRAMES.some((frame) => frame.id === currentValue) ? currentValue : "map";
   }
 
   getSelectedSceneViewMode() {
@@ -2146,19 +2286,65 @@ export class UIController {
   }
 
   getVisualDebugSettings() {
+    const checkedExecutionModeInput = this.refs.visualDebugExecutionModeInputs
+      ?.find((input) => input.checked);
+    const executionMode = Number.parseInt(
+      checkedExecutionModeInput?.value ?? String(DEFAULT_GLOBAL_EXECUTION_MODE),
+      10,
+    );
     return {
       stableFrameCount: Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugStableFrameCount?.value || "3"))),
       requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+      executionMode: Number.isFinite(executionMode) ? executionMode : DEFAULT_GLOBAL_EXECUTION_MODE,
+      linearModuleBindRangeMm: this.getVisualDebugBindRangeInputs(),
     };
   }
 
   setVisualDebugSettings(settings) {
     const stableFrameCount = Math.max(1, Math.round(Number(settings?.stableFrameCount) || 3));
+    const executionMode = Number.isFinite(Number(settings?.executionMode))
+      ? Math.round(Number(settings.executionMode))
+      : DEFAULT_GLOBAL_EXECUTION_MODE;
+    this.refs.visualDebugExecutionModeInputs?.forEach((input) => {
+      input.checked = Number(input.value) === executionMode;
+    });
+    if (!this.refs.visualDebugExecutionModeInputs?.some((input) => input.checked)) {
+      const defaultInput = this.refs.visualDebugExecutionModeInputs
+        ?.find((input) => Number(input.value) === DEFAULT_GLOBAL_EXECUTION_MODE);
+      if (defaultInput) {
+        defaultInput.checked = true;
+      }
+    }
     if (this.refs.visualDebugStableFrameCount) {
       this.refs.visualDebugStableFrameCount.value = String(stableFrameCount);
     }
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
+    });
+    this.setVisualDebugBindRangeInputs(settings?.linearModuleBindRangeMm);
+  }
+
+  getVisualDebugBindRangeInputs() {
+    const rawRange = VISUAL_DEBUG_BIND_RANGE_AXES.reduce((accumulator, axisConfig) => {
+      accumulator[axisConfig.axis] = {
+        min: Number.parseFloat(this.refs[axisConfig.minRef]?.value || ""),
+        max: Number.parseFloat(this.refs[axisConfig.maxRef]?.value || ""),
+      };
+      return accumulator;
+    }, {});
+    return normalizeTcpWorkspaceBoundaryMm(rawRange);
+  }
+
+  setVisualDebugBindRangeInputs(range) {
+    const normalizedRange = normalizeTcpWorkspaceBoundaryMm(range);
+    VISUAL_DEBUG_BIND_RANGE_AXES.forEach((axisConfig) => {
+      const axisRange = normalizedRange[axisConfig.axis];
+      if (this.refs[axisConfig.minRef]) {
+        this.refs[axisConfig.minRef].value = String(axisRange.min);
+      }
+      if (this.refs[axisConfig.maxRef]) {
+        this.refs[axisConfig.maxRef].value = String(axisRange.max);
+      }
     });
   }
 
@@ -2303,14 +2489,76 @@ export class UIController {
   }
 
   onConnectionAction(callback) {
-    this.refs.connectionBadge?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!this.refs.connectionBadge.dataset.connectionAction) {
-        return;
-      }
-      callback(this.refs.connectionBadge.dataset.connectionAction);
-    });
+    const connectionButton = this.refs.connectionBadge;
+    if (connectionButton) {
+      let longPressTimer = null;
+      let chargeCompleteCleanupTimer = null;
+      let longPressTriggered = false;
+      let suppressNextClick = false;
+      const clearChargeComplete = () => {
+        if (chargeCompleteCleanupTimer) {
+          window.clearTimeout(chargeCompleteCleanupTimer);
+          chargeCompleteCleanupTimer = null;
+        }
+        connectionButton.classList.remove("is-long-press-complete");
+        longPressTriggered = false;
+      };
+      const clearLongPressTimer = () => {
+        connectionButton.classList.remove("is-long-press-charging");
+        if (!longPressTriggered) {
+          connectionButton.classList.remove("is-long-press-complete");
+        }
+        if (!longPressTimer) {
+          return;
+        }
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+      };
+      connectionButton.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) {
+          return;
+        }
+        if (connectionButton.disabled || !connectionButton.dataset.connectionLongAction) {
+          return;
+        }
+        event.preventDefault?.();
+        clearLongPressTimer();
+        clearChargeComplete();
+        suppressNextClick = false;
+        connectionButton.classList.add("is-long-press-charging");
+        longPressTimer = window.setTimeout(() => {
+          longPressTimer = null;
+          suppressNextClick = true;
+          connectionButton.classList.remove("is-long-press-charging");
+          connectionButton.classList.add("is-long-press-complete");
+          longPressTriggered = true;
+          if (!connectionButton.disabled) {
+            callback(connectionButton.dataset.connectionLongAction);
+          }
+          chargeCompleteCleanupTimer = window.setTimeout(clearChargeComplete, STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS);
+        }, STATUS_CHIP_LONG_PRESS_RESTART_MS);
+      });
+      ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
+        connectionButton.addEventListener(eventName, () => {
+          if (!longPressTriggered) {
+            clearLongPressTimer();
+          }
+        });
+      });
+      connectionButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          return;
+        }
+        clearLongPressTimer();
+        if (!connectionButton.dataset.connectionAction) {
+          return;
+        }
+        callback(connectionButton.dataset.connectionAction);
+      });
+    }
     this.refs.voltageBadge?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -2486,7 +2734,14 @@ export class UIController {
   }
 
   onVisualDebugSettingsChange(callback) {
-    [this.refs.visualDebugStableFrameCount]
+    [
+      ...this.refs.visualDebugExecutionModeInputs,
+      this.refs.visualDebugStableFrameCount,
+      ...VISUAL_DEBUG_BIND_RANGE_AXES.flatMap((axisConfig) => [
+        this.refs[axisConfig.minRef],
+        this.refs[axisConfig.maxRef],
+      ]),
+    ]
       .filter(Boolean)
       .forEach((element) => {
         element.addEventListener("input", () => callback(this.getVisualDebugSettings()));
@@ -2517,7 +2772,71 @@ export class UIController {
 
   onControlToggle(callback) {
     this.refs.toggleButtons.forEach((button) => {
-      button.addEventListener("click", () => callback(button.dataset.controlToggle));
+      let longPressTimer = null;
+      let chargeCompleteCleanupTimer = null;
+      let longPressTriggered = false;
+      let suppressNextClick = false;
+      const toggleId = button.dataset.controlToggle;
+      const definition = getControlToggleDefinition(toggleId);
+      const clearChargeComplete = () => {
+        if (chargeCompleteCleanupTimer) {
+          window.clearTimeout(chargeCompleteCleanupTimer);
+          chargeCompleteCleanupTimer = null;
+        }
+        button.classList.remove("is-long-press-complete");
+        longPressTriggered = false;
+      };
+      const clearLongPressTimer = () => {
+        button.classList.remove("is-long-press-charging");
+        if (!longPressTriggered) {
+          button.classList.remove("is-long-press-complete");
+        }
+        if (!longPressTimer) {
+          return;
+        }
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+      };
+      button.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) {
+          return;
+        }
+        if (button.disabled || !definition?.longPressCommandId) {
+          return;
+        }
+        clearLongPressTimer();
+        clearChargeComplete();
+        suppressNextClick = false;
+        button.classList.add("is-long-press-charging");
+        longPressTimer = window.setTimeout(() => {
+          longPressTimer = null;
+          suppressNextClick = true;
+          button.classList.remove("is-long-press-charging");
+          button.classList.add("is-long-press-complete");
+          longPressTriggered = true;
+          if (!button.disabled) {
+            callback(toggleId, { longPress: true });
+          }
+          chargeCompleteCleanupTimer = window.setTimeout(clearChargeComplete, STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS);
+        }, STATUS_CHIP_LONG_PRESS_RESTART_MS);
+      });
+      ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
+        button.addEventListener(eventName, () => {
+          if (!longPressTriggered) {
+            clearLongPressTimer();
+          }
+        });
+      });
+      button.addEventListener("click", (event) => {
+        if (suppressNextClick) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressNextClick = false;
+          return;
+        }
+        clearLongPressTimer();
+        callback(toggleId, { longPress: false });
+      });
     });
   }
 
@@ -2537,8 +2856,12 @@ export class UIController {
       });
     });
     this.refs.sceneInputs.forEach((element) => {
-      const eventName = element.type === "checkbox" ? "change" : "input";
-      element.addEventListener(eventName, () => callback(this.getSceneViewState()));
+      const eventNames = element.tagName === "SELECT" || element.type === "checkbox"
+        ? ["change"]
+        : ["input", "change"];
+      eventNames.forEach((eventName) => {
+        element.addEventListener(eventName, () => callback(this.getSceneViewState()));
+      });
     });
   }
 
@@ -2590,28 +2913,95 @@ export class UIController {
 
   setConnectionInfo(url, message, level = "info") {
     const normalizedLevel = CONNECTION_LABELS[level] ? level : "info";
-    const action = CONNECTION_ACTIONS[normalizedLevel] || CONNECTION_ACTIONS.info;
-    const hasAction = Boolean(action.id);
-    const labelNode = this.refs.connectionBadge.querySelector(".toolbar-connection-label");
-    const actionNode = this.refs.connectionBadge.querySelector(".toolbar-connection-action-label");
-    if (labelNode) {
-      labelNode.textContent = CONNECTION_LABELS[normalizedLevel];
-    }
-    if (actionNode) {
-      actionNode.textContent = action.label;
-    }
-    this.refs.connectionBadge.className = `toolbar-connection-badge ${normalizedLevel}`;
-    this.refs.connectionBadge.title = message || url || CONNECTION_LABELS[normalizedLevel];
-    this.refs.connectionBadge.dataset.connectionAction = action.id;
-    this.refs.connectionBadge.dataset.hasAction = hasAction ? "true" : "false";
-    this.refs.connectionBadge.setAttribute(
-      "aria-label",
-      hasAction ? `${CONNECTION_LABELS[normalizedLevel]}，点击${action.label}` : CONNECTION_LABELS[normalizedLevel],
-    );
+    this.connectionInfo = {
+      url: url || "",
+      message: message || "",
+      level: normalizedLevel,
+    };
+    this.renderConnectionBadgeState();
     this.setStatusChipState(
       "ros",
       normalizedLevel === "success" ? "success" : ["info", "reconnecting"].includes(normalizedLevel) ? "info" : "warn",
       message || url || CONNECTION_LABELS[normalizedLevel],
+    );
+  }
+
+  setConnectionAlarmState(messages = []) {
+    const seen = new Set();
+    this.connectionAlarmMessages = (Array.isArray(messages) ? messages : [])
+      .map((message) => String(message || "").trim())
+      .filter((message) => {
+        if (!message || seen.has(message)) {
+          return false;
+        }
+        seen.add(message);
+        return true;
+      });
+    this.renderConnectionBadgeState();
+  }
+
+  renderConnectionBadgeState() {
+    if (!this.refs.connectionBadge) {
+      return;
+    }
+    const connectionInfo = this.connectionInfo || { url: "", message: "", level: "info" };
+    const normalizedLevel = CONNECTION_LABELS[connectionInfo.level] ? connectionInfo.level : "info";
+    const alarmMessages = Array.isArray(this.connectionAlarmMessages) ? this.connectionAlarmMessages : [];
+    const alarmActive = normalizedLevel === "success" && alarmMessages.length > 0;
+    const displayLevel = alarmActive ? "warn" : normalizedLevel;
+    const displayLabel = alarmActive
+      ? alarmMessages.length === 1
+        ? alarmMessages[0]
+        : `${alarmMessages[0]}等${alarmMessages.length}项报警`
+      : CONNECTION_LABELS[normalizedLevel];
+    const action = alarmActive
+      ? CONNECTION_ALARM_ACTION
+      : CONNECTION_ACTIONS[normalizedLevel] || CONNECTION_ACTIONS.info;
+    const longActionId = normalizedLevel === "success" ? "restartRosStack" : "";
+    const longActionLabel = longActionId ? "重启ROS" : "";
+    const hasShortAction = Boolean(action.id);
+    const hasAction = hasShortAction || Boolean(longActionId);
+    const labelNode = this.refs.connectionBadge.querySelector(".toolbar-connection-label");
+    const actionNode = this.refs.connectionBadge.querySelector(".toolbar-connection-action-label");
+    const longPressCharging = this.refs.connectionBadge.classList.contains("is-long-press-charging");
+    const longPressComplete = this.refs.connectionBadge.classList.contains("is-long-press-complete");
+    const pendingActionId = this.refs.connectionBadge.dataset.pendingActionId || "";
+    const pendingActionLabel = pendingActionId ? this.getPendingActionLabel(pendingActionId) : "";
+    const pending = Boolean(pendingActionId) || this.refs.connectionBadge.classList.contains("is-pending");
+    const booting = pending || this.refs.connectionBadge.classList.contains("is-booting");
+    if (labelNode) {
+      labelNode.textContent = displayLabel;
+    }
+    if (actionNode) {
+      actionNode.textContent = pendingActionLabel || action.label;
+    }
+    this.refs.connectionBadge.className = `toolbar-connection-badge ${displayLevel}`;
+    this.refs.connectionBadge.classList.toggle("is-long-press-charging", longPressCharging);
+    this.refs.connectionBadge.classList.toggle("is-long-press-complete", longPressComplete);
+    this.refs.connectionBadge.classList.toggle("is-pending", pending);
+    this.refs.connectionBadge.classList.toggle("is-booting", booting);
+    this.refs.connectionBadge.dataset.connectionAction = action.id;
+    this.refs.connectionBadge.dataset.connectionLongAction = longActionId;
+    this.refs.connectionBadge.dataset.hasAction = hasAction ? "true" : "false";
+    this.refs.connectionBadge.dataset.hasLongAction = longActionId ? "true" : "false";
+    const baseTitle = alarmActive
+      ? `报警：${alarmMessages.join("、")}`
+      : connectionInfo.message || connectionInfo.url || CONNECTION_LABELS[normalizedLevel];
+    const actionTitle = pendingActionLabel ? pendingActionLabel : hasShortAction ? `短按${action.label}` : "";
+    const longActionTitle = pendingActionLabel ? "" : longActionLabel ? `长按0.5秒${longActionLabel}` : "";
+    const titleParts = [
+      baseTitle,
+      [actionTitle, longActionTitle].filter(Boolean).join("，"),
+    ].filter(Boolean);
+    this.refs.connectionBadge.title = titleParts.join("；");
+    this.refs.connectionBadge.setAttribute(
+      "aria-label",
+      [
+        displayLabel,
+        alarmActive ? alarmMessages.join("、") : "",
+        actionTitle,
+        longActionTitle,
+      ].filter(Boolean).join("，"),
     );
   }
 
@@ -2670,7 +3060,20 @@ export class UIController {
       return;
     }
     this.rosBackendActionPending = Boolean(pending);
-    this.refs.connectionBadge?.classList.toggle("is-booting", this.rosBackendActionPending);
+    const connectionBadge = this.refs.connectionBadge;
+    if (connectionBadge && (pending || connectionBadge.dataset.pendingActionId === actionId)) {
+      connectionBadge.disabled = Boolean(pending);
+      connectionBadge.classList.toggle("is-pending", Boolean(pending));
+      connectionBadge.classList.toggle("is-booting", Boolean(pending));
+      if (pending) {
+        connectionBadge.dataset.pendingActionId = actionId;
+        connectionBadge.setAttribute("aria-busy", "true");
+      } else {
+        delete connectionBadge.dataset.pendingActionId;
+        connectionBadge.removeAttribute("aria-busy");
+      }
+      this.renderConnectionBadgeState();
+    }
     if (!this.refs.voltageBadge) {
       return;
     }
@@ -2822,17 +3225,35 @@ export class UIController {
     this.refs.showRobotToggle.checked = Boolean(state.showRobot);
     this.refs.showAxesToggle.checked = Boolean(state.showAxes);
     this.refs.showPointCloudToggle.checked = Boolean(state.showPointCloud);
-    this.refs.showPlanningMarkersToggle.checked = Boolean(state.showPlanningMarkers);
+    this.refs.showBindPointsToggle.checked = Boolean(state.showBindPoints ?? state.showPlanningMarkers);
+    this.refs.showBindGridLinesToggle.checked = Boolean(state.showBindGridLines ?? state.showPlanningMarkers);
+    this.refs.showBindGroupsToggle.checked = Boolean(state.showBindGroups ?? state.showPlanningMarkers);
+    this.refs.showCabinPathToggle.checked = Boolean(state.showCabinPath ?? state.showPlanningMarkers);
+    this.refs.showLinearModuleBindRangeToggle.checked = state.showLinearModuleBindRange !== false;
+    this.refs.showImageRecognitionResultToggle.checked = state.showImageRecognitionResult !== false;
+    this.refs.showImageScanPointsToggle.checked = state.showImageScanPoints !== false;
     this.setTfAxisFrameVisibility(state.tfAxisFrameVisibility);
     this.refs.pointSizeRange.value = Number(state.pointSize).toFixed(3);
     this.refs.pointOpacityRange.value = Number(state.pointOpacity).toFixed(2);
     this.setSceneViewMode(state.viewMode);
     this.refs.followOriginToggle.checked = Boolean(state.followOrigin);
+    this.refs.imageHoverCoordinateFrame.value = IMAGE_HOVER_COORDINATE_FRAMES.some((frame) => frame.id === state.imageHoverCoordinateFrame)
+      ? state.imageHoverCoordinateFrame
+      : "map";
     this.refreshCustomSelect(this.refs.topicLayerMode);
     this.refreshCustomSelect(this.refs.pointCloudSource);
+    this.refreshCustomSelect(this.refs.imageHoverCoordinateFrame);
     const visibleTfAxes = this.getVisibleTfAxisFrameLabels(state.tfAxisFrameVisibility);
+    const bindPointsText = (state.showBindPoints ?? state.showPlanningMarkers) ? "开启" : "关闭";
+    const gridLineText = (state.showBindGridLines ?? state.showPlanningMarkers) ? "开启" : "关闭";
+    const bindGroupsText = (state.showBindGroups ?? state.showPlanningMarkers) ? "开启" : "关闭";
+    const cabinPathText = (state.showCabinPath ?? state.showPlanningMarkers) ? "开启" : "关闭";
+    const bindRangeText = state.showLinearModuleBindRange !== false ? "开启" : "关闭";
+    const imageResultText = state.showImageRecognitionResult !== false ? "开启" : "关闭";
+    const imageScanPointsText = state.showImageScanPoints !== false ? "开启" : "关闭";
+    const hoverFrameText = getImageHoverCoordinateFrameLabel(state.imageHoverCoordinateFrame);
     this.refs.topicLayerSummary.textContent =
-      `模式=${getTopicLayerModeLabel(state.mode)} 坐标轴=${state.showAxes ? visibleTfAxes : "总开关关闭"} 点云=${state.showPointCloud ? "开启" : "关闭"} 点云源=${getPointCloudSourceLabel(state.pointCloudSource)} 点大小=${Number(state.pointSize).toFixed(3)} 透明度=${Number(state.pointOpacity).toFixed(2)}`;
+      `模式=${getTopicLayerModeLabel(state.mode)} 坐标轴=${state.showAxes ? visibleTfAxes : "总开关关闭"} 点云=${state.showPointCloud ? "开启" : "关闭"} 绑扎点=${bindPointsText} 行列=${gridLineText} 成组=${bindGroupsText} 索驱路径=${cabinPathText} 线模范围=${bindRangeText} 红外识别图=${imageResultText} 红外扫描点=${imageScanPointsText} 悬停坐标=${hoverFrameText} 点云源=${getPointCloudSourceLabel(state.pointCloudSource)} 点大小=${Number(state.pointSize).toFixed(3)} 透明度=${Number(state.pointOpacity).toFixed(2)}`;
   }
 
   setTfAxisFrameVisibility(frameVisibility = {}) {
@@ -3031,9 +3452,9 @@ export class UIController {
     if (this.refs.baseToCameraComputed) {
       const baseToCamera = calibration.baseToCamera || {};
       const baseToCameraText = [
-        `X=${Number(baseToCamera.x || 0).toFixed(1)}mm`,
-        `Y=${Number(baseToCamera.y || 0).toFixed(1)}mm`,
-        `Z=${Number(baseToCamera.z || 0).toFixed(1)}mm`,
+        `X=${formatCoordinateMm(baseToCamera.x || 0)}`,
+        `Y=${formatCoordinateMm(baseToCamera.y || 0)}`,
+        `Z=${formatCoordinateMm(baseToCamera.z || 0)}`,
         `R=${Number(baseToCamera.roll ?? Math.PI).toFixed(4)}`,
         `P=${Number(baseToCamera.pitch || 0).toFixed(4)}`,
         `Y=${Number(baseToCamera.yaw || 0).toFixed(4)}`,
@@ -3048,9 +3469,9 @@ export class UIController {
       this.refs.robotHomeZ,
     ];
     if (forceInputs || !editableRefs.includes(activeElement)) {
-      this.refs.robotHomeX.value = Number(calibration.home?.x || 0).toFixed(1);
-      this.refs.robotHomeY.value = Number(calibration.home?.y || 0).toFixed(1);
-      this.refs.robotHomeZ.value = Number(calibration.home?.z || 0).toFixed(1);
+      this.refs.robotHomeX.value = formatCoordinateInputValue(calibration.home?.x || 0);
+      this.refs.robotHomeY.value = formatCoordinateInputValue(calibration.home?.y || 0);
+      this.refs.robotHomeZ.value = formatCoordinateInputValue(calibration.home?.z || 0);
     }
   }
 
@@ -3061,20 +3482,20 @@ export class UIController {
     }
 
     this.refs.gripperTfCurrent.textContent =
-      `${calibration.parentFrame} -> ${calibration.childFrame} | translation_mm=(${calibration.translationMm.x.toFixed(1)}, ${calibration.translationMm.y.toFixed(1)}, ${calibration.translationMm.z.toFixed(1)})`;
+      `${calibration.parentFrame} -> ${calibration.childFrame} | translation_mm=(${formatCoordinateInteger(calibration.translationMm.x)}, ${formatCoordinateInteger(calibration.translationMm.y)}, ${formatCoordinateInteger(calibration.translationMm.z)})`;
     const activeElement = document.activeElement;
     const isEditing = activeElement === this.refs.gripperTfX
       || activeElement === this.refs.gripperTfY
       || activeElement === this.refs.gripperTfZ;
     if (forceInputs || (!isEditing && !this.hasEditedGripperTfCalibrationInputs())) {
       const inputValues = {
-        x: Number(calibration.translationMm.x || 0),
-        y: Number(calibration.translationMm.y || 0),
-        z: Number(calibration.translationMm.z || 0),
+        x: Number(formatCoordinateInputValue(calibration.translationMm.x || 0)),
+        y: Number(formatCoordinateInputValue(calibration.translationMm.y || 0)),
+        z: Number(formatCoordinateInputValue(calibration.translationMm.z || 0)),
       };
-      this.refs.gripperTfX.value = inputValues.x.toFixed(1);
-      this.refs.gripperTfY.value = inputValues.y.toFixed(1);
-      this.refs.gripperTfZ.value = inputValues.z.toFixed(1);
+      this.refs.gripperTfX.value = String(inputValues.x);
+      this.refs.gripperTfY.value = String(inputValues.y);
+      this.refs.gripperTfZ.value = String(inputValues.z);
       this.lastGripperTfCalibrationInputValues = inputValues;
     }
   }
@@ -3093,7 +3514,7 @@ export class UIController {
       return;
     }
     this.refs.selectedPoints.innerHTML = points.map((point, index) => `
-      <li class="point-item mono">${index + 1}. x=${point.x}, y=${point.y}</li>
+      <li class="point-item mono">${index + 1}. x=${formatCoordinateInteger(point.x)}, y=${formatCoordinateInteger(point.y)}</li>
     `).join("");
   }
 
@@ -3125,8 +3546,12 @@ export class UIController {
       return;
     }
     const pending = chip.classList.contains("is-pending");
+    const longPressCharging = chip.classList.contains("is-long-press-charging");
+    const longPressComplete = chip.classList.contains("is-long-press-complete");
     chip.className = `system-status-item ${level} is-interactive`;
     chip.classList.toggle("is-pending", pending);
+    chip.classList.toggle("is-long-press-charging", longPressCharging);
+    chip.classList.toggle("is-long-press-complete", longPressComplete);
     chip.title = detail || "";
     const actionLabel = chip.querySelector(".system-status-action-label");
     const nextActionMap = {
@@ -3156,7 +3581,7 @@ export class UIController {
       ? `${statusLabel}：短按${nextActionLabel}，长按重启`
       : `${statusLabel}：${nextActionLabel}`);
     chip.title = longPressAction
-      ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按2秒重启`
+      ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按0.5秒重启`
       : detail || "";
     if (actionLabel) {
       actionLabel.textContent = chip.dataset.pendingActionId
@@ -3242,15 +3667,23 @@ export class UIController {
       : hasLocalPosition
         ? "partial"
         : "waiting";
-    const describePosition = (label, position) => (
-      `${label}：${CABIN_POSITION_AXES
-        .map(({ id, label: axisLabel }) => `${axisLabel}=${Number.isFinite(Number(position?.[id])) ? Math.round(Number(position[id])) : "--"}mm`)
+    const formatLinearAxisValue = (value, unit) => {
+      const rawValue = Number(value);
+      if (!Number.isFinite(rawValue)) {
+        return `-- ${unit}`;
+      }
+      return unit === "mm" ? `${Math.round(rawValue)} ${unit}` : `${rawValue.toFixed(1)} ${unit}`;
+    };
+    const formatLinearAxisTitleValue = (value, unit) => formatLinearAxisValue(value, unit).replace(" ", "");
+    const describePosition = (label, position, axes) => (
+      `${label}：${axes
+        .map(({ id, label: axisLabel, unit = "mm" }) => `${axisLabel}=${formatLinearAxisTitleValue(position?.[id], unit)}`)
         .join(" ")}`
     );
     const title = hasLocalPosition
       ? [
-        describePosition("线模本地", localPosition),
-        hasGlobalPosition ? describePosition("线模全局", globalPosition) : "线模全局：等待 gripper_frame TF",
+        describePosition("线模本地", localPosition, LINEAR_MODULE_LOCAL_AXES),
+        hasGlobalPosition ? describePosition("线模全局", globalPosition, CABIN_POSITION_AXES) : "线模全局：等待 gripper_frame TF",
       ].join("；")
       : "等待线性模组状态和 gripper_frame TF";
 
@@ -3259,14 +3692,13 @@ export class UIController {
     this.refs.bottomLinearModulePosition.setAttribute("aria-label", title);
     this.refs.bottomLinearModuleAxes.forEach((axisNode) => {
       const [scopeId, axisId] = (axisNode.dataset.bottomLinearAxis || "").split(":");
-      const axis = CABIN_POSITION_AXES.find((item) => item.id === axisId);
+      const localAxis = LINEAR_MODULE_LOCAL_AXES.find((item) => item.id === axisId);
+      const axis = scopeId === "local" ? localAxis : CABIN_POSITION_AXES.find((item) => item.id === axisId);
       if (!axis) {
         return;
       }
       const position = scopeId === "global" ? globalPosition : localPosition;
-      const rawValue = Number(position?.[axisId]);
-      const value = Number.isFinite(rawValue) ? `${Math.round(rawValue)} mm` : "-- mm";
-      axisNode.textContent = `${axis.label} ${value}`;
+      axisNode.textContent = `${axis.label} ${formatLinearAxisValue(position?.[axisId], axis.unit || "mm")}`;
     });
   }
 
@@ -3299,26 +3731,24 @@ export class UIController {
   }
 
   setTcpLinearRemoteState(message) {
-    if (!this.refs.tcpLinearRemoteCurrentPosition) {
-      return;
+    const hasState = TCP_LINEAR_POSITION_FIELDS.every((field) => Number.isFinite(Number(message?.[field.key])));
+    if (this.refs.tcpLinearRemoteCurrentPosition) {
+      this.refs.tcpLinearRemoteCurrentPosition.innerHTML = TCP_LINEAR_POSITION_FIELDS.map((field) => {
+        const rawValue = Number(message?.[field.key]);
+        const formatted = Number.isFinite(rawValue)
+          ? `${field.unit === "mm" ? Math.round(rawValue) : rawValue.toFixed(1)} ${field.unit}`
+          : "等待线模状态…";
+        return `
+          <div class="tcp-linear-remote-position-item">
+            <span class="tcp-linear-remote-position-label">${field.label}</span>
+            <span class="tcp-linear-remote-position-value">${formatted}</span>
+          </div>
+        `;
+      }).join("");
     }
 
-    const hasState = TCP_LINEAR_POSITION_FIELDS.every((field) => Number.isFinite(Number(message?.[field.key])));
-    this.refs.tcpLinearRemoteCurrentPosition.innerHTML = TCP_LINEAR_POSITION_FIELDS.map((field) => {
-      const rawValue = Number(message?.[field.key]);
-      const formatted = Number.isFinite(rawValue)
-        ? `${rawValue.toFixed(1)} ${field.unit}`
-        : "等待线模状态…";
-      return `
-        <div class="tcp-linear-remote-position-item">
-          <span class="tcp-linear-remote-position-label">${field.label}</span>
-          <span class="tcp-linear-remote-position-value">${formatted}</span>
-        </div>
-      `;
-    }).join("");
-
     if (!hasState) {
-      this.setTcpLinearRemoteStatus("等待线性模组状态；行程：X 0~360mm，Y 0~320mm，Z 0~140mm。");
+      this.setTcpLinearRemoteStatus("等待线性模组状态；行程：X 0~380mm，Y 0~330mm，Z 0~160mm。");
       return;
     }
 
@@ -3341,7 +3771,7 @@ export class UIController {
       return;
     }
     this.refs.tcpLinearRemoteStatus.textContent =
-      message || "等待线性模组状态；行程：X 0~360mm，Y 0~320mm，Z 0~140mm。";
+      message || "等待线性模组状态；行程：X 0~380mm，Y 0~330mm，Z 0~160mm。";
   }
 
   setTcpLinearRemoteButtonsEnabled(enabled) {

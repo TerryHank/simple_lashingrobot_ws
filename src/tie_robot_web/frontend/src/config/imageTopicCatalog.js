@@ -49,11 +49,6 @@ export const IMAGE_TOPIC_OPTIONS = [
     label: getRegistryLabel(TOPICS.algorithm.executionRefineBaseImage, "执行底图 Hough二值"),
     overlayCompatible: false,
   },
-  {
-    id: TOPICS.algorithm.resultImageRaw,
-    label: getRegistryLabel(TOPICS.algorithm.resultImageRaw, "识别结果图"),
-    overlayCompatible: true,
-  },
 ];
 
 export const DEFAULT_IMAGE_TOPIC = TOPICS.camera.irImage;

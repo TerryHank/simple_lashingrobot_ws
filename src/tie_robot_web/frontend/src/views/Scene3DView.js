@@ -1,11 +1,21 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { decodeFloat32XYZImage } from "../utils/irImageUtils.js";
 import {
-  buildTcpWorkspaceBoundaryPointsMm,
+  decodeFloat32XYZImage,
+  extractFloat32XYZImageValidPixelBoundary,
+} from "../utils/irImageUtils.js";
+import {
+  TCP_WORKSPACE_BOUNDARY_MM,
+  buildTcpWorkspaceBoundaryPlanesMm,
+  normalizeTcpWorkspaceBoundaryMm,
   normalizeCameraProjection,
   projectCameraPointMetersToImagePixel,
 } from "../utils/tcpWorkspaceOverlay.js";
+import {
+  buildBindGridLineSegmentPositions,
+  buildBindGroupLineSegmentPositions,
+  buildBindPathPointPositions,
+} from "../utils/bindPathGeometry.js";
 
 const MAP_FRAME = "map";
 const BASE_LINK_FRAME = "base_link";
@@ -29,6 +39,8 @@ const TOP_VIEW_HEIGHT_METERS = 6.5;
 const MAP_VIEW_ORIGIN = new THREE.Vector3(0, 0, 0);
 const MARKER_TYPE_SPHERE_LIST = 7;
 const MARKER_TYPE_POINTS = 8;
+const BIND_GROUP_LINE_Z_OFFSET_METERS = 0.012;
+const LINEAR_MODULE_BIND_RANGE_MIN_SIZE_METERS = 0.001;
 
 function buildPointsObject(colorHex) {
   const geometry = new THREE.BufferGeometry();
@@ -112,6 +124,27 @@ function buildSequentialSegmentPositionsFromVectors(vectors) {
   for (let index = 1; index < vectors.length; index += 1) {
     const startPoint = vectors[index - 1];
     const endPoint = vectors[index];
+    linePositions.push(
+      startPoint.x,
+      startPoint.y,
+      startPoint.z,
+      endPoint.x,
+      endPoint.y,
+      endPoint.z,
+    );
+  }
+  return linePositions;
+}
+
+function buildClosedFrameSegmentPositionsFromVectors(vectors) {
+  if (!Array.isArray(vectors) || vectors.length < 3) {
+    return [];
+  }
+
+  const linePositions = [];
+  for (let index = 0; index < vectors.length; index += 1) {
+    const startPoint = vectors[index];
+    const endPoint = vectors[(index + 1) % vectors.length];
     linePositions.push(
       startPoint.x,
       startPoint.y,
@@ -305,17 +338,23 @@ export class Scene3DView {
     this.transformMap = new Map();
     this.cachedWorldTransforms = new Map();
     this.linearModuleLocalPositionMm = null;
+    this.linearModuleBindRangeMm = normalizeTcpWorkspaceBoundaryMm(TCP_WORKSPACE_BOUNDARY_MM);
     this.sourcePointCloudPositions = {
       filteredWorldCoord: new Float32Array(),
       rawWorldCoord: new Float32Array(),
     };
     this.sourceTiePointCameraPositions = new Float32Array();
+    this.sourceWorkspaceRangeCameraPositions = new Float32Array();
+    this.workspaceRangeMapPositions = new Float32Array();
+    this.sourceLiveVisibleAreaCameraPositions = new Float32Array();
+    this.liveVisibleAreaMapPositions = new Float32Array();
     this.planningPointsFollowTiePoints = false;
     this.pointCounts = {
       filteredWorldCoord: 0,
       rawWorldCoord: 0,
       tiePoints: 0,
       planningPoints: 0,
+      bindPathPoints: 0,
     };
 
     this.scene = new THREE.Scene();
@@ -397,10 +436,40 @@ export class Scene3DView {
     this.robotMaterial = robotMaterial;
     this.tcpToolMaterial = tcpToolMaterial;
 
+    this.linearModuleBindRangeGroup = new THREE.Group();
+    this.linearModuleBindRangeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x33d7c0,
+      metalness: 0.02,
+      roughness: 0.56,
+      transparent: true,
+      opacity: 0.14,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.linearModuleBindRangeEdgeMaterial = new THREE.LineBasicMaterial({
+      color: 0x8df7e8,
+      transparent: true,
+      opacity: 0.72,
+    });
+    this.linearModuleBindRangeMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      this.linearModuleBindRangeMaterial,
+    );
+    this.linearModuleBindRangeEdges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+      this.linearModuleBindRangeEdgeMaterial,
+    );
+    this.linearModuleBindRangeGroup.add(this.linearModuleBindRangeMesh, this.linearModuleBindRangeEdges);
+    this.scene.add(this.linearModuleBindRangeGroup);
+    this.updateLinearModuleBindRangeGeometry();
+
     this.filteredPointCloud = buildPointsObject(0x62d6ff);
     this.rawPointCloud = buildPointsObject(0x4f6b7d);
     this.tiePoints = buildPointsObject(0x57ff9d);
     this.planningPoints = buildPointsObject(0xf8d462);
+    this.bindPathPoints = buildPointsObject(0xf8d462);
+    this.bindPathPoints.material.size = 0.045;
+    this.bindPathPoints.material.opacity = 0.92;
     this.planningAreaCenters = buildPointsObject(0xff8f3d);
     this.planningAreaCenters.material.size = 0.055;
     this.planningAreaCenters.material.opacity = 0.9;
@@ -414,18 +483,57 @@ export class Scene3DView {
       planningAreaOutlinesTemplate.geometry,
       planningAreaOutlinesTemplate.material,
     );
+    const bindRowLinesTemplate = buildLineSegmentsObject(0x35d7ff);
+    this.bindRowLines = new THREE.LineSegments(
+      bindRowLinesTemplate.geometry,
+      bindRowLinesTemplate.material,
+    );
+    const bindColumnLinesTemplate = buildLineSegmentsObject(0xffd15c);
+    this.bindColumnLines = new THREE.LineSegments(
+      bindColumnLinesTemplate.geometry,
+      bindColumnLinesTemplate.material,
+    );
+    const bindGroupLinesTemplate = buildLineSegmentsObject(0xff4f8a);
+    this.bindGroupLines = new THREE.LineSegments(
+      bindGroupLinesTemplate.geometry,
+      bindGroupLinesTemplate.material,
+    );
+    this.bindGroupLines.material.opacity = 0.92;
+    const workspaceRangeFrameTemplate = buildLineSegmentsObject(0x7edcff);
+    workspaceRangeFrameTemplate.material.opacity = 0.96;
+    this.workspaceRangeFrame = new THREE.LineSegments(
+      workspaceRangeFrameTemplate.geometry,
+      workspaceRangeFrameTemplate.material,
+    );
+    this.workspaceRangeCorners = buildPointsObject(0x7edcff);
+    this.workspaceRangeCorners.material.size = 0.06;
+    this.workspaceRangeCorners.material.opacity = 0.96;
+    this.workspaceRangeGroup = new THREE.Group();
+    this.workspaceRangeGroup.visible = false;
+    this.workspaceRangeGroup.add(this.workspaceRangeFrame, this.workspaceRangeCorners);
     this.scene.add(
       this.filteredPointCloud,
       this.rawPointCloud,
       this.tiePoints,
       this.planningPoints,
+      this.bindPathPoints,
       this.planningAreaCenters,
       this.planningAreaPath,
       this.planningAreaOutlines,
+      this.bindRowLines,
+      this.bindColumnLines,
+      this.bindGroupLines,
+      this.workspaceRangeGroup,
     );
+    this.bindPathPoints.renderOrder = 3;
     this.planningAreaCenters.renderOrder = 2;
     this.planningAreaPath.renderOrder = 2;
     this.planningAreaOutlines.renderOrder = 2;
+    this.bindRowLines.renderOrder = 3;
+    this.bindColumnLines.renderOrder = 3;
+    this.bindGroupLines.renderOrder = 4;
+    this.workspaceRangeFrame.renderOrder = 5;
+    this.workspaceRangeCorners.renderOrder = 5;
 
     this.viewMode = "free";
     this.followOrigin = false;
@@ -445,9 +553,9 @@ export class Scene3DView {
       if (this.needsViewReset) {
         this.resetView(this.viewMode);
         this.needsViewReset = false;
-      } else if (this.viewMode !== "free" && this.followOrigin) {
+      } else if (this.viewMode === "camera" && this.followOrigin) {
         this.resetView(this.viewMode);
-      } else if (this.viewMode === "free" && this.followOrigin) {
+      } else if (this.followOrigin) {
         this.followCurrentViewOrigin();
       }
       this.controls.update();
@@ -467,11 +575,15 @@ export class Scene3DView {
 
   setLayerState(state) {
     this.layerState = { ...state };
-    this.robotGroup.visible = Boolean(state.showRobot);
-    this.tcpToolGroup.visible = Boolean(state.showRobot);
+    this.robotGroup.visible = this.isRobotBodyVisible();
+    this.tcpToolGroup.visible = this.isTcpToolVisible();
     const baseLinkTransform = this.getWorldTransform(BASE_LINK_FRAME);
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
     const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
+    const showLinearModuleBindRange = state.showLinearModuleBindRange !== false;
+    if (this.linearModuleBindRangeGroup) {
+      this.linearModuleBindRangeGroup.visible = showLinearModuleBindRange && Boolean(gripperTransform);
+    }
     this.mapAxes.visible = this.isTfAxisFrameVisible(MAP_FRAME);
     this.baseLinkFrame.visible = Boolean(baseLinkTransform) && this.isTfAxisFrameVisible(BASE_LINK_FRAME);
     this.scepterFrame.visible = Boolean(scepterTransform) && this.isTfAxisFrameVisible(SCEPTER_FRAME);
@@ -483,13 +595,22 @@ export class Scene3DView {
       Boolean(state.showPointCloud) && state.pointCloudSource === "filteredWorldCoord";
     this.rawPointCloud.visible =
       Boolean(state.showPointCloud) && state.pointCloudSource === "rawWorldCoord";
+    const showBindPoints = Boolean(state.showBindPoints ?? state.showPlanningMarkers);
+    const showBindGridLines = Boolean(state.showBindGridLines ?? state.showPlanningMarkers);
+    const showBindGroups = Boolean(state.showBindGroups ?? state.showPlanningMarkers);
+    const showCabinPath = Boolean(state.showCabinPath ?? state.showPlanningMarkers);
+    const hasBindPathPointOverlay = this.pointCounts.bindPathPoints > 0;
     this.tiePoints.visible = Boolean(state.showTiePoints);
-    this.planningPoints.visible = Boolean(state.showPlanningMarkers);
-    this.planningAreaCenters.visible = Boolean(state.showPlanningMarkers);
-    this.planningAreaPath.visible = Boolean(state.showPlanningMarkers);
-    this.planningAreaOutlines.visible = Boolean(state.showPlanningMarkers);
+    this.planningPoints.visible = showBindPoints && !hasBindPathPointOverlay;
+    this.bindPathPoints.visible = showBindPoints && hasBindPathPointOverlay;
+    this.planningAreaCenters.visible = showCabinPath;
+    this.planningAreaPath.visible = showCabinPath;
+    this.planningAreaOutlines.visible = showBindGroups;
+    this.bindRowLines.visible = showBindGridLines;
+    this.bindColumnLines.visible = showBindGridLines;
+    this.bindGroupLines.visible = showBindGroups;
 
-    [this.filteredPointCloud, this.rawPointCloud, this.tiePoints, this.planningPoints].forEach((object) => {
+    [this.filteredPointCloud, this.rawPointCloud, this.tiePoints, this.planningPoints, this.bindPathPoints].forEach((object) => {
       object.material.size = Number(state.pointSize) || 0.035;
       object.material.opacity = Number(state.pointOpacity) || 0.78;
       object.material.needsUpdate = true;
@@ -499,6 +620,7 @@ export class Scene3DView {
   setViewMode(viewMode) {
     this.viewMode = ["free", "camera", "top"].includes(viewMode) ? viewMode : "free";
     this.syncControlsForViewMode();
+    this.applyFrameTransforms();
     this.lastFollowOrigin = this.resolveSceneViewOrigin();
     this.needsViewReset = true;
   }
@@ -512,7 +634,18 @@ export class Scene3DView {
   }
 
   syncControlsForViewMode() {
-    this.controls.enabled = this.viewMode === "free";
+    const isCameraView = this.viewMode === "camera";
+    this.controls.enabled = !isCameraView;
+    this.controls.enablePan = !isCameraView;
+    this.controls.enableRotate = this.viewMode === "free";
+  }
+
+  isRobotBodyVisible() {
+    return this.layerState.showRobot !== false && this.viewMode !== "camera";
+  }
+
+  isTcpToolVisible() {
+    return this.layerState.showRobot !== false;
   }
 
   resetView(viewMode = this.viewMode) {
@@ -524,6 +657,7 @@ export class Scene3DView {
       if (cameraPose) {
         this.applyViewPose(cameraPose);
         this.lastFollowOrigin = cameraPose.position.clone();
+        this.applyFrameTransforms();
         return;
       }
     }
@@ -531,6 +665,7 @@ export class Scene3DView {
       const topPose = this.resolveTopViewPose();
       this.applyViewPose(topPose);
       this.lastFollowOrigin = topPose.target.clone();
+      this.applyFrameTransforms();
       return;
     }
 
@@ -540,6 +675,7 @@ export class Scene3DView {
       up: WORLD_UP_AXIS,
     });
     this.lastFollowOrigin = this.resolveSceneViewOrigin();
+    this.applyFrameTransforms();
   }
 
   resolveCameraViewPose() {
@@ -628,6 +764,7 @@ export class Scene3DView {
     this.applyFrameTransforms();
     this.refreshPointCloudWorldPositions();
     this.refreshTiePointWorldPositions();
+    this.refreshRealtimeWorkspaceRangeWorldPositions();
   }
 
   applyFrameTransforms() {
@@ -636,22 +773,44 @@ export class Scene3DView {
     const scepterTransform = this.getWorldTransform(SCEPTER_FRAME);
     this.applyGroupTfTransform(this.scepterFrame, scepterTransform, SCEPTER_FRAME);
     const gripperTransform = this.getWorldTransform(GRIPPER_FRAME);
-    this.applyGroupTfTransform(this.gripperFrame, gripperTransform, GRIPPER_FRAME);
+    const tcpToolPosition = this.getLinearModuleTcpWorldPosition() || gripperTransform?.position || null;
+    const gripperDisplayTransform = gripperTransform && tcpToolPosition
+      ? {
+        position: tcpToolPosition,
+        quaternion: gripperTransform.quaternion,
+      }
+      : gripperTransform;
+    this.applyGroupTfTransform(this.gripperFrame, gripperDisplayTransform, GRIPPER_FRAME);
     const robotTransform = baseLinkTransform || scepterTransform;
     if (robotTransform) {
-      this.robotGroup.visible = this.layerState.showRobot !== false;
+      this.robotGroup.visible = this.isRobotBodyVisible();
       this.applyWorldAlignedDisplayPose(this.robotGroup, robotTransform.position);
     } else {
       this.robotGroup.visible = false;
     }
 
-    const tcpToolPosition = this.getLinearModuleTcpWorldPosition() || gripperTransform?.position || null;
     if (tcpToolPosition) {
-      this.tcpToolGroup.visible = this.layerState.showRobot !== false;
+      this.tcpToolGroup.visible = this.isTcpToolVisible();
       this.applyCustomDisplayPose(this.tcpToolGroup, tcpToolPosition);
     } else {
       this.tcpToolGroup.visible = false;
     }
+    this.applyLinearModuleBindRangeTransform(gripperTransform);
+  }
+
+  applyLinearModuleBindRangeTransform(gripperTransform) {
+    if (!this.linearModuleBindRangeGroup) {
+      return;
+    }
+    if (
+      !gripperTransform
+      || this.layerState.showLinearModuleBindRange === false
+    ) {
+      this.linearModuleBindRangeGroup.visible = false;
+      return;
+    }
+    this.linearModuleBindRangeGroup.visible = true;
+    this.applyTfFramePose(this.linearModuleBindRangeGroup, gripperTransform);
   }
 
   isTfAxisFrameVisible(frameId) {
@@ -700,7 +859,7 @@ export class Scene3DView {
 
     const currentRecord = this.transformMap.get(GRIPPER_FRAME);
     const quaternion = currentRecord?.quaternion?.clone()
-      || new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI));
+      || new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
     this.transformMap.set(GRIPPER_FRAME, {
       parentFrame: SCEPTER_FRAME,
       position: new THREE.Vector3(
@@ -744,14 +903,62 @@ export class Scene3DView {
     return projectCameraPointMetersToImagePixel(cameraPoint, cameraInfo);
   }
 
+  projectMapPointToImagePixel(mapPoint, cameraInfo) {
+    const projection = normalizeCameraProjection(cameraInfo);
+    const cameraFrame = cameraInfo?.header?.frame_id || SCEPTER_FRAME;
+    const cameraTransform = this.resolveProjectionFrameTransform(cameraFrame);
+    if (!cameraTransform || !projection) {
+      return null;
+    }
+    const cameraPoint = mapPoint
+      .clone()
+      .sub(cameraTransform.position)
+      .applyQuaternion(cameraTransform.quaternion.clone().invert());
+    return projectCameraPointMetersToImagePixel(cameraPoint, cameraInfo);
+  }
+
   projectTcpWorkspaceBoundaryToImage(cameraInfo) {
     const projection = normalizeCameraProjection(cameraInfo);
     if (!projection || !this.getWorldTransform(GRIPPER_FRAME)) {
       return null;
     }
-    const points = buildTcpWorkspaceBoundaryPointsMm()
-      .map((point) => this.projectFramePointToImagePixel(point, GRIPPER_FRAME, cameraInfo));
-    if (points.length !== 4 || points.some((point) => !point)) {
+    const planes = buildTcpWorkspaceBoundaryPlanesMm(this.linearModuleBindRangeMm)
+      .map((plane) => ({
+        z: plane.z,
+        points: plane.points.map((point) => this.projectFramePointToImagePixel(point, GRIPPER_FRAME, cameraInfo)),
+      }));
+    if (!planes.length || planes.some((plane) => plane.points.length !== 4 || plane.points.some((point) => !point))) {
+      return null;
+    }
+    return {
+      points: planes[0].points,
+      planes,
+      sourceSize: {
+        width: projection.width,
+        height: projection.height,
+      },
+      frameId: GRIPPER_FRAME,
+    };
+  }
+
+  projectRealtimeWorkspaceRangeToImage(cameraInfo) {
+    const projection = normalizeCameraProjection(cameraInfo);
+    if (!projection) {
+      return null;
+    }
+    const mapPositions = this.getRealtimeWorkspaceRangeMapPositions();
+    const points = [];
+    for (let index = 0; index < mapPositions.length; index += 3) {
+      const projected = this.projectMapPointToImagePixel(
+        new THREE.Vector3(mapPositions[index], mapPositions[index + 1], mapPositions[index + 2]),
+        cameraInfo,
+      );
+      if (!projected) {
+        continue;
+      }
+      points.push(projected);
+    }
+    if (points.length < 3) {
       return null;
     }
     return {
@@ -760,7 +967,37 @@ export class Scene3DView {
         width: projection.width,
         height: projection.height,
       },
-      frameId: GRIPPER_FRAME,
+      frameId: MAP_FRAME,
+    };
+  }
+
+  projectLiveVisibleAreaToImage(cameraInfo) {
+    const projection = normalizeCameraProjection(cameraInfo);
+    if (!projection) {
+      return null;
+    }
+    const mapPositions = this.getLiveVisibleAreaMapPositions();
+    const points = [];
+    for (let index = 0; index < mapPositions.length; index += 3) {
+      const projected = this.projectMapPointToImagePixel(
+        new THREE.Vector3(mapPositions[index], mapPositions[index + 1], mapPositions[index + 2]),
+        cameraInfo,
+      );
+      if (!projected) {
+        continue;
+      }
+      points.push(projected);
+    }
+    if (points.length < 3) {
+      return null;
+    }
+    return {
+      points,
+      sourceSize: {
+        width: projection.width,
+        height: projection.height,
+      },
+      frameId: MAP_FRAME,
     };
   }
 
@@ -772,6 +1009,8 @@ export class Scene3DView {
       this.keyLight.intensity = 0.82;
       this.robotMaterial.color.setHex(0x3d63d8);
       this.tcpToolMaterial.color.setHex(0xd67a2f);
+      this.linearModuleBindRangeMaterial.color.setHex(0x1aa89d);
+      this.linearModuleBindRangeEdgeMaterial.color.setHex(0x2faeac);
       const materials = Array.isArray(this.grid.material) ? this.grid.material : [this.grid.material];
       if (materials[0]?.color) {
         materials[0].color.setHex(0x7d8da4);
@@ -782,6 +1021,12 @@ export class Scene3DView {
       this.planningAreaCenters.material.color.setHex(0xe1781d);
       this.planningAreaPath.material.color.setHex(0xd69314);
       this.planningAreaOutlines.material.color.setHex(0xe1781d);
+      this.bindPathPoints.material.color.setHex(0xd69314);
+      this.bindRowLines.material.color.setHex(0x1f8fb8);
+      this.bindColumnLines.material.color.setHex(0xc9971f);
+      this.bindGroupLines.material.color.setHex(0xd92f69);
+      this.workspaceRangeFrame.material.color.setHex(0x1f8fb8);
+      this.workspaceRangeCorners.material.color.setHex(0x1f8fb8);
       return;
     }
 
@@ -790,6 +1035,8 @@ export class Scene3DView {
     this.keyLight.intensity = 0.9;
     this.robotMaterial.color.setHex(0x4c87ff);
     this.tcpToolMaterial.color.setHex(0xff8c4d);
+    this.linearModuleBindRangeMaterial.color.setHex(0x33d7c0);
+    this.linearModuleBindRangeEdgeMaterial.color.setHex(0x8df7e8);
     const materials = Array.isArray(this.grid.material) ? this.grid.material : [this.grid.material];
     if (materials[0]?.color) {
       materials[0].color.setHex(0xffffff);
@@ -800,6 +1047,12 @@ export class Scene3DView {
     this.planningAreaCenters.material.color.setHex(0xff8f3d);
     this.planningAreaPath.material.color.setHex(0xffc14d);
     this.planningAreaOutlines.material.color.setHex(0xff8f3d);
+    this.bindPathPoints.material.color.setHex(0xf8d462);
+    this.bindRowLines.material.color.setHex(0x35d7ff);
+    this.bindColumnLines.material.color.setHex(0xffd15c);
+    this.bindGroupLines.material.color.setHex(0xff4f8a);
+    this.workspaceRangeFrame.material.color.setHex(0x7edcff);
+    this.workspaceRangeCorners.material.color.setHex(0x7edcff);
   }
 
   getKnownTransformCount() {
@@ -832,6 +1085,43 @@ export class Scene3DView {
     this.linearModuleLocalPositionMm = normalizeLinearModuleLocalPositionMm(localPosition);
     this.applyFrameTransforms();
     return this.getLinearModuleGlobalPositionMm(this.linearModuleLocalPositionMm);
+  }
+
+  setLinearModuleBindRange(range) {
+    this.linearModuleBindRangeMm = normalizeTcpWorkspaceBoundaryMm(range);
+    this.updateLinearModuleBindRangeGeometry();
+    if (
+      this.applyFrameTransforms !== Scene3DView.prototype.applyFrameTransforms
+      || (this.baseLinkFrame && this.scepterFrame && this.gripperFrame && this.tcpToolGroup)
+    ) {
+      this.applyFrameTransforms();
+    }
+    return this.linearModuleBindRangeMm;
+  }
+
+  updateLinearModuleBindRangeGeometry() {
+    if (!this.linearModuleBindRangeMesh || !this.linearModuleBindRangeEdges) {
+      return;
+    }
+    const bounds = normalizeTcpWorkspaceBoundaryMm(this.linearModuleBindRangeMm);
+    const sizeMeters = {
+      x: Math.max((bounds.x.max - bounds.x.min) / 1000.0, LINEAR_MODULE_BIND_RANGE_MIN_SIZE_METERS),
+      y: Math.max((bounds.y.max - bounds.y.min) / 1000.0, LINEAR_MODULE_BIND_RANGE_MIN_SIZE_METERS),
+      z: Math.max((bounds.z.max - bounds.z.min) / 1000.0, LINEAR_MODULE_BIND_RANGE_MIN_SIZE_METERS),
+    };
+    const centerMeters = {
+      x: (bounds.x.min + bounds.x.max) / 2000.0,
+      y: (bounds.y.min + bounds.y.max) / 2000.0,
+      z: (bounds.z.min + bounds.z.max) / 2000.0,
+    };
+    const boxGeometry = new THREE.BoxGeometry(sizeMeters.x, sizeMeters.y, sizeMeters.z);
+    this.linearModuleBindRangeMesh.geometry?.dispose?.();
+    this.linearModuleBindRangeMesh.geometry = boxGeometry;
+    this.linearModuleBindRangeMesh.position.set(centerMeters.x, centerMeters.y, centerMeters.z);
+
+    this.linearModuleBindRangeEdges.geometry?.dispose?.();
+    this.linearModuleBindRangeEdges.geometry = new THREE.EdgesGeometry(boxGeometry);
+    this.linearModuleBindRangeEdges.position.copy(this.linearModuleBindRangeMesh.position);
   }
 
   getLinearModuleTcpWorldPosition(localPosition = this.linearModuleLocalPositionMm) {
@@ -939,6 +1229,51 @@ export class Scene3DView {
     return scepterTransform.position.clone().add(pointInMap);
   }
 
+  convertScepterPointMmToFrameMm(cameraPointMm, targetFrame = MAP_FRAME) {
+    const cameraPoint = new THREE.Vector3(
+      Number(cameraPointMm?.x) / 1000.0,
+      Number(cameraPointMm?.y) / 1000.0,
+      Number(cameraPointMm?.z) / 1000.0,
+    );
+    if (![cameraPoint.x, cameraPoint.y, cameraPoint.z].every(Number.isFinite)) {
+      return null;
+    }
+
+    if (targetFrame === SCEPTER_FRAME) {
+      return {
+        x: cameraPoint.x * 1000.0,
+        y: cameraPoint.y * 1000.0,
+        z: cameraPoint.z * 1000.0,
+      };
+    }
+
+    const mapPoint = this.convertScepterPointCloudPointToMapPoint(cameraPoint);
+    if (!mapPoint) {
+      return null;
+    }
+    if (targetFrame === MAP_FRAME) {
+      return {
+        x: mapPoint.x * 1000.0,
+        y: mapPoint.y * 1000.0,
+        z: mapPoint.z * 1000.0,
+      };
+    }
+
+    const targetTransform = this.getWorldTransform(targetFrame);
+    if (!targetTransform) {
+      return null;
+    }
+    const localPoint = mapPoint
+      .clone()
+      .sub(targetTransform.position)
+      .applyQuaternion(targetTransform.quaternion.clone().invert());
+    return {
+      x: localPoint.x * 1000.0,
+      y: localPoint.y * 1000.0,
+      z: localPoint.z * 1000.0,
+    };
+  }
+
   applyPointCloudWorldPositions(source) {
     const localPositions = this.sourcePointCloudPositions[source];
     if (!localPositions?.length) {
@@ -992,6 +1327,128 @@ export class Scene3DView {
     return worldPositions;
   }
 
+  captureRealtimeWorkspaceRangeMapPositions() {
+    const cameraPositions = this.sourceWorkspaceRangeCameraPositions;
+    const mapPositions = [];
+    for (let index = 0; index < cameraPositions.length; index += 3) {
+      const mapPoint = this.convertScepterPointCloudPointToMapPoint(new THREE.Vector3(
+        cameraPositions[index],
+        cameraPositions[index + 1],
+        cameraPositions[index + 2],
+      ));
+      if (!mapPoint) {
+        continue;
+      }
+      mapPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
+    }
+    if (mapPositions.length >= 9) {
+      this.workspaceRangeMapPositions = new Float32Array(mapPositions);
+    }
+    return this.workspaceRangeMapPositions;
+  }
+
+  getRealtimeWorkspaceRangeMapPositions() {
+    if (this.workspaceRangeMapPositions?.length) {
+      return this.workspaceRangeMapPositions;
+    }
+    if (this.sourceWorkspaceRangeCameraPositions?.length) {
+      return this.captureRealtimeWorkspaceRangeMapPositions();
+    }
+    return new Float32Array();
+  }
+
+  captureLiveVisibleAreaMapPositions() {
+    const cameraPositions = this.sourceLiveVisibleAreaCameraPositions;
+    const mapPositions = [];
+    for (let index = 0; index < cameraPositions.length; index += 3) {
+      const mapPoint = this.convertScepterPointCloudPointToMapPoint(new THREE.Vector3(
+        cameraPositions[index],
+        cameraPositions[index + 1],
+        cameraPositions[index + 2],
+      ));
+      if (!mapPoint) {
+        continue;
+      }
+      mapPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
+    }
+    if (mapPositions.length >= 9) {
+      this.liveVisibleAreaMapPositions = new Float32Array(mapPositions);
+    }
+    return this.liveVisibleAreaMapPositions;
+  }
+
+  getLiveVisibleAreaMapPositions() {
+    if (this.liveVisibleAreaMapPositions?.length) {
+      return this.liveVisibleAreaMapPositions;
+    }
+    if (this.sourceLiveVisibleAreaCameraPositions?.length) {
+      return this.captureLiveVisibleAreaMapPositions();
+    }
+    return new Float32Array();
+  }
+
+  refreshRealtimeWorkspaceRangeWorldPositions() {
+    const mapPositions = this.getRealtimeWorkspaceRangeMapPositions();
+    if (this.workspaceRangeCorners?.geometry) {
+      this.workspaceRangeCorners.geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute([], 3),
+      );
+      this.workspaceRangeCorners.geometry.computeBoundingSphere();
+    }
+    if (this.workspaceRangeFrame?.geometry) {
+      this.workspaceRangeFrame.geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute([], 3),
+      );
+      this.workspaceRangeFrame.geometry.computeBoundingSphere();
+    }
+    if (this.workspaceRangeGroup) {
+      this.workspaceRangeGroup.visible = false;
+    }
+    return mapPositions.length / 3;
+  }
+
+  setLiveVisibleAreaMessage(message) {
+    const boundary = extractFloat32XYZImageValidPixelBoundary(message);
+    if (!boundary) {
+      this.sourceLiveVisibleAreaCameraPositions = new Float32Array();
+      this.liveVisibleAreaMapPositions = new Float32Array();
+      return 0;
+    }
+
+    this.sourceLiveVisibleAreaCameraPositions = new Float32Array(
+      boundary.cameraPointsMm.flatMap((point) => [
+        Number(point.x) / 1000.0,
+        Number(point.y) / 1000.0,
+        Number(point.z) / 1000.0,
+      ]),
+    );
+    this.liveVisibleAreaMapPositions = new Float32Array();
+    return this.getLiveVisibleAreaMapPositions().length / 3;
+  }
+
+  setRealtimeWorkspaceRangeMessage(message) {
+    const points = Array.isArray(message?.PointCoordinatesArray) ? message.PointCoordinatesArray : [];
+    const cameraPositions = [];
+    points.forEach((point) => {
+      const world = Array.isArray(point?.World_coord) ? point.World_coord : [];
+      if (world.length < 3) {
+        return;
+      }
+      const x = Number(world[0]);
+      const y = Number(world[1]);
+      const z = Number(world[2]);
+      if (![x, y, z].every(Number.isFinite)) {
+        return;
+      }
+      cameraPositions.push(x / 1000.0, y / 1000.0, z / 1000.0);
+    });
+    this.sourceWorkspaceRangeCameraPositions = new Float32Array(cameraPositions);
+    this.workspaceRangeMapPositions = new Float32Array();
+    return this.refreshRealtimeWorkspaceRangeWorldPositions();
+  }
+
   setTiePointsMessage(message) {
     const points = Array.isArray(message?.PointCoordinatesArray) ? message.PointCoordinatesArray : [];
     const cameraPositions = [];
@@ -1032,10 +1489,23 @@ export class Scene3DView {
 
   setPlanningAreaPayload(payload) {
     const areas = Array.isArray(payload?.areas) ? payload.areas : [];
+    const gridPoints = Array.isArray(payload?.grid_points) ? payload.grid_points : [];
     const areaCenterPositions = buildAreaCenterPositions(areas);
     const areaPathPositions = buildAreaCenterPathPositions(areas, payload?.path_origin || null);
     const areaOutlinePositions = buildAreaOutlineSegmentPositions(areas);
+    const bindPathPointPositions = buildBindPathPointPositions(areas, gridPoints);
+    const bindRowLinePositions = buildBindGridLineSegmentPositions(areas, { axis: "row", gridPoints });
+    const bindColumnLinePositions = buildBindGridLineSegmentPositions(areas, { axis: "column", gridPoints });
+    const bindGroupLinePositions = buildBindGroupLineSegmentPositions(areas, {
+      zOffsetMeters: BIND_GROUP_LINE_Z_OFFSET_METERS,
+    });
 
+    this.bindPathPoints.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(bindPathPointPositions, 3),
+    );
+    this.bindPathPoints.geometry.computeBoundingSphere();
+    this.pointCounts.bindPathPoints = bindPathPointPositions.length / 3;
     this.planningAreaCenters.geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(areaCenterPositions, 3),
@@ -1051,6 +1521,22 @@ export class Scene3DView {
       new THREE.Float32BufferAttribute(areaOutlinePositions, 3),
     );
     this.planningAreaOutlines.geometry.computeBoundingSphere();
+    this.bindRowLines.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(bindRowLinePositions, 3),
+    );
+    this.bindRowLines.geometry.computeBoundingSphere();
+    this.bindColumnLines.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(bindColumnLinePositions, 3),
+    );
+    this.bindColumnLines.geometry.computeBoundingSphere();
+    this.bindGroupLines.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(bindGroupLinePositions, 3),
+    );
+    this.bindGroupLines.geometry.computeBoundingSphere();
+    this.setLayerState(this.layerState);
   }
 
   setPointCloudImageMessage(source, message) {

@@ -10,6 +10,7 @@ import http.client
 import ipaddress
 import json
 import logging
+import math
 import os
 import pty
 import re
@@ -69,6 +70,9 @@ LEGACY_SHOW_WORKSPACE = Path(
 SCEPTER_ROS_ROOT = Path("/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS")
 PLANNING_BIND_PATH_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_process" / "data" / "pseudo_slam_bind_path.json"
+)
+PLANNING_POINTS_FILE = (
+    WORKSPACE_ROOT / "src" / "tie_robot_process" / "data" / "pseudo_slam_points.json"
 )
 GB28181_CONFIG_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_gb28181" / "config" / "gb28181_device.yaml"
@@ -280,6 +284,108 @@ def run_network_ping(host):
             "stderr": str(exc),
             "message": f"Ping 执行失败：{exc}",
         }
+
+
+def _finite_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _finite_int(value):
+    number = _finite_float(value)
+    if number is None:
+        return None
+    return int(number)
+
+
+def _first_finite_float(*values):
+    for value in values:
+        number = _finite_float(value)
+        if number is not None:
+            return number
+    return None
+
+
+def _first_nonnegative_int(*values):
+    for value in values:
+        number = _finite_int(value)
+        if number is not None and number >= 0:
+            return number
+    return None
+
+
+def _scan_artifacts_aligned(bind_path, points_json):
+    if not isinstance(bind_path, dict) or not isinstance(points_json, dict):
+        return False
+    for key in ("scan_session_id", "path_signature"):
+        bind_value = str(bind_path.get(key) or "").strip()
+        points_value = str(points_json.get(key) or "").strip()
+        if bind_value and points_value and bind_value != points_value:
+            return False
+    return True
+
+
+def build_dp_bind_grid_points(points_json):
+    if not isinstance(points_json, dict):
+        return []
+    raw_points = points_json.get("pseudo_slam_points")
+    if not isinstance(raw_points, list):
+        return []
+
+    grid_points = []
+    seen_global_indices = set()
+    for point in raw_points:
+        if not isinstance(point, dict):
+            continue
+
+        global_idx = _first_nonnegative_int(point.get("global_idx"), point.get("idx"))
+        row = _first_nonnegative_int(point.get("global_row"), point.get("planning_global_row"))
+        col = _first_nonnegative_int(point.get("global_col"), point.get("planning_global_col"))
+        world_x = _first_finite_float(point.get("x"), point.get("world_x"))
+        world_y = _first_finite_float(point.get("y"), point.get("world_y"))
+        world_z = _first_finite_float(point.get("z"), point.get("world_z"))
+        if global_idx is None or global_idx in seen_global_indices:
+            continue
+        if row is None or col is None or world_x is None or world_y is None or world_z is None:
+            continue
+
+        seen_global_indices.add(global_idx)
+        grid_points.append({
+            "idx": global_idx,
+            "global_idx": global_idx,
+            "global_row": row,
+            "global_col": col,
+            "checkerboard_parity": _finite_int(
+                point.get("checkerboard_parity", point.get("planning_checkerboard_parity", -1))
+            ) or 0,
+            "is_checkerboard_member": bool(
+                point.get("is_checkerboard_member", point.get("is_planning_checkerboard_member", True))
+            ),
+            "is_planning_checkerboard_member": bool(point.get("is_planning_checkerboard_member", False)),
+            "is_planning_outlier": bool(point.get("is_planning_outlier", False)),
+            "is_planning_outlier_line_member": bool(point.get("is_planning_outlier_line_member", False)),
+            "is_outlier_secondary_plane_member": bool(point.get("is_outlier_secondary_plane_member", False)),
+            "is_outlier_column_neighbor_blocked": bool(point.get("is_outlier_column_neighbor_blocked", False)),
+            "world_x": world_x,
+            "world_y": world_y,
+            "world_z": world_z,
+            "angle": _finite_float(point.get("angle")) or 0.0,
+        })
+
+    return sorted(grid_points, key=lambda point: point["global_idx"])
+
+
+def enrich_bind_path_with_dp_grid_points(bind_path, points_json):
+    enriched = dict(bind_path or {})
+    grid_points = []
+    if _scan_artifacts_aligned(enriched, points_json):
+        grid_points = build_dp_bind_grid_points(points_json)
+    enriched["grid_points"] = grid_points
+    enriched["grid_point_count"] = len(grid_points)
+    return enriched
 
 
 def normalize_gb28181_port(value, label):
@@ -2931,6 +3037,13 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
                 "bind_path": None,
             }, status_code=500)
             return
+
+        if PLANNING_POINTS_FILE.exists():
+            try:
+                points_json = json.loads(PLANNING_POINTS_FILE.read_text(encoding="utf-8"))
+                bind_path = enrich_bind_path_with_dp_grid_points(bind_path, points_json)
+            except Exception:
+                pass
 
         self.send_json({
             "success": True,

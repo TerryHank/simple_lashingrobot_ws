@@ -66,5 +66,6 @@ std::unique_ptr<tie_robot_hw::driver::LinearModuleDriver> g_linear_module_driver
 std::atomic<bool> g_moduan_driver_enabled(true);
 std::atomic<bool> g_use_remote_moduan_driver(false);
 std::atomic<bool> moduan_plc_execution_state(false);
+std::atomic<bool> moduan_return_zero_ordered_requested(false);
 float last_x = 0.0f;
 float last_y = 0.0f;

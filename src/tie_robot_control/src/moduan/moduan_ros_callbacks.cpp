@@ -1,5 +1,6 @@
 #include "tie_robot_control/moduan/moduan_ros_callbacks.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <clocale>
 #include <cmath>
@@ -8,6 +9,7 @@
 #include <iomanip>
 #include <sstream>
 #include <thread>
+#include <utility>
 
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <diagnostic_updater/DiagnosticStatusWrapper.h>
@@ -34,6 +36,7 @@ namespace {
 constexpr const char* kModuanDiagnosticHardwareId = "tie_robot/moduan_driver";
 constexpr const char* kScepterDepthFrame = "Scepter_depth_frame";
 constexpr const char* kGripperFrame = "gripper_frame";
+constexpr float kSinglePointBindSnakeRowToleranceMm = 40.0f;
 std::unique_ptr<diagnostic_updater::Updater> g_moduan_diagnostic_updater;
 using ExecuteBindPointsActionServer =
     actionlib::SimpleActionServer<tie_robot_msgs::ExecuteBindPointsTaskAction>;
@@ -223,6 +226,8 @@ void execute_bind_points_action_callback(
         return;
     }
 
+    moduan_return_zero_ordered_requested.store(false, std::memory_order_release);
+    handle_pause_interrupt = false;
     publish_execute_bind_points_feedback("accepted", requested_count, start_time);
     std::string message;
     bool executed = false;
@@ -241,6 +246,67 @@ void execute_bind_points_action_callback(
         g_execute_bind_points_action_server->setSucceeded(result, result.message);
     } else {
         g_execute_bind_points_action_server->setAborted(result, result.message);
+    }
+}
+
+void sort_gripper_points_by_snake_rows(std::vector<tie_robot_msgs::PointCoords>& points)
+{
+    if (points.size() < 2U) {
+        return;
+    }
+
+    const auto compare_point_by_x_then_y = [](const auto& lhs, const auto& rhs) {
+        if (std::fabs(lhs.World_coord[0] - rhs.World_coord[0]) > 1e-6f) {
+            return lhs.World_coord[0] < rhs.World_coord[0];
+        }
+        if (std::fabs(lhs.World_coord[1] - rhs.World_coord[1]) > 1e-6f) {
+            return lhs.World_coord[1] < rhs.World_coord[1];
+        }
+        return lhs.idx < rhs.idx;
+    };
+
+    std::sort(points.begin(), points.end(), compare_point_by_x_then_y);
+
+    struct SnakeRow
+    {
+        float mean_x = 0.0f;
+        std::vector<tie_robot_msgs::PointCoords> points;
+    };
+
+    std::vector<SnakeRow> rows;
+    for (const auto& point : points) {
+        if (rows.empty() ||
+            std::fabs(point.World_coord[0] - rows.back().mean_x) > kSinglePointBindSnakeRowToleranceMm) {
+            SnakeRow row;
+            row.mean_x = point.World_coord[0];
+            row.points.push_back(point);
+            rows.push_back(std::move(row));
+            continue;
+        }
+
+        auto& row = rows.back();
+        row.points.push_back(point);
+        row.mean_x =
+            (row.mean_x * static_cast<float>(row.points.size() - 1U) + point.World_coord[0]) /
+            static_cast<float>(row.points.size());
+    }
+
+    points.clear();
+    for (size_t row_index = 0; row_index < rows.size(); ++row_index) {
+        auto& row_points = rows[row_index].points;
+        const bool ascending_y = (row_index % 2U) == 0U;
+        std::sort(row_points.begin(), row_points.end(), [&](const auto& lhs, const auto& rhs) {
+            if (std::fabs(lhs.World_coord[1] - rhs.World_coord[1]) > 1e-6f) {
+                return ascending_y
+                    ? lhs.World_coord[1] < rhs.World_coord[1]
+                    : lhs.World_coord[1] > rhs.World_coord[1];
+            }
+            if (std::fabs(lhs.World_coord[0] - rhs.World_coord[0]) > 1e-6f) {
+                return lhs.World_coord[0] < rhs.World_coord[0];
+            }
+            return lhs.idx < rhs.idx;
+        });
+        points.insert(points.end(), row_points.begin(), row_points.end());
     }
 }
 
@@ -395,6 +461,7 @@ void pause_interrupt_Callback(const std_msgs::Float32& debug_mes)
     if (debug_mes.data == 1.0)
     {
         std::lock_guard<std::mutex> lock(plc_mutex);
+        moduan_return_zero_ordered_requested.store(false, std::memory_order_release);
         PLC_Order_Write(IS_STOP, 1, plc);
         handle_pause_interrupt = true;
         printCurrentTime();
@@ -485,6 +552,12 @@ bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Res
         res.message = "视觉无可用绑扎点，跳过当前区域";
         return true;
     }
+    sort_gripper_points_by_snake_rows(filteredPoints);
+    ros_log_printf(
+        "Moduan_log: 单点绑扎区域点已按%s局部x行/y列蛇形排序，下发点数量:%zu。\n",
+        kGripperFrame,
+        filteredPoints.size()
+    );
     const bool executed = execute_bind_points(filteredPoints, res.message);
     res.success = executed;
     if (res.message.empty()) {
@@ -552,6 +625,28 @@ void request_moduan_zero(const char* reason)
     move_linear_module_to_origin();
 }
 
+bool return_zero_ordered_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res)
+{
+    (void)req;
+    std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
+    printCurrentTime();
+    ros_log_printf("Moduan_log:收到暂停恢复有序回零请求：先抬升Z轴回0，再回X/Y到0。\n");
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        moduan_return_zero_ordered_requested.store(false, std::memory_order_release);
+        PLC_Order_Write(IS_STOP, 0, plc);
+        PLC_Order_Write(FINISHALL, 0, plc);
+        handle_pause_interrupt = false;
+    }
+
+    const bool moved_to_origin = move_linear_module_to_origin();
+    res.success = moved_to_origin;
+    res.message = moved_to_origin
+        ? "线性模组已按Z优先顺序回到(0,0,0)"
+        : "线性模组按Z优先顺序回零失败";
+    return true;
+}
+
 void moduan_move_zero_forthread(double x, double y, double z, double angle)
 {
     (void)x;
@@ -594,38 +689,26 @@ bool moduan_move_service(
     double z = req.pos_z;
     double angle = req.angle;
 
-    printCurrentTime();
-    ros_log_printf("Moduan_log:正在使用三轴运动模式，目标点(%lf,%lf,%lf)。\n", x, y, z);
-    if(x < 0 || x > kTravelMaxXMm || y < 0 || y > kTravelMaxYMm ||
-       z < kTcpTravelMinZMm || z > kTcpTravelMaxZMm)
-    {
-        printCurrentTime();
-        ros_log_printf("Moduan_log:目标点超出范围。\n");
-        res.success = false;
-        res.message = "目标点超出范围，TCP z轴行程仅支持0~140mm";
-        return true;
-    }
-
-    tie_robot_msgs::PointCoords single_point;
-    single_point.idx = 1;
-    single_point.World_coord[0] = static_cast<float>(x);
-    single_point.World_coord[1] = static_cast<float>(y);
-    single_point.World_coord[2] = static_cast<float>(z);
-    single_point.Angle = static_cast<float>(angle);
-
-    std::vector<tie_robot_msgs::PointCoords> single_points{single_point};
-    const bool executed = execute_bind_points(single_points, res.message, false);
-    if (!executed) {
-        res.success = false;
-        if (res.message.empty()) {
-            res.message = "等待FINISHALL标志超时，线性模组未确认完成";
+    if (g_use_remote_moduan_driver.load(std::memory_order_relaxed)) {
+        tie_robot_msgs::linear_module_move raw_move_srv;
+        raw_move_srv.request.pos_x = x;
+        raw_move_srv.request.pos_y = y;
+        raw_move_srv.request.pos_z = z;
+        raw_move_srv.request.angle = angle;
+        if (!ros::service::call("/moduan/driver/raw_single_move", raw_move_srv)) {
+            res.success = false;
+            res.message = "无法调用线性模组驱动层 raw single move 服务 /moduan/driver/raw_single_move";
+            return true;
         }
+        res.success = raw_move_srv.response.success;
+        res.message = raw_move_srv.response.message;
         return true;
     }
 
-    ros_log_printf("Moduan_log:线性模组现在已经运行至(%lf,%lf,%lf)mm处。\n", x, y, z);
-    res.success = true;
-    res.message = "运动完成";
+    res.success = move_linear_module_to_target(x, y, z, angle, res.message);
+    if (res.success) {
+        ros_log_printf("Moduan_log:线性模组现在已经运行至(%lf,%lf,%lf)mm处。\n", x, y, z);
+    }
     return true;
 }
 
@@ -669,6 +752,19 @@ void change_speed_callback(const std_msgs::Float32 &debug_mes)
 
 void handSolveWarnCallback(const std_msgs::Float32 &warn_msg)
 {
+    if (warn_msg.data == 2.0)
+    {
+        moduan_return_zero_ordered_requested.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock2(plc_mutex);
+            PLC_Order_Write(IS_STOP, 1, plc);
+            PLC_Order_Write(FINISHALL, 0, plc);
+            handle_pause_interrupt = true;
+        }
+        printCurrentTime();
+        ros_log_printf("Moduan_log:收到长按恢复回起点请求，已暂停末端当前任务，等待执行链让出后有序回零。\n");
+        return;
+    }
     if (warn_msg.data == 1.0 && !handle_pause_interrupt)
     {
         printCurrentTime();
@@ -685,6 +781,7 @@ void handSolveWarnCallback(const std_msgs::Float32 &warn_msg)
             }
         }
 
+        clear_system_error();
         for(int n = 0; n < 6; n++)
         {
             std_msgs::Float32 error_flag;
@@ -703,6 +800,15 @@ void handSolveWarnCallback(const std_msgs::Float32 &warn_msg)
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         PLC_Order_Write(FINISHALL, 0, plc);
+    }
+}
+
+void moduan_motion_controller_return_to_start_callback(const std_msgs::Float32 &warn_msg)
+{
+    if (warn_msg.data == 2.0) {
+        moduan_return_zero_ordered_requested.store(true, std::memory_order_release);
+        printCurrentTime();
+        ros_log_printf("Moduan_log:运动控制进程收到长按恢复回起点请求，当前末端执行Action将中止等待。\n");
     }
 }
 
@@ -921,6 +1027,23 @@ bool moduan_driver_restart_service(std_srvs::Trigger::Request&, std_srvs::Trigge
     return true;
 }
 
+bool moduan_driver_raw_single_move_service(
+    tie_robot_msgs::linear_module_move::Request& req,
+    tie_robot_msgs::linear_module_move::Response& res)
+{
+    std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
+    const double x = req.pos_x;
+    const double y = req.pos_y;
+    const double z = req.pos_z;
+    const double angle = req.angle;
+
+    res.success = move_linear_module_to_target(x, y, z, angle, res.message);
+    if (res.success) {
+        ros_log_printf("Moduan_log:线性模组驱动原子移动已运行至(%lf,%lf,%lf)mm处。\n", x, y, z);
+    }
+    return true;
+}
+
 bool moduan_driver_raw_execute_points_service(
     tie_robot_msgs::ExecuteBindPoints::Request& req,
     tie_robot_msgs::ExecuteBindPoints::Response& res)
@@ -976,7 +1099,10 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
     ros::ServiceServer moduan_driver_start_srv;
     ros::ServiceServer moduan_driver_stop_srv;
     ros::ServiceServer moduan_driver_restart_srv;
+    ros::ServiceServer moduan_driver_raw_single_move_srv;
     ros::ServiceServer moduan_driver_raw_execute_srv;
+    ros::ServiceServer moduan_return_zero_ordered_srv;
+    ros::Subscriber motion_controller_hand_solve_warn;
 
     if (motion_controller_role) {
         if (!g_tf_buffer) {
@@ -997,6 +1123,8 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
             false
         );
         g_execute_bind_points_action_server->start();
+        motion_controller_hand_solve_warn =
+            nh_.subscribe("/web/moduan/hand_sovle_warn", 5, &moduan_motion_controller_return_to_start_callback);
     }
 
     ros::Timer moduan_diagnostic_timer;
@@ -1007,8 +1135,12 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
             nh_.advertiseService("/moduan/driver/stop", moduan_driver_stop_service);
         moduan_driver_restart_srv =
             nh_.advertiseService("/moduan/driver/restart", moduan_driver_restart_service);
+        moduan_driver_raw_single_move_srv =
+            nh_.advertiseService("/moduan/driver/raw_single_move", moduan_driver_raw_single_move_service);
         moduan_driver_raw_execute_srv =
             nh_.advertiseService("/moduan/driver/raw_execute_points", moduan_driver_raw_execute_points_service);
+        moduan_return_zero_ordered_srv =
+            nh_.advertiseService("/moduan/return_zero_ordered", return_zero_ordered_service);
 
         g_moduan_diagnostic_updater = std::make_unique<diagnostic_updater::Updater>(nh_);
         g_moduan_diagnostic_updater->setHardwareID(kModuanDiagnosticHardwareId);
@@ -1050,7 +1182,10 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
     (void)moduan_driver_start_srv;
     (void)moduan_driver_stop_srv;
     (void)moduan_driver_restart_srv;
+    (void)moduan_driver_raw_single_move_srv;
     (void)moduan_driver_raw_execute_srv;
+    (void)moduan_return_zero_ordered_srv;
+    (void)motion_controller_hand_solve_warn;
     (void)moduan_diagnostic_timer;
     (void)moduan_zero_sub;
     (void)enb_las_sub_local;

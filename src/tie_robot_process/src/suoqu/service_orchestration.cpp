@@ -134,43 +134,57 @@ bool bind_path_direct_test_service(std_srvs::Trigger::Request&, std_srvs::Trigge
     return true;
 }
 
+bool run_global_work_with_execution_memory_mode(
+    const std::string& command,
+    bool use_execution_memory,
+    tie_robot_msgs::MotionControl::Response& res)
+{
+    (void)command;
+    try {
+        const GlobalExecutionMode execution_mode = get_global_execution_mode();
+        printCurrentTime();
+        ros_log_printf(
+            "Cabin_log: 当前全局执行模式为%s，执行记忆=%s。\n",
+            global_execution_mode_name(execution_mode),
+            use_execution_memory ? "开启" : "关闭"
+        );
+
+        std::ifstream scan_file(pseudo_slam_bind_path_json_file);
+        if (!scan_file.good()) {
+            res.success = false;
+            res.message =
+                "未找到pseudo_slam_bind_path.json，请先完成扫描建图后再开始执行层";
+            return true;
+        }
+
+        switch (execution_mode) {
+            case GlobalExecutionMode::kSlamPrecomputed:
+                res.success = run_bind_from_scan(res.message, use_execution_memory);
+                return true;
+            case GlobalExecutionMode::kLedgerWithRefine:
+                res.success = run_live_visual_global_work(res.message, use_execution_memory);
+                return true;
+            case GlobalExecutionMode::kPlannedPathRefineOnly:
+                res.success = run_planned_path_refine_only_global_work(res.message, use_execution_memory);
+                return true;
+        }
+
+        res.success = false;
+        res.message = "未知的全局执行模式";
+    } catch (const std::exception& ex) {
+        res.success = false;
+        res.message = ex.what();
+    }
+    return true;
+}
+
 bool startGlobalWork(
     tie_robot_msgs::MotionControl::Request& req,
     tie_robot_msgs::MotionControl::Response& res)
 {
     printCurrentTime();
     ros_log_printf("Cabin_log: 收到%s\n", req.command.c_str());
-    try {
-        const GlobalExecutionMode execution_mode = get_global_execution_mode();
-        printCurrentTime();
-        ros_log_printf(
-            "Cabin_log: 当前全局执行模式为%s。\n",
-            global_execution_mode_name(execution_mode)
-        );
-
-        std::ifstream scan_file(pseudo_slam_bind_path_json_file);
-        if (scan_file.good()) {
-            printCurrentTime();
-            ros_log_printf(
-                "Cabin_log: 开始执行层检测到pseudo_slam_bind_path.json，优先按预生成路径执行。\n"
-            );
-            res.success = run_bind_from_scan(res.message);
-            return true;
-        }
-
-        if (execution_mode == GlobalExecutionMode::kLiveVisual) {
-            res.success = run_live_visual_global_work(res.message);
-            return true;
-        }
-
-        res.success = false;
-        res.message =
-            "当前全局执行模式为slam_precomputed，未找到pseudo_slam_bind_path.json，请先完成扫描建图或切换到live_visual模式";
-    } catch (const std::exception& ex) {
-        res.success = false;
-        res.message = ex.what();
-    }
-    return true;
+    return run_global_work_with_execution_memory_mode(req.command, true, res);
 }
 
 bool startGlobalWorkWithOptions(
@@ -179,14 +193,15 @@ bool startGlobalWorkWithOptions(
 {
     printCurrentTime();
     ros_log_printf(
-        "Cabin_log: 收到%s，clear_execution_memory=%s（clear_execution_memory=true表示先清记忆再执行）。\n",
+        "Cabin_log: 收到%s，clear_execution_memory=%s，use_execution_memory=%s（默认执行记忆关闭）。\n",
         req.command.c_str(),
-        req.clear_execution_memory ? "true" : "false"
+        req.clear_execution_memory ? "true" : "false",
+        req.use_execution_memory ? "true" : "false"
     );
 
     try {
         std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
-        if (req.clear_execution_memory) {
+        if (req.clear_execution_memory && req.use_execution_memory) {
             std::string current_path_signature;
             if (!load_current_path_signature_for_execution(current_path_signature, res.message)) {
                 res.success = false;
@@ -206,10 +221,12 @@ bool startGlobalWorkWithOptions(
         return true;
     }
 
-    tie_robot_msgs::MotionControl::Request legacy_req;
     tie_robot_msgs::MotionControl::Response legacy_res;
-    legacy_req.command = req.command;
-    const bool handled = startGlobalWork(legacy_req, legacy_res);
+    const bool handled = run_global_work_with_execution_memory_mode(
+        req.command,
+        req.use_execution_memory,
+        legacy_res
+    );
     res.success = legacy_res.success;
     res.message = legacy_res.message;
     return handled;

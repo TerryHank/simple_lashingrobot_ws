@@ -14,6 +14,7 @@ import {
   getTopicRegistryEntryByKey,
 } from "../config/topicRegistry.js";
 import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
+import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
 
 const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
 const AUTO_RECONNECT_DELAY_MS = 1500;
@@ -31,6 +32,7 @@ export class RosConnectionController {
     this.manualReconnectRequired = false;
     this.fixedTopicSubscribers = [];
     this.pointCloudTopicSubscriber = null;
+    this.imageHoverWorldCoordSubscriber = null;
     this.displayedImageTopicSubscriber = null;
     this.logTopicSubscriber = null;
     this.settingsLogTopicSubscriber = null;
@@ -38,6 +40,9 @@ export class RosConnectionController {
     this.desiredPointCloudSubscription = {
       enabled: false,
       source: "filteredWorldCoord",
+    };
+    this.desiredImageHoverCoordinateSubscription = {
+      enabled: false,
     };
     this.desiredDisplayedImageTopic = DEFAULT_IMAGE_TOPIC;
     this.desiredLogTopicId = DEFAULT_LOG_TOPIC;
@@ -89,6 +94,7 @@ export class RosConnectionController {
       this.resources.workspaceQuadPublisher.advertise();
       this.resources.cabinSpeedPublisher.advertise();
       this.resources.stableFrameCountPublisher.advertise();
+      this.resources.executionRefineTcpRoiPublisher.advertise();
       this.resources.linearModuleInterruptStopPublisher.advertise();
       this.bindSubscriptions();
       this.applySettingsLogSubscription();
@@ -198,6 +204,11 @@ export class RosConnectionController {
         name: TOPICS.algorithm.setStableFrameCount,
         messageType: MESSAGE_TYPES.int32,
       }),
+      executionRefineTcpRoiPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setExecutionRefineTcpRoi,
+        messageType: MESSAGE_TYPES.float32MultiArray,
+      }),
       processImageService: new ROSLIB.Service({
         ros,
         name: SERVICES.algorithm.processImage,
@@ -291,6 +302,11 @@ export class RosConnectionController {
       linearModuleInterruptStopPublisher: new ROSLIB.Topic({
         ros,
         name: TOPICS.control.interruptStop,
+        messageType: MESSAGE_TYPES.float32,
+      }),
+      alarmResetPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.control.handSolveWarn,
         messageType: MESSAGE_TYPES.float32,
       }),
       singlePointBindService: new ROSLIB.Service({
@@ -638,6 +654,14 @@ export class RosConnectionController {
     return Promise.resolve({ success: true, message: "TCP 线性模组运动暂停信号已发送。" });
   }
 
+  publishAlarmReset() {
+    if (!this.ros?.isConnected || !this.resources?.alarmResetPublisher) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法发送报警复位信号。" });
+    }
+    this.resources.alarmResetPublisher.publish(new ROSLIB.Message({ data: 1 }));
+    return Promise.resolve({ success: true, message: "报警复位信号已发送。" });
+  }
+
   callSinglePointBindService() {
     if (!this.ros?.isConnected || !this.resources?.singlePointBindService) {
       return Promise.resolve({ success: false, message: "ROS 未连接，无法触发单点绑扎服务。" });
@@ -676,6 +700,27 @@ export class RosConnectionController {
       success: true,
       frameCount: sanitizedFrameCount,
       message: `视觉服务最终放行帧数已设置为 ${sanitizedFrameCount} 帧。`,
+    };
+  }
+
+  publishExecutionRefineTcpRoi(range) {
+    if (!this.ros?.isConnected || !this.resources?.executionRefineTcpRoiPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置线性模组绑扎范围。" };
+    }
+    const normalizedRange = normalizeTcpWorkspaceBoundaryMm(range);
+    const data = [
+      normalizedRange.x.min,
+      normalizedRange.x.max,
+      normalizedRange.y.min,
+      normalizedRange.y.max,
+      normalizedRange.z.min,
+      normalizedRange.z.max,
+    ];
+    this.resources.executionRefineTcpRoiPublisher.publish(new ROSLIB.Message({ data }));
+    return {
+      success: true,
+      range: normalizedRange,
+      message: "线性模组绑扎范围已下发到视觉服务。",
     };
   }
 
@@ -752,6 +797,7 @@ export class RosConnectionController {
       this.buildTopicFromRegistry("tf.static"),
       this.buildTopicFromRegistry("control.linearModuleState"),
       this.buildTopicFromRegistry("camera.irCameraInfo"),
+      this.buildTopicFromRegistry("algorithm.workspaceQuadCameraPoints"),
     ];
 
     subscriptions[0].subscribe((message) => this.callbacks.onSavedWorkspacePayload?.(Array.from(message.data || [])));
@@ -766,6 +812,7 @@ export class RosConnectionController {
     subscriptions[9].subscribe((message) => this.callbacks.onTfMessage?.(message));
     subscriptions[10].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
     subscriptions[11].subscribe((message) => this.callbacks.onIrCameraInfo?.(message));
+    subscriptions[12].subscribe((message) => this.callbacks.onWorkspaceRangePoints?.(message));
     this.fixedTopicSubscribers = subscriptions;
   }
 
@@ -906,6 +953,46 @@ export class RosConnectionController {
     return this.applyPointCloudSubscription();
   }
 
+  applyImageHoverCoordinateSubscription({ suppressLog = false } = {}) {
+    if (!this.ros?.isConnected) {
+      return { changed: false, enabled: this.desiredImageHoverCoordinateSubscription.enabled };
+    }
+
+    if (!this.desiredImageHoverCoordinateSubscription.enabled) {
+      if (this.imageHoverWorldCoordSubscriber) {
+        this.imageHoverWorldCoordSubscriber.unsubscribe();
+        this.imageHoverWorldCoordSubscriber = null;
+        if (!suppressLog) {
+          this.callbacks.onLog?.("图像悬停坐标已关闭，已退订原始世界点图", "info");
+        }
+        return { changed: true, enabled: false };
+      }
+      return { changed: false, enabled: false };
+    }
+
+    if (this.imageHoverWorldCoordSubscriber) {
+      return { changed: false, enabled: true };
+    }
+
+    const topic = this.buildTopic(getPointCloudTopicName("rawWorldCoord"), MESSAGE_TYPES.image, {
+      throttle_rate: 180,
+      queue_length: 1,
+    });
+    topic.subscribe((message) => this.callbacks.onImageHoverWorldCoord?.(message));
+    this.imageHoverWorldCoordSubscriber = topic;
+    if (!suppressLog) {
+      this.callbacks.onLog?.("图像悬停坐标已订阅原始世界点图。", "info");
+    }
+    return { changed: true, enabled: true };
+  }
+
+  updateImageHoverCoordinateSubscription({ enabled }) {
+    this.desiredImageHoverCoordinateSubscription = {
+      enabled: Boolean(enabled),
+    };
+    return this.applyImageHoverCoordinateSubscription();
+  }
+
   unbindSubscriptions() {
     this.fixedTopicSubscribers.forEach((topic) => {
       try {
@@ -922,6 +1009,14 @@ export class RosConnectionController {
         // ignore shutdown race
       }
       this.pointCloudTopicSubscriber = null;
+    }
+    if (this.imageHoverWorldCoordSubscriber) {
+      try {
+        this.imageHoverWorldCoordSubscriber.unsubscribe();
+      } catch {
+        // ignore shutdown race
+      }
+      this.imageHoverWorldCoordSubscriber = null;
     }
     if (this.displayedImageTopicSubscriber) {
       try {

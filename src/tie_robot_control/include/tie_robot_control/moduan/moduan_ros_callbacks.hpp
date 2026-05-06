@@ -30,9 +30,13 @@ bool moduan_bind_points_fast_service(
     tie_robot_msgs::ExecuteBindPoints::Response& res);
 void forced_stop_nodeCallback(const std_msgs::Float32& debug_mes);
 void request_moduan_zero(const char* reason);
+bool return_zero_ordered_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
 void moduan_move_zero_forthread(double x, double y, double z, double angle);
 void moduan_move_zero_callback(const std_msgs::Float32::ConstPtr& msg);
 bool moduan_move_service(
+    tie_robot_msgs::linear_module_move::Request& req,
+    tie_robot_msgs::linear_module_move::Response& res);
+bool moduan_driver_raw_single_move_service(
     tie_robot_msgs::linear_module_move::Request& req,
     tie_robot_msgs::linear_module_move::Response& res);
 void light_switch(const std_msgs::Bool& debug_mes);

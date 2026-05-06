@@ -3,7 +3,31 @@
 本文档记录 `simple_lashingrobot_ws` 的项目级变更约定和近期关键调整。  
 开始修改代码前，先读最新日期的记录，再进入具体包目录。
 
+## 2026-05-07
+
+### 单点绑扎区域内蛇形点序
+
+- `/moduan/sg` 单点绑扎在执行微调 Hough 返回一个区域的多个点后，会先把相机点转换到 `gripper_frame`，再按 TCP 局部 `x` 分行、`y` 交替方向蛇形排序后下发线性模组，确保绑扎枪按区域内蛇形点序移动。
+- `MODE_EXECUTION_REFINE` 返回给服务响应和执行底图编号的点序同步改为同一 TCP 蛇形口径：从 TCP 局部 `x` 最小行开始，偶数行 `y` 小到大，奇数行 `y` 大到小；扫描建图点序不随本次修改改变。
+
+### 执行链移除重复 TCP 行程硬校验
+
+- 现场口径固定：绑扎点从识别到下发只走一层执行范围校验，即 pointAI 的视觉 / TCP ROI 校验；控制层和预生成组加载层不再使用旧 `X[0,360] / Y[0,320] / Z[0,160]` 或类似硬行程二次拒绝点位。
+- `tie_robot_control` 已删除 `execute_bind_points(...)` 内的 `is_valid_precomputed_tcp_travel_point(...)` 过滤和相关 `kTravelMax*` 常量，视觉已经选中的点不会再因控制层旧边界被丢弃；手动 `/moduan/move` 入口也不再复用这组旧硬范围拦截。
+- `tie_robot_process` 读取 `pseudo_slam_bind_path.json` 的预生成局部点时只校验字段存在，不再按虎口范围二次过滤；路径生成阶段仍可使用当前 `380 / 330 / 160 mm` 的规划参数形成可执行分组。
+- pointAI 和前端 TCP 线模遥控的默认范围显示统一到 `X[0,380] / Y[0,330] / Z[0,160] mm`，避免 UI 或视觉显示继续暴露旧 `360 / 320 / 140` 口径。
+
+### 三维绑扎范围图层开关
+
+- “显示与视角 / 图层设置”新增“绑扎范围”开关，单独控制三维场景中 gripper_frame 下的线性模组绑扎范围实体显示/隐藏；该开关随 topic layer state 持久化，不改变视觉调试页的范围数值，也不影响 pointAI ROI 下发。
+- 绑扎范围实体不再被“机器”图层硬性联动隐藏：只要该图层开关打开且 `gripper_frame` TF 可用，即使关闭机器模型，也可以单独查看绑扎范围长方体。
+
 ## 2026-05-05
+
+### 动态绑扎路径按世界 X+ 蛇形遍历
+
+- pseudo_slam 预生成绑扎路径的 2x2 候选组排序不再把视觉 `global_row/global_col` 当成固定世界 Y/X 轴；row/col 只用于判断棋盘相邻关系，最终区域顺序直接按绑扎点 `World_coord` 聚成世界 Y 带，并在每带沿世界 X+ / X- 交替蛇形遍历。
+- 现场 S2 点表的 `global_row` 来自图像/工具从上到下轴，`global_col` 来自右到左轴，在当前相机安装下会与索驱世界 X/Y 交换；路径起点因此必须以世界坐标下的最小 X/Y 组为准，而不是以点表 row/col 最小为准。
 
 ### 实际移动 TCP 显示与当前虎口相对坐标
 
@@ -13,14 +37,16 @@
 - 前端图像层“执行底图 Hough二值”对应的 `/perception/lashing/execution_refine_base_image` 在 Hough 输出点生成后会重新发布带点位叠加的 `bgr8` 调试图：白/黑二值底图不变，识别出的执行点以黄色圆圈、红色中心和编号标出。
 - 视觉图像层不再使用固定像素矩形 ROI：移除 `point1/point2` 白框过滤、执行 Hough 的 `roi_reject` 门和执行范围 mask 对静态 ROI 的叠加；候选点只受有效 3D 坐标、近点去重、手动/规划工作区和执行范围约束。
 - 执行层视觉微调恢复独立的 TCP 遮挡黑色 mask：仅 `MODE_EXECUTION_REFINE` 会在 Hough 二值化前把已知 TCP 遮挡矩形 `(160,0)-(523,80)` 置黑，不作为点位 ROI 过滤，也不产生 `ROI` 拒绝诊断。
-- 执行层视觉微调的 ROI 改为 TCP 坐标执行盒，而不是像素矩形：Hough 二值化前会把 raw world 像素按 `Scepter_depth_frame -> gripper_frame` 外参批量转换，只保留 `x[0,380] / y[0,3330] / z[0,3160]mm` 内的像素和候选点，范围外视图不再参与 Hough。
+- 执行层视觉微调的 ROI 改为 TCP 坐标执行盒，而不是像素矩形：Hough 二值化前会把 raw world 像素按 `Scepter_depth_frame -> gripper_frame` 外参批量转换，只保留 `x[0,380] / y[0,330] / z[0,160]mm` 内的像素和候选点，范围外视图不再参与 Hough。
+- 绑扎点识别结果的编号与行列索引按当前现场像素轴向固定：画面上方为 `x=0`，从上到下为 `x+`；画面右侧为 `y=0`，从右到左为 `y+`，即右上角为 TCP 工具原点。Surface-DP 扫描点和执行层 Hough 输出点都按该口径从小坐标开始排序。
+- 执行层结果图 `tcp=(...)` 不再直接显示 gripper 投影轴值；现在与红外 TCP 工作范围覆盖层使用同一工具坐标口径：`tcp.x = 380 - gripper_y`、`tcp.y = gripper_x`、`tcp.z = gripper_z`，再减去当前线性模组位置。这样画面上方点的 `tcp.x` 小于下方点，同列上下点编号不会再出现 1 的坐标大于 3。
 - “执行底图 Hough二值”进一步叠加诊断标记：`H` 为 Hough 原始交点，`ZERO` 为取不到有效 3D 坐标，`OUT` 为 TCP 执行范围外，`DUP` 为近点去重移除，`SEL/编号` 为最终输出点；现场漏点时可直接从同一图层判断掉在哪道门。
 
 ### 单点绑扎相机点到 TCP 局部坐标修正
 
 - 现场截图中 `tcp=(-65,72,854)` 这类数经排查并非 TF 后的 TCP 坐标，而是 `/perception/lashing/points_camera` 保持的 `Scepter_depth_frame` 原始相机坐标；点消息继续保持 raw camera 语义，执行结果覆盖原图的文字标签改为显示 `gripper_frame` 下的 `tcp=(...)` 虎口局部坐标。
 - `/moduan/sg` 在调用 `MODE_EXECUTION_REFINE=4` 获得 Hough 结果后，新增 `Scepter_depth_frame -> gripper_frame` 的 TF 转换，再把转换后的 TCP 局部点交给 `execute_bind_points(...)`，恢复“视觉输出 raw camera，下游坐标层负责执行坐标”的工程约定。
-- 线性模组执行层的预生成点校验从仅检查局部 `Z[0,140]mm` 扩展为完整 TCP 行程 `X[0,360]mm / Y[0,320]mm / Z[0,140]mm`，防止转换后仍越界的点进入 PLC 点位队列。
+- 线性模组执行层的预生成点校验从仅检查局部 `Z[0,140]mm` 扩展为完整 TCP 行程 `X[0,360]mm / Y[0,320]mm / Z[0,160]mm`，防止转换后仍越界的点进入 PLC 点位队列；2026-05-06 已将旧 140mm 执行上限与规划/感知旅行范围统一到 160mm。
 
 ### 单点绑扎恢复旧 Hough 执行语义
 

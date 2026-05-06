@@ -178,8 +178,8 @@ movingSceneView.transformMap = new Map([
   }],
   ["gripper_frame", {
     parentFrame: "Scepter_depth_frame",
-    position: new THREE.Vector3(0.285, 0.070, 0.740),
-    quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI)),
+    position: new THREE.Vector3(0.285, -0.310, 0.740),
+    quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)),
   }],
 ]);
 movingSceneView.cachedWorldTransforms = new Map();
@@ -197,8 +197,131 @@ assert.deepEqual(
     y: Number(movingTcpPosition.y.toFixed(1)),
     z: Number(movingTcpPosition.z.toFixed(1)),
   },
-  { x: 275.0, y: 50.0, z: 770.0 },
+  { x: 265.0, y: -300.0, z: 770.0 },
 );
+
+const movingAxisSceneView = Object.create(Scene3DView.prototype);
+movingAxisSceneView.transformMap = new Map([
+  ["Scepter_depth_frame", {
+    parentFrame: "map",
+    position: new THREE.Vector3(0, 0, 0),
+    quaternion: new THREE.Quaternion(),
+  }],
+  ["gripper_frame", {
+    parentFrame: "Scepter_depth_frame",
+    position: new THREE.Vector3(0.285, -0.310, 0.740),
+    quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)),
+  }],
+]);
+movingAxisSceneView.cachedWorldTransforms = new Map();
+movingAxisSceneView.layerState = { showRobot: true, showAxes: true, tfAxisFrameVisibility: {} };
+movingAxisSceneView.baseLinkFrame = new THREE.Group();
+movingAxisSceneView.scepterFrame = new THREE.Group();
+movingAxisSceneView.gripperFrame = new THREE.Group();
+movingAxisSceneView.robotGroup = new THREE.Group();
+movingAxisSceneView.tcpToolGroup = new THREE.Group();
+
+movingAxisSceneView.setLinearModuleLocalPosition({ x: 10, y: 20, z: 30 });
+
+assert.deepEqual(
+  movingAxisSceneView.gripperFrame.position.toArray().map((value) => Number(value.toFixed(3))),
+  movingAxisSceneView.tcpToolGroup.position.toArray().map((value) => Number(value.toFixed(3))),
+);
+
+const workspaceProjectionSceneView = Object.create(Scene3DView.prototype);
+workspaceProjectionSceneView.transformMap = new Map([
+  ["Scepter_depth_frame", {
+    parentFrame: "map",
+    position: new THREE.Vector3(0, 0, 0),
+    quaternion: new THREE.Quaternion(),
+  }],
+  ["gripper_frame", {
+    parentFrame: "Scepter_depth_frame",
+    position: new THREE.Vector3(0.285, -0.310, 0.740),
+    quaternion: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)),
+  }],
+]);
+workspaceProjectionSceneView.cachedWorldTransforms = new Map();
+
+const projectedTcpWorkspace = workspaceProjectionSceneView.projectTcpWorkspaceBoundaryToImage({
+  header: { frame_id: "Scepter_depth_frame" },
+  width: 640,
+  height: 480,
+  K: [500, 0, 320, 0, 500, 240, 0, 0, 1],
+});
+
+assert.equal(projectedTcpWorkspace.points[1].y > projectedTcpWorkspace.points[0].y, true);
+assert.equal(projectedTcpWorkspace.points[3].x < projectedTcpWorkspace.points[0].x, true);
+
+workspaceProjectionSceneView.setLinearModuleBindRange({
+  x: { min: 20, max: 120 },
+  y: { min: 30, max: 230 },
+  z: { min: 10, max: 90 },
+});
+const projectedCustomTcpWorkspace = workspaceProjectionSceneView.projectTcpWorkspaceBoundaryToImage({
+  header: { frame_id: "Scepter_depth_frame" },
+  width: 640,
+  height: 480,
+  K: [500, 0, 320, 0, 500, 240, 0, 0, 1],
+});
+assert.equal(projectedCustomTcpWorkspace.planes[0].z, 10);
+assert.equal(projectedCustomTcpWorkspace.planes[1].z, 90);
+
+const bindRangeSceneView = Object.create(Scene3DView.prototype);
+bindRangeSceneView.linearModuleBindRangeMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshBasicMaterial(),
+);
+bindRangeSceneView.linearModuleBindRangeEdges = new THREE.LineSegments(
+  new THREE.BufferGeometry(),
+  new THREE.LineBasicMaterial(),
+);
+let bindRangeFrameRefreshRequested = false;
+bindRangeSceneView.applyFrameTransforms = () => {
+  bindRangeFrameRefreshRequested = true;
+};
+const normalizedBindRange = bindRangeSceneView.setLinearModuleBindRange({
+  x: { min: 120, max: 20 },
+  y: { min: 30, max: 230 },
+  z: { min: 10, max: 90 },
+});
+bindRangeSceneView.linearModuleBindRangeMesh.geometry.computeBoundingBox();
+const bindRangeSize = new THREE.Vector3();
+bindRangeSceneView.linearModuleBindRangeMesh.geometry.boundingBox.getSize(bindRangeSize);
+
+assert.equal(bindRangeFrameRefreshRequested, true);
+assert.deepEqual(normalizedBindRange, {
+  x: { min: 20, max: 120 },
+  y: { min: 30, max: 230 },
+  z: { min: 10, max: 90 },
+});
+assert.deepEqual(
+  bindRangeSceneView.linearModuleBindRangeMesh.position.toArray().map((value) => Number((value * 1000).toFixed(1))),
+  [70, 130, 50],
+);
+assert.deepEqual(
+  bindRangeSize.toArray().map((value) => Number((value * 1000).toFixed(1))),
+  [100, 200, 80],
+);
+
+const bindRangeVisibilitySceneView = Object.create(Scene3DView.prototype);
+bindRangeVisibilitySceneView.linearModuleBindRangeGroup = { visible: true };
+bindRangeVisibilitySceneView.layerState = {
+  showRobot: false,
+  showLinearModuleBindRange: false,
+};
+let bindRangePoseApplied = false;
+bindRangeVisibilitySceneView.applyTfFramePose = () => {
+  bindRangePoseApplied = true;
+};
+bindRangeVisibilitySceneView.applyLinearModuleBindRangeTransform({ position: new THREE.Vector3() });
+assert.equal(bindRangeVisibilitySceneView.linearModuleBindRangeGroup.visible, false);
+assert.equal(bindRangePoseApplied, false);
+
+bindRangeVisibilitySceneView.layerState.showLinearModuleBindRange = true;
+bindRangeVisibilitySceneView.applyLinearModuleBindRangeTransform({ position: new THREE.Vector3() });
+assert.equal(bindRangeVisibilitySceneView.linearModuleBindRangeGroup.visible, true);
+assert.equal(bindRangePoseApplied, true);
 
 const gripperTfX = makeFakeElement();
 const gripperTfY = makeFakeElement();
@@ -219,6 +342,13 @@ const oldCalibration = {
   translationMm: { x: 301, y: 92, z: 728 },
 };
 uiController.setGripperTfCalibration(oldCalibration, { forceInputs: true });
+assert.equal(
+  uiController.refs.gripperTfCurrent.textContent,
+  "Scepter_depth_frame -> gripper_frame | translation_mm=(301, 92, 728)",
+);
+assert.equal(gripperTfX.value, "301");
+assert.equal(gripperTfY.value, "92");
+assert.equal(gripperTfZ.value, "728");
 gripperTfX.value = "305.0";
 global.document.activeElement = applyButton;
 uiController.setGripperTfCalibration(oldCalibration);

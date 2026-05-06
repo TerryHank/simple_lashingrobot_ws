@@ -3,11 +3,15 @@
 #include <tie_robot_process/common.hpp>
 #include "suoqu_runtime_internal.hpp"
 
+#include <chrono>
 #include <fstream>
+#include <future>
 #include <iomanip>
+#include <memory>
 #include <ros/ros.h>
 #include <sstream>
 #include <std_srvs/Trigger.h>
+#include <thread>
 #include <tie_robot_msgs/SingleMove.h>
 
 namespace tie_robot_process {
@@ -61,6 +65,15 @@ const char* tcp_protocol_command_name(uint16_t command_word)
 
 namespace {
 
+constexpr double kRemoteCabinRawMoveCallTimeoutSec = 8.0;
+
+struct RemoteCabinSingleMoveCallResult
+{
+    bool transport_ok = false;
+    bool success = false;
+    std::string message;
+};
+
 void append_tcp_status_reason_if_set(
     std::vector<std::string>& reasons,
     uint32_t status_word,
@@ -70,6 +83,42 @@ void append_tcp_status_reason_if_set(
     if ((status_word & (static_cast<uint32_t>(1u) << bit_index)) != 0) {
         reasons.emplace_back(reason);
     }
+}
+
+RemoteCabinSingleMoveCallResult call_remote_cabin_single_move_service(
+    const std::string& service_name,
+    const tie_robot_msgs::SingleMove::Request& request,
+    double timeout_sec)
+{
+    auto result_promise = std::make_shared<std::promise<RemoteCabinSingleMoveCallResult>>();
+    std::future<RemoteCabinSingleMoveCallResult> result_future = result_promise->get_future();
+    std::thread([service_name, request, result_promise]() {
+        RemoteCabinSingleMoveCallResult result;
+        tie_robot_msgs::SingleMove service_call;
+        service_call.request = request;
+        result.transport_ok = ros::service::call(service_name, service_call);
+        if (result.transport_ok) {
+            result.success = service_call.response.success;
+            result.message = service_call.response.message;
+        } else {
+            result.success = false;
+            result.message = "无法调用索驱驱动层服务 " + service_name;
+        }
+        result_promise->set_value(result);
+    }).detach();
+
+    if (result_future.wait_for(std::chrono::duration<double>(timeout_sec)) != std::future_status::ready) {
+        RemoteCabinSingleMoveCallResult timeout_result;
+        timeout_result.transport_ok = false;
+        timeout_result.success = false;
+        std::ostringstream timeout_stream;
+        timeout_stream << "调用索驱驱动层服务超时 " << service_name
+                       << "，等待" << std::fixed << std::setprecision(1)
+                       << timeout_sec << "秒仍未返回";
+        timeout_result.message = timeout_stream.str();
+        return timeout_result;
+    }
+    return result_future.get();
 }
 
 }  // namespace
@@ -470,21 +519,40 @@ bool move_cabin_pose_via_driver(
     }
 
     if (::use_remote_cabin_driver.load(std::memory_order_relaxed)) {
-        tie_robot_msgs::SingleMove raw_move_srv;
-        raw_move_srv.request.speed = speed_mm_per_sec;
-        raw_move_srv.request.x = x_mm;
-        raw_move_srv.request.y = y_mm;
-        raw_move_srv.request.z = z_mm;
-        if (!ros::service::call("/cabin/driver/raw_move", raw_move_srv)) {
+        tie_robot_msgs::SingleMove::Request raw_move_request;
+        raw_move_request.command = "raw_move";
+        raw_move_request.speed = speed_mm_per_sec;
+        raw_move_request.x = x_mm;
+        raw_move_request.y = y_mm;
+        raw_move_request.z = z_mm;
+        const RemoteCabinSingleMoveCallResult raw_move_call_result =
+            call_remote_cabin_single_move_service(
+                "/cabin/driver/raw_move",
+                raw_move_request,
+                kRemoteCabinRawMoveCallTimeoutSec);
+        if (!raw_move_call_result.transport_ok || !raw_move_call_result.success) {
+            std::ostringstream target_stream;
+            target_stream << std::fixed << std::setprecision(3)
+                          << "目标=(" << x_mm << "," << y_mm << "," << z_mm
+                          << ")，速度=" << speed_mm_per_sec << "mm/s";
+            std::string detail = raw_move_call_result.message.empty()
+                ? "索驱驱动层 raw move 返回失败"
+                : raw_move_call_result.message;
+            detail = "索驱驱动层 raw move 下发失败，" + target_stream.str() + "，" + detail;
+            update_last_cabin_transport_error_detail(detail);
+            printCurrentTime();
+            ros_log_printf("Cabin_Error: %s\n", detail.c_str());
+            log_cabin_error_ros(detail);
             if (error_message != nullptr) {
-                *error_message = "无法调用索驱驱动层 raw move 服务 /cabin/driver/raw_move";
+                *error_message = detail;
             }
             return false;
         }
+        clear_last_cabin_transport_error_detail();
         if (error_message != nullptr) {
-            *error_message = raw_move_srv.response.message;
+            *error_message = raw_move_call_result.message;
         }
-        return raw_move_srv.response.success;
+        return true;
     }
 
     if (!::cabin_driver_enabled.load()) {

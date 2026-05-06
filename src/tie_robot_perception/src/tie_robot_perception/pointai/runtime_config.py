@@ -74,6 +74,70 @@ def set_stable_frame_count_callback(self, msg):
     rospy.loginfo("pointAI: 视觉服务最终放行帧数已设置为: %d", self.stable_frame_count)
 
 
+def _normalize_execution_refine_tcp_roi_axis(min_value, max_value):
+    min_mm = float(min_value)
+    max_mm = float(max_value)
+    if not math.isfinite(min_mm) or not math.isfinite(max_mm):
+        raise ValueError("execution_refine_tcp_roi values must be finite")
+    if min_mm <= max_mm:
+        return min_mm, max_mm
+    return max_mm, min_mm
+
+
+def set_execution_refine_tcp_roi_bounds(self, bounds):
+    x_min, x_max = _normalize_execution_refine_tcp_roi_axis(bounds["min_x"], bounds["max_x"])
+    y_min, y_max = _normalize_execution_refine_tcp_roi_axis(bounds["min_y"], bounds["max_y"])
+    z_min, z_max = _normalize_execution_refine_tcp_roi_axis(bounds["min_z"], bounds["max_z"])
+    self.execution_refine_tcp_roi_min_x_mm = x_min
+    self.execution_refine_tcp_roi_max_x_mm = x_max
+    self.execution_refine_tcp_roi_min_y_mm = y_min
+    self.execution_refine_tcp_roi_max_y_mm = y_max
+    self.execution_refine_tcp_roi_min_z_mm = z_min
+    self.execution_refine_tcp_roi_max_z_mm = z_max
+    rospy.set_param("~execution_refine_tcp_roi_min_x_mm", float(x_min))
+    rospy.set_param("~execution_refine_tcp_roi_max_x_mm", float(x_max))
+    rospy.set_param("~execution_refine_tcp_roi_min_y_mm", float(y_min))
+    rospy.set_param("~execution_refine_tcp_roi_max_y_mm", float(y_max))
+    rospy.set_param("~execution_refine_tcp_roi_min_z_mm", float(z_min))
+    rospy.set_param("~execution_refine_tcp_roi_max_z_mm", float(z_max))
+    return {
+        "min_x": x_min,
+        "max_x": x_max,
+        "min_y": y_min,
+        "max_y": y_max,
+        "min_z": z_min,
+        "max_z": z_max,
+    }
+
+
+def set_execution_refine_tcp_roi_callback(self, msg):
+    raw_data = list(getattr(msg, "data", []))
+    if len(raw_data) != 6:
+        rospy.logwarn("pointAI: 线性模组绑扎范围需要6个值[min_x,max_x,min_y,max_y,min_z,max_z]，实际收到%d个", len(raw_data))
+        return
+    try:
+        bounds = self.set_execution_refine_tcp_roi_bounds({
+            "min_x": raw_data[0],
+            "max_x": raw_data[1],
+            "min_y": raw_data[2],
+            "max_y": raw_data[3],
+            "min_z": raw_data[4],
+            "max_z": raw_data[5],
+        })
+    except (TypeError, ValueError) as exc:
+        rospy.logwarn("pointAI: 线性模组绑扎范围参数无效: %s", exc)
+        return
+    rospy.loginfo(
+        "pointAI: 线性模组绑扎范围已更新 x[%.1f, %.1f] y[%.1f, %.1f] z[%.1f, %.1f]mm",
+        bounds["min_x"],
+        bounds["max_x"],
+        bounds["min_y"],
+        bounds["max_y"],
+        bounds["min_z"],
+        bounds["max_z"],
+    )
+
+
 def linear_module_state_callback(self, msg):
     self.current_linear_module_position_mm = {
         "x": float(getattr(msg, "linear_module_position_X", 0.0)),

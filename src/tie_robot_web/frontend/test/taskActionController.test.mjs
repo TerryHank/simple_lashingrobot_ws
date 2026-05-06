@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { CONTROL_PANEL_TASKS } from "../src/config/controlPanelCatalog.js";
+import { GLOBAL_EXECUTION_MODES, PROCESS_IMAGE_REQUEST_MODES } from "../src/config/visualRecognitionMode.js";
 import { TaskActionController } from "../src/controllers/TaskActionController.js";
 import { ROSLIB } from "../src/vendor/roslib.js";
 
@@ -12,6 +13,11 @@ global.window = {
 };
 
 ROSLIB.Message = class {
+  constructor(payload) {
+    Object.assign(this, payload);
+  }
+};
+ROSLIB.ServiceRequest = class {
   constructor(payload) {
     Object.assign(this, payload);
   }
@@ -43,15 +49,20 @@ ROSLIB.Goal = class {
 
 const submitTask = CONTROL_PANEL_TASKS.find((task) => task.id === "submitQuad");
 const runSavedS2Task = CONTROL_PANEL_TASKS.find((task) => task.id === "runSavedS2");
+const executionVisionOnlyTask = CONTROL_PANEL_TASKS.find((task) => task.id === "executionVisionOnly");
 assert.equal(submitTask?.label, "确认\n工作区域");
 assert.equal(runSavedS2Task?.label, "触发\n视觉识别");
+assert.equal(executionVisionOnlyTask?.label, "执行层视觉\n单侧");
 
 const payload = [10, 20, 110, 20, 110, 120, 10, 120];
 const publishedMessages = [];
 const logs = [];
 const resultMessages = [];
 const processImageCalls = [];
+const singlePointBindCalls = [];
+const executionModeCalls = [];
 const scanActionClient = { name: "start_pseudo_slam_scan" };
+const startGlobalWorkActionClient = { name: "start_global_work" };
 
 const workspaceView = {
   savedPoints: [],
@@ -79,11 +90,22 @@ const rosConnection = {
       },
       processImageService: {},
       startPseudoSlamScanActionClient: scanActionClient,
+      executionModeService: {
+        callService(request, success) {
+          executionModeCalls.push(request);
+          success({ success: true, message: "全局执行模式已切换" });
+        },
+      },
+      startGlobalWorkActionClient,
     };
   },
   async callProcessImageService(request) {
     processImageCalls.push(request);
     return { success: true, message: "Surface-DP 识别完成。", count: 8 };
+  },
+  async callSinglePointBindService() {
+    singlePointBindCalls.push({});
+    return { success: true, message: "单点绑扎完成。" };
   },
 };
 
@@ -112,6 +134,18 @@ assert.match(resultMessages.at(-1), /Surface-DP|视觉识别/);
 assert.equal(logs.some((entry) => /自动触发.*视觉识别/.test(entry.message)), true);
 assert.equal(logs.some((entry) => entry.message.includes("pseudo_slam_points.json")), true);
 
+const processImageCallCountBeforeVisionOnly = processImageCalls.length;
+const singleBindCallCountBeforeVisionOnly = singlePointBindCalls.length;
+const executionVisionOnlyResult = await controller.handle("executionVisionOnly");
+assert.equal(executionVisionOnlyResult, true);
+assert.equal(processImageCalls.length, processImageCallCountBeforeVisionOnly + 1);
+assert.deepEqual(processImageCalls.at(-1), { requestMode: PROCESS_IMAGE_REQUEST_MODES.EXECUTION_REFINE });
+assert.equal(singlePointBindCalls.length, singleBindCallCountBeforeVisionOnly);
+assert.equal(
+  resultMessages.some((message) => message.includes("不执行线性模组单点绑扎")),
+  true,
+);
+
 const fixedScanMessages = [];
 const fixedScanController = new TaskActionController({
   rosConnection,
@@ -137,3 +171,21 @@ assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   fixed_scan_pose_z_mm: 3197,
 });
 assert.equal(fixedScanMessages.some((message) => message.includes("x=490, y=1700, z=3197")), true);
+
+const defaultExecutionActionCountBefore = actionGoals.length;
+controller.handle("startExecution");
+assert.equal(executionModeCalls.at(-1).execution_mode, GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE);
+assert.equal(actionGoals.length, defaultExecutionActionCountBefore + 1);
+assert.equal(actionGoals.at(-1)?.actionClient, startGlobalWorkActionClient);
+assert.equal(actionGoals.at(-1)?.goalMessage.execution_mode, GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE);
+
+const pureRefineController = new TaskActionController({
+  rosConnection,
+  workspaceView,
+  getExecutionMode() {
+    return GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY;
+  },
+});
+pureRefineController.handle("startExecution");
+assert.equal(executionModeCalls.at(-1).execution_mode, GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY);
+assert.equal(actionGoals.at(-1)?.goalMessage.execution_mode, GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY);

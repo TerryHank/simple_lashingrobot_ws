@@ -28,6 +28,7 @@ import {
   loadSettingsHomePagePreference,
   loadSettingsPageOrderPreference,
   loadThemePreference,
+  loadTopicLayerStatePreference,
   loadVisualDebugSettings,
   loadViewerLayout,
   saveCabinRemoteSettings,
@@ -37,6 +38,7 @@ import {
   saveSettingsHomePagePreference,
   saveSettingsPageOrderPreference,
   saveThemePreference,
+  saveTopicLayerStatePreference,
   saveVisualDebugSettings,
   saveViewerLayout,
 } from "../utils/storage.js";
@@ -51,10 +53,12 @@ import {
   resolveCabinRemoteOperationState,
 } from "../utils/cabinRemoteOperationState.js";
 import { formatCabinRemoteProtocolFeedback } from "../utils/cabinRemoteProtocolFeedback.js";
+import { sampleFloat32XYZImagePixel } from "../utils/irImageUtils.js";
 import { inferLegacyLogLevel, sanitizeRosLogText } from "../utils/logText.js";
 import { Scene3DView } from "../views/Scene3DView.js";
 import { WorkspaceCanvasView } from "../views/WorkspaceCanvasView.js";
 import { TOPICS } from "../config/topicRegistry.js";
+import { getImageHoverCoordinateFrameLabel } from "../config/topicLayerCatalog.js";
 import {
   FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
@@ -91,6 +95,15 @@ const VISUAL_DEBUG_REQUEST_MODE_LABELS = {
   [FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE]: FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
 };
 
+const VISUAL_FRAME_SYNC_TASK_ACTIONS = new Set([
+  "runSavedS2",
+  "executionVisionOnly",
+  "triggerSingleBind",
+  "scanPlan",
+  "startExecution",
+  "startExecutionKeepMemory",
+]);
+
 export class TieRobotFrontApp {
   constructor(rootElement) {
     this.rootElement = rootElement;
@@ -126,7 +139,9 @@ export class TieRobotFrontApp {
     this.networkPingSettings = loadNetworkPingSettings();
     this.recognitionPose = loadRecognitionPose(DIRECT_CABIN_MOVE_TARGET);
     this.visualDebugSettings = loadVisualDebugSettings();
+    this.topicLayerState = loadTopicLayerStatePreference();
     this.settingsHomePage = loadSettingsHomePagePreference();
+    this.activeSettingsPage = this.settingsHomePage;
     this.settingsPageOrder = loadSettingsPageOrderPreference();
     this.theme = loadThemePreference();
     document.documentElement.setAttribute("data-theme", this.theme);
@@ -175,10 +190,12 @@ export class TieRobotFrontApp {
         this.refreshActionState();
       },
       onMessage: (message) => this.addLog(message, "info"),
+      onHoverPixelChanged: (pixel) => this.handleImageHoverPixelChanged(pixel),
     });
     this.workspaceView.bindPointerEvents();
     this.workspaceView.setDisplaySettings(this.displaySettings);
-    this.workspaceView.setSavedWorkspaceGuideVisible(false);
+    this.workspaceView.setWorkspacePickingEnabled(this.activeSettingsPage === "workspace");
+    this.workspaceView.setSavedWorkspaceGuideVisible(this.activeSettingsPage === "workspace");
     this.ui.setDisplaySettings(this.displaySettings);
     this.ui.setVisualDebugSettings(this.visualDebugSettings);
     this.ui.renderPointList([]);
@@ -189,19 +206,23 @@ export class TieRobotFrontApp {
       container: this.ui.getSceneContainer(),
     });
     this.sceneView.setTheme(this.theme);
+    this.applyVisualDebugBindRangeSettings(this.visualDebugSettings);
 
     this.topicLayerController = new TopicLayerController({
       ui: this.ui,
       sceneView: this.sceneView,
+      initialState: this.topicLayerState,
       callbacks: {
         onLog: (message, level) => this.addLog(message, level),
       },
     });
     this.topicLayerController.init();
+    this.applyImageOverlayLayerState();
 
     this.statusMonitorController = new StatusMonitorController({
       onStatusChip: (statusId, level, detail) => this.ui.setStatusChipState(statusId, level, detail),
       onBatteryVoltage: (voltage) => this.ui.setBatteryVoltage(voltage),
+      onAlarmState: (alarms) => this.ui.setConnectionAlarmState(alarms),
       onLog: (message, level) => this.addLog(message, level),
     });
 
@@ -221,6 +242,7 @@ export class TieRobotFrontApp {
         this.viewerStore.updateIn("connection", { ready: true });
         this.syncDisplayedImageSubscription({ suppressLog: true });
         this.syncPointCloudSubscription({ suppressLog: true });
+        this.syncImageHoverCoordinateSubscription({ suppressLog: true });
         this.syncLogSubscription({ suppressLog: true });
         this.syncGlobalCabinMoveSpeed({ suppressLog: true });
         this.applyVisualDebugStableFrameCount({ suppressLog: true });
@@ -234,11 +256,16 @@ export class TieRobotFrontApp {
         this.clearPlanningAreaRefresh();
         this.planningAreaRequestToken += 1;
         this.sceneView.setPlanningAreaPayload(null);
+        this.sceneView.setRealtimeWorkspaceRangeMessage(null);
+        this.sceneView.setLiveVisibleAreaMessage(null);
         this.surfaceDpOverlayActive = false;
         this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCleared = false;
         this.irCameraInfo = null;
+        this.imageHoverWorldCoordMessage = null;
         this.workspaceView.setTcpWorkspaceBoundary(null);
+        this.workspaceView.setRealtimeWorkspaceBoundary(null);
+        this.workspaceView.setHoverCoordinateReadout(null);
         this.legacyCommandController?.reset();
         this.ui.syncControlToggleStates(this.legacyCommandController?.getToggleStateSnapshot());
         this.ui.renderTopicInventory([]);
@@ -285,10 +312,17 @@ export class TieRobotFrontApp {
         this.displayedImageTopicName = topicName || DEFAULT_IMAGE_TOPIC;
         this.workspaceView.setBaseImageMessage(message);
         this.syncTcpWorkspaceBoundaryOverlay();
+        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onIrCameraInfo: (message) => {
         this.irCameraInfo = message;
         this.syncTcpWorkspaceBoundaryOverlay();
+        this.syncRealtimeWorkspaceRangeOverlay();
+      },
+      onImageHoverWorldCoord: (message) => {
+        this.imageHoverWorldCoordMessage = message;
+        this.sceneView.setLiveVisibleAreaMessage(message);
+        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onSavedWorkspacePayload: (payload) => {
         this.workspaceView.setSavedWorkspacePayload(payload);
@@ -297,6 +331,10 @@ export class TieRobotFrontApp {
           this.workspaceView.setSelectedWorkspacePayload(payload);
         }
         this.refreshActionState();
+      },
+      onWorkspaceRangePoints: (message) => {
+        this.sceneView.setRealtimeWorkspaceRangeMessage(message);
+        this.syncRealtimeWorkspaceRangeOverlay();
       },
       onExecutionOverlay: (message) => {
         if (this.surfaceDpOverlayRequested) {
@@ -310,7 +348,7 @@ export class TieRobotFrontApp {
         }
         this.clearS2ResultTimeout();
         this.workspaceView.setExecutionOverlayMessage(message);
-        this.ui.setControlFeedback("执行结果覆盖层已更新。");
+        this.ui.setControlFeedback("执行结果已更新；切到红外原图可查看叠加。");
       },
       onWorkspaceS2Overlay: (message) => {
         if (!this.surfaceDpOverlayRequested) {
@@ -357,6 +395,7 @@ export class TieRobotFrontApp {
         this.viewerStore.updateIn("scene", { tfFrameCount });
         this.ui.setGripperTfCalibration(this.sceneView.getCameraToTcpCalibration());
         this.syncTcpWorkspaceBoundaryOverlay();
+        this.syncRealtimeWorkspaceRangeOverlay();
         this.syncCabinRemoteOperationState();
         this.refreshBottomLinearModulePosition();
       },
@@ -383,6 +422,7 @@ export class TieRobotFrontApp {
       rosConnection: this.rosConnectionController,
       workspaceView: this.workspaceView,
       getRecognitionPose: () => this.recognitionPose,
+      getExecutionMode: () => this.visualDebugSettings?.executionMode,
       callbacks: {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
@@ -459,6 +499,26 @@ export class TieRobotFrontApp {
     return boundary;
   }
 
+  syncRealtimeWorkspaceRangeOverlay() {
+    if (!this.irCameraInfo) {
+      this.workspaceView.setRealtimeWorkspaceBoundary(null);
+      return null;
+    }
+    const boundary = this.sceneView.projectLiveVisibleAreaToImage(this.irCameraInfo);
+    this.workspaceView.setRealtimeWorkspaceBoundary(boundary);
+    return boundary;
+  }
+
+  applyVisualDebugBindRangeSettings(settings = this.visualDebugSettings) {
+    const range = settings?.linearModuleBindRangeMm;
+    this.sceneView?.setLinearModuleBindRange(range);
+    const boundary = this.syncTcpWorkspaceBoundaryOverlay();
+    if (this.rosConnectionController?.isReady?.()) {
+      this.rosConnectionController.publishExecutionRefineTcpRoi(range);
+    }
+    return boundary;
+  }
+
   handleCabinStateMessage(message) {
     this.cabinTelemetry = normalizeCabinTelemetry(message);
     this.cabinRemoteController?.setLastKnownRawCabinPosition?.({
@@ -490,6 +550,17 @@ export class TieRobotFrontApp {
     });
   }
 
+  async handleResetAllAlarms() {
+    const result = await this.rosConnectionController.publishAlarmReset();
+    if (!result.success) {
+      this.addLog(result.message || "报警复位失败。", "warn");
+      return;
+    }
+    this.statusMonitorController.clearAlarmState();
+    this.ui.setConnectionAlarmState([]);
+    this.addLog(result.message || "报警复位信号已发送。", "success");
+  }
+
   syncCabinRemoteOperationState() {
     const operationState = this.getCabinRemoteOperationState();
     const ready = this.rosConnectionController?.isReady?.() || false;
@@ -513,6 +584,10 @@ export class TieRobotFrontApp {
     this.ui.onConnectionAction((actionId) => {
       if (actionId === "manualRosReconnect") {
         this.rosConnectionController.connect({ manual: true });
+        return;
+      }
+      if (actionId === "resetAllAlarms") {
+        this.handleResetAllAlarms();
         return;
       }
       this.systemControlController.handle(actionId);
@@ -554,6 +629,9 @@ export class TieRobotFrontApp {
         this.workspaceView.setVisualRecognitionPointsMessage(null);
         this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
       }
+      if (VISUAL_FRAME_SYNC_TASK_ACTIONS.has(taskAction)) {
+        this.applyVisualDebugStableFrameCount({ suppressLog: true });
+      }
       this.taskActionController.handle(taskAction);
       this.refreshActionState();
     });
@@ -579,9 +657,15 @@ export class TieRobotFrontApp {
     });
     this.ui.onSceneControlsChange((state) => {
       this.topicLayerController.handleSceneControlsChange(state);
+      saveTopicLayerStatePreference(this.topicLayerController.getState());
+      this.syncImageHoverCoordinateSubscription();
     });
     this.ui.onSettingsPageChange((pageId) => {
-      this.workspaceView.setSavedWorkspaceGuideVisible(pageId === "workspace");
+      this.activeSettingsPage = pageId;
+      const workspacePickingEnabled = pageId === "workspace";
+      this.workspaceView.setWorkspacePickingEnabled(workspacePickingEnabled);
+      this.workspaceView.setSavedWorkspaceGuideVisible(workspacePickingEnabled);
+      this.syncImageHoverCoordinateSubscription();
       if (pageId === "homeCalibration") {
         this.refreshRobotHomeCalibration({ suppressLog: true });
       }
@@ -605,6 +689,8 @@ export class TieRobotFrontApp {
     });
     this.ui.onTopicLayerControlsChange((state) => {
       this.topicLayerController.handleLayerControlsChange(state);
+      this.applyImageOverlayLayerState();
+      saveTopicLayerStatePreference(this.topicLayerController.getState());
       this.syncPointCloudSubscription();
     });
     this.ui.onCalibrationApply((payload) => {
@@ -652,6 +738,7 @@ export class TieRobotFrontApp {
     this.ui.onVisualDebugSettingsChange((settings) => {
       this.visualDebugSettings = settings;
       saveVisualDebugSettings(settings);
+      this.applyVisualDebugBindRangeSettings(settings);
       this.ui.setVisualDebugTimingSummary({
         releaseFrameCount: settings.stableFrameCount,
       });
@@ -659,6 +746,7 @@ export class TieRobotFrontApp {
     this.ui.onVisualDebugApplyStableFrameCount((settings) => {
       this.visualDebugSettings = settings;
       saveVisualDebugSettings(settings);
+      this.applyVisualDebugBindRangeSettings(settings);
       this.applyVisualDebugStableFrameCount();
     });
     this.ui.onVisualDebugTrigger((settings) => {
@@ -667,8 +755,10 @@ export class TieRobotFrontApp {
     this.ui.onLegacyCommand((commandId) => {
       this.legacyCommandController.handle(commandId, this.ui.getParameterValues());
     });
-    this.ui.onControlToggle((toggleId) => {
-      const nextState = this.legacyCommandController.handleToggle(toggleId, this.ui.getParameterValues());
+    this.ui.onControlToggle((toggleId, options = {}) => {
+      const nextState = options.longPress
+        ? this.legacyCommandController.handleToggleLongPress(toggleId, this.ui.getParameterValues())
+        : this.legacyCommandController.handleToggle(toggleId, this.ui.getParameterValues());
       if (nextState) {
         this.ui.setControlToggleState(toggleId, nextState);
       }
@@ -839,6 +929,7 @@ export class TieRobotFrontApp {
     const settings = this.ui.getVisualDebugSettings();
     this.visualDebugSettings = settings;
     saveVisualDebugSettings(settings);
+    this.applyVisualDebugBindRangeSettings(settings);
     const result = this.rosConnectionController.publishStableFrameCount(settings.stableFrameCount);
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: settings.stableFrameCount,
@@ -866,6 +957,7 @@ export class TieRobotFrontApp {
     };
     this.visualDebugSettings = scanOnlySettings;
     saveVisualDebugSettings(scanOnlySettings);
+    this.applyVisualDebugBindRangeSettings(scanOnlySettings);
     if (!this.rosConnectionController.isReady()) {
       const message = "ROS 未连接，无法触发视觉调试服务。";
       this.addLog(message, "error");
@@ -1152,7 +1244,7 @@ export class TieRobotFrontApp {
     }
 
     const clampSuffix = result.clamped ? " | 已夹到线模行程边界" : "";
-    return `TCP线模遥控 ${result.label}：步距=${result.increment} 目标=(${result.target.x.toFixed(1)}, ${result.target.y.toFixed(1)}, ${result.target.z.toFixed(1)}, 角度=${result.target.angle.toFixed(1)})${clampSuffix}`;
+    return `TCP线模遥控 ${result.label}：步距=${result.increment} 目标=(${Math.round(Number(result.target.x))}, ${Math.round(Number(result.target.y))}, ${Math.round(Number(result.target.z))}, 角度=${result.target.angle.toFixed(1)})${clampSuffix}`;
   }
 
   async refreshRobotHomeCalibration({ suppressLog = false } = {}) {
@@ -1251,7 +1343,7 @@ export class TieRobotFrontApp {
     this.workspaceView.setVisualRecognitionPointsMessage(null);
     this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
     this.syncDisplayedImageSubscription({ suppressLog: true });
-    this.addLog("视觉识别会叠加在当前图像图层，不切换图像话题。", "info");
+    this.addLog("视觉识别会叠加在红外原图图层。", "info");
     this.scheduleS2ResultTimeout();
   }
 
@@ -1262,10 +1354,12 @@ export class TieRobotFrontApp {
     this.visualRecognitionOverlayCleared = false;
     this.clearS2ResultTimeout();
     this.workspaceView.setS2OverlayMessage(message);
-    this.workspaceView.setVisualRecognitionPointsMessage(null);
     this.workspaceView.setVisualRecognitionOverlaySourceSize(message);
-    this.ui.setControlFeedback("后端视觉识别结果图已叠加在当前图像图层。");
-    this.addLog("后端视觉识别结果图已叠加在当前图像图层。", "success");
+    if (this.latestVisualRecognitionPointsMessage) {
+      this.workspaceView.setVisualRecognitionPointsMessage(this.latestVisualRecognitionPointsMessage, { sourceSize: message });
+    }
+    this.ui.setControlFeedback("后端视觉识别结果已叠加到红外原图。");
+    this.addLog("后端视觉识别结果已叠加到红外原图。", "success");
   }
 
   handleClearVisualRecognitionOverlay() {
@@ -1294,6 +1388,9 @@ export class TieRobotFrontApp {
   handleVisualRecognitionPointsMessage(message) {
     const pointsLength = this.cacheLatestVisualRecognitionPointsMessage(message);
     const requestActive = this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested;
+    if (pointsLength > 0 && (requestActive || this.displayedImageTopicName === TOPICS.camera.irImage)) {
+      this.workspaceView.setVisualRecognitionPointsMessage(message);
+    }
     if (!requestActive) {
       return pointsLength;
     }
@@ -1428,11 +1525,18 @@ export class TieRobotFrontApp {
     });
   }
 
+  applyImageOverlayLayerState(state = null) {
+    const layerState = state || this.topicLayerController?.getState?.() || this.topicLayerState;
+    this.workspaceView.setImageOverlayLayerState(layerState);
+  }
+
   syncDisplayedImageSubscription({ suppressLog = false } = {}) {
     const selectedTopic = this.ui.getSelectedImageTopic();
     this.displayedImageTopicName = selectedTopic || DEFAULT_IMAGE_TOPIC;
     this.workspaceView.setOverlayEnabled(isOverlayCompatibleImageTopic(selectedTopic));
     this.syncTcpWorkspaceBoundaryOverlay();
+    this.syncRealtimeWorkspaceRangeOverlay();
+    this.syncImageHoverCoordinateSubscription({ suppressLog: true });
     const subscriptionResult = this.rosConnectionController.updateDisplayedImageSubscription(selectedTopic);
     if (!suppressLog && subscriptionResult?.changed) {
       this.addLog(`图像卡片已切换到 ${getImageTopicLabel(subscriptionResult.topic || DEFAULT_IMAGE_TOPIC)}。`, "info");
@@ -1469,6 +1573,79 @@ export class TieRobotFrontApp {
     }
   }
 
+  syncImageHoverCoordinateSubscription({ suppressLog = false } = {}) {
+    const hoverEnabled = this.activeSettingsPage !== "workspace";
+    const enabled = hoverEnabled || this.displayedImageTopicName === TOPICS.camera.irImage;
+    const subscriptionResult = this.rosConnectionController.updateImageHoverCoordinateSubscription({ enabled });
+    if (!hoverEnabled) {
+      this.workspaceView.setHoverCoordinateReadout(null);
+    }
+    if (!suppressLog && subscriptionResult?.changed) {
+      this.addLog(
+        hoverEnabled ? "图像悬停坐标已开启。" : "工作区选点模式已开启，图像悬停坐标暂停；当前视野边界继续更新。",
+        "info",
+      );
+    }
+    return subscriptionResult;
+  }
+
+  getImageHoverCoordinateTargetFrame() {
+    const selectedFrame = this.topicLayerController.getState().imageHoverCoordinateFrame || "map";
+    return ["map", "gripper_frame", "Scepter_depth_frame"].includes(selectedFrame)
+      ? selectedFrame
+      : "map";
+  }
+
+  formatHoverCoordinateValue(value) {
+    const rounded = Number(value);
+    return Number.isFinite(rounded) ? rounded.toFixed(1) : "--";
+  }
+
+  handleImageHoverPixelChanged(pixel) {
+    if (!pixel || this.activeSettingsPage === "workspace") {
+      this.workspaceView.setHoverCoordinateReadout(null);
+      return;
+    }
+
+    const targetFrame = this.getImageHoverCoordinateTargetFrame();
+    const frameLabel = getImageHoverCoordinateFrameLabel(targetFrame);
+    const sampledCameraPoint = sampleFloat32XYZImagePixel(this.imageHoverWorldCoordMessage, pixel);
+    if (!sampledCameraPoint) {
+      this.workspaceView.setHoverCoordinateReadout({
+        pixel,
+        sourceSize: this.workspaceView.getCurrentImageSize(),
+        lines: [
+          `px=(${pixel.x},${pixel.y})`,
+          "等待raw_world_coord",
+        ],
+      });
+      return;
+    }
+
+    const coordinate = this.sceneView.convertScepterPointMmToFrameMm(sampledCameraPoint, targetFrame);
+    if (!coordinate) {
+      this.workspaceView.setHoverCoordinateReadout({
+        pixel,
+        sourceSize: this.workspaceView.getCurrentImageSize(),
+        lines: [
+          `px=(${pixel.x},${pixel.y})`,
+          `${frameLabel}: 等待TF`,
+        ],
+      });
+      return;
+    }
+
+    this.workspaceView.setHoverCoordinateReadout({
+      pixel,
+      sourceSize: this.workspaceView.getCurrentImageSize(),
+      lines: [
+        `px=(${pixel.x},${pixel.y}) ${frameLabel}`,
+        `x=${this.formatHoverCoordinateValue(coordinate.x)}mm`,
+        `y=${this.formatHoverCoordinateValue(coordinate.y)}mm z=${this.formatHoverCoordinateValue(coordinate.z)}mm`,
+      ],
+    });
+  }
+
   async applyGripperTfCalibration(payload) {
     const result = await this.rosConnectionController.callGripperTfCalibrationService(payload);
     if (!result?.success) {
@@ -1488,8 +1665,9 @@ export class TieRobotFrontApp {
     const sceneCalibration = this.sceneView.applyCameraToTcpCalibration(appliedCalibration) || appliedCalibration;
     this.ui.setGripperTfCalibration(sceneCalibration, { forceInputs: true });
     this.syncTcpWorkspaceBoundaryOverlay();
+    this.syncRealtimeWorkspaceRangeOverlay();
     this.addLog(
-      `相机-TCP外参已热更新：x=${Number(result.applied.x).toFixed(1)}mm y=${Number(result.applied.y).toFixed(1)}mm z=${Number(result.applied.z).toFixed(1)}mm`,
+      `相机-TCP外参已热更新：x=${Math.round(Number(result.applied.x))}mm y=${Math.round(Number(result.applied.y))}mm z=${Math.round(Number(result.applied.z))}mm`,
       "success",
     );
     this.addLog(result.message || "gripper_tf_broadcaster 已写回本地 gripper_tf.yaml。", "info");

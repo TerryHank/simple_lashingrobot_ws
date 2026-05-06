@@ -36,7 +36,7 @@ ROBOT_HOME_CALIBRATION_SERVICE = "/web/tf/robot_home_calibration"
 DEFAULT_ROBOT_HOME_CONFIG = {
     "home_cabin_mm": {"x": 0.0, "y": 0.0, "z": 0.0},
     "base_to_camera_mm": {"x": 0.0, "y": 0.0, "z": 460.0},
-    "base_to_camera_rpy": {"roll": math.pi, "pitch": 0.0, "yaw": 0.0},
+    "base_to_camera_rpy": {"roll": math.pi, "pitch": 0.0, "yaw": -math.pi / 2.0},
     "cabin_to_map_sign": {"x": 1.0, "y": 1.0, "z": 1.0},
 }
 
