@@ -2,6 +2,37 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-07 04:51 - 当前视野边界改为后端IR灰线
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 用户明确否定前端 SVG/Canvas/三维工作区范围方案；索驱降下后相机当前可见区域边界由 pointAI 后端基于 raw_world_coord/world_coord 有效 Z 区域计算外轮廓，并直接绘制到 /pointAI/result_image_raw 的 IR 结果图上，使用灰色边界线。前端不再订阅 workspace/quad_camera_points，不再创建 workspaceRangeGroup，也不再把实时工作区范围投影回图像；仅保留 TCP/线性模组范围投影覆盖层。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/live_visible_area_overlay.py; src/tie_robot_perception/src/tie_robot_perception/pointai/image_buffers.py; src/tie_robot_web/frontend/src/views/Scene3DView.js; src/tie_robot_web/frontend/src/controllers/RosConnectionController.js; src/tie_robot_web/frontend/src/config/topicRegistry.js; src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 当前可见区域边界不再是扫描工作区语义，也不在前端工作区图层绘制；后端图像流直接给出灰色边界。
+
+### 标签
+
+- `vision`
+- `frontend`
+- `pointai`
+- `current-visible-area`
+
+### 验证证据
+
+- `pointAI targeted unittest OK; frontend all mjs tests OK; workspace_picker_web targeted unittest OK with ROS env; npm run build OK`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-07 04:43 - 视觉调试每组绑扎点数可配置
 
 <!-- AGENT-MEMORY: entry -->

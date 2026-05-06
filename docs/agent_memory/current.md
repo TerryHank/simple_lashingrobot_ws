@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 04:45:11，当前 HEAD：`e95717a`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 04:52:00，当前 HEAD：`d45925d`。
 
 ## Bootstrap Files
 
@@ -47,12 +47,12 @@
 
 ## Recent Session Memory
 
+- `2026-05-07 04:51 - 当前视野边界改为后端IR灰线`：用户明确否定前端 SVG/Canvas/三维工作区范围方案；索驱降下后相机当前可见区域边界由 pointAI 后端基于 raw_world_coord/world_coord 有效 Z 区域计算外轮廓，并直接绘制到 /pointAI/result_image_raw 的 IR 结果图上，使用灰色边界线。前端不再订阅 workspace/quad_camera_points，不再创建 workspaceRangeGroup，也不再把实时工作区范围投影回图像；仅保留 TCP/线性模组范围投影覆盖层。
 - `2026-05-07 04:43 - 视觉调试每组绑扎点数可配置`：视觉调试页新增每组点数，StartPseudoSlamScan 服务/action 透传 bind_group_point_count；动态绑扎规划按 requested_group_point_count 生成矩形候选，默认 4 保持 2x2，6 点可按可达性选择 2x3 或 3x2，9 点等在当前路径高度和线性模组可达盒内无法覆盖全组时返回无法规划提示。
 - `2026-05-07 04:36 - live_visual 微调匹配轴向按扫描行列推断`：账本+微调执行链中，MODE_EXECUTION_REFINE 返回相机点后会先转 map 再归入扫描账本棋盘格。当前 Surface-DP 行列在现场数据中 row 稳定对应 world_x、col 稳定对应 world_y，不能再硬编码 row=world_y/col=world_x；live_visual 现在从 pseudo_slam_points 的规划行列 span 推断 row/col 对应世界轴，再用该轴向做 80mm 棋盘格归类和 30mm/6mm 微调门限。
 - `2026-05-07 04:17 - 当前视野边界贴边可视化`：实时相机可视边界来自 /Scepter/worldCoord/raw_world_coord 的有效 3D 像素边缘，并在 IR 底层 SVG 绘制；raw 边界抽样需过滤 z<=0 的无效深度，投影时少量点失败不隐藏整条边界。若边界几何上贴着整幅图像边缘，SVG 仅在显示层向内收 8px 画出，避免绿线被图像边框吃掉；线性模组/TCP 青蓝范围仍由 overlay canvas 保留。
 - `2026-05-07 04:00 - 连接徽标长按重启中动画`：前端顶部“连接成功”徽标长按触发 restartRosStack 后，现在会像索驱、末端、视觉状态胶囊一样进入 pending：禁用按钮、显示“重启中”、保留连接成功主标签并启用旋转/滑入动画；连接状态刷新不会打断该 pending 反馈，完成后恢复“长按重启”。
 - `2026-05-07 03:56 - 当前视野边界改为IR底层SVG`：用户要求当前可视区域边界不要通过 overlay canvas 重绘，避免高频 clearRect/stroke 消耗。前端图像层现在在 irCanvas 和 overlayCanvas 之间新增 irBaseBoundaryLayer SVG，实时视野边界只更新 SVG polygon/circle DOM 属性；overlayCanvas 继续只承载算法结果、线模范围、识别点和悬停读数。
-- `2026-05-07 03:53 - 长按暂停恢复回起点跨进程中止`：修复长按暂停/恢复作业未可靠清空当前末端任务并回执行起点的问题：末端 driver 与 motion_controller 已拆成两个进程，长按 /web/moduan/hand_sovle_warn data=2 必须同时让 driver 先写 IS_STOP=1 停止当前线性模组队列，并让 motion_controller 收到同一长按信号后置 moduan_return_zero_ordered_requested，使 ExecuteBindPoints Action/FINISHALL 等待中止；随后 /moduan/return_zero_ordered 才能接管 Z 优先回零和索驱回执行起点。
 
 ## Handoff Documents
 
