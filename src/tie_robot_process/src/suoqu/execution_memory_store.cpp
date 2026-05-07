@@ -63,6 +63,8 @@ bool load_bind_execution_memory_json(
             point_record.global_row = point_json.at("global_row").get<int>();
             point_record.global_col = point_json.at("global_col").get<int>();
             point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+            point_record.jump_bind = point_json.value("jump_bind", is_jump_bind_target_parity(point_record.checkerboard_parity));
+            point_record.checkerboard_color = point_json.value("checkerboard_color", checkerboard_color_from_parity(point_record.checkerboard_parity));
             point_record.world_x = point_json.value("world_x", 0.0f);
             point_record.world_y = point_json.value("world_y", 0.0f);
             point_record.world_z = point_json.value("world_z", 0.0f);
@@ -98,6 +100,8 @@ bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::st
                 {"global_row", point_record.global_row},
                 {"global_col", point_record.global_col},
                 {"checkerboard_parity", point_record.checkerboard_parity},
+                {"jump_bind", point_record.jump_bind},
+                {"checkerboard_color", point_record.checkerboard_color},
                 {"world_x", point_record.world_x},
                 {"world_y", point_record.world_y},
                 {"world_z", point_record.world_z},
@@ -276,6 +280,8 @@ void record_successful_execution_point(
     point_record.global_row = global_row;
     point_record.global_col = global_col;
     point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+    point_record.jump_bind = point_json.value("jump_bind", is_jump_bind_target_parity(point_record.checkerboard_parity));
+    point_record.checkerboard_color = point_json.value("checkerboard_color", checkerboard_color_from_parity(point_record.checkerboard_parity));
     point_record.world_x = point_json.value("world_x", point_json.value("x", 0.0f));
     point_record.world_y = point_json.value("world_y", point_json.value("y", 0.0f));
     point_record.world_z = point_json.value("world_z", point_json.value("z", 0.0f));

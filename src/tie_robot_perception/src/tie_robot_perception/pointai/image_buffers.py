@@ -108,10 +108,8 @@ def image_callback(self, msg):
         self.image_infrared_copy = np.zeros((480, 640), dtype=np.uint8)
 
     result_image = np.array(self.image_infrared_copy, copy=True)
-    live_visible_area_source = getattr(self, "image_raw_world", None)
-    if live_visible_area_source is None:
-        live_visible_area_source = getattr(self, "image", None)
-    draw_live_visible_area_boundary(result_image, live_visible_area_source, gray_value=180, thickness=2)
+    confirmed_workspace_mask = self.get_manual_workspace_cabin_polygon_pixel_mask()
+    draw_live_visible_area_boundary(result_image, confirmed_workspace_mask, gray_value=180, thickness=2)
 
     occupied_label_bboxes = []
     sorted_display_points = sorted(

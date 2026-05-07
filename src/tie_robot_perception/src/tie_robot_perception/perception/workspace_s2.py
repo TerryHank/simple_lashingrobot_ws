@@ -2681,6 +2681,7 @@ def trace_workspace_s2_curved_line_centerline(
             ).tolist(),
             "direction": workspace_s2_line_direction_from_angle(line_angle_deg).tolist(),
             "polyline_points": [],
+            "polyline_segments": [],
             "offsets": [],
             "scores": [],
             "coverage": 0.0,
@@ -2717,6 +2718,7 @@ def trace_workspace_s2_curved_line_centerline(
             "normal": normal.tolist(),
             "direction": direction.tolist(),
             "polyline_points": [],
+            "polyline_segments": [],
             "offsets": [],
             "scores": [],
             "coverage": 0.0,
@@ -2757,6 +2759,7 @@ def trace_workspace_s2_curved_line_centerline(
             "normal": normal.tolist(),
             "direction": direction.tolist(),
             "polyline_points": [],
+            "polyline_segments": [],
             "offsets": [],
             "scores": [],
             "coverage": 0.0,
@@ -2803,7 +2806,9 @@ def trace_workspace_s2_curved_line_centerline(
     ).astype(np.float32)
     polyline_array[:, 0] = np.clip(polyline_array[:, 0], 0.0, float(width - 1))
     polyline_array[:, 1] = np.clip(polyline_array[:, 1], 0.0, float(height - 1))
-    polyline_points = [[float(point[0]), float(point[1])] for point in polyline_array]
+    valid_polyline_array = polyline_array[selected_valid]
+    polyline_points = [[float(point[0]), float(point[1])] for point in valid_polyline_array]
+    polyline_segments = _workspace_s2_split_polyline_by_valid_samples(polyline_array, selected_valid)
 
     coverage = (
         float(np.count_nonzero(selected_strong)) / float(selected_strong.size)
@@ -2816,6 +2821,7 @@ def trace_workspace_s2_curved_line_centerline(
         "normal": normal.tolist(),
         "direction": direction.tolist(),
         "polyline_points": polyline_points,
+        "polyline_segments": polyline_segments,
         "t_values": [float(value) for value in t_values],
         "offsets": [float(value) for value in smoothed_offsets],
         "raw_offsets": [float(value) for value in selected_offsets],
@@ -2874,6 +2880,32 @@ def build_workspace_s2_curved_line_families(
         curved_family["curved_lines"] = curved_lines
         curved_families.append(curved_family)
     return curved_families
+
+
+def _workspace_s2_split_polyline_by_valid_samples(polyline_points, valid_samples):
+    polyline_array = np.asarray(polyline_points, dtype=np.float32).reshape(-1, 2)
+    valid_array = np.asarray(valid_samples, dtype=bool).reshape(-1)
+    if polyline_array.shape[0] == 0 or polyline_array.shape[0] != valid_array.shape[0]:
+        return []
+
+    segments = []
+    segment_start = None
+    for index, is_valid in enumerate(valid_array.tolist()):
+        if is_valid:
+            if segment_start is None:
+                segment_start = index
+            continue
+        if segment_start is None:
+            continue
+        if (index - segment_start) >= 2:
+            segment = polyline_array[segment_start:index]
+            segments.append([[float(point[0]), float(point[1])] for point in segment])
+        segment_start = None
+
+    if segment_start is not None and (polyline_array.shape[0] - segment_start) >= 2:
+        segment = polyline_array[segment_start:]
+        segments.append([[float(point[0]), float(point[1])] for point in segment])
+    return segments
 
 
 def _workspace_s2_segment_intersection(first_start, first_end, second_start, second_end):
@@ -2976,20 +3008,24 @@ def intersect_workspace_s2_curved_line_families(
 
     intersections = []
     for second_line in second_lines:
+        second_segments = second_line.get("polyline_segments") or [second_line.get("polyline_points", [])]
         for first_line in first_lines:
-            point = _workspace_s2_polyline_intersection(
-                first_line.get("polyline_points", []),
-                second_line.get("polyline_points", []),
-            )
-            if point is None:
-                continue
-            point_x = float(point[0])
-            point_y = float(point[1])
-            if min_x <= point_x <= max_x and min_y <= point_y <= max_y:
-                intersections.append([
-                    float(np.clip(point_x, 0.0, float(rectified_width - 1))),
-                    float(np.clip(point_y, 0.0, float(rectified_height - 1))),
-                ])
+            first_segments = first_line.get("polyline_segments") or [first_line.get("polyline_points", [])]
+            for first_segment in first_segments:
+                for second_segment in second_segments:
+                    point = _workspace_s2_polyline_intersection(
+                        first_segment,
+                        second_segment,
+                    )
+                    if point is None:
+                        continue
+                    point_x = float(point[0])
+                    point_y = float(point[1])
+                    if min_x <= point_x <= max_x and min_y <= point_y <= max_y:
+                        intersections.append([
+                            float(np.clip(point_x, 0.0, float(rectified_width - 1))),
+                            float(np.clip(point_y, 0.0, float(rectified_height - 1))),
+                        ])
     return intersections
 
 

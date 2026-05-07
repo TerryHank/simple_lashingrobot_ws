@@ -17,20 +17,23 @@
 namespace tie_robot_process {
 namespace suoqu {
 
-void cache_pending_tcp_status_error(uint32_t status_word)
+void cache_pending_tcp_status_error(uint16_t command_word, uint32_t status_word)
 {
+    ::pending_tcp_status_command_word.store(command_word, std::memory_order_relaxed);
     ::pending_tcp_status_word.store(status_word, std::memory_order_relaxed);
     ::pending_tcp_status_word_valid.store(true, std::memory_order_release);
 }
 
-bool consume_pending_tcp_status_error(uint32_t& status_word)
+bool consume_pending_tcp_status_error(uint16_t& command_word, uint32_t& status_word)
 {
     const bool had_pending_error =
         ::pending_tcp_status_word_valid.exchange(false, std::memory_order_acq_rel);
     if (!had_pending_error) {
+        command_word = 0;
         status_word = 0;
         return false;
     }
+    command_word = ::pending_tcp_status_command_word.exchange(0, std::memory_order_acq_rel);
     status_word = ::pending_tcp_status_word.exchange(0, std::memory_order_acq_rel);
     return status_word != 0;
 }

@@ -16,6 +16,7 @@ extern std::mutex cabin_last_error_detail_mutex;
 extern std::string last_cabin_transport_error_detail;
 extern std::string last_cabin_execution_wait_error_detail;
 extern const std::string kCabinLastFatalErrorDetailFile;
+extern std::atomic<uint16_t> pending_tcp_status_command_word;
 extern std::atomic<uint32_t> pending_tcp_status_word;
 extern std::atomic<bool> pending_tcp_status_word_valid;
 extern std::atomic<bool> use_remote_cabin_driver;
@@ -33,8 +34,8 @@ struct TcpProtocolStatusDecode
     bool has_error = false;
 };
 
-void cache_pending_tcp_status_error(uint32_t status_word);
-bool consume_pending_tcp_status_error(uint32_t& status_word);
+void cache_pending_tcp_status_error(uint16_t command_word, uint32_t status_word);
+bool consume_pending_tcp_status_error(uint16_t& command_word, uint32_t& status_word);
 bool is_motion_move_command_frame(const uint8_t* control_word, int tlen);
 const char* tcp_protocol_command_name(uint16_t command_word);
 std::vector<std::string> decode_tcp_protocol_status_reasons(uint16_t command_word, uint32_t status_word);

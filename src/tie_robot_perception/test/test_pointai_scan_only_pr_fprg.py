@@ -3,6 +3,9 @@
 import unittest
 from pathlib import Path
 import sys
+import json
+import tempfile
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -112,6 +115,14 @@ EXECUTION_REFINE_HOUGH_PATH = (
     / "tie_robot_perception"
     / "pointai"
     / "execution_refine_hough.py"
+)
+POINTAI_STATE_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "src"
+    / "tie_robot_perception"
+    / "pointai"
+    / "state.py"
 )
 
 
@@ -270,6 +281,18 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             wait_loop_text,
         )
         self.assertNotIn("try_scan_only_manual_workspace_s2", wait_loop_text)
+
+    def test_execution_refine_no_points_returns_semantic_failure_before_global_timeout(self):
+        state_text = POINTAI_STATE_PATH.read_text(encoding="utf-8")
+        service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        start_index = service_text.index("def wait_for_stable_point_coords(self, request_mode):")
+        end_index = service_text.index("def handle_process_image(self, req):", start_index)
+        wait_loop_text = service_text[start_index:end_index]
+
+        self.assertIn("execution_refine_no_points_timeout_sec", state_text)
+        self.assertIn("execution_refine_no_points_start_time", wait_loop_text)
+        self.assertIn("EXECUTION_REFINE_NO_POINTS", wait_loop_text)
+        self.assertIn("执行微调在当前区域未返回可执行点，跳过当前区域", wait_loop_text)
 
     def test_all_visual_trigger_modes_wait_for_release_frame_count(self):
         service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
@@ -613,7 +636,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertNotIn("cv2.rectangle(result_image, self.point1, self.point2, 255, 2)", callback_text)
         self.assertNotIn("self.draw_scan_workspace_overlay(result_image)", callback_text)
 
-    def test_realtime_result_image_draws_live_visible_area_boundary_in_backend_ir_frame(self):
+    def test_realtime_result_image_draws_confirmed_workspace_boundary_in_backend_ir_frame(self):
         image_buffers_path = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -628,23 +651,156 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         callback_text = image_buffers_text[callback_start:callback_end]
 
         self.assertIn("draw_live_visible_area_boundary(result_image", callback_text)
-        self.assertIn('getattr(self, "image_raw_world", None)', callback_text)
+        self.assertIn("self.get_manual_workspace_cabin_polygon_pixel_mask()", callback_text)
+        self.assertNotIn("build_tcp_workspace_area_mask(", callback_text)
+        self.assertNotIn("self.get_execution_refine_tcp_roi_bounds()", callback_text)
         self.assertNotIn("self.draw_scan_workspace_overlay(result_image)", callback_text)
 
-    def test_live_visible_area_overlay_draws_gray_boundary_from_raw_world_depth(self):
+    def test_manual_workspace_world_polygon_mask_tracks_confirmed_workspace_not_tcp_box(self):
+        from tie_robot_perception.pointai import workspace_masks
+
+        grid_x, grid_y = np.meshgrid(
+            np.arange(100, dtype=np.float32),
+            np.arange(80, dtype=np.float32),
+        )
+
+        class DummyProcessor:
+            x_channel = grid_x
+            y_channel = grid_y
+            depth_v = np.ones(grid_x.shape, dtype=np.float32) * 500.0
+
+            def load_manual_workspace_quad(self):
+                return {
+                    "corner_pixels": [[1, 1], [5, 1], [5, 5], [1, 5]],
+                    "corner_world_camera_frame": [
+                        [20.0, 10.0, 500.0],
+                        [70.0, 10.0, 500.0],
+                        [70.0, 50.0, 500.0],
+                        [20.0, 50.0, 500.0],
+                    ],
+                }
+
+            def get_manual_workspace_pixel_mask(self):
+                return workspace_masks.get_manual_workspace_pixel_mask(self)
+
+        workspace_mask = workspace_masks.get_manual_workspace_camera_polygon_pixel_mask(DummyProcessor())
+
+        self.assertIsNotNone(workspace_mask)
+        self.assertEqual(int(workspace_mask[30, 45]), 1)
+        self.assertEqual(int(workspace_mask[3, 3]), 0)
+        self.assertEqual(int(workspace_mask[70, 90]), 0)
+
+    def test_manual_workspace_quad_callback_persists_map_frame_corners(self):
+        from tie_robot_perception.pointai import workspace_masks
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            workspace_file = Path(tmp_dir) / "manual_workspace_quad.json"
+
+            class DummyProcessor:
+                manual_workspace_quad_file = str(workspace_file)
+
+                def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
+                    return [float(pixel_x), float(pixel_y), 1000.0], [pixel_x, pixel_y], False
+
+                def transform_camera_point_to_map_frame(self, camera_point):
+                    return [camera_point[0] + 100.0, camera_point[1] + 200.0, camera_point[2] + 300.0]
+
+                def sort_polygon_points_clockwise(self, points):
+                    return points
+
+                def save_manual_workspace_quad(self, *args, **kwargs):
+                    return workspace_masks.save_manual_workspace_quad(self, *args, **kwargs)
+
+                def publish_current_manual_workspace_quad_pixels(self):
+                    return None
+
+            workspace_masks.manual_workspace_quad_callback(
+                DummyProcessor(),
+                SimpleNamespace(data=[10, 20, 30, 20, 30, 40, 10, 40]),
+            )
+            saved_workspace = json.loads(workspace_file.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            saved_workspace["corner_world_map_frame"],
+            [
+                [110.0, 220.0, 1300.0],
+                [130.0, 220.0, 1300.0],
+                [130.0, 240.0, 1300.0],
+                [110.0, 240.0, 1300.0],
+            ],
+        )
+
+    def test_confirmed_workspace_display_mask_uses_map_frame_not_camera_frame(self):
+        from tie_robot_perception.pointai import workspace_masks
+        from tie_robot_perception.pointai import world_coord
+
+        grid_x, grid_y = np.meshgrid(
+            np.arange(100, dtype=np.float32),
+            np.arange(80, dtype=np.float32),
+        )
+
+        class DummyTfBuffer:
+            def lookup_transform(self, target_frame, source_frame, stamp, timeout):
+                del target_frame, source_frame, stamp, timeout
+                return SimpleNamespace(
+                    transform=SimpleNamespace(
+                        translation=SimpleNamespace(x=0.1, y=0.0, z=0.0),
+                        rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+                    )
+                )
+
+        class DummyProcessor:
+            x_channel = grid_x
+            y_channel = grid_y
+            depth_v = np.ones(grid_x.shape, dtype=np.float32) * 500.0
+            tf_buffer = DummyTfBuffer()
+            raw_bind_point_tf_source_frame = "Scepter_depth_frame"
+            world_image_seq = 1
+
+            def load_manual_workspace_quad(self):
+                return {
+                    "corner_pixels": [[1, 1], [5, 1], [5, 5], [1, 5]],
+                    "corner_world_camera_frame": [
+                        [5.0, 10.0, 500.0],
+                        [15.0, 10.0, 500.0],
+                        [15.0, 50.0, 500.0],
+                        [5.0, 50.0, 500.0],
+                    ],
+                    "corner_world_map_frame": [
+                        [120.0, 10.0, 500.0],
+                        [170.0, 10.0, 500.0],
+                        [170.0, 50.0, 500.0],
+                        [120.0, 50.0, 500.0],
+                    ],
+                }
+
+            def ensure_raw_world_channels(self):
+                return True
+
+            def get_manual_workspace_camera_polygon_pixel_mask(self):
+                return workspace_masks.get_manual_workspace_camera_polygon_pixel_mask(self)
+
+            def get_map_frame_xy_channels(self):
+                return world_coord.get_map_frame_xy_channels(self)
+
+        workspace_mask = workspace_masks.get_manual_workspace_cabin_polygon_pixel_mask(DummyProcessor())
+
+        self.assertIsNotNone(workspace_mask)
+        self.assertEqual(int(workspace_mask[30, 45]), 1)
+        self.assertEqual(int(workspace_mask[30, 10]), 0)
+
+    def test_live_visible_area_overlay_draws_gray_boundary_from_confirmed_workspace_mask(self):
         from tie_robot_perception.pointai.live_visible_area_overlay import (
             draw_live_visible_area_boundary,
         )
 
         result_image = np.zeros((80, 100), dtype=np.uint8)
-        raw_world = np.zeros((80, 100, 3), dtype=np.float32)
-        raw_world[15:65, 20:75, 0] = 10.0
-        raw_world[15:65, 20:75, 1] = 20.0
-        raw_world[15:65, 20:75, 2] = 500.0
+        confirmed_workspace_mask = np.zeros((80, 100), dtype=np.uint8)
+        confirmed_workspace_mask[15:65, 20:75] = 1
 
         did_draw = draw_live_visible_area_boundary(
             result_image,
-            raw_world,
+            confirmed_workspace_mask,
             gray_value=180,
             thickness=1,
         )
@@ -654,6 +810,8 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(int(result_image[64, 74]), 180)
         self.assertEqual(int(result_image[40, 50]), 0)
         self.assertEqual(int(result_image[14, 20]), 0)
+        self.assertEqual(int(result_image[0, 0]), 0)
+        self.assertEqual(int(result_image[79, 99]), 0)
 
     def test_manual_workspace_s2_result_image_does_not_draw_manual_quad_frame(self):
         rendering_path = (
@@ -1003,6 +1161,57 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
                 (40, [32, 18]),
             ],
         )
+
+    def test_execution_refine_keeps_close_rebar_candidates_without_legacy_repulsion(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        close_centers = [
+            (1, [120, 80], [20.0, 20.0, 800.0]),
+            (2, [132, 92], [65.0, 55.0, 801.0]),
+        ]
+
+        ordered_centers = matrix_selection.select_output_centers_for_mode(
+            object(),
+            PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+            close_centers,
+            [],
+        )
+
+        active_execution_text = "\n".join(
+            (
+                (
+                    WORKSPACE_ROOT
+                    / "tie_robot_perception"
+                    / "src"
+                    / "tie_robot_perception"
+                    / "pointai"
+                    / "matrix_selection.py"
+                ).read_text(encoding="utf-8"),
+                (
+                    WORKSPACE_ROOT
+                    / "tie_robot_perception"
+                    / "src"
+                    / "tie_robot_perception"
+                    / "pointai"
+                    / "processor.py"
+                ).read_text(encoding="utf-8"),
+                EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8"),
+                PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8"),
+            )
+        )
+
+        self.assertCountEqual(ordered_centers, close_centers)
+        for forbidden in (
+            "filter_close_points_by_origin",
+            "filter_candidate_centers_for_request_mode",
+            "duplicate_removed",
+            "duplicate_removed_points",
+            "DUP",
+            "去重移除",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, active_execution_text)
 
     def test_manual_workspace_s2_logs_raw_camera_coord_without_cabin_projection(self):
         from tie_robot_perception.pointai import manual_workspace_s2
@@ -2064,6 +2273,8 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         pipeline_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_pipeline(self, publish=False):")
         pipeline_body = manual_workspace_s2_text[pipeline_index:manual_workspace_s2_text.index("def run_manual_workspace_s2(self):", pipeline_index)]
+        surface_index = manual_workspace_s2_text.index("def run_manual_workspace_surface_dp_pipeline(self, publish=False):")
+        surface_body = manual_workspace_s2_text[surface_index:pipeline_index]
         fallback_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):")
         fallback_body = manual_workspace_s2_text[fallback_index:pipeline_index]
 
@@ -2078,7 +2289,8 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("v_period=%d, h_period=%d, points=%d", fallback_body)
         self.assertNotIn("collect_stable_manual_workspace_s2_inputs", pipeline_body)
         self.assertNotIn("apply_manual_workspace_s2_phase_lock", pipeline_body)
-        self.assertNotIn("beam_exclusion_margin_mm", pipeline_body)
+        self.assertIn('enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False))', surface_body)
+        self.assertIn('beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 130.0))', surface_body)
         self.assertNotIn("expand_workspace_s2_exclusion_mask_by_metric_margin", pipeline_body)
 
     def test_manual_workspace_s2_module_omits_later_stability_and_phase_lock_experiments(self):
@@ -2605,15 +2817,14 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             '"hough_raw"',
             '"zero_world"',
             '"out_of_range"',
-            '"duplicate_removed"',
             '"selected"',
         ):
             with self.subTest(status=status):
                 self.assertIn(status, execution_refine_hough_text)
         self.assertNotIn('"roi_reject"', execution_refine_hough_text)
+        self.assertNotIn('"duplicate_removed"', execution_refine_hough_text)
+        self.assertNotIn('"DUP"', execution_refine_hough_text)
 
-        self.assertIn("raw_candidate_records", execution_refine_hough_text)
-        self.assertIn("duplicate_removed_records", execution_refine_hough_text)
         self.assertIn("zero_world_records", execution_refine_hough_text)
         self.assertIn("out_of_range_records", execution_refine_hough_text)
         self.assertIn("diagnostic_points=None", execution_refine_hough_text)

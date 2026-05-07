@@ -15,6 +15,7 @@ def bind_image_processor_methods(cls):
     cls.save_runtime_config = runtime_config.save_runtime_config
     cls.fixed_z_value_callback = runtime_config.fixed_z_value_callback
     cls.set_stable_frame_count_callback = runtime_config.set_stable_frame_count_callback
+    cls.set_scan_beam_exclusion_callback = runtime_config.set_scan_beam_exclusion_callback
     cls.set_execution_refine_tcp_roi_bounds = runtime_config.set_execution_refine_tcp_roi_bounds
     cls.set_execution_refine_tcp_roi_callback = runtime_config.set_execution_refine_tcp_roi_callback
     cls.linear_module_state_callback = runtime_config.linear_module_state_callback
@@ -23,6 +24,9 @@ def bind_image_processor_methods(cls):
     cls.run_workspace_center_scan_pose_move = runtime_config.run_workspace_center_scan_pose_move
     cls.workspace_center_scan_pose_callback = runtime_config.workspace_center_scan_pose_callback
     cls.get_camera_frame_xy_channels = world_coord.get_camera_frame_xy_channels
+    cls.lookup_scepter_to_map_transform = world_coord.lookup_scepter_to_map_transform
+    cls.transform_camera_point_to_map_frame = world_coord.transform_camera_point_to_map_frame
+    cls.get_map_frame_xy_channels = world_coord.get_map_frame_xy_channels
     cls.image_raw_world_callback = world_coord.image_raw_world_callback
     cls.ensure_raw_world_channels = world_coord.ensure_raw_world_channels
     cls.get_valid_world_coord_near_pixel = world_coord.get_valid_world_coord_near_pixel
@@ -115,8 +119,6 @@ def bind_image_processor_methods(cls):
     cls.select_output_centers_for_mode = matrix_selection.select_output_centers_for_mode
     cls.select_display_matrix_centers = matrix_selection.select_display_matrix_centers
     cls.build_matrix_display_points = matrix_selection.build_matrix_display_points
-    cls.filter_close_points_by_origin = matrix_selection.filter_close_points_by_origin
-    cls.filter_candidate_centers_for_request_mode = matrix_selection.filter_candidate_centers_for_request_mode
     cls.select_nearest_origin_matrix_points = matrix_selection.select_nearest_origin_matrix_points
     cls.publish_raw_camera_bind_point_transforms = bind_point_tf.publish_raw_camera_bind_point_transforms
     cls.republish_latest_raw_camera_bind_point_transforms = bind_point_tf.republish_latest_raw_camera_bind_point_transforms

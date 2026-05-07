@@ -552,48 +552,6 @@ def build_matrix_display_points(self, matrix_centers, mark_travel_out_of_range=F
     return display_points
 
 
-def filter_close_points_by_origin(self, centers, min_distance_mm=100.0):
-    if not centers:
-        return []
-
-    min_distance_sq = min_distance_mm * min_distance_mm
-    sorted_centers = sorted(
-        centers,
-        key=lambda item: (
-            item[2][0] * item[2][0] + item[2][1] * item[2][1],
-            item[2][0],
-            item[2][1],
-            item[0]
-        )
-    )
-
-    rejected_indexes = set()
-    for candidate_index, candidate in enumerate(sorted_centers):
-        candidate_x, candidate_y = candidate[2][0], candidate[2][1]
-        for other_index in range(candidate_index + 1, len(sorted_centers)):
-            other_x, other_y = sorted_centers[other_index][2][0], sorted_centers[other_index][2][1]
-            dx = candidate_x - other_x
-            dy = candidate_y - other_y
-            if dx * dx + dy * dy < min_distance_sq:
-                rejected_indexes.add(candidate_index)
-                rejected_indexes.add(other_index)
-
-    return [
-        candidate
-        for candidate_index, candidate in enumerate(sorted_centers)
-        if candidate_index not in rejected_indexes
-    ]
-
-
-def filter_candidate_centers_for_request_mode(self, candidate_centers, request_mode):
-    if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-        return list(candidate_centers), 0
-
-    raw_candidate_count = len(candidate_centers)
-    filtered_candidate_centers = self.filter_close_points_by_origin(candidate_centers)
-    return filtered_candidate_centers, raw_candidate_count - len(filtered_candidate_centers)
-
-
 def select_nearest_origin_matrix_points(self, centers, max_points=4, row_threshold=40, column_threshold=45):
     if len(centers) < max_points:
         return []

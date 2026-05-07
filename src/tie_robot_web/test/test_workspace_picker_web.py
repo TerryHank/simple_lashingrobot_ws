@@ -1327,24 +1327,16 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('{ id: "moveToPosition", label: "移动到\\n位姿", tone: "blue" }', control_panel_catalog)
         self.assertIn("setTaskButtonEnabled(taskAction, enabled)", ui_controller)
 
-    def test_fixed_scan_messages_use_updated_cabin_target(self):
+    def test_fixed_scan_control_panel_action_is_removed(self):
         task_action_controller = (
             FRONTEND_SRC_DIR / "controllers" / "TaskActionController.js"
         ).read_text(encoding="utf-8")
-        execution_actions = (
-            FRONTEND_DIR / "modules" / "execution_actions.mjs"
-        ).read_text(encoding="utf-8")
 
-        self.assertIn("x=${Math.round(fixedScanPose.x)}, y=${Math.round(fixedScanPose.y)}, z=${Math.round(fixedScanPose.z)}", task_action_controller)
-        self.assertIn("use_fixed_scan_pose_override: true", task_action_controller)
-        self.assertIn("fixed_scan_pose_x_mm: fixedPose.x", task_action_controller)
-        self.assertIn("全局索驱速度", task_action_controller)
-        self.assertNotIn("speed=100", task_action_controller)
-        self.assertIn("x=490, y=1700, z=3197", execution_actions)
-        self.assertIn("use_fixed_scan_pose_override: true", execution_actions)
-        self.assertIn("fixed_scan_pose_x_mm: 490", execution_actions)
-        self.assertIn("全局索驱速度", execution_actions)
-        self.assertNotIn("speed=100", execution_actions)
+        self.assertNotIn("triggerPseudoSlamScan", task_action_controller)
+        self.assertNotIn("buildFixedScanGoalMessage", task_action_controller)
+        self.assertNotIn("use_fixed_scan_pose_override", task_action_controller)
+        self.assertNotIn("fixed_scan_pose_x_mm", task_action_controller)
+        self.assertNotIn("固定扫描", task_action_controller)
 
     def test_panel_manager_supports_header_drag_and_native_resize(self):
         panel_manager = (
@@ -1516,7 +1508,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("if (!this.surfaceDpOverlayRequested) {", app_logic)
         self.assertIn("this.workspaceView.setS2OverlayMessage(message);", app_logic)
         self.assertIn("this.workspaceView.setVisualRecognitionOverlaySourceSize", app_logic)
-        self.assertIn("后端视觉识别结果图已叠加在当前图像图层", app_logic)
+        self.assertIn("后端视觉识别结果已叠加到红外原图。", app_logic)
 
         execution_overlay_body = app_logic[
             app_logic.index("onExecutionOverlay: (message) => {"):
@@ -1551,7 +1543,9 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("startPseudoSlamScanActionClient: new ROSLIB.ActionClient({", ros_connection_controller)
         self.assertIn("serverName: ACTIONS.cabin.startPseudoSlamScan", ros_connection_controller)
         self.assertIn("this.sendActionGoal(resources.startPseudoSlamScanActionClient", task_action_controller)
-        self.assertIn("goalMessage: { enable_capture_gate: false, scan_strategy: 3 }", task_action_controller)
+        self.assertIn("enable_capture_gate: false", task_action_controller)
+        self.assertIn("scan_strategy: 3", task_action_controller)
+        self.assertIn("bind_group_point_count: normalizeBindGroupPointCount", task_action_controller)
         self.assertIn("Boolean(resources?.startPseudoSlamScanActionClient)", app_logic)
         self.assertNotIn("callLashingRecognizeOnceService", task_action_controller)
         self.assertNotIn("this.resources.runWorkspaceS2Publisher.advertise();", ros_connection_controller)
@@ -2227,10 +2221,15 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertNotIn("/stable_point_tf_broadcaster", restart_algorithm_script)
         self.assertNotIn("rosnode ping -c 1", start_algorithm_script)
         self.assertNotIn("rosnode ping -c 1", restart_algorithm_script)
-        self.assertIn("rosnode list", start_algorithm_script)
-        self.assertIn("/bind_map_builder", start_algorithm_script)
-        self.assertIn("/bind_map_builder", restart_algorithm_script)
-        self.assertIn("/bind_map_builder", stop_algorithm_script)
+        self.assertNotIn("nohup roslaunch tie_robot_bringup algorithm_stack.launch", start_algorithm_script)
+        self.assertNotIn("nohup roslaunch tie_robot_bringup algorithm_stack.launch", restart_algorithm_script)
+        self.assertIn("BACKEND_SERVICE=\"tie-robot-backend.service\"", start_algorithm_script)
+        self.assertIn("BACKEND_SERVICE=\"tie-robot-backend.service\"", restart_algorithm_script)
+        self.assertIn("BACKEND_SERVICE=\"tie-robot-backend.service\"", stop_algorithm_script)
+        self.assertIn("systemctl start \"${BACKEND_SERVICE}\"", start_algorithm_script)
+        self.assertIn("systemctl restart \"${BACKEND_SERVICE}\"", restart_algorithm_script)
+        self.assertIn("systemctl stop \"${BACKEND_SERVICE}\"", stop_algorithm_script)
+        self.assertIn("roslaunch tie_robot_bringup algorithm_stack.launch", stop_algorithm_script)
 
     def test_demo_mode_uses_old_show_full_without_translation_layer(self):
         demo_service = TIE_ROBOT_BRINGUP_DEMO_MODE_SERVICE.read_text(encoding="utf-8")
@@ -2868,7 +2867,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_SRC_DIR / "config" / "controlPanelCatalog.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('{ id: "runSavedS2", label: "触发\\n视觉识别", tone: "green" }', control_panel_catalog)
+        self.assertIn('{ id: "runSavedS2", label: "触发扫描\\n视觉", tone: "green" }', control_panel_catalog)
         self.assertIn("onWorkspaceS2Triggered: () => this.handleWorkspaceS2Triggered(),", app_logic)
         self.assertIn("handleWorkspaceS2Triggered()", app_logic)
         self.assertNotIn("ensureS2OverlayDisplayTopic()", app_logic)
@@ -2876,8 +2875,8 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("clearS2ResultTimeout()", app_logic)
         self.assertIn("this.surfaceDpOverlayRequested = true;", app_logic)
         self.assertNotIn('this.ui.setSelectedImageTopic(DEFAULT_IMAGE_TOPIC);', app_logic)
-        self.assertIn("视觉识别会叠加在当前图像图层，不切换图像话题。", app_logic)
-        self.assertIn("后端视觉识别结果图已叠加在当前图像图层", app_logic)
+        self.assertIn("视觉识别会叠加在红外原图图层。", app_logic)
+        self.assertIn("后端视觉识别结果已叠加到红外原图。", app_logic)
         self.assertIn("视觉识别已触发，但等待后端结果图超时", app_logic)
         self.assertIn("this.clearS2ResultTimeout();", app_logic)
         self.assertIn("this.callbacks.onWorkspaceS2Triggered?.();", task_action_controller)
@@ -2902,7 +2901,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
             app_logic.index("const requestActive = this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested;"),
         )
 
-    def test_visual_recognition_backend_overlay_can_be_cleared(self):
+    def test_control_panel_removed_legacy_task_buttons_and_area_switches(self):
         app_logic = (
             FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
         ).read_text(encoding="utf-8")
@@ -2910,30 +2909,16 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_SRC_DIR / "config" / "controlPanelCatalog.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('{ id: "clearVisualRecognition", label: "清除\\n识别结果", tone: "blue" }', control_panel_catalog)
-        self.assertLess(
-            control_panel_catalog.index('id: "runSavedS2"'),
-            control_panel_catalog.index('id: "clearVisualRecognition"'),
-        )
-        self.assertLess(
-            control_panel_catalog.index('id: "clearVisualRecognition"'),
-            control_panel_catalog.index('id: "triggerSingleBind"'),
-        )
-
-        self.assertIn('if (taskAction === "clearVisualRecognition")', app_logic)
-        self.assertIn("handleClearVisualRecognitionOverlay()", app_logic)
-        self.assertIn("this.clearS2ResultTimeout();", app_logic)
-        self.assertIn("this.surfaceDpOverlayActive = false;", app_logic)
-        self.assertIn("this.surfaceDpOverlayRequested = false;", app_logic)
-        self.assertIn("this.visualRecognitionOverlayCleared = true;", app_logic)
-        self.assertIn("this.visualRecognitionOverlayCompleted = false;", app_logic)
-        self.assertIn("this.workspaceView.setS2OverlayMessage(null);", app_logic)
-        self.assertIn("this.workspaceView.setVisualRecognitionPointsMessage(null);", app_logic)
-        self.assertIn("this.workspaceView.setVisualRecognitionOverlaySourceSize(null);", app_logic)
-        self.assertIn("图像卡片显示原图", app_logic)
-        self.assertIn("clearVisualRecognition: true", app_logic)
-        self.assertIn("if (this.visualRecognitionOverlayCleared) {\n          return;\n        }", app_logic)
-        self.assertIn("this.visualRecognitionOverlayCleared = false;", app_logic)
+        for removed_action in ("clearVisualRecognition", "scanPlan", "runBindPathTest"):
+            self.assertNotIn(removed_action, control_panel_catalog)
+            self.assertNotIn(f'"{removed_action}"', app_logic)
+        self.assertIn('title: "扫描区"', control_panel_catalog)
+        self.assertIn('title: "执行层"', control_panel_catalog)
+        self.assertIn('title: "区域切换"', control_panel_catalog)
+        self.assertIn('{ id: "previousArea", label: "上一个\\n区域", tone: "blue" }', control_panel_catalog)
+        self.assertIn('{ id: "nextArea", label: "下一个\\n区域", tone: "blue" }', control_panel_catalog)
+        self.assertIn('if (taskAction === "previousArea" || taskAction === "nextArea")', app_logic)
+        self.assertIn("handleAreaNavigationTask(taskAction)", app_logic)
 
     def test_single_point_bind_button_calls_atomic_backend_service(self):
         app_logic = (
@@ -2952,7 +2937,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_SRC_DIR / "config" / "topicRegistry.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('{ id: "runSavedS2", label: "触发\\n视觉识别", tone: "green" }', control_panel_catalog)
+        self.assertIn('{ id: "runSavedS2", label: "触发扫描\\n视觉", tone: "green" }', control_panel_catalog)
         self.assertIn('{ id: "triggerSingleBind", label: "触发单点\\n绑扎", tone: "red" }', control_panel_catalog)
         self.assertIn('case "triggerSingleBind":', task_action_controller)
         self.assertIn("return this.triggerSinglePointBind();", task_action_controller)
@@ -3086,6 +3071,43 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.ui.setCabinRemoteSettings(this.cabinRemoteSettings);", app_logic)
         self.assertIn("this.cabinRemoteSettings = settings;", app_logic)
         self.assertIn("saveCabinRemoteSettings(settings);", app_logic)
+
+    def test_global_remote_speed_controls_are_grouped_at_control_panel_bottom(self):
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        app_css = (
+            FRONTEND_SRC_DIR / "styles" / "app.css"
+        ).read_text(encoding="utf-8")
+
+        control_panel_start = ui_controller.index('<section id="controlPanel"')
+        control_panel_end = ui_controller.index("</section>", control_panel_start)
+        control_panel = ui_controller[control_panel_start:control_panel_end]
+        settings_panel = ui_controller[ui_controller.index('<section id="settingsPanel"'):]
+        cabin_remote_page_start = ui_controller.index('data-settings-page="cabinRemote"')
+        cabin_remote_page_end = ui_controller.index('data-settings-page="tcpLinearRemote"', cabin_remote_page_start)
+        cabin_remote_page = ui_controller[cabin_remote_page_start:cabin_remote_page_end]
+
+        self.assertIn('id="controlPanelSpeedSettings"', control_panel)
+        self.assertLess(
+            control_panel.index('id="controlPanelTaskGrid"'),
+            control_panel.index('id="controlPanelSpeedSettings"'),
+        )
+        self.assertIn('id="cabinRemoteSpeed"', control_panel)
+        self.assertIn('id="tcpLinearRemoteSpeed"', control_panel)
+        self.assertIn('for="cabinRemoteSpeed">索驱全局移动速度', control_panel)
+        self.assertIn('for="tcpLinearRemoteSpeed">TCP线模执行速度', control_panel)
+        self.assertLess(control_panel.index('id="cabinRemoteSpeed"'), control_panel.index('id="tcpLinearRemoteSpeed"'))
+        self.assertNotIn('for="cabinRemoteSpeed"', settings_panel)
+        self.assertNotIn('for="tcpLinearRemoteSpeed"', settings_panel)
+
+        self.assertIn('class="cabin-remote-keyboard-step-row"', cabin_remote_page)
+        self.assertLess(cabin_remote_page.index('id="cabinKeyboardRemoteToggle"'), cabin_remote_page.index('id="cabinRemoteStep"'))
+        self.assertLess(cabin_remote_page.index('id="cabinRemoteStep"'), cabin_remote_page.index('id="cabinRemoteMoveMode"'))
+
+        self.assertIn(".control-panel-speed-settings {", app_css)
+        self.assertIn(".control-panel-speed-grid {", app_css)
+        self.assertIn(".cabin-remote-keyboard-step-row {", app_css)
 
     def test_cabin_remote_keyboard_and_tf_flow_exist(self):
         app_logic = (
@@ -3298,6 +3320,53 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn(".tcp-linear-remote-stop-btn {", app_css)
         self.assertIn(".tcp-linear-remote-btn.is-active {", app_css)
         self.assertIn(".tcp-linear-remote-position-grid {", app_css)
+
+    def test_tcp_linear_module_execution_speed_is_persisted_and_published_globally(self):
+        storage = (
+            FRONTEND_SRC_DIR / "utils" / "storage.js"
+        ).read_text(encoding="utf-8")
+        ui_controller = (
+            FRONTEND_SRC_DIR / "ui" / "UIController.js"
+        ).read_text(encoding="utf-8")
+        app_logic = (
+            FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
+        ).read_text(encoding="utf-8")
+        ros_connection = (
+            FRONTEND_SRC_DIR / "controllers" / "RosConnectionController.js"
+        ).read_text(encoding="utf-8")
+        topic_registry = (
+            FRONTEND_SRC_DIR / "config" / "topicRegistry.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("TCP_LINEAR_REMOTE_SETTINGS_KEY", storage)
+        self.assertIn("tie_robot_frontend_tcp_linear_remote_settings", storage)
+        self.assertIn("loadTcpLinearRemoteSettings()", storage)
+        self.assertIn("saveTcpLinearRemoteSettings(value)", storage)
+        self.assertIn("speed: normalizePositiveNumber(parsed?.speed, defaults.speed)", storage)
+
+        self.assertIn('id="tcpLinearRemoteSpeed"', ui_controller)
+        self.assertIn("线模执行速度", ui_controller)
+        self.assertIn("this.refs.tcpLinearRemoteSpeed", ui_controller)
+        self.assertIn("speed: Number.parseFloat(this.refs.tcpLinearRemoteSpeed?.value || \"250\")", ui_controller)
+        self.assertIn("setTcpLinearRemoteSettings(settings)", ui_controller)
+        self.assertIn("this.refs.tcpLinearRemoteSpeed.value = String(speed);", ui_controller)
+        self.assertIn("this.refs.tcpLinearRemoteSpeed", ui_controller[ui_controller.index("onTcpLinearRemoteSettingsChange"):])
+
+        self.assertIn("loadTcpLinearRemoteSettings", app_logic)
+        self.assertIn("saveTcpLinearRemoteSettings", app_logic)
+        self.assertIn("this.tcpLinearRemoteSettings = loadTcpLinearRemoteSettings();", app_logic)
+        self.assertIn("this.ui.setTcpLinearRemoteSettings(this.tcpLinearRemoteSettings);", app_logic)
+        self.assertIn("this.syncGlobalLinearModuleSpeed({ suppressLog: true });", app_logic)
+        self.assertIn("syncGlobalLinearModuleSpeed({ suppressLog = false } = {})", app_logic)
+        self.assertIn("this.rosConnectionController.publishLinearModuleSpeed(speed)", app_logic)
+        self.assertIn("saveTcpLinearRemoteSettings(settings);", app_logic)
+
+        self.assertIn("moduanSpeedPublisher: new ROSLIB.Topic({", ros_connection)
+        self.assertIn("name: TOPICS.control.setModuanSpeed", ros_connection)
+        self.assertIn("this.resources.moduanSpeedPublisher.advertise();", ros_connection)
+        self.assertIn("publishLinearModuleSpeed(speed)", ros_connection)
+        self.assertIn("moduanSpeedPublisher.publish(new ROSLIB.Message({ data: sanitizedSpeed }))", ros_connection)
+        self.assertIn('setModuanSpeed: "/web/moduan/set_moduan_speed"', topic_registry)
 
 
 if __name__ == "__main__":

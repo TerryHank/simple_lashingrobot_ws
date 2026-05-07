@@ -81,6 +81,8 @@ struct PseudoSlamCheckerboardInfo
     int global_row = -1;
     int global_col = -1;
     int checkerboard_parity = -1;
+    bool jump_bind = false;
+    std::string checkerboard_color = "unknown";
     bool is_checkerboard_member = false;
 };
 
@@ -108,6 +110,8 @@ struct BindExecutionPointRecord
     int global_row = -1;
     int global_col = -1;
     int checkerboard_parity = -1;
+    bool jump_bind = false;
+    std::string checkerboard_color = "unknown";
     float world_x = 0.0f;
     float world_y = 0.0f;
     float world_z = 0.0f;
@@ -156,8 +160,7 @@ constexpr int kPseudoSlamOutlierLineMinPointCount = 3;
 constexpr int kPseudoSlamOutlierSecondaryPlaneMinPointCount = 6;
 constexpr float kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm = 100.0f;
 constexpr float kPseudoSlamCheckerboardAxisThresholdMm = 80.0f;
-constexpr float kLiveVisualMicroAdjustXYToleranceMm = 30.0f;
-constexpr float kLiveVisualMicroAdjustZToleranceMm = 6.0f;
+constexpr float kLiveVisualMicroAdjustXYToleranceMm = 120.0f;
 constexpr float kCurrentAreaBindTestCabinSpeedMultiplier = 1.5f;
 constexpr float kCurrentAreaBindTestMinCabinSpeedMmPerSec = 450.0f;
 constexpr float kExecutionArrivalToleranceMm = 40.0f;
@@ -331,6 +334,13 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> sync_merged_checkerboard_mem
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& planning_checkerboard_info_by_idx
 );
 long long encode_checkerboard_cell_key(int global_row, int global_col);
+bool is_jump_bind_target_parity(int checkerboard_parity);
+std::string checkerboard_color_from_parity(int checkerboard_parity);
+bool point_json_is_jump_bind_target(const nlohmann::json& point_json);
+bool point_json_matches_jump_bind_parity(
+    const nlohmann::json& point_json,
+    int selected_checkerboard_parity
+);
 std::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_non_checkerboard_points(
     const std::vector<tie_robot_msgs::PointCoords>& planning_points,
     const std::unordered_map<int, PseudoSlamCheckerboardInfo>& checkerboard_info_by_idx
@@ -412,7 +422,8 @@ nlohmann::json filter_precomputed_group_points_for_execution(
     const nlohmann::json& group_json,
     const BindExecutionMemory& memory,
     const std::unordered_set<int>& blocked_global_indices,
-    bool only_checkerboard_parity_zero
+    bool jump_bind_enabled,
+    int selected_jump_bind_parity
 );
 bool load_bind_execution_memory_json(
     BindExecutionMemory& memory,

@@ -10,6 +10,9 @@ from tie_robot_msgs.srv import ProcessImage
 
 
 def register_ros_interfaces(self):
+    self.tf_buffer = tf2_ros.Buffer()
+    self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+
     rospy.Subscriber('/Scepter/worldCoord/world_coord', Image, self.image_callback)
     rospy.Subscriber('/Scepter/worldCoord/raw_world_coord', Image, self.image_raw_world_callback)
     rospy.Subscriber('/Scepter/color/image_raw', Image, self.image_color_callback)
@@ -19,6 +22,7 @@ def register_ros_interfaces(self):
     rospy.Subscriber('/web/pointAI/set_workspace_quad', Float32MultiArray, self.manual_workspace_quad_callback)
     rospy.Subscriber('/web/pointAI/run_workspace_s2', Bool, self.manual_workspace_s2_callback)
     rospy.Subscriber('/web/pointAI/set_stable_frame_count', Int32, self.set_stable_frame_count_callback)
+    rospy.Subscriber('/web/pointAI/set_scan_beam_exclusion', Bool, self.set_scan_beam_exclusion_callback)
     rospy.Subscriber('/web/pointAI/set_execution_refine_tcp_roi', Float32MultiArray, self.set_execution_refine_tcp_roi_callback)
     rospy.Subscriber('/web/pointAI/move_to_workspace_center_scan_pose', Bool, self.workspace_center_scan_pose_callback)
     rospy.Subscriber('/web/pointAI/set_height_threshold', Float32, self.fixed_z_value_callback)

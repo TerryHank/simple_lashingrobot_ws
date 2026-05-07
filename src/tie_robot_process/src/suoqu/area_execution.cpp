@@ -3,6 +3,82 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
+#include <vector>
+
+namespace {
+
+constexpr float kPrecomputedGroupSnakeRowToleranceMm = 40.0f;
+
+float point_json_tcp_axis_value(const nlohmann::json& point_json, const char* axis_name)
+{
+    return point_json.value(axis_name, 0.0f);
+}
+
+int point_json_execution_order_idx(const nlohmann::json& point_json)
+{
+    return point_json.value(
+        "local_idx",
+        point_json.value("idx", point_json.value("global_idx", -1))
+    );
+}
+
+}  // namespace
+
+bool is_jump_bind_target_parity(int checkerboard_parity)
+{
+    return checkerboard_parity == 0;
+}
+
+std::string checkerboard_color_from_parity(int checkerboard_parity)
+{
+    if (checkerboard_parity == 0) {
+        return "black";
+    }
+    if (checkerboard_parity == 1) {
+        return "white";
+    }
+    return "unknown";
+}
+
+bool point_json_is_jump_bind_target(const nlohmann::json& point_json)
+{
+    if (point_json.contains("jump_bind") && point_json["jump_bind"].is_boolean()) {
+        return point_json["jump_bind"].get<bool>();
+    }
+    if (point_json.contains("checkerboard_color") && point_json["checkerboard_color"].is_string()) {
+        const std::string checkerboard_color = point_json["checkerboard_color"].get<std::string>();
+        if (checkerboard_color == "black") {
+            return true;
+        }
+        if (checkerboard_color == "white") {
+            return false;
+        }
+    }
+    return is_jump_bind_target_parity(point_json.value("checkerboard_parity", 0));
+}
+
+bool point_json_matches_jump_bind_parity(
+    const nlohmann::json& point_json,
+    int selected_checkerboard_parity
+)
+{
+    const bool selected_black = selected_checkerboard_parity != 1;
+    if (point_json.contains("checkerboard_parity") && point_json["checkerboard_parity"].is_number_integer()) {
+        return point_json["checkerboard_parity"].get<int>() == (selected_black ? 0 : 1);
+    }
+    if (point_json.contains("checkerboard_color") && point_json["checkerboard_color"].is_string()) {
+        const std::string checkerboard_color = point_json["checkerboard_color"].get<std::string>();
+        if (checkerboard_color == "black") {
+            return selected_black;
+        }
+        if (checkerboard_color == "white") {
+            return !selected_black;
+        }
+    }
+    const bool black_jump_bind_target = point_json_is_jump_bind_target(point_json);
+    return selected_black ? black_jump_bind_target : !black_jump_bind_target;
+}
 
 float clamp_bind_execution_cabin_z(float planned_cabin_z)
 {
@@ -97,12 +173,89 @@ void align_execution_path_origin_xy_to_first_area_if_needed(
     path_origin_y = first_area_y;
 }
 
+void sort_precomputed_group_points_by_tcp_snake_rows(nlohmann::json& points_json)
+{
+    if (!points_json.is_array() || points_json.size() < 2U) {
+        return;
+    }
+
+    std::vector<nlohmann::json> points;
+    points.reserve(points_json.size());
+    for (const auto& point_json : points_json) {
+        points.push_back(point_json);
+    }
+
+    const auto compare_point_by_x_then_y = [](const nlohmann::json& lhs, const nlohmann::json& rhs) {
+        const float lhs_x = point_json_tcp_axis_value(lhs, "x");
+        const float rhs_x = point_json_tcp_axis_value(rhs, "x");
+        if (std::fabs(lhs_x - rhs_x) > 1e-6f) {
+            return lhs_x < rhs_x;
+        }
+        const float lhs_y = point_json_tcp_axis_value(lhs, "y");
+        const float rhs_y = point_json_tcp_axis_value(rhs, "y");
+        if (std::fabs(lhs_y - rhs_y) > 1e-6f) {
+            return lhs_y < rhs_y;
+        }
+        return point_json_execution_order_idx(lhs) < point_json_execution_order_idx(rhs);
+    };
+
+    std::sort(points.begin(), points.end(), compare_point_by_x_then_y);
+
+    struct SnakeRow
+    {
+        float mean_x = 0.0f;
+        std::vector<nlohmann::json> points;
+    };
+
+    std::vector<SnakeRow> rows;
+    for (const auto& point_json : points) {
+        const float point_x = point_json.value("x", 0.0f);
+        if (rows.empty() ||
+            std::fabs(point_x - rows.back().mean_x) > kPrecomputedGroupSnakeRowToleranceMm) {
+            SnakeRow row;
+            row.mean_x = point_x;
+            row.points.push_back(point_json);
+            rows.push_back(std::move(row));
+            continue;
+        }
+
+        auto& row = rows.back();
+        row.points.push_back(point_json);
+        row.mean_x =
+            (row.mean_x * static_cast<float>(row.points.size() - 1U) + point_x) /
+            static_cast<float>(row.points.size());
+    }
+
+    points_json = nlohmann::json::array();
+    for (size_t row_index = 0; row_index < rows.size(); ++row_index) {
+        auto& row_points = rows[row_index].points;
+        const bool ascending_y = (row_index % 2U) == 0U;
+        std::sort(row_points.begin(), row_points.end(), [&](const nlohmann::json& lhs, const nlohmann::json& rhs) {
+            const float lhs_y = lhs.value("y", 0.0f);
+            const float rhs_y = rhs.value("y", 0.0f);
+            if (std::fabs(lhs_y - rhs_y) > 1e-6f) {
+                return ascending_y ? lhs_y < rhs_y : lhs_y > rhs_y;
+            }
+            const float lhs_x = lhs.value("x", 0.0f);
+            const float rhs_x = rhs.value("x", 0.0f);
+            if (std::fabs(lhs_x - rhs_x) > 1e-6f) {
+                return lhs_x < rhs_x;
+            }
+            return point_json_execution_order_idx(lhs) < point_json_execution_order_idx(rhs);
+        });
+        for (const auto& point_json : row_points) {
+            points_json.push_back(point_json);
+        }
+    }
+}
+
 
 nlohmann::json filter_precomputed_group_points_for_execution(
     const nlohmann::json& group_json,
     const BindExecutionMemory& memory,
     const std::unordered_set<int>& blocked_global_indices,
-    bool only_checkerboard_parity_zero
+    bool jump_bind_enabled,
+    int selected_jump_bind_parity
 )
 {
     nlohmann::json filtered_points = nlohmann::json::array();
@@ -117,7 +270,7 @@ nlohmann::json filter_precomputed_group_points_for_execution(
             continue;
         }
 
-        if (only_checkerboard_parity_zero && point_json.value("checkerboard_parity", 0) != 0) {
+        if (jump_bind_enabled && !point_json_matches_jump_bind_parity(point_json, selected_jump_bind_parity)) {
             continue;
         }
 
@@ -138,6 +291,7 @@ nlohmann::json filter_precomputed_group_points_for_execution(
         filtered_points.push_back(point_json);
     }
 
+    sort_precomputed_group_points_by_tcp_snake_rows(filtered_points);
     return filtered_points;
 }
 
@@ -145,27 +299,7 @@ std::unordered_set<int> collect_blocked_execution_global_indices_from_points_jso
     const nlohmann::json& points_json
 )
 {
+    (void)points_json;
     std::unordered_set<int> blocked_global_indices;
-    if (!points_json.contains("pseudo_slam_points") || !points_json["pseudo_slam_points"].is_array()) {
-        return blocked_global_indices;
-    }
-
-    for (const auto& point_json : points_json["pseudo_slam_points"]) {
-        const int global_idx = point_json.value("global_idx", point_json.value("idx", -1));
-        if (global_idx <= 0) {
-            continue;
-        }
-
-        const bool is_blocked =
-            point_json.value("is_planning_outlier", false) ||
-            point_json.value("is_planning_outlier_line_member", false) ||
-            point_json.value("is_outlier_secondary_plane_member", false) ||
-            point_json.value("is_outlier_column_neighbor_blocked", false) ||
-            !point_json.value("is_planning_checkerboard_member", false);
-        if (is_blocked) {
-            blocked_global_indices.insert(global_idx);
-        }
-    }
-
     return blocked_global_indices;
 }

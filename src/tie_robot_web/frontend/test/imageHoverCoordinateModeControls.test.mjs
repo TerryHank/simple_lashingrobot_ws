@@ -37,7 +37,14 @@ assert.match(uiText, /IMAGE_HOVER_COORDINATE_FRAMES\.map/);
 const appText = readFileSync(resolve(frontendRoot, "src/app/TieRobotFrontApp.js"), "utf-8");
 assert.match(appText, /syncImageHoverCoordinateSubscription/);
 assert.match(appText, /handleImageHoverPixelChanged/);
+assert.match(appText, /IMAGE_HOVER_COORDINATE_IDLE_UNSUBSCRIBE_MS\s*=\s*1800/);
+assert.match(appText, /scheduleImageHoverCoordinateSubscriptionIdle/);
+assert.doesNotMatch(appText, /const hoverEnabled = this\.activeSettingsPage !== "workspace";/);
+assert.match(appText, /updateImageHoverCoordinateSubscription\(\{ enabled: true \}\)/);
+assert.match(appText, /updateImageHoverCoordinateSubscription\(\{ enabled: false \}\)/);
 
 const rosText = readFileSync(resolve(frontendRoot, "src/controllers/RosConnectionController.js"), "utf-8");
 assert.match(rosText, /updateImageHoverCoordinateSubscription/);
 assert.match(rosText, /onImageHoverWorldCoord/);
+assert.match(rosText, /IMAGE_HOVER_WORLD_COORD_THROTTLE_MS\s*=\s*1000/);
+assert.match(rosText, /throttle_rate:\s*IMAGE_HOVER_WORLD_COORD_THROTTLE_MS/);

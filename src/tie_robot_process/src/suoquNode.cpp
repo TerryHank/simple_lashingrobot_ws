@@ -38,6 +38,7 @@
 #include <omp.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Int32.h>
 #include <std_msgs/ColorRGBA.h>
 #include <sensor_msgs/Image.h>
 #include <tie_robot_msgs/motion.h>
@@ -162,6 +163,10 @@ constexpr int kMotionWaitTimeoutSec = 30;
 constexpr int kMotionWaitLogIntervalSec = 2;
 constexpr int kExecutionArrivalSoftTimeoutSec = kMotionWaitTimeoutSec;
 constexpr int kExecutionArrivalSoftTimeoutLogIntervalSec = 10;
+constexpr double kCabinDriverStateFreshMaxAgeSec = 3.0;
+constexpr int kCabinDriverStateRecoveryLogIntervalSec = 2;
+constexpr int kCabinDriverStateRecoveryReissueIntervalSec = 2;
+constexpr int kCabinDriverRecoveryRetrySleepMs = 500;
 
 int normalize_requested_bind_group_point_count(int requested_group_point_count)
 {
@@ -195,6 +200,7 @@ tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner
 std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLedgerWithRefine)};
 std::atomic<bool> cabin_driver_enabled{true};
 std::atomic<double> cabin_driver_last_state_stamp_sec{0.0};
+std::atomic<uint16_t> pending_tcp_status_command_word{0};
 std::atomic<uint32_t> pending_tcp_status_word{0};
 std::atomic<bool> pending_tcp_status_word_valid{false};
 std::atomic<bool> use_remote_cabin_driver{false};
@@ -534,7 +540,9 @@ bool stop_flag = false;
 std::atomic<bool> moduan_work_flag{false};
 std::atomic<bool> execution_pause_requested{false};
 std::atomic<bool> execution_return_to_start_requested{false};
+std::atomic<bool> execution_manual_takeover_requested{false};
 bool checkerboard_jump_bind_enabled = false;
+std::atomic<int> checkerboard_jump_bind_selected_parity{0};
 
 Cabin_State cabin_state;
 
@@ -606,10 +614,16 @@ bool is_execution_return_to_start_requested()
     return execution_return_to_start_requested.load(std::memory_order_acquire);
 }
 
+bool is_execution_manual_takeover_requested()
+{
+    return execution_manual_takeover_requested.load(std::memory_order_acquire);
+}
+
 void clear_execution_pause_request()
 {
     execution_pause_requested.store(false, std::memory_order_release);
     execution_return_to_start_requested.store(false, std::memory_order_release);
+    execution_manual_takeover_requested.store(false, std::memory_order_release);
     {
         std::lock_guard<std::mutex> lock1(error_msg);
         handle_pause_interrupt = 0;
@@ -625,7 +639,7 @@ void request_execution_pause(const std::string& reason)
     }
     printCurrentTime();
     ros_log_printf(
-        "Cabin_log: %s，执行层已暂停；短按恢复作业会继续当前工作流程，长按恢复作业会回到起点。\n",
+        "Cabin_log: %s，执行层已暂停；短按恢复作业会继续当前工作流程，长按会停止当前作业并回到执行起点。\n",
         reason.c_str()
     );
 }
@@ -651,7 +665,22 @@ void request_execution_return_to_start(const std::string& reason)
     }
     printCurrentTime();
     ros_log_printf(
-        "Cabin_log: %s，执行层准备终止当前自动链并回到执行起点。\n",
+        "Cabin_log: %s，执行层准备停止当前自动链，并按末端回零后索驱回起点的顺序收车。\n",
+        reason.c_str()
+    );
+}
+
+void request_execution_manual_takeover(const std::string& reason)
+{
+    execution_manual_takeover_requested.store(true, std::memory_order_release);
+    execution_pause_requested.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock1(error_msg);
+        handle_pause_interrupt = 1;
+    }
+    printCurrentTime();
+    ros_log_printf(
+        "Cabin_log: %s，执行层放弃当前自动链后续区域，等待前端人工切区/遥控接管。\n",
         reason.c_str()
     );
 }
@@ -730,15 +759,173 @@ bool load_execution_pause_return_pose_from_bind_path_json(
     return true;
 }
 
+double get_cabin_driver_state_age_sec()
+{
+    const double last_state_stamp = cabin_driver_last_state_stamp_sec.load();
+    const double now_sec = ros::Time::now().toSec();
+    if (last_state_stamp <= 0.0 || now_sec < last_state_stamp) {
+        return -1.0;
+    }
+    return now_sec - last_state_stamp;
+}
+
+bool is_cabin_driver_state_fresh(double* state_age_sec = nullptr)
+{
+    const double age_sec = get_cabin_driver_state_age_sec();
+    if (state_age_sec != nullptr) {
+        *state_age_sec = age_sec;
+    }
+    return age_sec >= 0.0 && age_sec <= kCabinDriverStateFreshMaxAgeSec;
+}
+
+std::string to_lower_ascii(std::string text)
+{
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return text;
+}
+
+bool is_transient_cabin_motion_status(uint16_t command_word, uint32_t status_word)
+{
+    return status_word == (1u << 2) &&
+           (command_word == 0x0010 ||
+            command_word == 0x0011 ||
+            command_word == 0x0012);
+}
+
+bool is_retryable_cabin_driver_recovery_error(const std::string& error_message)
+{
+    const std::string lower_message = to_lower_ascii(error_message);
+    return error_message.find("无法调用索驱驱动层") != std::string::npos ||
+           error_message.find("调用索驱驱动层服务超时") != std::string::npos ||
+           error_message.find("索驱驱动层 raw move 返回失败") != std::string::npos ||
+           error_message.find("索驱驱动通信异常") != std::string::npos ||
+           error_message.find("设备运动中") != std::string::npos ||
+           error_message.find("TCP连接被对端关闭") != std::string::npos ||
+           error_message.find("TCP读取等待超时") != std::string::npos ||
+           lower_message.find("connection closed by peer") != std::string::npos ||
+           lower_message.find("read timeout") != std::string::npos ||
+           lower_message.find("status_word=0x00000004") != std::string::npos ||
+           lower_message.find("tcp_recv_failed") != std::string::npos ||
+           lower_message.find("tcp_read_wait_failed") != std::string::npos ||
+           lower_message.find("tcp_send_failed") != std::string::npos ||
+           lower_message.find("tcp_stale_state_response_loop") != std::string::npos;
+}
+
+bool move_cabin_pose_for_automatic_execution(
+    const std::string& context,
+    float speed,
+    float x,
+    float y,
+    float z,
+    std::string& message)
+{
+    auto last_log_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(kCabinDriverStateRecoveryLogIntervalSec);
+    int attempt_count = 0;
+    while (ros::ok()) {
+        if (is_execution_return_to_start_requested()) {
+            message = context + "收到长按停止并回起点请求，自动执行链已停止";
+            printCurrentTime();
+            ros_log_printf("Cabin_Warn: %s\n", message.c_str());
+            return false;
+        }
+        if (is_execution_manual_takeover_requested()) {
+            message = context + "收到人工切区接管请求，自动执行链已放弃后续区域";
+            printCurrentTime();
+            ros_log_printf("Cabin_Warn: %s\n", message.c_str());
+            return false;
+        }
+
+        if (is_execution_pause_requested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
+        std::string driver_error_message;
+        if (move_cabin_pose_via_driver(speed, x, y, z, &driver_error_message)) {
+            return true;
+        }
+
+        attempt_count++;
+        if (!is_retryable_cabin_driver_recovery_error(driver_error_message)) {
+            message = context + "下发索驱移动指令失败：" + driver_error_message;
+            return false;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto log_elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time).count();
+        if (log_elapsed_sec >= kCabinDriverStateRecoveryLogIntervalSec) {
+            printCurrentTime();
+            ros_log_printf(
+                "Cabin_Warn: %s下发索驱移动指令暂时失败，第%d次尝试，等待索驱驱动恢复后继续当前任务。最近一次错误：%s\n",
+                context.c_str(),
+                attempt_count,
+                driver_error_message.c_str()
+            );
+            last_log_time = now;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(kCabinDriverRecoveryRetrySleepMs));
+    }
+
+    message = context + "等待索驱驱动恢复时ROS已退出，自动执行链已停止";
+    return false;
+}
+
+bool reissue_cabin_target_after_state_recovery(
+    const std::string& context,
+    std::string* error_message = nullptr)
+{
+    std::string driver_error_message;
+    if (move_cabin_pose_via_driver(
+            TCP_Move[0],
+            TCP_Move[1],
+            TCP_Move[2],
+            TCP_Move[3],
+            &driver_error_message)) {
+        if (error_message != nullptr) {
+            error_message->clear();
+        }
+        printCurrentTime();
+        ros_log_printf(
+            "Cabin_log: %s检测到索驱状态恢复，已重新下发当前目标(%.3f,%.3f,%.3f)，继续当前任务。\n",
+            context.c_str(),
+            TCP_Move[1],
+            TCP_Move[2],
+            TCP_Move[3]
+        );
+        return true;
+    }
+
+    if (error_message != nullptr) {
+        *error_message = driver_error_message;
+    }
+    printCurrentTime();
+    ros_log_printf(
+        "Cabin_Warn: %s检测到索驱状态恢复，但重新下发当前目标失败，继续等待恢复。最近一次错误：%s\n",
+        context.c_str(),
+        driver_error_message.c_str()
+    );
+    return false;
+}
+
 bool fail_if_execution_return_to_start_requested(const std::string& context, std::string& message)
 {
-    if (!is_execution_return_to_start_requested()) {
-        return false;
+    if (is_execution_manual_takeover_requested()) {
+        message = context + "收到人工切区接管请求，自动执行链已放弃后续区域";
+        printCurrentTime();
+        ros_log_printf("Cabin_Warn: %s\n", message.c_str());
+        return true;
     }
-    message = context + "收到长按恢复回起点请求，自动执行链已停止";
-    printCurrentTime();
-    ros_log_printf("Cabin_Warn: %s\n", message.c_str());
-    return true;
+    if (is_execution_return_to_start_requested()) {
+        message = context + "收到长按停止并回起点请求，自动执行链已停止";
+        printCurrentTime();
+        ros_log_printf("Cabin_Warn: %s\n", message.c_str());
+        return true;
+    }
+    return false;
 }
 
 bool wait_while_execution_paused(
@@ -752,20 +939,28 @@ bool wait_while_execution_paused(
 
     printCurrentTime();
     ros_log_printf(
-        "Cabin_Warn: %s收到人工暂停，等待短按恢复当前流程或长按回到起点。\n",
+        "Cabin_Warn: %s收到人工暂停，等待短按恢复当前流程或长按停止并回起点。\n",
         context.c_str()
     );
 
     while (ros::ok() && is_execution_pause_requested()) {
+        if (is_execution_manual_takeover_requested()) {
+            message = context + "收到人工切区接管请求，自动执行链已放弃后续区域";
+            return false;
+        }
         if (is_execution_return_to_start_requested()) {
-            message = context + "收到长按恢复回起点请求，停止当前等待";
+            message = context + "收到长按停止并回起点请求，停止当前等待";
             return false;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
+    if (is_execution_manual_takeover_requested()) {
+        message = context + "收到人工切区接管请求，自动执行链已放弃后续区域";
+        return false;
+    }
     if (is_execution_return_to_start_requested()) {
-        message = context + "收到长按恢复回起点请求，停止当前等待";
+        message = context + "收到长按停止并回起点请求，停止当前等待";
         return false;
     }
 
@@ -1636,7 +1831,7 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
         printFrameBytes("Cabin_log: TCP recv frame: ", buffer, static_cast<size_t>(total_recv));
         const auto decoded_status = decode_tcp_protocol_status(command_word, buffer, total_recv);
         if (decoded_status.has_error) {
-            cache_pending_tcp_status_error(decoded_status.status_word);
+            cache_pending_tcp_status_error(decoded_status.command_word, decoded_status.status_word);
             const std::string protocol_status_message =
                 format_tcp_protocol_status_message(decoded_status);
             const std::string error_detail =
@@ -1649,6 +1844,7 @@ int Frame_Generate(uint8_t* Control_Word, int Tlen, int Rlen, int socket = sockf
             log_cabin_warn_ros(error_detail);
             return -2;
         } else {
+            pending_tcp_status_command_word.store(0, std::memory_order_relaxed);
             pending_tcp_status_word.store(0, std::memory_order_relaxed);
             pending_tcp_status_word_valid.store(false, std::memory_order_release);
             clear_last_cabin_transport_error_detail();
@@ -1864,8 +2060,20 @@ bool wait_cabin_axis_arrival(int Axis, double Target_position)
 
     while (1)
     {
+        uint16_t pending_tcp_status_command_word = 0;
         uint32_t pending_tcp_status_word = 0;
-        if (consume_pending_tcp_status_error(pending_tcp_status_word)) {
+        if (consume_pending_tcp_status_error(pending_tcp_status_command_word, pending_tcp_status_word)) {
+            if (is_transient_cabin_motion_status(pending_tcp_status_command_word, pending_tcp_status_word)) {
+                printCurrentTime();
+                ros_log_printf(
+                    "Cabin_Warn: 等待轴%d到位前检测到索驱暂未接受运动指令，command=0x%04X，status_word=0x%08X，保持当前目标继续等待。\n",
+                    Axis,
+                    static_cast<unsigned int>(pending_tcp_status_command_word),
+                    static_cast<unsigned int>(pending_tcp_status_word)
+                );
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
             std::ostringstream oss;
             oss << "等待轴" << Axis << "到位前检测到索驱状态字异常0x"
                 << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
@@ -1977,19 +2185,26 @@ bool wait_cabin_axis_stable_arrival(
     auto last_log_time = active_wait_start_time;
     auto last_soft_timeout_log_time =
         active_wait_start_time - std::chrono::seconds(kExecutionArrivalSoftTimeoutLogIntervalSec);
+    auto last_cabin_state_stale_log_time =
+        active_wait_start_time - std::chrono::seconds(kCabinDriverStateRecoveryLogIntervalSec);
+    auto last_cabin_transient_status_log_time =
+        active_wait_start_time - std::chrono::seconds(kCabinDriverStateRecoveryLogIntervalSec);
+    auto last_cabin_target_reissue_time =
+        active_wait_start_time - std::chrono::seconds(kCabinDriverStateRecoveryReissueIntervalSec);
     const double normalized_tolerance_mm = std::max(target_tolerance_mm, 1.0);
     int stable_sample_count = 0;
     double previous_axis_position = std::numeric_limits<double>::quiet_NaN();
+    bool saw_stale_cabin_state = false;
 
     while (1)
     {
         if (!ignore_execution_pause && is_execution_return_to_start_requested()) {
             std::ostringstream oss;
-            oss << "执行层等待轴" << Axis << "到位时收到长按恢复回起点请求，目标位置=" << Target_position;
+            oss << "执行层等待轴" << Axis << "到位时收到长按停止并回起点请求，目标位置=" << Target_position;
             set_last_execution_wait_error_detail(oss.str());
             printCurrentTime();
             ros_log_printf(
-                "Cabin_Warn: 执行层等待轴%d到位时收到长按恢复回起点请求，目标位置 %.2f，停止当前自动等待。\n",
+                "Cabin_Warn: 执行层等待轴%d到位时收到长按停止并回起点请求，目标位置 %.2f，停止当前自动等待。\n",
                 Axis,
                 Target_position
             );
@@ -2011,8 +2226,31 @@ bool wait_cabin_axis_stable_arrival(
             previous_axis_position = std::numeric_limits<double>::quiet_NaN();
         }
 
+        uint16_t pending_tcp_status_command_word = 0;
         uint32_t pending_tcp_status_word = 0;
-        if (consume_pending_tcp_status_error(pending_tcp_status_word)) {
+        if (consume_pending_tcp_status_error(pending_tcp_status_command_word, pending_tcp_status_word)) {
+            if (is_transient_cabin_motion_status(pending_tcp_status_command_word, pending_tcp_status_word)) {
+                stable_sample_count = 0;
+                previous_axis_position = std::numeric_limits<double>::quiet_NaN();
+                active_wait_start_time = std::chrono::steady_clock::now();
+                const auto transient_log_elapsed_sec =
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        active_wait_start_time - last_cabin_transient_status_log_time
+                    ).count();
+                if (transient_log_elapsed_sec >= kCabinDriverStateRecoveryLogIntervalSec) {
+                    printCurrentTime();
+                    ros_log_printf(
+                        "Cabin_Warn: 执行层等待轴%d到位前检测到索驱暂未接受运动指令，command=0x%04X，status_word=0x%08X，目标位置 %.2f；保持当前任务继续等待。\n",
+                        Axis,
+                        static_cast<unsigned int>(pending_tcp_status_command_word),
+                        static_cast<unsigned int>(pending_tcp_status_word),
+                        Target_position
+                    );
+                    last_cabin_transient_status_log_time = active_wait_start_time;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
             std::ostringstream oss;
             oss << "执行层等待轴" << Axis << "到位前检测到索驱状态字异常0x"
                 << std::uppercase << std::hex << std::setw(8) << std::setfill('0')
@@ -2027,6 +2265,64 @@ bool wait_cabin_axis_stable_arrival(
                 Target_position
             );
             return false;
+        }
+
+        double state_age_sec = -1.0;
+        const auto state_check_time = std::chrono::steady_clock::now();
+        if (!is_cabin_driver_state_fresh(&state_age_sec)) {
+            saw_stale_cabin_state = true;
+            stable_sample_count = 0;
+            previous_axis_position = std::numeric_limits<double>::quiet_NaN();
+            active_wait_start_time = state_check_time;
+            const auto stale_log_elapsed_sec =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    state_check_time - last_cabin_state_stale_log_time
+                ).count();
+            if (stale_log_elapsed_sec >= kCabinDriverStateRecoveryLogIntervalSec) {
+                printCurrentTime();
+                ros_log_printf(
+                    "Cabin_Warn: 执行层等待轴%d到位时检测到索驱状态断流，state_age=%.2f秒，目标位置 %.2f；保持当前任务等待驱动恢复。\n",
+                    Axis,
+                    state_age_sec,
+                    Target_position
+                );
+                last_cabin_state_stale_log_time = state_check_time;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+
+        if (saw_stale_cabin_state) {
+            const auto reissue_elapsed_sec =
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    state_check_time - last_cabin_target_reissue_time
+                ).count();
+            if (reissue_elapsed_sec >= kCabinDriverStateRecoveryReissueIntervalSec) {
+                std::string reissue_error_message;
+                const std::string reissue_context =
+                    "执行层等待轴" + std::to_string(Axis) + "到位时";
+                if (reissue_cabin_target_after_state_recovery(
+                        reissue_context,
+                        &reissue_error_message)) {
+                    saw_stale_cabin_state = false;
+                    stable_sample_count = 0;
+                    previous_axis_position = std::numeric_limits<double>::quiet_NaN();
+                    active_wait_start_time = state_check_time;
+                    last_log_time = state_check_time;
+                    last_soft_timeout_log_time =
+                        state_check_time - std::chrono::seconds(kExecutionArrivalSoftTimeoutLogIntervalSec);
+                } else {
+                    active_wait_start_time = state_check_time;
+                    last_cabin_target_reissue_time = state_check_time;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(kCabinDriverRecoveryRetrySleepMs));
+                    continue;
+                }
+                last_cabin_target_reissue_time = state_check_time;
+            } else {
+                active_wait_start_time = state_check_time;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
         }
 
         double current_axis_position = 0.0;
@@ -2163,10 +2459,26 @@ void checkerboard_jump_bind_callback(const std_msgs::Bool &debug_mes)
     checkerboard_jump_bind_enabled = debug_mes.data;
     printCurrentTime();
     if (checkerboard_jump_bind_enabled) {
-        ros_log_printf("Cabin_log: 全局棋盘格跳绑已开启，仅执行checkerboard_parity==0的点。\n");
+        const int selected_parity =
+            checkerboard_jump_bind_selected_parity.load(std::memory_order_acquire) == 1 ? 1 : 0;
+        ros_log_printf(
+            "Cabin_log: 全局棋盘格跳绑已开启，仅执行checkerboard_color=%s的点。\n",
+            checkerboard_color_from_parity(selected_parity).c_str()
+        );
     } else {
         ros_log_printf("Cabin_log: 全局棋盘格跳绑已关闭，恢复全绑。\n");
     }
+}
+
+void checkerboard_jump_bind_parity_callback(const std_msgs::Int32 &debug_mes)
+{
+    const int selected_parity = debug_mes.data == 1 ? 1 : 0;
+    checkerboard_jump_bind_selected_parity.store(selected_parity, std::memory_order_release);
+    printCurrentTime();
+    ros_log_printf(
+        "Cabin_log: 棋盘格跳绑目标已切换为checkerboard_color=%s。\n",
+        checkerboard_color_from_parity(selected_parity).c_str()
+    );
 }
 
 bool recover_paused_execution_to_start(std::string& message)
@@ -2226,13 +2538,13 @@ bool recover_paused_execution_to_start(std::string& message)
             return_pose.y,
             return_pose.z,
             &driver_error_message)) {
-        message = compose_cabin_failure_message("暂停恢复回起点时索驱移动失败");
+        message = compose_cabin_failure_message("停止并回起点时索驱移动失败");
         return false;
     }
     if (!wait_cabin_axis_stable_arrival(AXIS_X, return_pose.x, kExecutionArrivalToleranceMm, true) ||
         !wait_cabin_axis_stable_arrival(AXIS_Y, return_pose.y, kExecutionArrivalToleranceMm, true) ||
         !wait_cabin_axis_stable_arrival(AXIS_Z, return_pose.z, kExecutionArrivalToleranceMm, true)) {
-        message = compose_cabin_failure_message("暂停恢复回起点时索驱到位失败");
+        message = compose_cabin_failure_message("停止并回起点时索驱到位失败");
         return false;
     }
 
@@ -2241,7 +2553,7 @@ bool recover_paused_execution_to_start(std::string& message)
         handle_pause_interrupt = 0;
     }
     execution_pause_requested.store(false, std::memory_order_release);
-    message = "暂停恢复完成：线性模组已按Z优先回到(0,0,0)，索驱已回到执行起点；本轮自动执行链保持终止";
+    message = "停止并回起点完成：线性模组已按Z优先回到(0,0,0)，索驱已回到执行起点；本轮自动执行链保持终止";
     return true;
 }
 
@@ -2321,12 +2633,12 @@ void solve_stop_Callback(const std_msgs::Float32 &debug_mes)
 {
     if (debug_mes.data == 2.0)
     {
-        request_execution_return_to_start("前端长按暂停/恢复作业");
+        request_execution_return_to_start("前端长按停止当前作业并回起点");
         std::string driver_error_message;
         if (!stop_cabin_motion_via_driver(&driver_error_message)) {
             printCurrentTime();
             ros_log_printf(
-                "Cabin_Warn: 长按回执行起点前索驱停止失败，已保持当前自动链终止状态：%s\n",
+                "Cabin_Warn: 长按停止并回起点前索驱停止失败，已保持当前自动链终止状态：%s\n",
                 driver_error_message.c_str()
             );
             return;
@@ -2334,7 +2646,7 @@ void solve_stop_Callback(const std_msgs::Float32 &debug_mes)
         std::string recovery_message;
         if (!recover_paused_execution_to_start(recovery_message)) {
             printCurrentTime();
-            ros_log_printf("Cabin_Warn: 暂停恢复回起点失败：%s\n", recovery_message.c_str());
+            ros_log_printf("Cabin_Warn: 停止并回起点失败：%s\n", recovery_message.c_str());
             return;
         }
         printCurrentTime();
@@ -2345,6 +2657,22 @@ void solve_stop_Callback(const std_msgs::Float32 &debug_mes)
         resume_execution_pause("前端短按恢复作业");
     }
     return;
+}
+
+void manual_area_takeover_Callback(const std_msgs::Bool &debug_mes)
+{
+    if (debug_mes.data)
+    {
+        request_execution_manual_takeover("前端手动切换工作区域");
+        std::string driver_error_message;
+        if (!stop_cabin_motion_via_driver(&driver_error_message)) {
+            printCurrentTime();
+            ros_log_printf(
+                "Cabin_Warn: 人工切区接管时索驱停止失败，仍保持自动链放弃状态：%s\n",
+                driver_error_message.c_str()
+            );
+        }
+    }
 }
 
 /*
@@ -3219,6 +3547,8 @@ bool run_pseudo_slam_scan(
     publish_pseudo_slam_markers(merged_world_points);
     std::unordered_map<int, PseudoSlamCheckerboardInfo> merged_checkerboard_info_by_idx =
         build_checkerboard_info_by_global_index(merged_world_points, path_origin);
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo> raw_merged_checkerboard_info_by_idx =
+        merged_checkerboard_info_by_idx;
     const std::vector<tie_robot_msgs::PointCoords> planning_z_outlier_points =
         collect_pseudo_slam_planning_z_outliers(merged_world_points);
     const std::unordered_set<int> outlier_secondary_plane_global_indices =
@@ -3254,7 +3584,7 @@ bool run_pseudo_slam_scan(
     );
     checkerboard_info_by_idx = build_checkerboard_info_by_global_index(planning_world_points, path_origin);
     std::unordered_map<int, PseudoSlamCheckerboardInfo> bind_path_checkerboard_info_by_idx =
-        checkerboard_info_by_idx;
+        merged_checkerboard_info_by_idx;
     merged_checkerboard_info_by_idx = sync_merged_checkerboard_membership_with_planning(
         merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx
@@ -3302,6 +3632,9 @@ bool run_pseudo_slam_scan(
         bind_path_info.global_col = world_point.global_col;
         bind_path_info.checkerboard_parity =
             (world_point.global_row + world_point.global_col) % 2;
+        bind_path_info.jump_bind = is_jump_bind_target_parity(bind_path_info.checkerboard_parity);
+        bind_path_info.checkerboard_color =
+            checkerboard_color_from_parity(bind_path_info.checkerboard_parity);
         bind_path_info.is_checkerboard_member = true;
         bind_path_checkerboard_info_by_idx[world_point.idx] = bind_path_info;
 
@@ -3313,38 +3646,8 @@ bool run_pseudo_slam_scan(
         bind_path_grid_indices.push_back(grid_index);
     }
     if (bind_path_world_points.empty()) {
-        for (const auto& world_point : merged_world_points) {
-            const auto checkerboard_it = bind_path_checkerboard_info_by_idx.find(world_point.idx);
-            if (checkerboard_it == bind_path_checkerboard_info_by_idx.end() ||
-                !checkerboard_it->second.is_checkerboard_member) {
-                continue;
-            }
-            bind_path_world_points.push_back(world_point);
-            tie_robot_process::planning::DynamicBindGridIndex grid_index;
-            grid_index.global_idx = world_point.idx;
-            grid_index.global_row = checkerboard_it->second.global_row;
-            grid_index.global_col = checkerboard_it->second.global_col;
-            bind_path_grid_indices.push_back(grid_index);
-        }
-    }
-    if (bind_path_world_points.empty()) {
-        bind_path_world_points = planning_world_points;
-        for (const auto& world_point : planning_world_points) {
-            const auto checkerboard_it = checkerboard_info_by_idx.find(world_point.idx);
-            if (checkerboard_it == checkerboard_info_by_idx.end() ||
-                !checkerboard_it->second.is_checkerboard_member) {
-                continue;
-            }
-            tie_robot_process::planning::DynamicBindGridIndex grid_index;
-            grid_index.global_idx = world_point.idx;
-            grid_index.global_row = checkerboard_it->second.global_row;
-            grid_index.global_col = checkerboard_it->second.global_col;
-            bind_path_grid_indices.push_back(grid_index);
-        }
-    }
-    if (bind_path_world_points.empty()) {
         ros_log_printf(
-            "Cabin_Warn: pseudo_slam棋盘格路径成员为空，改用扫描代表点直接聚类生成绑扎路径，避免写出空路径。\n"
+            "Cabin_Warn: pseudo_slam扫描点未携带Surface-DP全局行列，改用扫描代表点直接聚类生成绑扎路径，避免写出空路径。\n"
         );
         bind_path_world_points = merged_world_points;
         bind_path_grid_indices.clear();
@@ -3416,7 +3719,7 @@ bool run_pseudo_slam_scan(
     const std::string path_signature = build_path_signature(con_path, cabin_height, cabin_speed);
     const bool pseudo_slam_points_written = write_pseudo_slam_points_json(
         merged_world_points,
-        merged_checkerboard_info_by_idx,
+        raw_merged_checkerboard_info_by_idx,
         checkerboard_info_by_idx,
         outlier_secondary_plane_global_indices,
         outlier_line_global_indices,
@@ -3435,7 +3738,8 @@ bool run_pseudo_slam_scan(
         path_signature,
         &pseudo_slam_bind_path_error
     );
-    if (!pseudo_slam_points_written || !pseudo_slam_bind_path_written) {
+    if (!pseudo_slam_points_written ||
+        !pseudo_slam_bind_path_written) {
         if (!pseudo_slam_points_written) {
             printCurrentTime();
             ros_log_printf(
@@ -3638,29 +3942,22 @@ nlohmann::json build_live_visual_execution_points_from_planned_area(
             static_cast<double>(live_world_point.World_coord[1]) -
             static_cast<double>(planned_point_it->second.World_coord[1])
         );
-        const double refine_dz_mm = std::fabs(
-            static_cast<double>(live_world_point.World_coord[2]) -
-            static_cast<double>(planned_point_it->second.World_coord[2])
-        );
         if (refine_dx_mm > kLiveVisualMicroAdjustXYToleranceMm ||
-            refine_dy_mm > kLiveVisualMicroAdjustXYToleranceMm ||
-            refine_dz_mm > kLiveVisualMicroAdjustZToleranceMm) {
+            refine_dy_mm > kLiveVisualMicroAdjustXYToleranceMm) {
             printCurrentTime();
             ros_log_printf(
-                "Cabin_log: live_visual区域%d点global_idx=%d超出xyz微调范围(dx=%.1fmm,dy=%.1fmm,dz=%.1fmm；xy阈值=%.1fmm,z阈值=%.1fmm)，忽略本次视觉修正，保留扫描参考点。\n",
+                "Cabin_log: live_visual区域%d点global_idx=%d超出xy微调范围(dx=%.1fmm,dy=%.1fmm；xy阈值=%.1fmm)，忽略本次视觉修正，保留扫描参考点。\n",
                 area_index,
                 global_idx,
                 refine_dx_mm,
                 refine_dy_mm,
-                refine_dz_mm,
-                static_cast<double>(kLiveVisualMicroAdjustXYToleranceMm),
-                static_cast<double>(kLiveVisualMicroAdjustZToleranceMm)
+                static_cast<double>(kLiveVisualMicroAdjustXYToleranceMm)
             );
             fallback_idx++;
             continue;
         }
 
-        const double refine_score = refine_dx_mm + refine_dy_mm + refine_dz_mm;
+        const double refine_score = refine_dx_mm + refine_dy_mm;
         const auto best_live_point_it = best_live_point_score_by_global_index.find(global_idx);
         if (best_live_point_it == best_live_point_score_by_global_index.end() ||
             refine_score < best_live_point_it->second) {
@@ -3788,7 +4085,6 @@ nlohmann::json collect_dispatched_precomputed_point_jsons(
 
 bool execute_moduan_bind_points_via_action(
     const std::vector<tie_robot_msgs::PointCoords>& points,
-    bool apply_jump_bind_filter,
     std::string& message
 )
 {
@@ -3807,7 +4103,6 @@ bool execute_moduan_bind_points_via_action(
 
     tie_robot_msgs::ExecuteBindPointsTaskGoal goal;
     goal.points = points;
-    goal.apply_jump_bind_filter = apply_jump_bind_filter;
 
     moduan_execute_bind_points_client->sendGoal(goal);
     if (!moduan_execute_bind_points_client->waitForResult(
@@ -4000,13 +4295,16 @@ bool run_current_area_bind_from_scan_test(std::string& message)
         fast_cabin_speed
     );
 
-    std::string driver_error_message;
-    if (!move_cabin_pose_via_driver(
+    if (!move_cabin_pose_for_automatic_execution(
+            "当前区域预计算直执行",
             fast_cabin_speed,
             cabin_x,
             cabin_y,
             move_cabin_z,
-            &driver_error_message)) {
+            message)) {
+        if (is_execution_return_to_start_requested()) {
+            return false;
+        }
         message = compose_cabin_failure_message("当前区域预计算直执行下发索驱移动指令失败");
         return false;
     }
@@ -4042,7 +4340,8 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             group_json,
             bind_execution_memory,
             blocked_global_indices,
-            checkerboard_jump_bind_enabled
+            checkerboard_jump_bind_enabled,
+            checkerboard_jump_bind_selected_parity.load(std::memory_order_acquire)
         );
         std::vector<tie_robot_msgs::PointCoords> local_points;
         std::string prepare_failure_reason;
@@ -4075,7 +4374,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
             area_global_indices,
             active_dispatch_global_indices
         );
-        if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
+        if (!execute_moduan_bind_points_via_action(local_points, bind_action_message)) {
             skipped_group_count++;
             set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
             printCurrentTime();
@@ -4145,6 +4444,7 @@ bool run_current_area_bind_from_scan_test(std::string& message)
 
 bool run_bind_path_direct_test(std::string& message)
 {
+    clear_execution_pause_request();
     clear_pseudo_slam_marker_execution_state();
     ScopedPseudoSlamMarkerExecutionStateClear scoped_marker_execution_state_clear;
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
@@ -4170,6 +4470,8 @@ bool run_bind_path_direct_test(std::string& message)
         return false;
     }
     const int total_area_count = static_cast<int>(areas_json.size());
+    const std::unordered_set<int> no_blocked_global_indices;
+    const BindExecutionMemory empty_execution_memory;
 
     float path_origin_x = 0.0f;
     float path_origin_y = 0.0f;
@@ -4192,6 +4494,12 @@ bool run_bind_path_direct_test(std::string& message)
     );
 
     const float move_path_origin_z = clamp_bind_execution_cabin_z(path_origin_z);
+    record_execution_pause_return_pose(
+        cabin_speed,
+        path_origin_x,
+        path_origin_y,
+        move_path_origin_z
+    );
     TCP_Move[0] = cabin_speed;
     TCP_Move[1] = path_origin_x;
     TCP_Move[2] = path_origin_y;
@@ -4203,13 +4511,16 @@ bool run_bind_path_direct_test(std::string& message)
         TCP_Move[2],
         TCP_Move[3]
     );
-    std::string path_origin_driver_error_message;
-    if (!move_cabin_pose_via_driver(
+    if (!move_cabin_pose_for_automatic_execution(
+            "bind_path_direct_test回到规划原点时",
             cabin_speed,
             path_origin_x,
             path_origin_y,
             move_path_origin_z,
-            &path_origin_driver_error_message)) {
+            message)) {
+        if (is_execution_return_to_start_requested()) {
+            return false;
+        }
         message = compose_cabin_failure_message("bind_path_direct_test回到规划原点时下发索驱移动指令失败");
         return false;
     }
@@ -4231,6 +4542,17 @@ bool run_bind_path_direct_test(std::string& message)
     int area_index = 0;
     for (const auto& area_json : areas_json) {
         area_index++;
+        if (!wait_while_execution_paused(
+                "bind_path_direct_test区域" + std::to_string(area_index) + "移动前",
+                message,
+                false)) {
+            return false;
+        }
+        if (fail_if_execution_return_to_start_requested(
+                "bind_path_direct_test区域" + std::to_string(area_index) + "移动前",
+                message)) {
+            return false;
+        }
         publish_area_progress(area_index, total_area_count, 0, false, false);
         const auto cabin_pose = area_json["cabin_pose"];
         const float cabin_x = cabin_pose.value("x", 0.0f);
@@ -4249,13 +4571,16 @@ bool run_bind_path_direct_test(std::string& message)
             TCP_Move[2],
             TCP_Move[3]
         );
-        std::string area_driver_error_message;
-        if (!move_cabin_pose_via_driver(
+        if (!move_cabin_pose_for_automatic_execution(
+                "bind_path_direct_test区域" + std::to_string(area_index),
                 cabin_speed,
                 cabin_x,
                 cabin_y,
                 move_cabin_z,
-                &area_driver_error_message)) {
+                message)) {
+            if (is_execution_return_to_start_requested()) {
+                return false;
+            }
             message = compose_cabin_failure_message(
                 "bind_path_direct_test区域" + std::to_string(area_index) + "下发索驱移动指令失败"
             );
@@ -4293,10 +4618,18 @@ bool run_bind_path_direct_test(std::string& message)
         for (const auto& group_json : area_json["groups"]) {
             group_index++;
             const std::string group_type = group_json.value("group_type", std::string("unknown_group"));
+            nlohmann::json execution_group_json = group_json;
+            execution_group_json["points"] = filter_precomputed_group_points_for_execution(
+                group_json,
+                empty_execution_memory,
+                no_blocked_global_indices,
+                checkerboard_jump_bind_enabled,
+                checkerboard_jump_bind_selected_parity.load(std::memory_order_acquire)
+            );
             std::vector<tie_robot_msgs::PointCoords> local_points;
             std::string prepare_failure_reason;
             if (!load_precomputed_local_points_from_group_json(
-                    group_json,
+                    execution_group_json,
                     local_points,
                     prepare_failure_reason
                 )) {
@@ -4315,7 +4648,7 @@ bool run_bind_path_direct_test(std::string& message)
 
             std::string bind_action_message;
             const auto dispatched_point_jsons = collect_dispatched_precomputed_point_jsons(
-                group_json,
+                execution_group_json,
                 local_points
             );
             const std::unordered_set<int> active_dispatch_global_indices =
@@ -4325,9 +4658,18 @@ bool run_bind_path_direct_test(std::string& message)
                 area_global_indices,
                 active_dispatch_global_indices
             );
-            if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
+            if (!execute_moduan_bind_points_via_action(local_points, bind_action_message)) {
                 skipped_group_count++;
                 set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
+                if (is_execution_return_to_start_requested()) {
+                    message =
+                        "bind_path_direct_test区域" + std::to_string(area_index) +
+                        "第" + std::to_string(group_index) +
+                        "组执行中收到长按停止并回起点请求，自动执行链已停止";
+                    printCurrentTime();
+                    ros_log_printf("Cabin_Warn: %s\n", message.c_str());
+                    return false;
+                }
                 printCurrentTime();
                 ros_log_printf(
                     "Cabin_Warn: bind_path_direct_test区域%d第%d组执行失败，跳过当前组。消息：%s\n",
@@ -4339,6 +4681,19 @@ bool run_bind_path_direct_test(std::string& message)
             }
 
             set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
+            if (!wait_while_execution_paused(
+                    "bind_path_direct_test区域" + std::to_string(area_index) +
+                    "第" + std::to_string(group_index) + "组执行后",
+                    message,
+                    false)) {
+                return false;
+            }
+            if (fail_if_execution_return_to_start_requested(
+                    "bind_path_direct_test区域" + std::to_string(area_index) +
+                    "第" + std::to_string(group_index) + "组执行后",
+                    message)) {
+                return false;
+            }
             executed_group_count++;
         }
 
@@ -4457,13 +4812,16 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
         TCP_Move[2],
         TCP_Move[3]
     );
-    std::string live_visual_origin_driver_error_message;
-    if (!move_cabin_pose_via_driver(
+    if (!move_cabin_pose_for_automatic_execution(
+            "live_visual回到规划原点时",
             cabin_speed,
             path_origin_x,
             path_origin_y,
             move_path_origin_z,
-            &live_visual_origin_driver_error_message)) {
+            message)) {
+        if (is_execution_return_to_start_requested()) {
+            return false;
+        }
         message = compose_cabin_failure_message("live_visual回到规划原点时下发索驱移动指令失败");
         return false;
     }
@@ -4483,6 +4841,17 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
     for (int area_order_index = 0; area_order_index < total_area_count; ++area_order_index) {
         const auto& planned_area_json = areas_json[static_cast<size_t>(area_order_index)];
         const int area_index = planned_area_json.value("area_index", area_order_index + 1);
+        if (!wait_while_execution_paused(
+                "live_visual区域" + std::to_string(area_index) + "移动前",
+                message,
+                false)) {
+            return false;
+        }
+        if (fail_if_execution_return_to_start_requested(
+                "live_visual区域" + std::to_string(area_index) + "移动前",
+                message)) {
+            return false;
+        }
         publish_area_progress(area_order_index + 1, total_area_count, 0, false, false);
 
         const std::unordered_map<int, tie_robot_msgs::PointCoords> planned_area_points_by_global_index =
@@ -4523,13 +4892,18 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
             TCP_Move[2],
             TCP_Move[3]
         );
-        std::string area_driver_error_message;
-        if (!move_cabin_pose_via_driver(
+        if (!move_cabin_pose_for_automatic_execution(
+                "live_visual区域" + std::to_string(area_index),
                 cabin_speed,
                 cabin_x,
                 cabin_y,
                 move_cabin_z,
-                &area_driver_error_message)) {
+                message)) {
+            if (fail_if_execution_return_to_start_requested(
+                    "live_visual区域" + std::to_string(area_index) + "下发索驱移动后",
+                    message)) {
+                return false;
+            }
             skipped_area_count++;
             printCurrentTime();
             ros_log_printf(
@@ -4548,6 +4922,11 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
         if (!wait_cabin_axis_stable_arrival(AXIS_X, cabin_x) ||
             !wait_cabin_axis_stable_arrival(AXIS_Y, cabin_y) ||
             !wait_cabin_axis_stable_arrival(AXIS_Z, move_cabin_z)) {
+            if (fail_if_execution_return_to_start_requested(
+                    "live_visual区域" + std::to_string(area_index) + "索驱到位等待后",
+                    message)) {
+                return false;
+            }
             skipped_area_count++;
             printCurrentTime();
             ros_log_printf(
@@ -4564,9 +4943,19 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
             continue;
         }
 
+        if (fail_if_execution_return_to_start_requested(
+                "live_visual区域" + std::to_string(area_index) + "视觉微调前",
+                message)) {
+            return false;
+        }
         tie_robot_msgs::ProcessImage scan_srv;
         scan_srv.request.request_mode = kProcessImageModeExecutionRefine;
         if (!AI_client.call(scan_srv)) {
+            if (fail_if_execution_return_to_start_requested(
+                    "live_visual区域" + std::to_string(area_index) + "视觉微调后",
+                    message)) {
+                return false;
+            }
             skipped_area_count++;
             printCurrentTime();
             ros_log_printf(
@@ -4584,6 +4973,11 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
         }
 
         if (!scan_srv.response.success) {
+            if (fail_if_execution_return_to_start_requested(
+                    "live_visual区域" + std::to_string(area_index) + "视觉微调后",
+                    message)) {
+                return false;
+            }
             skipped_area_count++;
             printCurrentTime();
             ros_log_printf(
@@ -4599,6 +4993,11 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
                 false
             );
             continue;
+        }
+        if (fail_if_execution_return_to_start_requested(
+                "live_visual区域" + std::to_string(area_index) + "视觉微调后",
+                message)) {
+            return false;
         }
 
         std::vector<tie_robot_msgs::PointCoords> area_world_points;
@@ -4643,7 +5042,8 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
             execution_group_json,
             bind_execution_memory,
             blocked_global_indices,
-            checkerboard_jump_bind_enabled
+            checkerboard_jump_bind_enabled,
+            checkerboard_jump_bind_selected_parity.load(std::memory_order_acquire)
         );
 
         std::vector<tie_robot_msgs::PointCoords> local_points;
@@ -4683,9 +5083,17 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
             area_global_indices,
             active_dispatch_global_indices
         );
-        if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
+        if (!execute_moduan_bind_points_via_action(local_points, bind_action_message)) {
             skipped_area_count++;
             set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
+            if (is_execution_return_to_start_requested()) {
+                message =
+                    "live_visual区域" + std::to_string(area_index) +
+                    "执行中收到长按停止并回起点请求，自动执行链已停止";
+                printCurrentTime();
+                ros_log_printf("Cabin_Warn: %s\n", message.c_str());
+                return false;
+            }
             printCurrentTime();
             ros_log_printf(
                 "Cabin_Warn: live_visual区域%d执行失败，跳过当前区域。消息：%s\n",
@@ -4703,6 +5111,17 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
         }
 
         set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
+        if (!wait_while_execution_paused(
+                "live_visual区域" + std::to_string(area_index) + "执行后",
+                message,
+                false)) {
+            return false;
+        }
+        if (fail_if_execution_return_to_start_requested(
+                "live_visual区域" + std::to_string(area_index) + "执行后",
+                message)) {
+            return false;
+        }
         if (use_execution_memory) {
             for (const auto& dispatched_point_json : dispatched_point_jsons) {
                 record_successful_execution_point(bind_execution_memory, dispatched_point_json, "live_visual");
@@ -4850,13 +5269,16 @@ bool run_planned_path_refine_only_global_work(std::string& message, bool use_exe
             TCP_Move[3]
         );
 
-        std::string area_driver_error_message;
-        if (!move_cabin_pose_via_driver(
+        if (!move_cabin_pose_for_automatic_execution(
+                "planned_path_refine_only区域" + std::to_string(area_index),
                 cabin_speed,
                 cabin_x,
                 cabin_y,
                 move_cabin_z,
-                &area_driver_error_message)) {
+                message)) {
+            if (is_execution_return_to_start_requested()) {
+                return false;
+            }
             skipped_area_count++;
             set_pseudo_slam_marker_execution_state(area_index, {}, {});
             printCurrentTime();
@@ -5056,13 +5478,16 @@ bool run_bind_from_scan(std::string& message, bool use_execution_memory)
         TCP_Move[3] = move_cabin_z;
         printCurrentTime();
         ros_log_printf("Cabin_log: bind_from_scan区域%d移动到(%f,%f,%f)。\n", area_index, TCP_Move[1], TCP_Move[2], TCP_Move[3]);
-        std::string area_driver_error_message;
-        if (!move_cabin_pose_via_driver(
+        if (!move_cabin_pose_for_automatic_execution(
+                "bind_from_scan区域" + std::to_string(area_index),
                 cabin_speed,
                 cabin_x,
                 cabin_y,
                 move_cabin_z,
-                &area_driver_error_message)) {
+                message)) {
+            if (is_execution_return_to_start_requested()) {
+                return false;
+            }
             message = compose_cabin_failure_message(
                 "bind_from_scan区域" + std::to_string(area_index) + "下发索驱移动指令失败"
             );
@@ -5105,7 +5530,8 @@ bool run_bind_from_scan(std::string& message, bool use_execution_memory)
                 group_json,
                 bind_execution_memory,
                 blocked_global_indices,
-                checkerboard_jump_bind_enabled
+                checkerboard_jump_bind_enabled,
+                checkerboard_jump_bind_selected_parity.load(std::memory_order_acquire)
             );
             std::vector<tie_robot_msgs::PointCoords> local_points;
             std::string prepare_failure_reason;
@@ -5137,13 +5563,13 @@ bool run_bind_from_scan(std::string& message, bool use_execution_memory)
                 area_global_indices,
                 active_dispatch_global_indices
             );
-            if (!execute_moduan_bind_points_via_action(local_points, false, bind_action_message)) {
+            if (!execute_moduan_bind_points_via_action(local_points, bind_action_message)) {
                 set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 if (is_execution_return_to_start_requested()) {
                     message =
                         "bind_from_scan区域" + std::to_string(area_index) +
                         "第" + std::to_string(group_index) +
-                        "组执行中收到长按恢复回起点请求，自动执行链已停止";
+                        "组执行中收到长按停止并回起点请求，自动执行链已停止";
                     printCurrentTime();
                     ros_log_printf("Cabin_Warn: %s\n", message.c_str());
                     return false;
@@ -5488,8 +5914,10 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
     ros::Subscriber forced_stop_sub;
     ros::Subscriber interrupt0_sub;
     ros::Subscriber hand_solve_stop;
+    ros::Subscriber manual_area_takeover_sub;
     ros::Subscriber moduan_work_sub;
-    ros::Subscriber send_odd_points_sub;
+    ros::Subscriber jump_bind_enabled_sub;
+    ros::Subscriber jump_bind_parity_sub;
     ros::Subscriber cabin_state_sub;
 
     ros::Timer cabin_diagnostic_timer;
@@ -5565,8 +5993,12 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
         change_cabin_speed_sub = nh.subscribe("/web/cabin/set_cabin_speed", 5, &change_cabin_speed_callback);
         interrupt0_sub = nh.subscribe("/web/moduan/interrupt_stop", 5, &pause_interrupt_Callback);
         hand_solve_stop = nh.subscribe("/web/moduan/hand_sovle_warn", 5, &solve_stop_Callback);
+        manual_area_takeover_sub = nh.subscribe("/web/cabin/manual_area_takeover", 5, &manual_area_takeover_Callback);
         moduan_work_sub = nh.subscribe("/moduan_work", 5, &moduan_work_Callback);
-        send_odd_points_sub = nh.subscribe("/web/moduan/send_odd_points", 5, &checkerboard_jump_bind_callback);
+        jump_bind_enabled_sub =
+            nh.subscribe("/web/moduan/jump_bind_enabled", 5, &checkerboard_jump_bind_callback);
+        jump_bind_parity_sub =
+            nh.subscribe("/web/moduan/jump_bind_parity", 5, &checkerboard_jump_bind_parity_callback);
     }
     
     ros::MultiThreadedSpinner spinner(4);

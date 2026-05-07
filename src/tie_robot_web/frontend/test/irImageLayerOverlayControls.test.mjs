@@ -40,6 +40,17 @@ function createRecordingContext() {
     strokeRect: (...args) => calls.push(["strokeRect", ...args]),
     arc: (...args) => calls.push(["arc", ...args]),
   };
+  Object.defineProperties(context, {
+    fillStyle: {
+      set: (value) => calls.push(["fillStyle", value]),
+    },
+    strokeStyle: {
+      set: (value) => calls.push(["strokeStyle", value]),
+    },
+    lineWidth: {
+      set: (value) => calls.push(["lineWidth", value]),
+    },
+  });
   return context;
 }
 
@@ -94,6 +105,22 @@ view.setVisualRecognitionPointsMessage({
   ],
 }, { sourceSize: { width: 2, height: 2 } });
 assert.equal(overlayContext.calls.some(([name]) => name === "arc"), true);
+assert.equal(
+  overlayContext.calls.some(([name, value]) => (
+    name === "fillStyle" && String(value).includes("255, 246, 97")
+  )),
+  true,
+);
+assert.equal(
+  overlayContext.calls.some(([name, value]) => (
+    name === "fillStyle" && String(value).includes("255, 45, 85")
+  )),
+  false,
+);
+assert.equal(
+  overlayContext.calls.some(([name]) => name === "moveTo" || name === "lineTo"),
+  false,
+);
 
 overlayContext.calls.length = 0;
 view.setImageOverlayLayerState({ showImageScanPoints: false });

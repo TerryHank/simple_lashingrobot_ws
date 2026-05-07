@@ -24,3 +24,5 @@ float64 robot_temperature
 float32 x_gesture
 float32 y_gesture
 
+#灯光状态
+bool light_state

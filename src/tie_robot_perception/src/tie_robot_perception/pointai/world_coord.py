@@ -45,6 +45,160 @@ from tie_robot_perception.perception.workspace_s2 import (
 )
 from .constants import *
 
+def quaternion_to_rotation_matrix(quaternion):
+    x_value = float(getattr(quaternion, "x", 0.0))
+    y_value = float(getattr(quaternion, "y", 0.0))
+    z_value = float(getattr(quaternion, "z", 0.0))
+    w_value = float(getattr(quaternion, "w", 1.0))
+    norm = math.sqrt(
+        x_value * x_value
+        + y_value * y_value
+        + z_value * z_value
+        + w_value * w_value
+    )
+    if norm <= 1e-9:
+        return np.eye(3, dtype=np.float32)
+
+    x_value /= norm
+    y_value /= norm
+    z_value /= norm
+    w_value /= norm
+    return np.array(
+        [
+            [
+                1.0 - 2.0 * (y_value * y_value + z_value * z_value),
+                2.0 * (x_value * y_value - z_value * w_value),
+                2.0 * (x_value * z_value + y_value * w_value),
+            ],
+            [
+                2.0 * (x_value * y_value + z_value * w_value),
+                1.0 - 2.0 * (x_value * x_value + z_value * z_value),
+                2.0 * (y_value * z_value - x_value * w_value),
+            ],
+            [
+                2.0 * (x_value * z_value - y_value * w_value),
+                2.0 * (y_value * z_value + x_value * w_value),
+                1.0 - 2.0 * (x_value * x_value + y_value * y_value),
+            ],
+        ],
+        dtype=np.float32,
+    )
+
+
+def lookup_scepter_to_map_transform(self):
+    tf_buffer = getattr(self, "tf_buffer", None)
+    if tf_buffer is None:
+        return None
+
+    source_frame = getattr(self, "raw_bind_point_tf_source_frame", "Scepter_depth_frame")
+    try:
+        return tf_buffer.lookup_transform(
+            "map",
+            source_frame,
+            rospy.Time(0),
+            rospy.Duration(0.05),
+        )
+    except Exception as exc:
+        rospy.logwarn_throttle(
+            2.0,
+            "pointAI无法获取%s->map TF，工作区世界坐标投影暂停: %s",
+            source_frame,
+            exc,
+        )
+        return None
+
+
+def transform_camera_point_to_map_frame(self, camera_point):
+    if not isinstance(camera_point, (list, tuple, np.ndarray)) or len(camera_point) < 3:
+        return None
+
+    try:
+        camera_xyz_mm = np.array(
+            [float(camera_point[0]), float(camera_point[1]), float(camera_point[2])],
+            dtype=np.float32,
+        )
+    except (TypeError, ValueError):
+        return None
+    if not np.all(np.isfinite(camera_xyz_mm)):
+        return None
+
+    transform_stamped = lookup_scepter_to_map_transform(self)
+    if transform_stamped is None:
+        return None
+
+    transform = getattr(transform_stamped, "transform", transform_stamped)
+    translation = getattr(transform, "translation", None)
+    rotation = getattr(transform, "rotation", None)
+    if translation is None or rotation is None:
+        return None
+
+    rotation_matrix = quaternion_to_rotation_matrix(rotation)
+    translation_mm = np.array(
+        [
+            float(getattr(translation, "x", 0.0)) * 1000.0,
+            float(getattr(translation, "y", 0.0)) * 1000.0,
+            float(getattr(translation, "z", 0.0)) * 1000.0,
+        ],
+        dtype=np.float32,
+    )
+    map_xyz_mm = rotation_matrix.dot(camera_xyz_mm) + translation_mm
+    if not np.all(np.isfinite(map_xyz_mm)):
+        return None
+    return [float(map_xyz_mm[0]), float(map_xyz_mm[1]), float(map_xyz_mm[2])]
+
+
+def get_map_frame_xy_channels(self):
+    if not self.ensure_raw_world_channels():
+        return None
+
+    transform_stamped = lookup_scepter_to_map_transform(self)
+    if transform_stamped is None:
+        return None
+
+    transform = getattr(transform_stamped, "transform", transform_stamped)
+    translation = getattr(transform, "translation", None)
+    rotation = getattr(transform, "rotation", None)
+    if translation is None or rotation is None:
+        return None
+
+    rotation_matrix = quaternion_to_rotation_matrix(rotation)
+    translation_mm = np.array(
+        [
+            float(getattr(translation, "x", 0.0)) * 1000.0,
+            float(getattr(translation, "y", 0.0)) * 1000.0,
+            float(getattr(translation, "z", 0.0)) * 1000.0,
+        ],
+        dtype=np.float32,
+    )
+
+    camera_x = self.x_channel.astype(np.float32)
+    camera_y = self.y_channel.astype(np.float32)
+    camera_z = self.depth_v.astype(np.float32)
+    valid_mask = (
+        np.isfinite(camera_x)
+        & np.isfinite(camera_y)
+        & np.isfinite(camera_z)
+        & (camera_z != 0.0)
+    )
+    map_x = (
+        rotation_matrix[0, 0] * camera_x
+        + rotation_matrix[0, 1] * camera_y
+        + rotation_matrix[0, 2] * camera_z
+        + translation_mm[0]
+    )
+    map_y = (
+        rotation_matrix[1, 0] * camera_x
+        + rotation_matrix[1, 1] * camera_y
+        + rotation_matrix[1, 2] * camera_z
+        + translation_mm[1]
+    )
+    return {
+        "x": map_x.astype(np.float32),
+        "y": map_y.astype(np.float32),
+        "valid_mask": valid_mask.astype(bool),
+    }
+
+
 def get_camera_frame_xy_channels(self):
     if not self.ensure_raw_world_channels():
         return None

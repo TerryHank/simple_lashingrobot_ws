@@ -74,6 +74,15 @@ def set_stable_frame_count_callback(self, msg):
     rospy.loginfo("pointAI: 视觉服务最终放行帧数已设置为: %d", self.stable_frame_count)
 
 
+def set_scan_beam_exclusion_callback(self, msg):
+    self.scan_beam_exclusion_enabled = bool(getattr(msg, "data", False))
+    rospy.set_param("~scan_beam_exclusion_enabled", bool(self.scan_beam_exclusion_enabled))
+    rospy.loginfo(
+        "pointAI: 扫描梁筋±13cm过滤已%s。",
+        "启用" if self.scan_beam_exclusion_enabled else "关闭",
+    )
+
+
 def _normalize_execution_refine_tcp_roi_axis(min_value, max_value):
     min_mm = float(min_value)
     max_mm = float(max_value)

@@ -12,6 +12,7 @@ import {
   buildBindGridLineSegmentPositions,
   buildBindGroupLineSegmentPositions,
   buildBindPathPointPositions,
+  buildJumpBindPointPositions,
 } from "../utils/bindPathGeometry.js";
 
 const MAP_FRAME = "map";
@@ -342,12 +343,18 @@ export class Scene3DView {
     };
     this.sourceTiePointCameraPositions = new Float32Array();
     this.planningPointsFollowTiePoints = false;
+    this.planningAreaPayload = null;
+    this.jumpBindVisualizationState = {
+      enabled: false,
+      selectedParity: 0,
+    };
     this.pointCounts = {
       filteredWorldCoord: 0,
       rawWorldCoord: 0,
       tiePoints: 0,
       planningPoints: 0,
       bindPathPoints: 0,
+      jumpBindPoints: 0,
     };
 
     this.scene = new THREE.Scene();
@@ -463,6 +470,11 @@ export class Scene3DView {
     this.bindPathPoints = buildPointsObject(0xf8d462);
     this.bindPathPoints.material.size = 0.045;
     this.bindPathPoints.material.opacity = 0.92;
+    this.jumpBindPoints = buildPointsObject(0xff5a1f);
+    this.jumpBindPoints.material.size = 0.085;
+    this.jumpBindPoints.material.opacity = 1;
+    this.jumpBindPoints.material.depthTest = false;
+    this.jumpBindPoints.material.depthWrite = false;
     this.planningAreaCenters = buildPointsObject(0xff8f3d);
     this.planningAreaCenters.material.size = 0.055;
     this.planningAreaCenters.material.opacity = 0.9;
@@ -498,6 +510,7 @@ export class Scene3DView {
       this.tiePoints,
       this.planningPoints,
       this.bindPathPoints,
+      this.jumpBindPoints,
       this.planningAreaCenters,
       this.planningAreaPath,
       this.planningAreaOutlines,
@@ -506,6 +519,7 @@ export class Scene3DView {
       this.bindGroupLines,
     );
     this.bindPathPoints.renderOrder = 3;
+    this.jumpBindPoints.renderOrder = 6;
     this.planningAreaCenters.renderOrder = 2;
     this.planningAreaPath.renderOrder = 2;
     this.planningAreaOutlines.renderOrder = 2;
@@ -578,9 +592,12 @@ export class Scene3DView {
     const showBindGroups = Boolean(state.showBindGroups ?? state.showPlanningMarkers);
     const showCabinPath = Boolean(state.showCabinPath ?? state.showPlanningMarkers);
     const hasBindPathPointOverlay = this.pointCounts.bindPathPoints > 0;
+    const hasJumpBindPointOverlay = this.pointCounts.jumpBindPoints > 0;
     this.tiePoints.visible = Boolean(state.showTiePoints);
     this.planningPoints.visible = showBindPoints && !hasBindPathPointOverlay;
     this.bindPathPoints.visible = showBindPoints && hasBindPathPointOverlay;
+    this.jumpBindPoints.visible =
+      showBindPoints && hasBindPathPointOverlay && hasJumpBindPointOverlay && this.jumpBindVisualizationState.enabled;
     this.planningAreaCenters.visible = showCabinPath;
     this.planningAreaPath.visible = showCabinPath;
     this.planningAreaOutlines.visible = showBindGroups;
@@ -593,6 +610,9 @@ export class Scene3DView {
       object.material.opacity = Number(state.pointOpacity) || 0.78;
       object.material.needsUpdate = true;
     });
+    this.jumpBindPoints.material.size = Math.max((Number(state.pointSize) || 0.035) * 2.2, 0.085);
+    this.jumpBindPoints.material.opacity = 1;
+    this.jumpBindPoints.material.needsUpdate = true;
   }
 
   setViewMode(viewMode) {
@@ -939,6 +959,7 @@ export class Scene3DView {
       this.planningAreaPath.material.color.setHex(0xd69314);
       this.planningAreaOutlines.material.color.setHex(0xe1781d);
       this.bindPathPoints.material.color.setHex(0xd69314);
+      this.applyJumpBindPointMaterialColor();
       this.bindRowLines.material.color.setHex(0x1f8fb8);
       this.bindColumnLines.material.color.setHex(0xc9971f);
       this.bindGroupLines.material.color.setHex(0xd92f69);
@@ -963,9 +984,19 @@ export class Scene3DView {
     this.planningAreaPath.material.color.setHex(0xffc14d);
     this.planningAreaOutlines.material.color.setHex(0xff8f3d);
     this.bindPathPoints.material.color.setHex(0xf8d462);
+    this.applyJumpBindPointMaterialColor();
     this.bindRowLines.material.color.setHex(0x35d7ff);
     this.bindColumnLines.material.color.setHex(0xffd15c);
     this.bindGroupLines.material.color.setHex(0xff4f8a);
+  }
+
+  applyJumpBindPointMaterialColor() {
+    const selectedParity = Number(this.jumpBindVisualizationState?.selectedParity) === 1 ? 1 : 0;
+    if (selectedParity === 1) {
+      this.jumpBindPoints.material.color.setHex(this.theme === "light" ? 0x0f62fe : 0x38bdf8);
+      return;
+    }
+    this.jumpBindPoints.material.color.setHex(this.theme === "light" ? 0xc2410c : 0xff5a1f);
   }
 
   getKnownTransformCount() {
@@ -1279,6 +1310,7 @@ export class Scene3DView {
   }
 
   setPlanningAreaPayload(payload) {
+    this.planningAreaPayload = payload || null;
     const areas = Array.isArray(payload?.areas) ? payload.areas : [];
     const gridPoints = Array.isArray(payload?.grid_points) ? payload.grid_points : [];
     const areaCenterPositions = buildAreaCenterPositions(areas);
@@ -1297,6 +1329,7 @@ export class Scene3DView {
     );
     this.bindPathPoints.geometry.computeBoundingSphere();
     this.pointCounts.bindPathPoints = bindPathPointPositions.length / 3;
+    this.updateJumpBindPointOverlay(areas, gridPoints);
     this.planningAreaCenters.geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(areaCenterPositions, 3),
@@ -1328,6 +1361,34 @@ export class Scene3DView {
     );
     this.bindGroupLines.geometry.computeBoundingSphere();
     this.setLayerState(this.layerState);
+  }
+
+  setJumpBindVisualizationState(state = {}) {
+    this.jumpBindVisualizationState = {
+      enabled: Boolean(state?.value ?? state?.enabled),
+      selectedParity: Number(state?.selectedParity) === 1 ? 1 : 0,
+    };
+    const areas = Array.isArray(this.planningAreaPayload?.areas) ? this.planningAreaPayload.areas : [];
+    const gridPoints = Array.isArray(this.planningAreaPayload?.grid_points)
+      ? this.planningAreaPayload.grid_points
+      : [];
+    this.updateJumpBindPointOverlay(areas, gridPoints);
+    this.applyJumpBindPointMaterialColor();
+    this.setLayerState(this.layerState);
+  }
+
+  updateJumpBindPointOverlay(areas, gridPoints) {
+    const jumpBindPointPositions = buildJumpBindPointPositions(areas, {
+      gridPoints,
+      enabled: this.jumpBindVisualizationState.enabled,
+      selectedParity: this.jumpBindVisualizationState.selectedParity,
+    });
+    this.jumpBindPoints.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(jumpBindPointPositions, 3),
+    );
+    this.jumpBindPoints.geometry.computeBoundingSphere();
+    this.pointCounts.jumpBindPoints = jumpBindPointPositions.length / 3;
   }
 
   setPointCloudImageMessage(source, message) {

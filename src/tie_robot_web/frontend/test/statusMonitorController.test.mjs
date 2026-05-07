@@ -33,9 +33,11 @@ const batteryVoltages = [];
 const logs = [];
 const statusChanges = [];
 const alarmStates = [];
+const lightStates = [];
 
 const controller = new StatusMonitorController({
   onBatteryVoltage: (voltage) => batteryVoltages.push(voltage),
+  onLightState: (enabled) => lightStates.push(enabled),
   onLog: (message, level) => logs.push({ message, level }),
   onStatusChip: (statusId, level, detail) => statusChanges.push({ statusId, level, detail }),
   onAlarmState: (alarms) => alarmStates.push(alarms),
@@ -46,6 +48,7 @@ logs.length = 0;
 statusChanges.length = 0;
 batteryVoltages.length = 0;
 alarmStates.length = 0;
+lightStates.length = 0;
 
 const telemetryTopic = topicInstances.find((topic) => topic.name === TOPICS.control.linearModuleState);
 assert.ok(telemetryTopic, "telemetry topic should be subscribed");
@@ -57,6 +60,17 @@ telemetryTopic.emit({
 assert.deepEqual(batteryVoltages, [52.9]);
 assert.deepEqual(logs, []);
 assert.deepEqual(statusChanges, []);
+assert.deepEqual(lightStates, []);
+
+telemetryTopic.emit({
+  light_state: true,
+});
+
+telemetryTopic.emit({
+  light_state: false,
+});
+
+assert.deepEqual(lightStates, [true, false]);
 
 telemetryTopic.emit({
   robot_battery_voltage: 52.9,

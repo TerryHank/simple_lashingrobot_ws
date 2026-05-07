@@ -34,13 +34,6 @@ EXECUTION_REFINE_DIAGNOSTIC_STYLES = {
         "thickness": 2,
         "draw_label": True,
     },
-    "duplicate_removed": {
-        "color": (180, 105, 255),
-        "label": "DUP",
-        "radius": 8,
-        "thickness": 2,
-        "draw_label": True,
-    },
     "selected": {
         "color": (0, 255, 255),
         "label": "SEL",
@@ -54,7 +47,6 @@ EXECUTION_REFINE_DIAGNOSTIC_LEGEND = (
     ("hough_raw", "Hough raw"),
     ("zero_world", "ZERO coord"),
     ("out_of_range", "TCP range"),
-    ("duplicate_removed", "Duplicate"),
     ("selected", "Output"),
 )
 
@@ -86,7 +78,6 @@ def _build_execution_refine_diagnostic_points(
     hough_raw_pixels,
     zero_world_records,
     out_of_range_records,
-    duplicate_removed_records,
 ):
     diagnostic_points = [
         {
@@ -99,7 +90,6 @@ def _build_execution_refine_diagnostic_points(
     for status, records in (
         ("zero_world", zero_world_records),
         ("out_of_range", out_of_range_records),
-        ("duplicate_removed", duplicate_removed_records),
     ):
         diagnostic_points.extend(
             _execution_refine_diagnostic_from_record(status, record)
@@ -416,7 +406,6 @@ def run_execution_refine_hough_pipeline(self, publish=True):
             "in_range_candidates": 0,
             "selected_points": 0,
             "out_of_range_points": 0,
-            "duplicate_removed_points": 0,
             "output_points": 0,
         }
         return {
@@ -458,17 +447,6 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         ))
 
     raw_candidate_count = len(candidate_centers)
-    raw_candidate_records = list(candidate_centers)
-    candidate_centers, duplicate_removed_count = self.filter_candidate_centers_for_request_mode(
-        candidate_centers,
-        PROCESS_IMAGE_MODE_EXECUTION_REFINE,
-    )
-    retained_source_indexes = {center_record[0] for center_record in candidate_centers}
-    duplicate_removed_records = [
-        center_record
-        for center_record in raw_candidate_records
-        if center_record[0] not in retained_source_indexes
-    ]
     execution_refine_pixel_mask = self.execution_refine_tcp_range_pixel_mask
     in_range_centers = []
     out_of_range_records = []
@@ -524,7 +502,6 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         hough_raw_pixels,
         zero_world_records,
         out_of_range_records,
-        duplicate_removed_records,
     )
 
     self.last_detection_debug = {
@@ -537,7 +514,6 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         "in_range_candidates": len(in_range_centers),
         "selected_points": 0,
         "out_of_range_points": out_of_range_count,
-        "duplicate_removed_points": duplicate_removed_count,
         "output_points": point_array_msg.count,
         "tcp_range_mask_pixels": (
             int(np.count_nonzero(execution_refine_pixel_mask))
@@ -548,7 +524,7 @@ def run_execution_refine_hough_pipeline(self, publish=True):
     rospy.loginfo(
         "execution_refine_hough: lines=%d intersections=%d centers=%d "
         "world_fallback=%d zero_world=%d candidate_points=%d "
-        "in_range_candidates=%d out_of_range_points=%d duplicate_removed_points=%d output_points=%d",
+        "in_range_candidates=%d out_of_range_points=%d output_points=%d",
         self.last_detection_debug["lines"],
         self.last_detection_debug["intersections"],
         self.last_detection_debug["centers"],
@@ -557,13 +533,11 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         self.last_detection_debug["candidate_points"],
         self.last_detection_debug["in_range_candidates"],
         self.last_detection_debug["out_of_range_points"],
-        self.last_detection_debug["duplicate_removed_points"],
         self.last_detection_debug["output_points"],
     )
     detection_summary_log = self.build_detection_summary_log(
         request_mode=PROCESS_IMAGE_MODE_EXECUTION_REFINE,
         raw_candidate_count=raw_candidate_count,
-        duplicate_removed_count=duplicate_removed_count,
         in_range_candidate_count=len(in_range_centers),
         out_of_range_point_count=out_of_range_count,
         selected_count=0,

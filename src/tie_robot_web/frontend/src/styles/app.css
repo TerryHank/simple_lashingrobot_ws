@@ -199,6 +199,8 @@ a {
 }
 
 .bottom-linear-module-position {
+  position: relative;
+  isolation: isolate;
   display: grid;
   justify-items: center;
   gap: 4px;
@@ -211,8 +213,77 @@ a {
     rgba(12, 15, 18, 0.56);
   color: var(--text-secondary);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
   overflow-x: auto;
+}
+
+.bottom-linear-module-position > * {
+  position: relative;
+  z-index: 1;
+}
+
+.bottom-linear-module-position::before,
+.bottom-linear-module-position::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.bottom-linear-module-position::before {
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+.bottom-linear-module-position::after {
+  width: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+  transform: translateX(-100%);
+  mix-blend-mode: screen;
+}
+
+.bottom-linear-module-position:hover,
+.bottom-linear-module-position:focus-visible {
+  border-color: color-mix(in srgb, currentColor 34%, transparent);
+}
+
+.bottom-linear-module-position.is-long-press-charging {
+  border-color: color-mix(in srgb, currentColor 46%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent), 0 0 18px color-mix(in srgb, currentColor 16%, transparent);
+  overflow: hidden;
+}
+
+.bottom-linear-module-position.is-long-press-charging::before {
+  opacity: 0.24;
+  animation: status-charge-fill 0.5s linear forwards;
+}
+
+.bottom-linear-module-position.is-long-press-charging::after {
+  opacity: 1;
+  animation: status-charge-sweep 0.5s ease-out forwards;
+}
+
+.bottom-linear-module-position.is-long-press-complete {
+  border-color: color-mix(in srgb, currentColor 58%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 24%, transparent), 0 0 22px color-mix(in srgb, currentColor 24%, transparent);
+  overflow: hidden;
+}
+
+.bottom-linear-module-position.is-long-press-complete::before {
+  opacity: 0.3;
+  transform: scaleX(1);
+}
+
+.bottom-linear-module-position.is-long-press-complete::after {
+  opacity: 0.9;
+  animation: status-charge-complete-flash 240ms ease-out forwards;
 }
 
 .bottom-linear-module-position[data-state="live"] {
@@ -1031,10 +1102,12 @@ a {
 }
 
 .control-panel-content {
-  display: grid;
-  gap: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   position: relative;
-  align-content: start;
+  min-height: 0;
+  height: 100%;
 }
 
 .panel-content::-webkit-scrollbar {
@@ -2225,8 +2298,37 @@ a {
 }
 
 .control-button-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.control-task-section {
+  display: grid;
+  gap: 8px;
+}
+
+.control-task-section-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.control-panel-speed-settings {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+  padding: 12px;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(10, 132, 255, 0.1), rgba(246, 194, 91, 0.075)),
+    rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.control-panel-speed-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -2406,6 +2508,21 @@ a {
   font-weight: 800;
 }
 
+.cabin-remote-keyboard-step-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(112px, 0.75fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.cabin-remote-keyboard-field {
+  min-height: 42px;
+}
+
+.cabin-remote-step-field input {
+  min-height: 42px;
+}
+
 .tcp-linear-remote-pad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2483,7 +2600,7 @@ a {
   font-size: 11px;
   font-weight: 700;
   color: var(--text-secondary);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .control-action-btn {
@@ -3188,7 +3305,9 @@ a {
 }
 
 .quick-control-label {
-  white-space: nowrap;
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
 }
 
 .quick-control-light.is-active,
@@ -3229,6 +3348,7 @@ a {
 [data-theme="light"] .field input,
 [data-theme="light"] .field select,
 [data-theme="light"] .control-action-btn,
+[data-theme="light"] .control-panel-speed-settings,
 [data-theme="light"] .panel-action-btn {
   background: rgba(18, 26, 38, 0.04);
   border-color: rgba(18, 26, 38, 0.08);
@@ -3620,6 +3740,10 @@ a {
   }
 
   .control-button-grid {
+    gap: 12px;
+  }
+
+  .control-task-section-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -3636,6 +3760,10 @@ a {
 
 @media (max-width: 720px) {
   .control-button-grid {
+    gap: 12px;
+  }
+
+  .control-task-section-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

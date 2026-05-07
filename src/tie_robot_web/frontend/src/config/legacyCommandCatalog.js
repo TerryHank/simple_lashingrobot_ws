@@ -37,7 +37,7 @@ export const LEGACY_PARAMETER_LABELS = {
 export const LEGACY_COMMANDS = [
   { id: 10, name: "暂停作业", topic: TOPICS.control.interruptStop, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 11, name: "开启绑扎", topic: TOPICS.control.enableLashing, type: MESSAGE_TYPES.float32, group: "末端控制" },
-  { id: 12, name: "开启(关闭)跳绑", topic: TOPICS.control.sendOddPoints, type: MESSAGE_TYPES.bool, group: "末端控制" },
+  { id: 12, name: "开启(关闭)跳绑", topic: TOPICS.control.jumpBindEnabled, type: MESSAGE_TYPES.bool, group: "末端控制" },
   { id: 13, name: "恢复作业", topic: TOPICS.control.handSolveWarn, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 14, name: "开启(关闭)灯光", topic: TOPICS.control.light, type: MESSAGE_TYPES.bool, group: "末端控制" },
   { id: 15, name: "末端回零", topic: TOPICS.control.moduanMoveZero, type: MESSAGE_TYPES.float32, group: "末端控制" },
@@ -48,5 +48,6 @@ export const LEGACY_COMMANDS = [
   { id: 22, name: "修正TF外参", topic: TOPICS.tf.setCameraTcpExtrinsic, type: MESSAGE_TYPES.pose, group: "TF标定" },
   { id: 23, name: "设置索驱速度", topic: TOPICS.process.setCabinSpeed, type: MESSAGE_TYPES.float32, group: "流程控制" },
   { id: 24, name: "设置末端速度", topic: TOPICS.control.setModuanSpeed, type: MESSAGE_TYPES.float32, group: "末端控制" },
-  { id: 25, name: "恢复回起点", topic: TOPICS.control.handSolveWarn, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 25, name: "停止并回起点", topic: TOPICS.control.handSolveWarn, type: MESSAGE_TYPES.float32, group: "末端控制" },
+  { id: 26, name: "切换跳绑黑白棋", topic: TOPICS.control.jumpBindParity, type: MESSAGE_TYPES.int32, group: "末端控制" },
 ];

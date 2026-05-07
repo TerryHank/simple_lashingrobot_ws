@@ -1,7 +1,10 @@
 import { LEGACY_COMMANDS } from "../config/legacyCommandCatalog.js";
 import {
+  buildControlToggleState,
+  getCheckerboardParityLabel,
   getControlToggleDefinition,
   getInitialControlToggleStateMap,
+  normalizeCheckerboardParity,
 } from "../config/controlPanelCatalog.js";
 import { ROSLIB } from "../vendor/roslib.js";
 
@@ -100,6 +103,7 @@ export class LegacyCommandController {
     this.toggleStates = new Map(
       Object.entries(getInitialControlToggleStateMap()).map(([toggleId, state]) => [toggleId, state.value]),
     );
+    this.toggleSelectedParities = this.buildInitialSelectedParityMap();
   }
 
   reset() {
@@ -107,20 +111,32 @@ export class LegacyCommandController {
     this.toggleStates = new Map(
       Object.entries(getInitialControlToggleStateMap()).map(([toggleId, state]) => [toggleId, state.value]),
     );
+    this.toggleSelectedParities = this.buildInitialSelectedParityMap();
   }
 
   getToggleStateSnapshot() {
     return Object.entries(getInitialControlToggleStateMap()).reduce((accumulator, [toggleId, initialState]) => {
+      const definition = getControlToggleDefinition(toggleId);
       const active = this.toggleStates.has(toggleId)
         ? this.toggleStates.get(toggleId)
         : initialState.value;
-      accumulator[toggleId] = {
-        value: active,
-        label: active ? getControlToggleDefinition(toggleId)?.activeLabel : getControlToggleDefinition(toggleId)?.inactiveLabel,
-        tone: active ? getControlToggleDefinition(toggleId)?.activeTone : getControlToggleDefinition(toggleId)?.inactiveTone,
-      };
+      accumulator[toggleId] = buildControlToggleState(definition, active, {
+        selectedParity: this.getSelectedParity(toggleId, definition),
+      });
       return accumulator;
     }, {});
+  }
+
+  syncToggleState(toggleId, active) {
+    const definition = getControlToggleDefinition(toggleId);
+    if (!definition) {
+      return null;
+    }
+    const nextValue = Boolean(active);
+    this.toggleStates.set(toggleId, nextValue);
+    return buildControlToggleState(definition, nextValue, {
+      selectedParity: this.getSelectedParity(toggleId, definition),
+    });
   }
 
   handle(commandId, parameters) {
@@ -159,6 +175,10 @@ export class LegacyCommandController {
       return null;
     }
 
+    if (definition.singleClickAction === "cycleSelectedParity") {
+      return this.handleSelectedParityToggle(toggleId, definition, resources.ros);
+    }
+
     const currentValue = this.toggleStates.has(toggleId)
       ? this.toggleStates.get(toggleId)
       : Boolean(definition.initialValue);
@@ -175,12 +195,13 @@ export class LegacyCommandController {
     publisher.publish(new ROSLIB.Message(payload));
     this.toggleStates.set(toggleId, nextValue);
 
-    const label = nextValue ? definition.activeLabel : definition.inactiveLabel;
-    const tone = nextValue ? definition.activeTone : definition.inactiveTone;
+    const state = buildControlToggleState(definition, nextValue, {
+      selectedParity: this.getSelectedParity(toggleId, definition),
+    });
     const humanState = nextValue ? "已开启" : "已关闭";
-    this.callbacks.onResultMessage?.(`${label}，${humanState}`);
+    this.callbacks.onResultMessage?.(`${state.label}，${humanState}`);
     this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，状态=${humanState}`, "success");
-    return { value: nextValue, label, tone };
+    return state;
   }
 
   handleToggleLongPress(toggleId, parameters) {
@@ -219,18 +240,98 @@ export class LegacyCommandController {
     }
 
     const publisher = this.getOrCreatePublisher(resources.ros, command.topic, command.type);
+    if (definition.longPressTogglesState) {
+      const nextValue = !currentValue;
+      this.publishSelectedParityIfConfigured(resources.ros, toggleId, definition);
+      const payload = this.buildToggleMessagePayload(definition, command, nextValue, parameters);
+      publisher.publish(new ROSLIB.Message(payload));
+      this.toggleStates.set(toggleId, nextValue);
+
+      const state = buildControlToggleState(definition, nextValue, {
+        selectedParity: this.getSelectedParity(toggleId, definition),
+      });
+      const humanState = nextValue ? "已开启" : "已关闭";
+      this.callbacks.onResultMessage?.(`${state.label}，${humanState}`);
+      this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，状态=${humanState}`, "success");
+      return state;
+    }
+
     const payload = this.buildMessagePayload(command, parameters);
     publisher.publish(new ROSLIB.Message(payload));
 
     const nextValue = false;
     this.toggleStates.set(toggleId, nextValue);
-    const label = definition.inactiveLabel;
-    const tone = definition.inactiveTone;
+    const state = buildControlToggleState(definition, nextValue, {
+      selectedParity: this.getSelectedParity(toggleId, definition),
+    });
     this.callbacks.onResultMessage?.(
-      `${command.name}已下发，当前工作停止后，等待线性模组Z轴先归零，再让索驱回到执行起点`,
+      `${command.name}已下发，当前工作将停止，线性模组按Z优先回到(0,0,0)，索驱回到执行起点`,
     );
-    this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，状态=恢复回起点`, "success");
-    return { value: nextValue, label, tone };
+    this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，状态=停止并回起点`, "success");
+    return state;
+  }
+
+  handleSelectedParityToggle(toggleId, definition, ros) {
+    const command = LEGACY_COMMANDS.find((item) => item.id === definition.selectedParityCommandId);
+    if (!command) {
+      this.callbacks.onResultMessage?.(`开关 ${toggleId} 缺少跳绑黑白棋命令`);
+      this.callbacks.onLog?.(`开关 ${toggleId} 缺少跳绑黑白棋命令`, "error");
+      return null;
+    }
+
+    const currentParity = this.getSelectedParity(toggleId, definition);
+    const nextParity = currentParity === 0 ? 1 : 0;
+    this.publishMessage(ros, command, { data: nextParity });
+    this.toggleSelectedParities.set(toggleId, nextParity);
+
+    const active = this.toggleStates.has(toggleId)
+      ? this.toggleStates.get(toggleId)
+      : Boolean(definition.initialValue);
+    const state = buildControlToggleState(definition, active, { selectedParity: nextParity });
+    this.callbacks.onResultMessage?.(`跳绑已切换为只绑${getCheckerboardParityLabel(nextParity)}`);
+    this.callbacks.onLog?.(`已发送 ${command.name} -> ${command.topic}，parity=${nextParity}`, "success");
+    return state;
+  }
+
+  publishSelectedParityIfConfigured(ros, toggleId, definition) {
+    if (!definition.selectedParityCommandId) {
+      return;
+    }
+    const command = LEGACY_COMMANDS.find((item) => item.id === definition.selectedParityCommandId);
+    if (!command) {
+      return;
+    }
+    this.publishMessage(ros, command, {
+      data: this.getSelectedParity(toggleId, definition),
+    });
+  }
+
+  publishMessage(ros, command, payload) {
+    const publisher = this.getOrCreatePublisher(ros, command.topic, command.type);
+    publisher.publish(new ROSLIB.Message(payload));
+  }
+
+  buildInitialSelectedParityMap() {
+    const entries = Object.keys(getInitialControlToggleStateMap())
+      .map((toggleId) => {
+        const definition = getControlToggleDefinition(toggleId);
+        if (!definition?.selectedParityCommandId) {
+          return null;
+        }
+        return [toggleId, normalizeCheckerboardParity(definition.selectedParityInitialValue)];
+      })
+      .filter(Boolean);
+    return new Map(entries);
+  }
+
+  getSelectedParity(toggleId, definition = getControlToggleDefinition(toggleId)) {
+    if (!definition?.selectedParityCommandId) {
+      return undefined;
+    }
+    if (this.toggleSelectedParities.has(toggleId)) {
+      return this.toggleSelectedParities.get(toggleId);
+    }
+    return normalizeCheckerboardParity(definition.selectedParityInitialValue);
   }
 
   getOrCreatePublisher(ros, topicName, messageType) {
@@ -254,6 +355,9 @@ export class LegacyCommandController {
     }
     if (command.type === "geometry_msgs/Pose") {
       return buildPoseMessage(command, parameters);
+    }
+    if (command.type === "std_msgs/Int32") {
+      return { data: Number(parameters?.jumpBindParity) || 0 };
     }
     return {};
   }

@@ -19,6 +19,7 @@ import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js
 const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
 const AUTO_RECONNECT_DELAY_MS = 1500;
 const GRIPPER_TF_SERVICE_TIMEOUT_MS = 1500;
+const IMAGE_HOVER_WORLD_COORD_THROTTLE_MS = 1000;
 
 export class RosConnectionController {
   constructor(callbacks = {}) {
@@ -93,7 +94,9 @@ export class RosConnectionController {
       this.manualReconnectRequired = false;
       this.resources.workspaceQuadPublisher.advertise();
       this.resources.cabinSpeedPublisher.advertise();
+      this.resources.moduanSpeedPublisher.advertise();
       this.resources.stableFrameCountPublisher.advertise();
+      this.resources.scanBeamExclusionPublisher.advertise();
       this.resources.executionRefineTcpRoiPublisher.advertise();
       this.resources.linearModuleInterruptStopPublisher.advertise();
       this.bindSubscriptions();
@@ -184,6 +187,21 @@ export class RosConnectionController {
         name: TOPICS.process.setCabinSpeed,
         messageType: MESSAGE_TYPES.float32,
       }),
+      moduanSpeedPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.control.setModuanSpeed,
+        messageType: MESSAGE_TYPES.float32,
+      }),
+      manualAreaTakeoverPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.process.manualAreaTakeover,
+        messageType: MESSAGE_TYPES.bool,
+      }),
+      moduanMoveZeroPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.control.moduanMoveZero,
+        messageType: MESSAGE_TYPES.float32,
+      }),
       setGripperTfCalibrationService: new ROSLIB.Service({
         ros,
         name: SERVICES.tf.setGripperTfCalibration,
@@ -203,6 +221,11 @@ export class RosConnectionController {
         ros,
         name: TOPICS.algorithm.setStableFrameCount,
         messageType: MESSAGE_TYPES.int32,
+      }),
+      scanBeamExclusionPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setScanBeamExclusion,
+        messageType: MESSAGE_TYPES.bool,
       }),
       executionRefineTcpRoiPublisher: new ROSLIB.Topic({
         ros,
@@ -319,11 +342,6 @@ export class RosConnectionController {
         serverName: ACTIONS.cabin.startGlobalWork,
         actionName: ACTION_TYPES.cabin.startGlobalWork,
       }),
-      runDirectBindPathTestActionClient: new ROSLIB.ActionClient({
-        ros,
-        serverName: ACTIONS.cabin.runBindPathDirectTest,
-        actionName: ACTION_TYPES.cabin.runBindPathDirectTest,
-      }),
     };
   }
 
@@ -372,6 +390,36 @@ export class RosConnectionController {
     return {
       success: true,
       message: `已同步全局索驱速度：${sanitizedSpeed}`,
+      speed: sanitizedSpeed,
+    };
+  }
+
+  publishManualAreaTakeover() {
+    if (!this.ros?.isConnected || !this.resources?.manualAreaTakeoverPublisher) {
+      return { success: false, message: "ROS 未连接，无法发送人工切区接管信号。" };
+    }
+    this.resources.manualAreaTakeoverPublisher.publish(new ROSLIB.Message({ data: true }));
+    return { success: true, message: "人工切区接管信号已发送。" };
+  }
+
+  publishModuanMoveZero() {
+    if (!this.ros?.isConnected || !this.resources?.moduanMoveZeroPublisher) {
+      return { success: false, message: "ROS 未连接，无法发送线性模组回零信号。" };
+    }
+    this.resources.moduanMoveZeroPublisher.publish(new ROSLIB.Message({ data: 1 }));
+    return { success: true, message: "线性模组回零信号已发送。" };
+  }
+
+  publishLinearModuleSpeed(speed) {
+    if (!this.ros?.isConnected || !this.resources?.moduanSpeedPublisher) {
+      return { success: false, message: "ROS 未连接，无法同步全局线性模组速度。" };
+    }
+
+    const sanitizedSpeed = Number.isFinite(speed) && speed > 0 ? speed : 250;
+    this.resources.moduanSpeedPublisher.publish(new ROSLIB.Message({ data: sanitizedSpeed }));
+    return {
+      success: true,
+      message: `已同步全局线性模组速度：${sanitizedSpeed}`,
       speed: sanitizedSpeed,
     };
   }
@@ -703,6 +751,19 @@ export class RosConnectionController {
     };
   }
 
+  publishScanBeamExclusion(enabled) {
+    if (!this.ros?.isConnected || !this.resources?.scanBeamExclusionPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置梁筋过滤。" };
+    }
+    const enabledValue = Boolean(enabled);
+    this.resources.scanBeamExclusionPublisher.publish(new ROSLIB.Message({ data: enabledValue }));
+    return {
+      success: true,
+      enabled: enabledValue,
+      message: `扫描梁筋 ±13 cm 过滤已${enabledValue ? "启用" : "关闭"}。`,
+    };
+  }
+
   publishExecutionRefineTcpRoi(range) {
     if (!this.ros?.isConnected || !this.resources?.executionRefineTcpRoiPublisher) {
       return { success: false, message: "ROS 未连接，无法设置线性模组绑扎范围。" };
@@ -797,6 +858,7 @@ export class RosConnectionController {
       this.buildTopicFromRegistry("tf.static"),
       this.buildTopicFromRegistry("control.linearModuleState"),
       this.buildTopicFromRegistry("camera.irCameraInfo"),
+      this.buildTopicFromRegistry("process.areaProgress"),
     ];
 
     subscriptions[0].subscribe((message) => this.callbacks.onSavedWorkspacePayload?.(Array.from(message.data || [])));
@@ -811,6 +873,7 @@ export class RosConnectionController {
     subscriptions[9].subscribe((message) => this.callbacks.onTfMessage?.(message));
     subscriptions[10].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
     subscriptions[11].subscribe((message) => this.callbacks.onIrCameraInfo?.(message));
+    subscriptions[12].subscribe((message) => this.callbacks.onAreaProgress?.(message));
     this.fixedTopicSubscribers = subscriptions;
   }
 
@@ -973,7 +1036,7 @@ export class RosConnectionController {
     }
 
     const topic = this.buildTopic(getPointCloudTopicName("rawWorldCoord"), MESSAGE_TYPES.image, {
-      throttle_rate: 180,
+      throttle_rate: IMAGE_HOVER_WORLD_COORD_THROTTLE_MS,
       queue_length: 1,
     });
     topic.subscribe((message) => this.callbacks.onImageHoverWorldCoord?.(message));

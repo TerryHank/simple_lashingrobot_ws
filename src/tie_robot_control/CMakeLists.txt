@@ -58,7 +58,6 @@ set(MODUAN_NODE_LIBRARIES
   ${catkin_LIBRARIES}
   ${LIBMODBUS}
   modbus
-  tie_robot_hw_driver_core
 )
 
 add_executable(moduanNode

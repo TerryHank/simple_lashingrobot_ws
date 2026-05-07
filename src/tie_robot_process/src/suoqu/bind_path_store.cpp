@@ -57,35 +57,23 @@ bool write_pseudo_slam_points_json(
     std::string* error_message
 )
 {
+    (void)planning_checkerboard_info_by_idx;
+    (void)outlier_secondary_plane_global_indices;
+    (void)outlier_line_global_indices;
+    (void)outlier_column_neighbor_blocked_global_indices;
     nlohmann::json points_json;
     points_json["scan_session_id"] = scan_session_id;
     points_json["path_signature"] = path_signature;
     points_json["pseudo_slam_points"] = nlohmann::json::array();
     for (const auto& point : merged_points) {
         auto checkerboard_it = checkerboard_info_by_idx.find(point.idx);
-        auto planning_checkerboard_it = planning_checkerboard_info_by_idx.find(point.idx);
         const int global_row = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.global_row : -1;
         const int global_col = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.global_col : -1;
         const int checkerboard_parity = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.checkerboard_parity : -1;
+        const bool jump_bind = is_jump_bind_target_parity(checkerboard_parity);
+        const std::string checkerboard_color = checkerboard_color_from_parity(checkerboard_parity);
         const bool is_checkerboard_member =
             checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.is_checkerboard_member : false;
-        const int planning_global_row =
-            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ? planning_checkerboard_it->second.global_row : -1;
-        const int planning_global_col =
-            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ? planning_checkerboard_it->second.global_col : -1;
-        const int planning_checkerboard_parity =
-            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ? planning_checkerboard_it->second.checkerboard_parity : -1;
-        const bool is_planning_checkerboard_member =
-            planning_checkerboard_it != planning_checkerboard_info_by_idx.end() ?
-                planning_checkerboard_it->second.is_checkerboard_member :
-                false;
-        const bool is_planning_outlier = !is_planning_checkerboard_member;
-        const bool is_planning_outlier_line_member =
-            outlier_line_global_indices.count(point.idx) > 0;
-        const bool is_outlier_secondary_plane_member =
-            outlier_secondary_plane_global_indices.count(point.idx) > 0;
-        const bool is_outlier_column_neighbor_blocked =
-            outlier_column_neighbor_blocked_global_indices.count(point.idx) > 0;
         points_json["pseudo_slam_points"].push_back(
             {
                 {"idx", point.idx},
@@ -93,18 +81,15 @@ bool write_pseudo_slam_points_json(
                 {"global_row", global_row},
                 {"global_col", global_col},
                 {"checkerboard_parity", checkerboard_parity},
+                {"jump_bind", jump_bind},
+                {"checkerboard_color", checkerboard_color},
                 {"is_checkerboard_member", is_checkerboard_member},
-                {"planning_global_row", planning_global_row},
-                {"planning_global_col", planning_global_col},
-                {"planning_checkerboard_parity", planning_checkerboard_parity},
-                {"is_planning_checkerboard_member", is_planning_checkerboard_member},
-                {"is_planning_outlier", is_planning_outlier},
-                {"is_planning_outlier_line_member", is_planning_outlier_line_member},
-                {"is_outlier_secondary_plane_member", is_outlier_secondary_plane_member},
-                {"is_outlier_column_neighbor_blocked", is_outlier_column_neighbor_blocked},
                 {"x", point.World_coord[0]},
                 {"y", point.World_coord[1]},
                 {"z", point.World_coord[2]},
+                {"world_x", point.World_coord[0]},
+                {"world_y", point.World_coord[1]},
+                {"world_z", point.World_coord[2]},
                 {"angle", point.Angle},
             }
         );
@@ -165,6 +150,8 @@ bool write_pseudo_slam_bind_path_json(
                 const int global_row = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.global_row : -1;
                 const int global_col = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.global_col : -1;
                 const int checkerboard_parity = checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.checkerboard_parity : -1;
+                const bool jump_bind = is_jump_bind_target_parity(checkerboard_parity);
+                const std::string checkerboard_color = checkerboard_color_from_parity(checkerboard_parity);
                 const bool is_checkerboard_member =
                     checkerboard_it != checkerboard_info_by_idx.end() ? checkerboard_it->second.is_checkerboard_member : false;
                 nlohmann::json point_json = {
@@ -174,6 +161,8 @@ bool write_pseudo_slam_bind_path_json(
                     {"global_row", global_row},
                     {"global_col", global_col},
                     {"checkerboard_parity", checkerboard_parity},
+                    {"jump_bind", jump_bind},
+                    {"checkerboard_color", checkerboard_color},
                     {"is_checkerboard_member", is_checkerboard_member},
                     {"world_x", point.World_coord[0]},
                     {"world_y", point.World_coord[1]},

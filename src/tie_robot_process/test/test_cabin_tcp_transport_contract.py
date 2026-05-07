@@ -260,6 +260,143 @@ class CabinTcpTransportContractTest(unittest.TestCase):
         result = self.compile_and_run(source)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_driver_poll_state_serializes_heartbeat_through_transport(self):
+        source = textwrap.dedent(
+            r'''
+            #include "tie_robot_hw/driver/cabin_driver.hpp"
+
+            #include <arpa/inet.h>
+            #include <cmath>
+            #include <cstdint>
+            #include <cstring>
+            #include <iostream>
+            #include <memory>
+            #include <sys/socket.h>
+            #include <thread>
+            #include <unistd.h>
+            #include <vector>
+
+            using tie_robot_hw::driver::CabinDriver;
+            using tie_robot_hw::driver::CabinStateSnapshot;
+            using tie_robot_hw::driver::CabinTcpTransport;
+            using tie_robot_hw::driver::DriverError;
+
+            bool sendAll(int fd, const std::vector<uint8_t>& bytes)
+            {
+                std::size_t sent_total = 0;
+                while (sent_total < bytes.size()) {
+                    const ssize_t sent = ::send(fd, bytes.data() + sent_total, bytes.size() - sent_total, 0);
+                    if (sent <= 0) {
+                        return false;
+                    }
+                    sent_total += static_cast<std::size_t>(sent);
+                }
+                return true;
+            }
+
+            void writeFloatLE(std::vector<uint8_t>& bytes, std::size_t offset, float value)
+            {
+                uint32_t raw = 0;
+                std::memcpy(&raw, &value, sizeof(raw));
+                bytes[offset] = static_cast<uint8_t>(raw & 0xFF);
+                bytes[offset + 1] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+                bytes[offset + 2] = static_cast<uint8_t>((raw >> 16) & 0xFF);
+                bytes[offset + 3] = static_cast<uint8_t>((raw >> 24) & 0xFF);
+            }
+
+            uint16_t checksum(const std::vector<uint8_t>& frame, std::size_t payload_size)
+            {
+                uint16_t value = 0;
+                for (std::size_t index = 0; index < payload_size; ++index) {
+                    value = static_cast<uint16_t>(value + frame[index]);
+                }
+                return value;
+            }
+
+            int main()
+            {
+                const int listen_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+                if (listen_fd < 0) {
+                    return 1;
+                }
+                int reuse = 1;
+                ::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+                sockaddr_in addr;
+                std::memset(&addr, 0, sizeof(addr));
+                addr.sin_family = AF_INET;
+                addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                addr.sin_port = 0;
+                if (::bind(listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 ||
+                    ::listen(listen_fd, 1) != 0) {
+                    return 2;
+                }
+                socklen_t addr_len = sizeof(addr);
+                ::getsockname(listen_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len);
+                const uint16_t port = ntohs(addr.sin_port);
+
+                std::thread server([&]() {
+                    const int client_fd = ::accept(listen_fd, nullptr, nullptr);
+                    if (client_fd < 0) {
+                        return;
+                    }
+                    uint8_t request[14] = {0};
+                    const ssize_t got = ::recv(client_fd, request, sizeof(request), 0);
+                    if (got != 14 || request[0] != 0xEB || request[1] != 0x90 ||
+                        request[2] != 0x00 || request[3] != 0x01) {
+                        ::close(client_fd);
+                        return;
+                    }
+
+                    std::vector<uint8_t> response(144, 0x00);
+                    response[0] = 0xEB;
+                    response[1] = 0x90;
+                    writeFloatLE(response, 2, 10.0f);
+                    writeFloatLE(response, 6, 20.0f);
+                    writeFloatLE(response, 10, 30.0f);
+                    response[138] = static_cast<uint8_t>(1u << 3);
+                    const uint16_t response_checksum = checksum(response, 142);
+                    response[142] = static_cast<uint8_t>(response_checksum & 0xFF);
+                    response[143] = static_cast<uint8_t>((response_checksum >> 8) & 0xFF);
+                    sendAll(client_fd, response);
+                    ::close(client_fd);
+                });
+
+                auto transport = std::make_unique<CabinTcpTransport>("127.0.0.1", port, 2);
+                CabinDriver driver(std::move(transport));
+                CabinStateSnapshot snapshot;
+                DriverError error;
+                const bool ok = driver.pollState(5.0f, -6.0f, &snapshot, &error);
+                server.join();
+                ::close(listen_fd);
+
+                if (!ok) {
+                    std::cerr << "pollState failed: " << error.code << " " << error.detail << "\n";
+                    return 3;
+                }
+                if (std::fabs(snapshot.x_mm - 10.0f) > 0.001f ||
+                    std::fabs(snapshot.y_mm - 20.0f) > 0.001f ||
+                    std::fabs(snapshot.z_mm - 30.0f) > 0.001f) {
+                    std::cerr << "snapshot decode mismatch\n";
+                    return 4;
+                }
+                if (snapshot.motion_status != 1 || !snapshot.connected) {
+                    std::cerr << "snapshot state mismatch\n";
+                    return 5;
+                }
+
+                const CabinStateSnapshot cached = driver.readState();
+                if (std::fabs(cached.x_mm - 10.0f) > 0.001f || cached.motion_status != 1 || !cached.connected) {
+                    std::cerr << "driver cached state mismatch\n";
+                    return 6;
+                }
+                return 0;
+            }
+            '''
+        )
+        result = self.compile_and_run(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_driver_protocol_reject_detail_includes_request_frame(self):
         source = textwrap.dedent(
             r'''

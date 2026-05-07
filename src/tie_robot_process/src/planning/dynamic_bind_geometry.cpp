@@ -6,6 +6,18 @@
 namespace tie_robot_process {
 namespace planning {
 namespace internal {
+namespace {
+
+tf2::Vector3 build_linear_workspace_center_in_gripper_frame(
+    const DynamicBindPlannerConfig& config)
+{
+    return tf2::Vector3(
+        static_cast<double>(config.tcp_max_x_mm) * 0.5 / 1000.0,
+        static_cast<double>(config.tcp_max_y_mm) * 0.5 / 1000.0,
+        static_cast<double>(config.tcp_max_z_mm) * 0.5 / 1000.0);
+}
+
+}  // namespace
 
 float clamp_bind_execution_cabin_z(float planned_cabin_z, const DynamicBindPlannerConfig& config)
 {
@@ -123,10 +135,8 @@ DynamicBindPlanningCandidatePose build_dynamic_bind_candidate_pose_from_world_po
     average_world_y /= static_cast<double>(seed_world_points.size());
     average_world_z /= static_cast<double>(seed_world_points.size());
 
-    const tf2::Vector3 desired_point_in_gripper_frame(
-        static_cast<double>(config.template_center_x_mm) / 1000.0,
-        static_cast<double>(config.template_center_y_mm) / 1000.0,
-        static_cast<double>(config.template_center_z_mm) / 1000.0);
+    const tf2::Vector3 desired_point_in_gripper_frame =
+        build_linear_workspace_center_in_gripper_frame(config);
     const tf2::Vector3 desired_point_in_base_link =
         gripper_from_base_link.inverse() * desired_point_in_gripper_frame;
 

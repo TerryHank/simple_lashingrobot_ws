@@ -139,11 +139,22 @@ class SinglePointBindChainTest(unittest.TestCase):
         self.assertIn("Set_Module_Coordinate(WX_COORDINATE", direct_move_body)
         self.assertIn("Set_Module_Coordinate(WY_COORDINATE", direct_move_body)
         self.assertIn("Set_Module_Coordinate(WZ_COORDINATE", direct_move_body)
+        self.assertIn("trigger_linear_module_motion_execution(\"X/Y轴\"", direct_move_body)
+        self.assertIn("trigger_linear_module_motion_execution(\"Z轴\"", direct_move_body)
         self.assertIn("wait_linear_module_axis_arrival(AXIS_X", direct_move_body)
         self.assertIn("线性模组当前处于软件错误状态", direct_move_body)
         error_guard_index = direct_move_body.index("error_detected.load")
         first_move_index = direct_move_body.index("Set_Module_Coordinate(WX_COORDINATE")
+        xy_trigger_index = direct_move_body.index('trigger_linear_module_motion_execution("X/Y轴"')
+        xy_wait_index = direct_move_body.index("wait_linear_module_axis_arrival(AXIS_X")
+        z_write_index = direct_move_body.index("Set_Module_Coordinate(WZ_COORDINATE")
+        z_trigger_index = direct_move_body.index('trigger_linear_module_motion_execution("Z轴"')
+        z_wait_index = direct_move_body.index("wait_linear_module_axis_arrival(AXIS_Z")
         self.assertLess(error_guard_index, first_move_index)
+        self.assertLess(first_move_index, xy_trigger_index)
+        self.assertLess(xy_trigger_index, xy_wait_index)
+        self.assertLess(z_write_index, z_trigger_index)
+        self.assertLess(z_trigger_index, z_wait_index)
         self.assertNotIn("waiting on current target pt", direct_move_body)
         self.assertNotIn("while (is_error)", direct_move_body)
         self.assertNotIn("execute_bind_points(", direct_move_body)
@@ -194,6 +205,106 @@ class SinglePointBindChainTest(unittest.TestCase):
         service_body = callbacks[service_start:service_end]
         self.assertIn("move_linear_module_to_origin()", service_body)
         self.assertIn('"/moduan/return_zero_ordered"', callbacks)
+
+    def test_direct_moduan_zero_uses_legacy_plc_zero_request_without_waiting(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+        executor_header = (
+            CONTROL_DIR / "include" / "tie_robot_control" / "moduan" / "linear_module_executor.hpp"
+        ).read_text(encoding="utf-8")
+
+        callback_start = callbacks.index("void moduan_move_zero_callback(")
+        callback_end = callbacks.index("\nbool moduan_move_service(", callback_start)
+        callback_body = callbacks[callback_start:callback_end]
+        self.assertIn("request_legacy_moduan_zero(", callback_body)
+        helper_start = callbacks.index("void request_legacy_moduan_zero(")
+        helper_end = callbacks.index("\n}\n\nvoid request_moduan_zero", helper_start) + 3
+        helper_body = callbacks[helper_start:helper_end]
+        enable_index = helper_body.index("PLC_Order_Write(EN_DISABLE, 1")
+        zero_index = helper_body.index("PLC_Order_Write(IS_ZERO, 1")
+        self.assertLess(enable_index, zero_index)
+        self.assertNotIn("request_linear_module_zero_via_driver", callback_body)
+        self.assertNotIn("move_linear_module_to_origin()", callback_body)
+        self.assertNotIn("wait_linear_module_axis_arrival", callback_body)
+        self.assertNotIn("request_linear_module_zero_via_driver", executor)
+        self.assertNotIn("request_linear_module_zero_via_driver", executor_header)
+
+    def test_legacy_moduan_zero_request_is_shared_and_releases_pause_state(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        helper_start = callbacks.index("void request_legacy_moduan_zero(")
+        helper_end = callbacks.index("\n}\n\nvoid request_moduan_zero", helper_start) + 3
+        helper_body = callbacks[helper_start:helper_end]
+        self.assertIn("moduan_return_zero_ordered_requested.store(false", helper_body)
+        self.assertIn("handle_pause_interrupt = false;", helper_body)
+        stop_index = helper_body.index("PLC_Order_Write(IS_STOP, 0")
+        finish_index = helper_body.index("PLC_Order_Write(FINISHALL, 0")
+        enable_index = helper_body.index("PLC_Order_Write(EN_DISABLE, 1")
+        zero_index = helper_body.index("PLC_Order_Write(IS_ZERO, 1")
+        self.assertLess(stop_index, enable_index)
+        self.assertLess(finish_index, enable_index)
+        self.assertLess(enable_index, zero_index)
+        self.assertNotIn("request_linear_module_zero_via_driver", helper_body)
+        self.assertNotIn("move_linear_module_to_origin()", helper_body)
+        self.assertNotIn("wait_linear_module_axis_arrival", helper_body)
+
+        for signature in (
+            "void request_moduan_zero(",
+            "void moduan_move_zero_forthread(",
+            "void moduan_move_zero_callback(",
+        ):
+            with self.subTest(signature=signature):
+                body_start = callbacks.index(signature)
+                if signature == "void request_moduan_zero(":
+                    body_end = callbacks.index("\nbool return_zero_ordered_service", body_start)
+                elif signature == "void moduan_move_zero_forthread(":
+                    body_end = callbacks.index("\nvoid moduan_move_zero_callback", body_start)
+                else:
+                    body_end = callbacks.index("\nbool moduan_move_service", body_start)
+                body = callbacks[body_start:body_end]
+                self.assertIn("request_legacy_moduan_zero(", body)
+
+    def test_linear_module_speed_setting_is_global_and_not_overridden_by_fast_service(self):
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("void apply_module_speed_mm_per_sec(double new_speed)", executor)
+        apply_start = executor.index("void apply_module_speed_mm_per_sec(double new_speed)")
+        apply_end = executor.index("\nstd::string compose_linear_module_driver_error_message", apply_start)
+        apply_body = executor[apply_start:apply_end]
+        self.assertIn("module_speed = new_speed;", apply_body)
+        self.assertIn("Set_Module_Speed(WX_SPEED, &module_speed, plc);", apply_body)
+        self.assertIn("Set_Module_Speed(WY_SPEED, &module_speed, plc);", apply_body)
+        self.assertIn("Set_Module_Speed(WZ_SPEED, &module_speed, plc);", apply_body)
+
+        speed_callback_start = callbacks.index("void change_speed_callback(")
+        speed_callback_end = callbacks.index("\nvoid handSolveWarnCallback", speed_callback_start)
+        speed_callback_body = callbacks[speed_callback_start:speed_callback_end]
+        self.assertIn("apply_module_speed_mm_per_sec(static_cast<double>(debug_mes.data));", speed_callback_body)
+        self.assertIn('nh_.subscribe("/web/moduan/set_moduan_speed"', callbacks)
+
+        init_start = callbacks.index("void initPLC()")
+        init_end = callbacks.index("\nvoid auto_zero_on_startup", init_start)
+        init_body = callbacks[init_start:init_end]
+        self.assertIn("Set_Module_Speed(WX_SPEED, &module_speed, plc);", init_body)
+        self.assertIn("Set_Module_Speed(WY_SPEED, &module_speed, plc);", init_body)
+        self.assertIn("Set_Module_Speed(WZ_SPEED, &module_speed, plc);", init_body)
+
+        fast_start = callbacks.index("bool moduan_bind_points_fast_service(")
+        fast_end = callbacks.index("\nvoid forced_stop_nodeCallback", fast_start)
+        fast_body = callbacks[fast_start:fast_end]
+        self.assertNotIn("ScopedModuleSpeedOverride", fast_body)
+        self.assertNotIn("kPrecomputedFastModuleSpeedMmPerSec", fast_body)
 
     def test_short_pause_waits_and_return_to_start_aborts_finishall_wait(self):
         executor = (

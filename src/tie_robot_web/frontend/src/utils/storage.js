@@ -19,6 +19,7 @@ export const THEME_PREFERENCE_KEY = "tie_robot_frontend_theme";
 export const SETTINGS_HOME_PAGE_KEY = "tie_robot_frontend_settings_home_page";
 export const SETTINGS_PAGE_ORDER_KEY = "tie_robot_frontend_settings_page_order";
 export const CABIN_REMOTE_SETTINGS_KEY = "tie_robot_frontend_cabin_remote_settings";
+export const TCP_LINEAR_REMOTE_SETTINGS_KEY = "tie_robot_frontend_tcp_linear_remote_settings";
 export const NETWORK_PING_SETTINGS_KEY = "tie_robot_frontend_network_ping_settings";
 export const RECOGNITION_POSE_KEY = "tie_robot_frontend_recognition_pose";
 export const VISUAL_DEBUG_SETTINGS_KEY = "tie_robot_frontend_visual_debug_settings";
@@ -237,6 +238,38 @@ export function saveCabinRemoteSettings(value) {
   }
 }
 
+export function loadTcpLinearRemoteSettings() {
+  const defaults = { step: 5, angleStep: 5, speed: 250 };
+  try {
+    const raw = localStorage.getItem(TCP_LINEAR_REMOTE_SETTINGS_KEY);
+    if (!raw) {
+      return defaults;
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      step: normalizePositiveNumber(parsed?.step, defaults.step),
+      angleStep: normalizePositiveNumber(parsed?.angleStep, defaults.angleStep),
+      speed: normalizePositiveNumber(parsed?.speed, defaults.speed),
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveTcpLinearRemoteSettings(value) {
+  const defaults = { step: 5, angleStep: 5, speed: 250 };
+  const payload = {
+    step: normalizePositiveNumber(value?.step, defaults.step),
+    angleStep: normalizePositiveNumber(value?.angleStep, defaults.angleStep),
+    speed: normalizePositiveNumber(value?.speed, defaults.speed),
+  };
+  try {
+    localStorage.setItem(TCP_LINEAR_REMOTE_SETTINGS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function normalizePingHost(value, fallback) {
   const normalized = String(value ?? "").trim();
   return normalized || fallback;
@@ -302,6 +335,7 @@ export function loadVisualDebugSettings() {
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: DEFAULT_GLOBAL_EXECUTION_MODE,
     bindGroupPointCount: 4,
+    enableBeamExclusion: false,
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(),
   };
   try {
@@ -315,6 +349,7 @@ export function loadVisualDebugSettings() {
       requestMode: defaults.requestMode,
       executionMode: normalizeGlobalExecutionMode(parsed?.executionMode, defaults.executionMode),
       bindGroupPointCount: normalizeBindGroupPointCount(parsed?.bindGroupPointCount, defaults.bindGroupPointCount),
+      enableBeamExclusion: normalizeBoolean(parsed?.enableBeamExclusion, defaults.enableBeamExclusion),
       linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(parsed?.linearModuleBindRangeMm, defaults.linearModuleBindRangeMm),
     };
   } catch {
@@ -328,6 +363,7 @@ export function saveVisualDebugSettings(value) {
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: normalizeGlobalExecutionMode(value?.executionMode),
     bindGroupPointCount: normalizeBindGroupPointCount(value?.bindGroupPointCount),
+    enableBeamExclusion: normalizeBoolean(value?.enableBeamExclusion, false),
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(value?.linearModuleBindRangeMm),
   };
   try {

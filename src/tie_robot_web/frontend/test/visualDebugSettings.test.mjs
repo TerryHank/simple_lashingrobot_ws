@@ -125,6 +125,7 @@ assert.equal(SERVICES.algorithm.processImage, "/pointAI/process_image");
 assert.equal(SERVICE_TYPES.algorithm.processImage, "tie_robot_msgs/ProcessImage");
 assert.equal(TOPICS.algorithm.setStableFrameCount, "/web/pointAI/set_stable_frame_count");
 assert.equal(TOPICS.algorithm.setExecutionRefineTcpRoi, "/web/pointAI/set_execution_refine_tcp_roi");
+assert.equal(TOPICS.algorithm.setScanBeamExclusion, "/web/pointAI/set_scan_beam_exclusion");
 
 const controller = new RosConnectionController();
 controller.ros = new FakeRos();
@@ -145,6 +146,10 @@ assert.deepEqual(
   [20, 150, 25, 225, 5, 45],
 );
 
+const beamExclusionResult = controller.publishScanBeamExclusion(true);
+assert.equal(beamExclusionResult.success, true);
+assert.equal(controller.resources.scanBeamExclusionPublisher.published.at(-1).data, true);
+
 localStorage.clear();
 assert.deepEqual(loadVisualDebugSettings().linearModuleBindRangeMm, {
   x: { min: 0, max: 380 },
@@ -152,12 +157,14 @@ assert.deepEqual(loadVisualDebugSettings().linearModuleBindRangeMm, {
   z: { min: 0, max: 160 },
 });
 assert.equal(loadVisualDebugSettings().bindGroupPointCount, 4);
+assert.equal(loadVisualDebugSettings().enableBeamExclusion, false);
 assert.equal(loadVisualDebugSettings().executionMode, GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE);
 
 localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify({
   stableFrameCount: 5,
   executionMode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
   bindGroupPointCount: 6,
+  enableBeamExclusion: true,
   linearModuleBindRangeMm: {
     x: { min: 30, max: 180 },
     y: { min: 40, max: 280 },
@@ -169,6 +176,7 @@ assert.deepEqual(loadVisualDebugSettings(), {
   requestMode: 3,
   executionMode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
   bindGroupPointCount: 6,
+  enableBeamExclusion: true,
   linearModuleBindRangeMm: {
     x: { min: 30, max: 180 },
     y: { min: 40, max: 280 },
@@ -180,6 +188,7 @@ saveVisualDebugSettings({
   stableFrameCount: 2,
   executionMode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
   bindGroupPointCount: 9,
+  enableBeamExclusion: true,
   linearModuleBindRangeMm: {
     x: { min: 150, max: 20 },
     y: { min: 25, max: 225 },
@@ -191,6 +200,7 @@ assert.deepEqual(JSON.parse(localStorage.getItem(VISUAL_DEBUG_SETTINGS_KEY)), {
   requestMode: 3,
   executionMode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
   bindGroupPointCount: 9,
+  enableBeamExclusion: true,
   linearModuleBindRangeMm: {
     x: { min: 20, max: 150 },
     y: { min: 25, max: 225 },
@@ -211,6 +221,8 @@ assert.match(uiControllerText, /id="visualDebugTrigger"/);
 assert.match(uiControllerText, /id="visualDebugStableFrameCount"/);
 assert.match(uiControllerText, /id="visualDebugBindGroupPointCount"/);
 assert.match(uiControllerText, /每组点数/);
+assert.match(uiControllerText, /id="visualDebugBeamExclusionToggle"/);
+assert.match(uiControllerText, /梁筋 ±13 cm 过滤/);
 assert.match(uiControllerText, /id="visualDebugBindRangeXMin"/);
 assert.match(uiControllerText, /id="visualDebugBindRangeXMax"/);
 assert.match(uiControllerText, /id="visualDebugBindRangeYMin"/);
@@ -222,6 +234,7 @@ assert.match(uiControllerText, /账本\+微调/);
 assert.match(uiControllerText, /规划路径\+纯微调/);
 assert.match(uiControllerText, /id="visualDebugTimingSummary"/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugRequestMode"/);
+assert.doesNotMatch(uiControllerText, /visualDebugApplyStableFrameCount|应用帧数/);
 assert.doesNotMatch(uiControllerText, /TCP z=0 x0-380 y0-330/);
 assert.doesNotMatch(uiControllerText, /tcp工具坐标系下x[:：]0~380/);
 
@@ -238,9 +251,21 @@ assert.doesNotMatch(visualDebugPageMarkup, /visual-debug-log-card/);
 assert.doesNotMatch(visualDebugPageMarkup, /视觉调试日志|暂无视觉调试记录/);
 
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS/);
-for (const actionId of ["runSavedS2", "executionVisionOnly", "triggerSingleBind", "scanPlan", "startExecution", "startExecutionKeepMemory"]) {
+assert.match(appText, /applyVisualDebugBeamExclusionSettings/);
+const visualDebugSettingsChangeStart = appText.indexOf("this.ui.onVisualDebugSettingsChange((settings) => {");
+const visualDebugSettingsChangeEnd = appText.indexOf("this.ui.onVisualDebugTrigger", visualDebugSettingsChangeStart);
+assert.notEqual(visualDebugSettingsChangeStart, -1);
+assert.notEqual(visualDebugSettingsChangeEnd, -1);
+const visualDebugSettingsChangeBlock = appText.slice(
+  visualDebugSettingsChangeStart,
+  visualDebugSettingsChangeEnd,
+);
+assert.match(visualDebugSettingsChangeBlock, /this\.applyVisualDebugStableFrameCount\(\{ suppressLog: true \}\)/);
+assert.doesNotMatch(appText, /onVisualDebugApplyStableFrameCount/);
+for (const actionId of ["runSavedS2", "executionVisionOnly", "triggerSingleBind", "startExecution", "startExecutionKeepMemory"]) {
   assert.match(appText, new RegExp(`"${actionId}"`));
 }
+assert.doesNotMatch(appText, /"scanPlan"/);
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS\.has\(taskAction\)/);
 assert.match(appText, /this\.applyVisualDebugStableFrameCount\(\{ suppressLog: true \}\)/);
 assert.match(appText, /bindGroupPointCount/);

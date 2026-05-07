@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import * as THREE from "three";
+import { RosConnectionController } from "../src/controllers/RosConnectionController.js";
 import { sampleFloat32XYZImagePixel } from "../src/utils/irImageUtils.js";
 import { Scene3DView } from "../src/views/Scene3DView.js";
 
@@ -61,3 +62,16 @@ assert.deepEqual(
   sceneView.convertScepterPointMmToFrameMm({ x: 100, y: 0, z: 1000 }, "Scepter_depth_frame"),
   { x: 100, y: 0, z: 1000 },
 );
+
+const hoverRosController = new RosConnectionController();
+hoverRosController.ros = { isConnected: true };
+let hoverTopicOptions = null;
+hoverRosController.buildTopic = (_name, _type, options) => {
+  hoverTopicOptions = options;
+  return {
+    subscribe() {},
+    unsubscribe() {},
+  };
+};
+hoverRosController.updateImageHoverCoordinateSubscription({ enabled: true });
+assert.equal(hoverTopicOptions.throttle_rate, 1000);

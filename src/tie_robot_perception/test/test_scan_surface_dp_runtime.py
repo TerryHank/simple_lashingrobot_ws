@@ -118,6 +118,96 @@ def _build_synthetic_rectified_grid_with_lines(width, height, vertical_lines, ho
     }
 
 
+def _build_synthetic_rectified_grid_with_beam_band(
+    raised_beam=True,
+    raised_start=172,
+    raised_end=181,
+    beam_lift_mm=44.0,
+    normal_rebar_drop_mm=18.0,
+):
+    width = 496
+    height = 517
+    vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+    horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
+    ridge_signal = np.zeros((height, width), dtype=np.float32)
+    _draw_axis_line(ridge_signal, "x", vertical_lines)
+    _draw_axis_line(ridge_signal, "y", horizontal_lines)
+    _draw_axis_line(ridge_signal, "x", [170.0, 182.0], sigma_px=3.2, amplitude=1.8)
+    ridge_signal = np.clip(ridge_signal, 0.0, 1.0).astype(np.float32)
+
+    valid_mask = np.ones((height, width), dtype=bool)
+    rectified_depth = (1000.0 - (float(normal_rebar_drop_mm) * ridge_signal)).astype(np.float32)
+    if raised_beam:
+        rectified_depth[:, int(raised_start):int(raised_end)] -= float(beam_lift_mm)
+    rectified_ir = (185.0 - (90.0 * ridge_signal)).astype(np.float32)
+    identity_h = np.eye(3, dtype=np.float32)
+    return {
+        "rectified_depth": rectified_depth,
+        "filled_depth": rectified_depth.copy(),
+        "rectified_ir": rectified_ir,
+        "rectified_valid": valid_mask,
+        "response": ridge_signal,
+        "response_source": "synthetic",
+        "rectified_geometry": {
+            "rectified_width": width,
+            "rectified_height": height,
+            "inverse_h": identity_h,
+            "resolution_mm_per_px": 5.0,
+        },
+    }
+
+
+def _build_synthetic_rectified_grid_with_raised_regular_column():
+    width = 496
+    height = 517
+    vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+    horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
+    ridge_signal = np.zeros((height, width), dtype=np.float32)
+    _draw_axis_line(ridge_signal, "x", vertical_lines)
+    _draw_axis_line(ridge_signal, "y", horizontal_lines)
+    _draw_axis_line(ridge_signal, "x", [190.0], sigma_px=3.2, amplitude=1.8)
+    ridge_signal = np.clip(ridge_signal, 0.0, 1.0).astype(np.float32)
+
+    valid_mask = np.ones((height, width), dtype=bool)
+    rectified_depth = (1000.0 - (34.0 * ridge_signal)).astype(np.float32)
+    rectified_depth[:, 187:194] -= 80.0
+    rectified_ir = (185.0 - (90.0 * ridge_signal)).astype(np.float32)
+    identity_h = np.eye(3, dtype=np.float32)
+    return {
+        "rectified_depth": rectified_depth,
+        "filled_depth": rectified_depth.copy(),
+        "rectified_ir": rectified_ir,
+        "rectified_valid": valid_mask,
+        "response": ridge_signal,
+        "response_source": "synthetic",
+        "rectified_geometry": {
+            "rectified_width": width,
+            "rectified_height": height,
+            "inverse_h": identity_h,
+            "resolution_mm_per_px": 5.0,
+        },
+    }
+
+
+def _build_synthetic_beam_dark_gutter_response(raised_beam=True):
+    width = 320
+    height = 260
+    vertical_lines = [30.0, 58.0, 86.0, 180.0, 208.0, 236.0, 264.0, 292.0]
+    horizontal_lines = [28.0, 56.0, 84.0, 112.0, 140.0, 168.0, 196.0, 224.0, 252.0]
+    response = np.zeros((height, width), dtype=np.float32)
+    _draw_axis_line(response, "x", vertical_lines, sigma_px=1.2, amplitude=1.0)
+    _draw_axis_line(response, "y", horizontal_lines, sigma_px=1.2, amplitude=1.0)
+    response[:, 108:151] = 0.0
+    _draw_axis_line(response, "x", [112.0, 146.0], sigma_px=1.2, amplitude=1.6)
+    response = np.clip(response, 0.0, 1.0).astype(np.float32)
+    valid_mask = np.ones((height, width), dtype=bool)
+    binary_candidate = response > 0.35
+    height_response = (0.42 * binary_candidate.astype(np.float32)).astype(np.float32)
+    if raised_beam:
+        height_response[:, 124:135] = 0.95
+    return response, binary_candidate, valid_mask, height_response
+
+
 class ScanSurfaceDpRuntimeTest(unittest.TestCase):
     def test_surface_dp_outputs_curve_intersections_on_synthetic_grid(self):
         from tie_robot_perception.pointai import scan_surface_dp
@@ -303,13 +393,179 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
             ["full_workspace", "full_workspace"],
         )
 
+    def test_surface_dp_reports_wide_beam_candidate_bands_without_filtering_points(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_beam_band(),
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [16, 16])
+        self.assertEqual(len(result["rectified_intersections"]), 256)
+        self.assertGreaterEqual(result["diagnostics"]["beam_candidate_count"], 1)
+        beam_bands = result["beam_candidate_bands"]
+        beam_band = next(
+            band
+            for band in beam_bands
+            if band.get("axis") == "x" and int(band["start"]) <= 176 <= int(band["end"])
+        )
+        self.assertLessEqual(int(beam_band["width"]), 24)
+        self.assertGreater(float(beam_band["height_delta"]), 0.05)
+
+    def test_surface_dp_rejects_beam_like_band_unless_column_is_higher_than_surrounding_rebar(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_beam_band(raised_beam=False),
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [16, 16])
+        self.assertEqual(result["diagnostics"]["beam_candidate_count"], 0)
+
+    def test_surface_dp_accepts_thin_raised_beam_column_after_height_gate(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_beam_band(
+                raised_start=174,
+                raised_end=180,
+                beam_lift_mm=80.0,
+            ),
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertGreaterEqual(result["diagnostics"]["beam_candidate_count"], 1)
+        self.assertTrue(
+            any(
+                int(band["start"]) <= 176 <= int(band["end"])
+                and int(band["width"]) <= 8
+                for band in result["beam_candidate_bands"]
+            ),
+            result["beam_candidate_bands"],
+        )
+
+    def test_surface_dp_rejects_raised_regular_grid_column_as_beam_candidate(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_raised_regular_column(),
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [16, 16])
+        self.assertEqual(result["diagnostics"]["beam_candidate_count"], 0)
+
+    def test_surface_dp_detects_dark_gutter_beam_between_two_narrow_bright_edges(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        response, binary_candidate, valid_mask, height_response = _build_synthetic_beam_dark_gutter_response()
+
+        beam_bands = scan_surface_dp.detect_beam_candidate_bands(
+            response,
+            binary_candidate,
+            valid_mask,
+            height_response=height_response,
+        )
+
+        self.assertTrue(
+            any(
+                band.get("axis") == "x"
+                and int(band["start"]) <= 129 <= int(band["end"])
+                and int(band["width"]) < int(band["original_width"])
+                and band.get("type") == "beam_candidate"
+                for band in beam_bands
+            ),
+            beam_bands,
+        )
+
+    def test_surface_dp_rejects_dark_gutter_band_without_height_lift(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        response, binary_candidate, valid_mask, height_response = _build_synthetic_beam_dark_gutter_response(
+            raised_beam=False,
+        )
+
+        beam_bands = scan_surface_dp.detect_beam_candidate_bands(
+            response,
+            binary_candidate,
+            valid_mask,
+            height_response=height_response,
+        )
+
+        self.assertEqual(beam_bands, [])
+
+    def test_surface_dp_keeps_final_points_outside_beam_candidate_thirteen_centimeter_margin(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_beam_band(),
+            threshold_percentile=78.0,
+            enable_beam_exclusion=True,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [16, 16])
+        self.assertLess(len(result["rectified_intersections"]), 256)
+        self.assertEqual(result["diagnostics"]["beam_exclusion_enabled"], True)
+        self.assertEqual(result["diagnostics"]["beam_exclusion_margin_mm"], 130.0)
+        self.assertGreater(result["diagnostics"]["beam_candidate_13cm_pixels"], 0)
+        beam_margin_mask = np.asarray(result["beam_candidate_13cm_mask"], dtype=bool)
+        final_points_inside_beam_mask = 0
+        for point in result.get("rectified_intersections", []):
+            x_index = int(round(float(point[0])))
+            y_index = int(round(float(point[1])))
+            if x_index < 0 or y_index < 0:
+                continue
+            if y_index >= beam_margin_mask.shape[0] or x_index >= beam_margin_mask.shape[1]:
+                continue
+            if beam_margin_mask[y_index, x_index]:
+                final_points_inside_beam_mask += 1
+        self.assertEqual(final_points_inside_beam_mask, 0)
+
+    def test_surface_dp_beam_exclusion_keeps_curve_tracing_outside_beam_margin_mask(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_beam_band(),
+            threshold_percentile=78.0,
+            enable_beam_exclusion=True,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        beam_margin_mask = np.asarray(result["beam_candidate_13cm_mask"], dtype=bool)
+        traced_points_inside_beam_mask = 0
+        traced_points_sampled = 0
+        for family in result.get("curved_families", []):
+            for curved_line in family.get("curved_lines", []):
+                for point in curved_line.get("polyline_points", []):
+                    x_index = int(round(float(point[0])))
+                    y_index = int(round(float(point[1])))
+                    if x_index < 0 or y_index < 0:
+                        continue
+                    if y_index >= beam_margin_mask.shape[0] or x_index >= beam_margin_mask.shape[1]:
+                        continue
+                    traced_points_sampled += 1
+                    if beam_margin_mask[y_index, x_index]:
+                        traced_points_inside_beam_mask += 1
+
+        self.assertGreater(traced_points_sampled, 0)
+        self.assertEqual(traced_points_inside_beam_mask, 0)
+
     def test_surface_dp_debug_base_images_overlay_rectified_intersections(self):
         publish_source = _function_source(MANUAL_WORKSPACE_S2_PATH, "publish_scan_surface_dp_base_images")
         debug_source = _function_source(MANUAL_WORKSPACE_S2_PATH, "publish_scan_surface_dp_debug_image")
         manual_workspace_text = MANUAL_WORKSPACE_S2_PATH.read_text(encoding="utf-8")
 
         self.assertIn("draw_scan_surface_dp_debug_points", manual_workspace_text)
+        self.assertIn("draw_scan_surface_dp_debug_beam_bands", manual_workspace_text)
         self.assertIn('overlay_points=surface_result.get("rectified_intersections", [])', publish_source)
+        self.assertIn('overlay_beam_bands=surface_result.get("beam_candidate_bands", [])', publish_source)
         self.assertIn('"scan_surface_dp_completed_surface_image_pub"', publish_source)
         self.assertIn('encoding = "bgr8" if rendered_image.ndim == 3 else "mono8"', debug_source)
 

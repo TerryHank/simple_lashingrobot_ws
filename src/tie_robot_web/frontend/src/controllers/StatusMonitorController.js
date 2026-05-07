@@ -54,6 +54,29 @@ function isAlarmValue(value) {
   return Number.isFinite(numeric) && numeric !== 0;
 }
 
+function normalizeOptionalBoolean(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value !== 0 : null;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (["true", "yes", "on", "1"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "no", "off", "0"].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
 function collectAlarmLabelsFromObject(source, valueLabels) {
   return uniqueLabels(valueLabels
     .filter(([key]) => isAlarmValue(source?.[key]))
@@ -206,6 +229,10 @@ export class StatusMonitorController {
       this.callbacks.onBatteryVoltage?.(voltage);
       if (this.lastValues.get("robot_battery_voltage") !== voltage) {
         this.lastValues.set("robot_battery_voltage", voltage);
+      }
+      const lightState = normalizeOptionalBoolean(message?.light_state);
+      if (lightState !== null) {
+        this.callbacks.onLightState?.(lightState);
       }
       this.setAlarmLabels("telemetry:moduan", collectLinearModuleAlarmLabels(message));
     });

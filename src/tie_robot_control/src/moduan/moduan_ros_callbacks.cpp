@@ -227,6 +227,7 @@ void execute_bind_points_action_callback(
     }
 
     moduan_return_zero_ordered_requested.store(false, std::memory_order_release);
+    moduan_manual_takeover_requested.store(false, std::memory_order_release);
     handle_pause_interrupt = false;
     publish_execute_bind_points_feedback("accepted", requested_count, start_time);
     std::string message;
@@ -235,7 +236,7 @@ void execute_bind_points_action_callback(
         std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
         publish_execute_bind_points_feedback("executing", requested_count, start_time);
         std::vector<tie_robot_msgs::PointCoords> points(goal->points.begin(), goal->points.end());
-        executed = execute_bind_points(points, message, goal->apply_jump_bind_filter);
+        executed = execute_bind_points(points, message);
     }
 
     result.success = executed;
@@ -402,6 +403,7 @@ void pub_moduan_state(
     linear_module_data_upload_msg.robot_temperature = robot_temperature;
     linear_module_data_upload_msg.x_gesture = state->y_gesture;
     linear_module_data_upload_msg.y_gesture = state->x_gesture;
+    linear_module_data_upload_msg.light_state = light_state;
     linear_module_data_upload = linear_module_data_upload_msg;
     pub_linear_module_data_upload.publish(linear_module_data_upload_msg);
 }
@@ -467,6 +469,24 @@ void pause_interrupt_Callback(const std_msgs::Float32& debug_mes)
         printCurrentTime();
         ros_log_printf("Moduan_log:手动暂停，正在暂停末端运动。\n");
     }
+}
+
+void manual_area_takeover_callback(const std_msgs::Bool& takeover_msg)
+{
+    if (!takeover_msg.data) {
+        return;
+    }
+    moduan_manual_takeover_requested.store(true, std::memory_order_release);
+    handle_pause_interrupt = true;
+    {
+        std::lock_guard<std::mutex> lock(plc_mutex);
+        if (plc != nullptr) {
+            PLC_Order_Write(IS_STOP, 1, plc);
+            PLC_Order_Write(FINISHALL, 0, plc);
+        }
+    }
+    printCurrentTime();
+    ros_log_printf("Moduan_Warn: 收到人工切区接管请求，当前末端执行任务将中止，等待普通回零接管。\n");
 }
 
 bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res) {
@@ -573,7 +593,7 @@ bool moduan_bind_points_service(
     std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
     clear_finishall_flag_if_needed();
     std::vector<tie_robot_msgs::PointCoords> points(req.points.begin(), req.points.end());
-    const bool executed = execute_bind_points(points, res.message, false);
+    const bool executed = execute_bind_points(points, res.message);
     res.success = executed;
     if (res.message.empty()) {
         res.message = executed ? "区域绑扎作业完成" : "预生成绑扎点为空，跳过当前区域";
@@ -586,10 +606,9 @@ bool moduan_bind_points_fast_service(
     tie_robot_msgs::ExecuteBindPoints::Response &res)
 {
     std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
-    ScopedModuleSpeedOverride speed_override(kPrecomputedFastModuleSpeedMmPerSec);
     clear_finishall_flag_if_needed();
     std::vector<tie_robot_msgs::PointCoords> points(req.points.begin(), req.points.end());
-    const bool executed = execute_bind_points(points, res.message, false);
+    const bool executed = execute_bind_points(points, res.message);
     res.success = executed;
     if (res.message.empty()) {
         res.message = executed ? "区域绑扎作业完成" : "预生成绑扎点为空，跳过当前区域";
@@ -607,22 +626,25 @@ void forced_stop_nodeCallback(const std_msgs::Float32 &debug_mes)
     }
 }
 
-void request_moduan_zero(const char* reason)
+void request_legacy_moduan_zero(const char* reason)
 {
+    const char* zero_reason = (reason != nullptr && reason[0] != '\0') ? reason : "末端返回零点";
     printCurrentTime();
-    ros_log_printf("Moduan_log:%s，末端返回零点，旋转电机回零至 %.1f 度。\n", reason, reset_angle);
-    std::string driver_error_message;
-    if (request_linear_module_zero_via_driver(&driver_error_message)) {
-        return;
-    }
-    ROS_WARN_STREAM("Moduan_Warn: " << driver_error_message << "，回退旧回零链。");
+    ros_log_printf("Moduan_log:%s，按旧PLC回零链末端返回零点。\n", zero_reason);
+    moduan_return_zero_ordered_requested.store(false, std::memory_order_release);
+    handle_pause_interrupt = false;
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
+        PLC_Order_Write(IS_STOP, 0, plc);
+        PLC_Order_Write(FINISHALL, 0, plc);
         PLC_Order_Write(EN_DISABLE, 1, plc);
-        Set_Motor_Speed(&motor_speed, plc);
-        Set_Motor_Angle(&reset_angle, plc);
+        PLC_Order_Write(IS_ZERO, 1, plc);
     }
-    move_linear_module_to_origin();
+}
+
+void request_moduan_zero(const char* reason)
+{
+    request_legacy_moduan_zero(reason);
 }
 
 bool return_zero_ordered_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res)
@@ -653,30 +675,13 @@ void moduan_move_zero_forthread(double x, double y, double z, double angle)
     (void)y;
     (void)z;
     (void)angle;
-    printCurrentTime();
-    ros_log_printf("Moduan_log:末端返回零点。\n");
-    {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
-        PLC_Order_Write(EN_DISABLE, 1, plc);
-        PLC_Order_Write(IS_ZERO, 1, plc);
-    }
+    request_legacy_moduan_zero("末端返回零点");
 }
 
 void moduan_move_zero_callback(const std_msgs::Float32::ConstPtr& msg)
 {
     (void)msg;
-    printCurrentTime();
-    ros_log_printf("Moduan_log:末端返回零点。\n");
-    std::string driver_error_message;
-    if (request_linear_module_zero_via_driver(&driver_error_message)) {
-        return;
-    }
-    ROS_WARN_STREAM("Moduan_Warn: " << driver_error_message << "，回退旧回零链。");
-    {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
-        PLC_Order_Write(EN_DISABLE, 1, plc);
-        PLC_Order_Write(IS_ZERO, 1, plc);
-    }
+    request_legacy_moduan_zero("末端返回零点");
 }
 
 bool moduan_move_service(
@@ -719,27 +724,13 @@ void light_switch(const std_msgs::Bool &debug_mes)
         ros_log_printf("Moduan_log:灯已关闭。\n");
         std::lock_guard<std::mutex> lock2(plc_mutex);
         PLC_Order_Write(LIGHT, 0x00, plc);
+        light_state = false;
     } else {
         printCurrentTime();
         ros_log_printf("Moduan_log:灯已打开。\n");
         std::lock_guard<std::mutex> lock2(plc_mutex);
         PLC_Order_Write(LIGHT, 0x01, plc);
-    }
-}
-
-void send_odd_points_callback(const std_msgs::Bool &debug_mes)
-{
-    if(debug_mes.data)
-    {
-        printCurrentTime();
-        ros_log_printf("Moduan_log:跳绑2/4已开启；视觉直绑仅绑第1和第4个点，全局预计算路径由上游棋盘格过滤。\n");
-        send_odd_points  = 1;
-    }
-    else
-    {
-        printCurrentTime();
-        ros_log_printf("Moduan_log:跳绑已关闭，恢复全绑。\n");
-        send_odd_points  = 3;
+        light_state = true;
     }
 }
 
@@ -762,7 +753,7 @@ void handSolveWarnCallback(const std_msgs::Float32 &warn_msg)
             handle_pause_interrupt = true;
         }
         printCurrentTime();
-        ros_log_printf("Moduan_log:收到长按恢复回起点请求，已暂停末端当前任务，等待执行链让出后有序回零。\n");
+        ros_log_printf("Moduan_log:收到长按停止并回起点请求，已停止末端当前任务，等待执行链让出后有序回零。\n");
         return;
     }
     if (warn_msg.data == 1.0 && !handle_pause_interrupt)
@@ -808,7 +799,7 @@ void moduan_motion_controller_return_to_start_callback(const std_msgs::Float32 &
     if (warn_msg.data == 2.0) {
         moduan_return_zero_ordered_requested.store(true, std::memory_order_release);
         printCurrentTime();
-        ros_log_printf("Moduan_log:运动控制进程收到长按恢复回起点请求，当前末端执行Action将中止等待。\n");
+        ros_log_printf("Moduan_log:运动控制进程收到长按停止并回起点请求，当前末端执行Action将中止等待。\n");
     }
 }
 
@@ -831,9 +822,13 @@ void read_module_motor_state(Module_State *state, Motor_State *mot_state)
             uint16_t status_moudle_error_ceju = Read_Module_Status(CEJU, plc);
             uint16_t status_moudle_arrive_z = Read_Module_Status(ARRIVEZ, plc);
             uint16_t status_moudle_finish = Read_Module_Status(FINISHALL, plc);
+            uint16_t status_light = Read_Module_Status(LIGHT, plc);
             state->JULI = (status_moudle_error_ceju & 0x02) != 0;
             state->ARRIVEZ_FLAG = (status_moudle_arrive_z & 0x02) != 0;
             state->FINISH_ALL_FLAG = (status_moudle_finish & 0x01) != 0;
+            if (status_light != static_cast<uint16_t>(-1)) {
+                light_state = (status_light & 0x01) != 0;
+            }
 
             state->ERROR_FLAG_X = (status_moudle_error_all & 0x01) != 0;
             state->ERROR_FLAG_Y = (status_moudle_error_all & 0x02) != 0;
@@ -1049,7 +1044,7 @@ bool moduan_driver_raw_execute_points_service(
     tie_robot_msgs::ExecuteBindPoints::Response& res)
 {
     const bool previous_remote_mode = g_use_remote_moduan_driver.exchange(false);
-    res.success = execute_bind_points(req.points, res.message, true);
+    res.success = execute_bind_points(req.points, res.message);
     g_use_remote_moduan_driver.store(previous_remote_mode);
     return true;
 }
@@ -1103,6 +1098,7 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
     ros::ServiceServer moduan_driver_raw_execute_srv;
     ros::ServiceServer moduan_return_zero_ordered_srv;
     ros::Subscriber motion_controller_hand_solve_warn;
+    ros::Subscriber motion_controller_manual_area_takeover_sub;
 
     if (motion_controller_role) {
         if (!g_tf_buffer) {
@@ -1125,6 +1121,8 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
         g_execute_bind_points_action_server->start();
         motion_controller_hand_solve_warn =
             nh_.subscribe("/web/moduan/hand_sovle_warn", 5, &moduan_motion_controller_return_to_start_callback);
+        motion_controller_manual_area_takeover_sub =
+            nh_.subscribe("/web/cabin/manual_area_takeover", 5, &manual_area_takeover_callback);
     }
 
     ros::Timer moduan_diagnostic_timer;
@@ -1157,7 +1155,7 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
     ros::Subscriber forced_stop;
     ros::Subscriber hand_solve_warn;
     ros::Subscriber interrupt0;
-    ros::Subscriber send_odd;
+    ros::Subscriber manual_area_takeover_sub;
     ros::Subscriber change_speed;
     ros::Subscriber light_order;
     ros::Subscriber save_bind_data_sub;
@@ -1168,7 +1166,7 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
         forced_stop = nh_.subscribe("/web/moduan/forced_stop", 5, &forced_stop_nodeCallback);
         hand_solve_warn = nh_.subscribe("/web/moduan/hand_sovle_warn", 5, &handSolveWarnCallback);
         interrupt0 = nh_.subscribe("/web/moduan/interrupt_stop", 5, &pause_interrupt_Callback);
-        send_odd = nh_.subscribe("/web/moduan/send_odd_points", 5, &send_odd_points_callback);
+        manual_area_takeover_sub = nh_.subscribe("/web/cabin/manual_area_takeover", 5, &manual_area_takeover_callback);
         change_speed = nh_.subscribe("/web/moduan/set_moduan_speed", 5, &change_speed_callback);
         light_order = nh_.subscribe("/web/moduan/light", 5, &light_switch);
         save_bind_data_sub = nh_.subscribe("/web/moduan/save_binding_data", 5, robotSaveBindingDataCallback);
@@ -1186,13 +1184,14 @@ int RunModuanNodeWithDefaultRole(int argc, char** argv, const std::string& defau
     (void)moduan_driver_raw_execute_srv;
     (void)moduan_return_zero_ordered_srv;
     (void)motion_controller_hand_solve_warn;
+    (void)motion_controller_manual_area_takeover_sub;
     (void)moduan_diagnostic_timer;
     (void)moduan_zero_sub;
     (void)enb_las_sub_local;
     (void)forced_stop;
     (void)hand_solve_warn;
     (void)interrupt0;
-    (void)send_odd;
+    (void)manual_area_takeover_sub;
     (void)change_speed;
     (void)light_order;
     (void)save_bind_data_sub;

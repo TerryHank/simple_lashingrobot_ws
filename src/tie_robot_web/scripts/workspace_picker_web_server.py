@@ -317,6 +317,28 @@ def _first_nonnegative_int(*values):
     return None
 
 
+def _bool_or_none(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and math.isfinite(float(value)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "on"):
+            return True
+        if normalized in ("false", "0", "no", "off"):
+            return False
+    return None
+
+
+def _checkerboard_color_from_parity(parity):
+    if parity == 0:
+        return "black"
+    if parity == 1:
+        return "white"
+    return "unknown"
+
+
 def _scan_artifacts_aligned(bind_path, points_json):
     if not isinstance(bind_path, dict) or not isinstance(points_json, dict):
         return False
@@ -352,15 +374,30 @@ def build_dp_bind_grid_points(points_json):
         if row is None or col is None or world_x is None or world_y is None or world_z is None:
             continue
 
+        checkerboard_parity = _finite_int(
+            point.get("checkerboard_parity", point.get("planning_checkerboard_parity", -1))
+        )
+        if checkerboard_parity is None:
+            checkerboard_parity = 0
+        jump_bind = _bool_or_none(point.get("jump_bind"))
+        if jump_bind is None:
+            jump_bind = _bool_or_none(point.get("planning_jump_bind"))
+        if jump_bind is None:
+            jump_bind = checkerboard_parity == 0
+        checkerboard_color = (
+            point.get("checkerboard_color")
+            or point.get("planning_checkerboard_color")
+            or _checkerboard_color_from_parity(checkerboard_parity)
+        )
         seen_global_indices.add(global_idx)
         grid_points.append({
             "idx": global_idx,
             "global_idx": global_idx,
             "global_row": row,
             "global_col": col,
-            "checkerboard_parity": _finite_int(
-                point.get("checkerboard_parity", point.get("planning_checkerboard_parity", -1))
-            ) or 0,
+            "checkerboard_parity": checkerboard_parity,
+            "jump_bind": jump_bind,
+            "checkerboard_color": str(checkerboard_color),
             "is_checkerboard_member": bool(
                 point.get("is_checkerboard_member", point.get("is_planning_checkerboard_member", True))
             ),

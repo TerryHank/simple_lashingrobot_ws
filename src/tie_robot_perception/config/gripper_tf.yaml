@@ -3,7 +3,7 @@ child_frame: gripper_frame
 translation_mm:
   x: 100.0
   y: -280.0
-  z: 730.0
+  z: 720.0
 rotation_rpy:
   roll: 0.0
   pitch: 0.0

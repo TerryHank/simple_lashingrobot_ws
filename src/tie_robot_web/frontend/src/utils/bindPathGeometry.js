@@ -57,10 +57,28 @@ function normalizeBindGridPoint(rawPoint, fallbackIndex) {
   const row = toFiniteNumber(rawPoint?.global_row ?? rawPoint?.planning_global_row);
   const col = toFiniteNumber(rawPoint?.global_col ?? rawPoint?.planning_global_col);
   const globalIdx = toFiniteNumber(rawPoint?.global_idx ?? rawPoint?.idx);
+  const checkerboardParity = toFiniteNumber(rawPoint?.checkerboard_parity ?? rawPoint?.planning_checkerboard_parity);
+  const rawCheckerboardColor = rawPoint?.checkerboard_color ?? rawPoint?.planning_checkerboard_color;
+  const checkerboardColor = typeof rawCheckerboardColor === "string" && rawCheckerboardColor.trim()
+    ? rawCheckerboardColor.trim()
+    : checkerboardParity === 0
+      ? "black"
+      : checkerboardParity === 1
+        ? "white"
+        : "unknown";
+  const rawJumpBind = rawPoint?.jump_bind ?? rawPoint?.planning_jump_bind;
+  const jumpBind = typeof rawJumpBind === "boolean"
+    ? rawJumpBind
+    : checkerboardParity === null
+      ? false
+      : checkerboardParity === 0;
   return {
     globalIdx: globalIdx === null ? -1 : globalIdx,
     row: row === null ? -1 : row,
     col: col === null ? -1 : col,
+    checkerboardParity: checkerboardParity === null ? -1 : checkerboardParity,
+    checkerboardColor,
+    jumpBind,
     x,
     y,
     z,
@@ -167,6 +185,42 @@ export function collectBindPathGridPoints(areas, gridPoints = []) {
 
 export function buildBindPathPointPositions(areas, gridPoints = []) {
   return collectBindPathGridPoints(areas, gridPoints).flatMap((point) => [point.x, point.y, point.z]);
+}
+
+function normalizeSelectedCheckerboardParity(value) {
+  return Number(value) === 1 ? 1 : 0;
+}
+
+function pointMatchesSelectedCheckerboardParity(point, selectedParity) {
+  const normalizedParity = normalizeSelectedCheckerboardParity(selectedParity);
+  if (point.checkerboardParity === 0 || point.checkerboardParity === 1) {
+    return point.checkerboardParity === normalizedParity;
+  }
+  const checkerboardColor = typeof point.checkerboardColor === "string"
+    ? point.checkerboardColor.toLowerCase()
+    : "";
+  if (checkerboardColor === "black") {
+    return normalizedParity === 0;
+  }
+  if (checkerboardColor === "white") {
+    return normalizedParity === 1;
+  }
+  if (typeof point.jumpBind === "boolean") {
+    return normalizedParity === 0 ? point.jumpBind : !point.jumpBind;
+  }
+  return normalizedParity === 0;
+}
+
+export function buildJumpBindPointPositions(
+  areas,
+  { gridPoints = [], enabled = false, selectedParity = 0 } = {},
+) {
+  if (!enabled) {
+    return [];
+  }
+  return collectBindPathGridPoints(areas, gridPoints)
+    .filter((point) => pointMatchesSelectedCheckerboardParity(point, selectedParity))
+    .flatMap((point) => [point.x, point.y, point.z]);
 }
 
 export function buildBindGridLineSegmentPositions(areas, { axis, gridPoints = [] } = {}) {

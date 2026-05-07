@@ -1,16 +1,77 @@
-export const CONTROL_PANEL_TASKS = [
-  { id: "submitQuad", label: "确认\n工作区域", tone: "green" },
-  { id: "runSavedS2", label: "触发\n视觉识别", tone: "green" },
-  { id: "executionVisionOnly", label: "执行层视觉\n单侧", tone: "blue" },
-  { id: "clearVisualRecognition", label: "清除\n识别结果", tone: "blue" },
-  { id: "triggerSingleBind", label: "触发单点\n绑扎", tone: "red" },
-  { id: "scanPlan", label: "固定扫描\n规划", tone: "green" },
-  { id: "startExecution", label: "开始\n执行层", tone: "green" },
-  { id: "startExecutionKeepMemory", label: "记忆续跑\n开始", tone: "amber" },
-  { id: "runBindPathTest", label: "账本\n测试", tone: "amber" },
-  { id: "setRecognitionPose", label: "设为\n识别位姿", tone: "amber" },
-  { id: "moveToPosition", label: "移动到\n位姿", tone: "blue" },
+export const CONTROL_PANEL_TASK_SECTIONS = [
+  {
+    id: "scan",
+    title: "扫描区",
+    tasks: [
+      { id: "moveToPosition", label: "移动到\n位姿", tone: "blue" },
+      { id: "setRecognitionPose", label: "设为\n识别位姿", tone: "amber" },
+      { id: "submitQuad", label: "确认\n工作区域", tone: "green" },
+      { id: "runSavedS2", label: "触发扫描\n视觉", tone: "green" },
+    ],
+  },
+  {
+    id: "execution",
+    title: "执行层",
+    tasks: [
+      { id: "startExecution", label: "执行全局\n绑扎", tone: "green" },
+      { id: "triggerSingleBind", label: "触发单点\n绑扎", tone: "red" },
+      { id: "executionVisionOnly", label: "单点视觉\n测试", tone: "blue" },
+      { id: "startExecutionKeepMemory", label: "记忆续跑\n开始", tone: "amber" },
+    ],
+  },
+  {
+    id: "areaNavigation",
+    title: "区域切换",
+    tasks: [
+      { id: "previousArea", label: "上一个\n区域", tone: "blue" },
+      { id: "nextArea", label: "下一个\n区域", tone: "blue" },
+    ],
+  },
 ];
+
+export const CONTROL_PANEL_TASKS = CONTROL_PANEL_TASK_SECTIONS.flatMap((section) => section.tasks);
+
+export const CHECKERBOARD_PARITY_LABELS = Object.freeze({
+  0: "黑棋",
+  1: "白棋",
+});
+
+export const CHECKERBOARD_PARITY_COLORS = Object.freeze({
+  0: "black",
+  1: "white",
+});
+
+export function normalizeCheckerboardParity(value) {
+  return Number(value) === 1 ? 1 : 0;
+}
+
+export function getCheckerboardParityLabel(value) {
+  return CHECKERBOARD_PARITY_LABELS[normalizeCheckerboardParity(value)];
+}
+
+export function getCheckerboardParityColor(value) {
+  return CHECKERBOARD_PARITY_COLORS[normalizeCheckerboardParity(value)];
+}
+
+export function buildControlToggleState(definition, active, { selectedParity } = {}) {
+  const isActive = Boolean(active);
+  const state = {
+    value: isActive,
+    label: isActive ? definition.activeLabel : definition.inactiveLabel,
+    tone: isActive ? definition.activeTone : definition.inactiveTone,
+  };
+
+  if (definition.selectedParityCommandId) {
+    const parity = normalizeCheckerboardParity(
+      selectedParity ?? definition.selectedParityInitialValue,
+    );
+    state.selectedParity = parity;
+    state.selectedColor = getCheckerboardParityColor(parity);
+    state.label = `${isActive ? "长按关闭" : "长按开启"}跳绑${getCheckerboardParityLabel(parity)}`;
+  }
+
+  return state;
+}
 
 export const CONTROL_TOGGLE_DEFINITIONS = {
   pauseResume: {
@@ -46,12 +107,20 @@ export const CONTROL_TOGGLE_DEFINITIONS = {
     group: "末端控制",
     stateKey: "enabled",
     initialValue: false,
-    inactiveLabel: "开启跳绑",
-    activeLabel: "关闭跳绑",
+    inactiveLabel: "长按开启跳绑黑棋",
+    activeLabel: "长按关闭跳绑黑棋",
     inactiveTone: "blue",
     activeTone: "amber",
     commandId: 12,
     messageType: "std_msgs/Bool",
+    inactiveRequiresLongPress: true,
+    inactiveLongPressCommandId: 12,
+    activeRequiresLongPress: true,
+    longPressCommandId: 12,
+    longPressTogglesState: true,
+    singleClickAction: "cycleSelectedParity",
+    selectedParityCommandId: 26,
+    selectedParityInitialValue: 0,
   },
   lightEnabled: {
     id: "lightEnabled",
@@ -81,11 +150,7 @@ export function getInitialControlToggleState(toggleId) {
     return null;
   }
   const active = Boolean(definition.initialValue);
-  return {
-    value: active,
-    label: active ? definition.activeLabel : definition.inactiveLabel,
-    tone: active ? definition.activeTone : definition.inactiveTone,
-  };
+  return buildControlToggleState(definition, active);
 }
 
 export function getInitialControlToggleStateMap() {

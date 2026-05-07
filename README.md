@@ -81,15 +81,23 @@
 -> bind_execution_memory.json(成功点回写)
 ```
 
-### 3. 直接执行账本测试
+### 3. 前端控制面板
 
 ```text
-前端 /web/cabin/run_bind_path_direct_test
--> tie_robot_web action bridge
--> tie_robot_process::run_bind_path_direct_test
--> 只读 pseudo_slam_bind_path.json
--> 不走 live 视觉 / 不清记忆 / 不写记忆
+扫描区：
+移动到位姿 -> 设为识别位姿 -> 确认工作区域 -> 触发扫描视觉
+
+执行层：
+执行全局绑扎 -> 触发单点绑扎 -> 单点视觉测试 -> 记忆续跑开始
+
+区域切换：
+上一个区域 / 下一个区域
+-> 前端发布 /web/cabin/manual_area_takeover
+-> 线性模组自动归零
+-> 索驱移动到 pseudo_slam_bind_path.json 中相邻区域的 cabin_pose
 ```
+
+旧控制面板里的“清除识别结果”“固定扫描规划”“账本测试”入口已下线；后续现场切区以底部“上一个区域 / 下一个区域”为人工接管操作。
 
 ## 新前端
 

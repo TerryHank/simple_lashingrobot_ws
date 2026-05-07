@@ -31,6 +31,23 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertLess(write_guard_index, memory_write_index)
         self.assertIn("当前不是可持久化扫描", suoqu_node[write_guard_index:points_write_index])
 
+    def test_scan_bind_path_uses_raw_surface_dp_grid_without_planning_outlier_gate(self):
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        bind_store = (PROCESS_DIR / "src" / "suoqu" / "bind_path_store.cpp").read_text(encoding="utf-8")
+
+        start = suoqu_node.index("std::vector<tie_robot_msgs::PointCoords> bind_path_world_points;")
+        end = suoqu_node.index("if (bind_path_world_points.empty())", start)
+        bind_path_source_block = suoqu_node[start:end]
+        self.assertIn("world_point.has_grid_index", bind_path_source_block)
+        self.assertIn("bind_path_info.global_row = world_point.global_row;", bind_path_source_block)
+        self.assertIn("bind_path_info.global_col = world_point.global_col;", bind_path_source_block)
+        self.assertIn("bind_path_info.is_checkerboard_member = true;", bind_path_source_block)
+        self.assertNotIn("checkerboard_info_by_idx.find(world_point.idx)", bind_path_source_block)
+        self.assertNotIn("is_planning_outlier", bind_path_source_block)
+
+        self.assertNotIn('"is_planning_checkerboard_member"', bind_store)
+        self.assertNotIn('"is_planning_outlier"', bind_store)
+
     def test_legacy_scan_service_defaults_to_fixed_recognition_pose(self):
         service_orchestration = (
             PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
@@ -87,6 +104,82 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("req.bind_group_point_count", service_orchestration)
         self.assertIn("requested_group_point_count", suoqu_node)
         self.assertIn("无法规划", suoqu_node)
+
+    def test_scan_artifacts_and_execution_memory_carry_jump_bind_color_metadata(self):
+        bind_store = (PROCESS_DIR / "src" / "suoqu" / "bind_path_store.cpp").read_text(encoding="utf-8")
+        area_execution = (PROCESS_DIR / "src" / "suoqu" / "area_execution.cpp").read_text(encoding="utf-8")
+        memory_store = (PROCESS_DIR / "src" / "suoqu" / "execution_memory_store.cpp").read_text(encoding="utf-8")
+        runtime_header = (
+            PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
+        ).read_text(encoding="utf-8")
+        scan_processing = (
+            PROCESS_DIR / "src" / "suoqu" / "pseudo_slam_scan_processing.cpp"
+        ).read_text(encoding="utf-8")
+        web_server = (
+            WEB_DIR / "scripts" / "workspace_picker_web_server.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("bool jump_bind", runtime_header)
+        self.assertIn("std::string checkerboard_color", runtime_header)
+        self.assertIn("point_json_is_jump_bind_target", runtime_header)
+        self.assertIn("point_json_matches_jump_bind_parity", runtime_header)
+        self.assertIn('"jump_bind"', bind_store)
+        self.assertIn('"checkerboard_color"', bind_store)
+        self.assertNotIn('"planning_jump_bind"', bind_store)
+        self.assertNotIn('"planning_checkerboard_color"', bind_store)
+        self.assertNotIn('"is_planning_outlier"', bind_store)
+        self.assertIn("point_json_matches_jump_bind_parity(point_json, selected_jump_bind_parity)", area_execution)
+        self.assertNotIn('point_json.value("checkerboard_parity", 0) != 0', area_execution)
+        self.assertIn('point_record.jump_bind = point_json.value("jump_bind"', memory_store)
+        self.assertIn('point_record.checkerboard_color = point_json.value("checkerboard_color"', memory_store)
+        self.assertIn('"jump_bind"', memory_store)
+        self.assertIn('"checkerboard_color"', memory_store)
+        self.assertIn('"jump_bind"', scan_processing)
+        self.assertIn('"checkerboard_color"', scan_processing)
+        self.assertIn('"jump_bind"', web_server)
+        self.assertIn('"checkerboard_color"', web_server)
+
+    def test_jump_bind_frontend_long_press_toggles_and_click_selects_checkerboard_color(self):
+        control_catalog = (
+            WEB_DIR / "frontend" / "src" / "config" / "controlPanelCatalog.js"
+        ).read_text(encoding="utf-8")
+        legacy_catalog = (
+            WEB_DIR / "frontend" / "src" / "config" / "legacyCommandCatalog.js"
+        ).read_text(encoding="utf-8")
+        topic_registry = (
+            WEB_DIR / "frontend" / "src" / "config" / "topicRegistry.js"
+        ).read_text(encoding="utf-8")
+        controller = (
+            WEB_DIR / "frontend" / "src" / "controllers" / "LegacyCommandController.js"
+        ).read_text(encoding="utf-8")
+        app = (WEB_DIR / "frontend" / "src" / "app" / "TieRobotFrontApp.js").read_text(encoding="utf-8")
+        scene3d = (WEB_DIR / "frontend" / "src" / "views" / "Scene3DView.js").read_text(encoding="utf-8")
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        area_execution = (PROCESS_DIR / "src" / "suoqu" / "area_execution.cpp").read_text(encoding="utf-8")
+
+        jump_start = control_catalog.index("jumpBindEnabled:")
+        jump_end = control_catalog.index("\n  lightEnabled:", jump_start)
+        jump_body = control_catalog[jump_start:jump_end]
+        self.assertIn('singleClickAction: "cycleSelectedParity"', jump_body)
+        self.assertIn("selectedParityCommandId: 26", jump_body)
+        self.assertIn("longPressTogglesState: true", jump_body)
+        self.assertIn("inactiveLongPressCommandId: 12", jump_body)
+        self.assertIn("longPressCommandId: 12", jump_body)
+        self.assertIn("jumpBindParity", topic_registry)
+        self.assertIn("jumpBindEnabled", topic_registry)
+        self.assertIn("/web/moduan/jump_bind_parity", topic_registry)
+        self.assertIn("/web/moduan/jump_bind_enabled", topic_registry)
+        self.assertIn('{ id: 26, name: "切换跳绑黑白棋"', legacy_catalog)
+        self.assertIn("handleSelectedParityToggle", controller)
+        self.assertIn("publishSelectedParityIfConfigured", controller)
+        self.assertIn("setJumpBindVisualizationState", app)
+        self.assertIn("buildJumpBindPointPositions", scene3d)
+        self.assertIn("this.jumpBindPoints", scene3d)
+        self.assertIn("checkerboard_jump_bind_parity_callback", suoqu_node)
+        self.assertIn("/web/moduan/jump_bind_parity", suoqu_node)
+        self.assertIn("/web/moduan/jump_bind_enabled", suoqu_node)
+        self.assertIn("checkerboard_jump_bind_selected_parity.load", suoqu_node)
+        self.assertIn("point_json_matches_jump_bind_parity", area_execution)
 
     def test_single_point_bind_calls_atomic_backend_service_without_frontend_visual_split(self):
         task_action_controller = (
@@ -201,6 +294,31 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("planned_path_refine_only", pure_body)
         self.assertNotIn("load_precomputed_local_points_from_group_json", pure_body)
 
+    def test_bind_path_direct_test_uses_bind_path_only_without_outlier_blocking(self):
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = suoqu_node.index("bool run_bind_path_direct_test(")
+        end = suoqu_node.index("\nbool run_live_visual_global_work(", start)
+        body = suoqu_node[start:end]
+        self.assertNotIn("nlohmann::json points_json", body)
+        self.assertNotIn("pseudo_slam_points_json_file", body)
+        self.assertNotIn("collect_blocked_execution_global_indices_from_points_json", body)
+        self.assertIn("no_blocked_global_indices", body)
+        self.assertIn("filter_precomputed_group_points_for_execution(", body)
+        self.assertIn("checkerboard_jump_bind_enabled", body)
+
+    def test_execution_blocked_indices_do_not_use_outlier_or_planning_flags(self):
+        area_execution = (PROCESS_DIR / "src" / "suoqu" / "area_execution.cpp").read_text(encoding="utf-8")
+
+        helper_start = area_execution.index("std::unordered_set<int> collect_blocked_execution_global_indices_from_points_json(")
+        helper_body = area_execution[helper_start:]
+        self.assertIn("(void)points_json;", helper_body)
+        self.assertNotIn("is_planning_outlier", helper_body)
+        self.assertNotIn("is_planning_outlier_line_member", helper_body)
+        self.assertNotIn("is_outlier_secondary_plane_member", helper_body)
+        self.assertNotIn("is_outlier_column_neighbor_blocked", helper_body)
+        self.assertNotIn("is_planning_checkerboard_member", helper_body)
+
     def test_frontend_visual_trigger_runs_current_frame_no_motion_action_to_overwrite_bind_artifacts(self):
         task_action_controller = (
             WEB_DIR / "frontend" / "src" / "controllers" / "TaskActionController.js"
@@ -261,7 +379,7 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertLess(scan_request_index, moving_guard_index)
         self.assertLess(scan_request_index, invalid_position_guard_index)
 
-    def test_bind_path_prefers_full_surface_dp_grid_before_checkerboard_fallback(self):
+    def test_bind_path_prefers_full_surface_dp_grid_before_raw_fallback(self):
         suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         planning_filter_index = suoqu_node.index(
@@ -292,7 +410,7 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         ]
         self.assertIn(
             "bind_path_checkerboard_info_by_idx =\n"
-            "        checkerboard_info_by_idx;",
+            "        merged_checkerboard_info_by_idx;",
             suoqu_node[planning_rebuild_index:sync_index],
         )
         self.assertIn("world_point.has_grid_index", bind_path_grid_body)
@@ -301,6 +419,7 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("bind_path_info.is_checkerboard_member = true;", bind_path_grid_body)
         self.assertIn("grid_index.global_row = world_point.global_row;", bind_path_grid_body)
         self.assertIn("grid_index.global_col = world_point.global_col;", bind_path_grid_body)
+        self.assertNotIn("checkerboard_info_by_idx.find(world_point.idx)", bind_path_grid_body)
 
     def test_surface_dp_grid_indices_are_carried_into_planning_checkerboard(self):
         point_coords_msg = (WORKSPACE_ROOT / "tie_robot_msgs" / "msg" / "PointCoords.msg").read_text(encoding="utf-8")

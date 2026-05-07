@@ -29,32 +29,6 @@ void apply_module_speed_mm_per_sec(double new_speed)
     Set_Module_Speed(WZ_SPEED, &module_speed, plc);
 }
 
-ScopedModuleSpeedOverride::ScopedModuleSpeedOverride(double override_speed)
-    : original_speed_(module_speed), active_(override_speed > module_speed)
-{
-    if (active_) {
-        printCurrentTime();
-        ros_log_printf(
-            "Moduan_log: 预计算当前区域直执行启用快速度，线性模组速度从%.1lf提升到%.1lf。\n",
-            original_speed_,
-            override_speed
-        );
-        apply_module_speed_mm_per_sec(override_speed);
-    }
-}
-
-ScopedModuleSpeedOverride::~ScopedModuleSpeedOverride()
-{
-    if (active_) {
-        apply_module_speed_mm_per_sec(original_speed_);
-        printCurrentTime();
-        ros_log_printf(
-            "Moduan_log: 预计算当前区域直执行结束，线性模组速度恢复到%.1lf。\n",
-            original_speed_
-        );
-    }
-}
-
 std::string compose_linear_module_driver_error_message(
     const std::string& prefix,
     const tie_robot_hw::driver::DriverError& driver_error)
@@ -103,51 +77,6 @@ static std::vector<tie_robot_hw::driver::LinearModulePoint> build_linear_module_
         driver_points.push_back(driver_point);
     }
     return driver_points;
-}
-
-bool request_linear_module_zero_via_driver(std::string* error_message)
-{
-    tie_robot_hw::driver::DriverError driver_error;
-    if (!ensure_linear_module_driver_started(&driver_error)) {
-        const std::string detail = compose_linear_module_driver_error_message(
-            "线性模组驱动连接失败",
-            driver_error
-        );
-        if (error_message != nullptr) {
-            *error_message = detail;
-        }
-        ROS_ERROR_STREAM("Moduan_Error: " << detail);
-        return false;
-    }
-
-    if (!g_linear_module_driver->pulseExecutionEnable(&driver_error)) {
-        const std::string detail = compose_linear_module_driver_error_message(
-            "线性模组回零执行触发失败",
-            driver_error
-        );
-        if (error_message != nullptr) {
-            *error_message = detail;
-        }
-        ROS_ERROR_STREAM("Moduan_Error: " << detail);
-        return false;
-    }
-
-    if (!g_linear_module_driver->setZeroRequest(true, &driver_error)) {
-        const std::string detail = compose_linear_module_driver_error_message(
-            "线性模组回零请求位写入失败",
-            driver_error
-        );
-        if (error_message != nullptr) {
-            *error_message = detail;
-        }
-        ROS_ERROR_STREAM("Moduan_Error: " << detail);
-        return false;
-    }
-
-    if (error_message != nullptr) {
-        error_message->clear();
-    }
-    return true;
 }
 
 namespace {
@@ -206,6 +135,26 @@ LinearModuleAxisSnapshot read_linear_module_axis_snapshot(int Axis)
         snapshot.name = "MOTOR";
     }
     return snapshot;
+}
+
+bool trigger_linear_module_motion_execution(const char* phase_name, std::string& response_message)
+{
+    tie_robot_hw::driver::DriverError driver_error;
+    if (!ensure_linear_module_driver_started(&driver_error)) {
+        response_message = compose_linear_module_driver_error_message(
+            std::string("线性模组") + phase_name + "执行触发前驱动连接失败",
+            driver_error
+        );
+        return false;
+    }
+    if (!g_linear_module_driver->pulseExecutionEnable(&driver_error)) {
+        response_message = compose_linear_module_driver_error_message(
+            std::string("线性模组") + phase_name + "执行触发失败",
+            driver_error
+        );
+        return false;
+    }
+    return true;
 }
 
 }  // namespace
@@ -385,7 +334,17 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
         if (moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
             printCurrentTime();
             ros_log_printf(
-                "Moduan_Warn: 等待FINISHALL期间收到长按恢复回起点请求，停止本轮末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                "Moduan_Warn: 等待FINISHALL期间收到长按停止并回起点请求，停止本轮末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                cur_x,
+                cur_y,
+                cur_z
+            );
+            return false;
+        }
+        if (moduan_manual_takeover_requested.load(std::memory_order_acquire)) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Warn: 等待FINISHALL期间收到人工切区接管请求，停止本轮末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
                 cur_x,
                 cur_y,
                 cur_z
@@ -401,12 +360,20 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
                 cur_y,
                 cur_z
             );
-            while (handle_pause_interrupt && !moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
+            while (
+                handle_pause_interrupt &&
+                !moduan_return_zero_ordered_requested.load(std::memory_order_acquire) &&
+                !moduan_manual_takeover_requested.load(std::memory_order_acquire)) {
                 std::this_thread::sleep_for(poll_interval);
             }
             if (moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
                 printCurrentTime();
-                ros_log_printf("Moduan_Warn: 人工暂停期间收到长按恢复回起点请求，停止本轮末端执行等待。\n");
+                ros_log_printf("Moduan_Warn: 人工暂停期间收到长按停止并回起点请求，停止本轮末端执行等待。\n");
+                return false;
+            }
+            if (moduan_manual_takeover_requested.load(std::memory_order_acquire)) {
+                printCurrentTime();
+                ros_log_printf("Moduan_Warn: 人工暂停期间收到人工切区接管请求，停止本轮末端执行等待。\n");
                 return false;
             }
             active_wait_start_time = std::chrono::steady_clock::now();
@@ -493,6 +460,9 @@ bool move_linear_module_to_target(double x, double y, double z, double angle, st
         Set_Module_Coordinate(WX_COORDINATE, &x, plc);
         Set_Module_Coordinate(WY_COORDINATE, &y, plc);
     }
+    if (!trigger_linear_module_motion_execution("X/Y轴", response_message)) {
+        return false;
+    }
 
     if (!wait_linear_module_axis_arrival(AXIS_X, x) ||
         !wait_linear_module_axis_arrival(AXIS_Y, y)) {
@@ -502,6 +472,9 @@ bool move_linear_module_to_target(double x, double y, double z, double angle, st
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         Set_Module_Coordinate(WZ_COORDINATE, &z, plc);
+    }
+    if (!trigger_linear_module_motion_execution("Z轴", response_message)) {
+        return false;
     }
     if (!wait_linear_module_axis_arrival(AXIS_Z, z)) {
         response_message = "线性模组Z轴未确认到位";
@@ -569,14 +542,6 @@ std::string append_bind_height_excess_message(const std::string& message, double
     return oss.str();
 }
 
-bool should_keep_jump_bind_point(const tie_robot_msgs::PointCoords& point)
-{
-    if (send_odd_points != 1) {
-        return true;
-    }
-    return point.idx == 1 || point.idx == 4;
-}
-
 void inputAllPoints(int i, double x, double y, double z, double rz)
 {
     if (i < 0 || i >= kPointSlotCount) {
@@ -591,9 +556,9 @@ void inputAllPoints(int i, double x, double y, double z, double rz)
 
 bool execute_bind_points(
     const std::vector<tie_robot_msgs::PointCoords>& filteredPoints,
-    std::string& response_message,
-    bool apply_jump_bind_filter)
+    std::string& response_message)
 {
+    moduan_manual_takeover_requested.store(false, std::memory_order_release);
     if (g_use_remote_moduan_driver.load(std::memory_order_relaxed)) {
         tie_robot_msgs::ExecuteBindPoints raw_execute_srv;
         raw_execute_srv.request.points = filteredPoints;
@@ -620,9 +585,6 @@ bool execute_bind_points(
 
     for (int i = 0; i < static_cast<int>(filteredPoints.size()); i++) {
         const auto& point = filteredPoints[i];
-        if (apply_jump_bind_filter && !should_keep_jump_bind_point(point)) {
-            continue;
-        }
 
         float_t world_x = point.World_coord[0];
         float_t world_y = point.World_coord[1];

@@ -86,6 +86,43 @@ function makeRootForChip(chip) {
   };
 }
 
+function createFakeBottomLinearModulePosition() {
+  const listeners = new Map();
+  const classNames = new Set(["bottom-linear-module-position"]);
+  return {
+    dataset: {},
+    disabled: false,
+    title: "",
+    attributes: new Map(),
+    classList: {
+      add(name) {
+        classNames.add(name);
+      },
+      remove(name) {
+        classNames.delete(name);
+      },
+      contains(name) {
+        return classNames.has(name);
+      },
+    },
+    addEventListener(eventName, listener) {
+      const eventListeners = listeners.get(eventName) || [];
+      eventListeners.push(listener);
+      listeners.set(eventName, eventListeners);
+    },
+    dispatch(eventName, event = {}) {
+      const eventListeners = listeners.get(eventName) || [];
+      eventListeners.forEach((listener) => listener(event));
+    },
+    listenerCount(eventName) {
+      return (listeners.get(eventName) || []).length;
+    },
+    setAttribute(name, value) {
+      this.attributes.set(name, value);
+    },
+  };
+}
+
 const expectedActionsByStatus = [
   ["chassis", "success", "stopCabinSubsystem", "restartCabinSubsystem", "关闭"],
   ["chassis", "warn", "startCabinSubsystem", "restartCabinSubsystem", "启动"],
@@ -177,6 +214,45 @@ chip.dispatch("click", {
 });
 assert.deepEqual(calls, [{ statusId: "chassis", actionId: "restartCabinSubsystem" }]);
 
+const bottomLinearModulePosition = createFakeBottomLinearModulePosition();
+const bottomZeroCalls = [];
+scheduledTimers.length = 0;
+clearedTimer = false;
+
+UIController.prototype.onBottomLinearModuleZeroAction.call(
+  { refs: { bottomLinearModulePosition } },
+  () => bottomZeroCalls.push("zero"),
+);
+
+assert.equal(bottomLinearModulePosition.listenerCount("pointerdown"), 1);
+assert.equal(bottomLinearModulePosition.listenerCount("pointerup"), 1);
+assert.equal(bottomLinearModulePosition.listenerCount("pointerleave"), 1);
+assert.equal(bottomLinearModulePosition.listenerCount("pointercancel"), 1);
+assert.equal(bottomLinearModulePosition.listenerCount("click"), 1);
+
+bottomLinearModulePosition.dispatch("click", {
+  preventDefault() {},
+  stopPropagation() {},
+});
+assert.deepEqual(bottomZeroCalls, []);
+
+bottomLinearModulePosition.dispatch("pointerdown", {
+  button: 0,
+  preventDefault() {},
+});
+assert.equal(bottomLinearModulePosition.classList.contains("is-long-press-charging"), true);
+assert.equal(scheduledTimers.at(-1).delay, 500);
+scheduledTimers.at(-1).callback();
+assert.equal(bottomLinearModulePosition.classList.contains("is-long-press-charging"), false);
+assert.equal(bottomLinearModulePosition.classList.contains("is-long-press-complete"), true);
+assert.equal(scheduledTimers.at(-1).delay, 240);
+bottomLinearModulePosition.dispatch("pointerup");
+bottomLinearModulePosition.dispatch("click", {
+  preventDefault() {},
+  stopPropagation() {},
+});
+assert.deepEqual(bottomZeroCalls, ["zero"]);
+
 const stylesheetText = readFileSync(resolve(frontendRoot, "src/styles/app.css"), "utf-8");
 assert.match(stylesheetText, /animation:\s*status-charge-fill 0\.5s linear forwards/);
 assert.match(stylesheetText, /animation:\s*status-charge-sweep 0\.5s ease-out forwards/);
@@ -184,3 +260,7 @@ assert.match(stylesheetText, /\.system-status-item::after[\s\S]*width:\s*100%;/)
 assert.match(stylesheetText, /transform:\s*translateX\(-100%\);/);
 assert.match(stylesheetText, /\.system-status-item\.is-long-press-complete::before[\s\S]*transform:\s*scaleX\(1\);/);
 assert.match(stylesheetText, /@keyframes status-charge-sweep[\s\S]*transform:\s*translateX\(100%\);/);
+assert.match(stylesheetText, /\.bottom-linear-module-position\s*{[\s\S]*pointer-events:\s*auto;/);
+assert.match(stylesheetText, /\.bottom-linear-module-position\.is-long-press-charging::before[\s\S]*animation:\s*status-charge-fill 0\.5s linear forwards/);
+assert.match(stylesheetText, /\.bottom-linear-module-position\.is-long-press-complete::before[\s\S]*transform:\s*scaleX\(1\);/);
+assert.match(stylesheetText, /\.bottom-linear-module-position\.is-long-press-charging\s*{[^}]*overflow:\s*hidden;/);

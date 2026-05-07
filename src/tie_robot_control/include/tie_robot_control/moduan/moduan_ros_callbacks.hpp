@@ -40,7 +40,6 @@ bool moduan_driver_raw_single_move_service(
     tie_robot_msgs::linear_module_move::Request& req,
     tie_robot_msgs::linear_module_move::Response& res);
 void light_switch(const std_msgs::Bool& debug_mes);
-void send_odd_points_callback(const std_msgs::Bool& debug_mes);
 void change_speed_callback(const std_msgs::Float32& debug_mes);
 void handSolveWarnCallback(const std_msgs::Float32& warn_msg);
 void read_module_motor_state(Module_State* state, Motor_State* mot_state);

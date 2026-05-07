@@ -4,6 +4,7 @@ import {
   buildBindGridLineSegmentPositions,
   buildBindGroupLineSegmentPositions,
   buildBindPathPointPositions,
+  buildJumpBindPointPositions,
   collectBindPathGridPoints,
 } from "../src/utils/bindPathGeometry.js";
 
@@ -166,3 +167,71 @@ assert.deepEqual(buildBindGroupLineSegmentPositions(bindPathWithGroupShapes.area
   0.3, 0.45, 0.52,
   0.45, 0.45, 0.52,
 ]);
+
+const bindPathWithJumpBindMetadata = {
+  areas: [],
+  grid_points: [
+    {
+      global_idx: 1,
+      global_row: 0,
+      global_col: 0,
+      checkerboard_parity: 0,
+      checkerboard_color: "black",
+      jump_bind: true,
+      world_x: 0,
+      world_y: 0,
+      world_z: 500,
+    },
+    {
+      global_idx: 2,
+      global_row: 0,
+      global_col: 1,
+      checkerboard_parity: 1,
+      checkerboard_color: "white",
+      jump_bind: false,
+      world_x: 150,
+      world_y: 0,
+      world_z: 500,
+    },
+  ],
+};
+
+assert.deepEqual(
+  collectBindPathGridPoints(bindPathWithJumpBindMetadata.areas, bindPathWithJumpBindMetadata.grid_points).map((point) => ({
+    globalIdx: point.globalIdx,
+    checkerboardParity: point.checkerboardParity,
+    checkerboardColor: point.checkerboardColor,
+    jumpBind: point.jumpBind,
+  })),
+  [
+    { globalIdx: 1, checkerboardParity: 0, checkerboardColor: "black", jumpBind: true },
+    { globalIdx: 2, checkerboardParity: 1, checkerboardColor: "white", jumpBind: false },
+  ],
+);
+
+assert.deepEqual(
+  buildJumpBindPointPositions(bindPathWithJumpBindMetadata.areas, {
+    gridPoints: bindPathWithJumpBindMetadata.grid_points,
+    enabled: false,
+    selectedParity: 0,
+  }),
+  [],
+);
+
+assert.deepEqual(
+  buildJumpBindPointPositions(bindPathWithJumpBindMetadata.areas, {
+    gridPoints: bindPathWithJumpBindMetadata.grid_points,
+    enabled: true,
+    selectedParity: 0,
+  }),
+  [0, 0, 0.5],
+);
+
+assert.deepEqual(
+  buildJumpBindPointPositions(bindPathWithJumpBindMetadata.areas, {
+    gridPoints: bindPathWithJumpBindMetadata.grid_points,
+    enabled: true,
+    selectedParity: 1,
+  }),
+  [0.15, 0, 0.5],
+);

@@ -909,7 +909,7 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
 
   <main>
     <div class="notice">
-      当前扫描识别链路不包含 depth+IR 组合响应、方向线族或梁筋 ±13 cm 过滤；这些后续实验链路只保留在研究工具和报告中，不进入扫描运行路径。
+      当前扫描识别链路会在 Surface-DP 底图上叠加 beam_candidate 梁筋候选；视觉调试开关启用时，才对最终绑扎点执行梁筋 ±13 cm 点级过滤。更重的多尺度融合仍只保留在研究工具和报告中。
       执行微调仍走平面分割 + Hough，用于逐区到位后的局部视觉。
     </div>
 

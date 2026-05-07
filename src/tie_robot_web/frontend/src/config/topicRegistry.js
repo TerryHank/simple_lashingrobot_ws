@@ -11,6 +11,7 @@ export const MESSAGE_TYPES = Object.freeze({
   markerArray: "visualization_msgs/MarkerArray",
   pointsArray: "tie_robot_msgs/PointsArray",
   pose: "geometry_msgs/Pose",
+  areaProgress: "tie_robot_msgs/AreaProgress",
   tfMessage: "tf2_msgs/TFMessage",
   bool: "std_msgs/Bool",
 });
@@ -37,7 +38,6 @@ export const ACTION_TYPES = Object.freeze({
   cabin: Object.freeze({
     startPseudoSlamScan: "tie_robot_msgs/StartPseudoSlamScanTaskAction",
     startGlobalWork: "tie_robot_msgs/StartGlobalWorkTaskAction",
-    runBindPathDirectTest: "tie_robot_msgs/RunBindPathDirectTestTaskAction",
   }),
 });
 
@@ -60,6 +60,7 @@ export const TOPICS = Object.freeze({
     executionRefineBaseImage: "/perception/lashing/execution_refine_base_image",
     resultImageRaw: "/pointAI/result_image_raw",
     setStableFrameCount: "/web/pointAI/set_stable_frame_count",
+    setScanBeamExclusion: "/web/pointAI/set_scan_beam_exclusion",
     setExecutionRefineTcpRoi: "/web/pointAI/set_execution_refine_tcp_roi",
     setHeightThreshold: "/web/pointAI/set_height_threshold",
     setWorkspaceQuad: "/web/pointAI/set_workspace_quad",
@@ -68,6 +69,7 @@ export const TOPICS = Object.freeze({
     areaProgress: "/cabin/area_progress",
     cabinState: "/cabin/cabin_data_upload",
     diagnostics: "/diagnostics",
+    manualAreaTakeover: "/web/cabin/manual_area_takeover",
     pseudoSlamMarkers: "/cabin/pseudo_slam_markers",
     setCabinSpeed: "/web/cabin/set_cabin_speed",
   }),
@@ -80,7 +82,8 @@ export const TOPICS = Object.freeze({
     linearModuleState: "/moduan/moduan_gesture_data",
     moduanMoveZero: "/web/moduan/moduan_move_zero",
     saveBindingData: "/web/moduan/save_binding_data",
-    sendOddPoints: "/web/moduan/send_odd_points",
+    jumpBindEnabled: "/web/moduan/jump_bind_enabled",
+    jumpBindParity: "/web/moduan/jump_bind_parity",
     setModuanSpeed: "/web/moduan/set_moduan_speed",
   }),
   tf: Object.freeze({
@@ -132,7 +135,6 @@ export const SERVICES = Object.freeze({
 
 export const ACTIONS = Object.freeze({
   cabin: Object.freeze({
-    runBindPathDirectTest: "/web/cabin/run_bind_path_direct_test",
     startGlobalWork: "/web/cabin/start_global_work",
     startPseudoSlamScan: "/web/cabin/start_pseudo_slam_scan",
   }),
@@ -349,6 +351,17 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     usage: "索驱位置条和遥控可操作状态",
   },
   {
+    key: "process.areaProgress",
+    name: TOPICS.process.areaProgress,
+    label: "执行区域进度",
+    messageType: MESSAGE_TYPES.areaProgress,
+    sourceLayer: "process",
+    sourceLabel: "执行规划层",
+    ownerNode: "suoquNode",
+    direction: "subscribe",
+    usage: "区域切换按钮判断当前工作区域",
+  },
+  {
     key: "process.diagnostics",
     name: TOPICS.process.diagnostics,
     label: "诊断状态",
@@ -369,6 +382,17 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     ownerNode: "suoquNode",
     direction: "publish",
     usage: "前端直接写入索驱速度参数",
+  },
+  {
+    key: "process.manualAreaTakeover",
+    name: TOPICS.process.manualAreaTakeover,
+    label: "人工切区接管",
+    messageType: MESSAGE_TYPES.bool,
+    sourceLayer: "process",
+    sourceLabel: "执行规划层",
+    ownerNode: "suoquNode",
+    direction: "publish",
+    usage: "切换上/下区域前中止当前自动执行链",
   },
   {
     key: "control.linearModuleState",
@@ -404,8 +428,8 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     usage: "前端直接写入末端绑扎控制",
   },
   {
-    key: "control.sendOddPoints",
-    name: TOPICS.control.sendOddPoints,
+    key: "control.jumpBindEnabled",
+    name: TOPICS.control.jumpBindEnabled,
     label: "跳绑开关",
     messageType: MESSAGE_TYPES.bool,
     sourceLayer: "control",
@@ -413,6 +437,17 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     ownerNode: "moduanNode",
     direction: "publish",
     usage: "前端直接写入跳绑控制，算法层同时读取该状态",
+  },
+  {
+    key: "control.jumpBindParity",
+    name: TOPICS.control.jumpBindParity,
+    label: "跳绑黑白棋",
+    messageType: MESSAGE_TYPES.int32,
+    sourceLayer: "control",
+    sourceLabel: "控制层",
+    ownerNode: "moduanNode",
+    direction: "publish",
+    usage: "前端直接写入跳绑选择，0=黑棋，1=白棋",
   },
   {
     key: "control.handSolveWarn",

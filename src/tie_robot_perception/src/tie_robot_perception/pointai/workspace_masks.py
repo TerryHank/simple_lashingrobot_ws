@@ -45,7 +45,13 @@ from tie_robot_perception.perception.workspace_s2 import (
 from .constants import *
 from .tcp_display import camera_channels_to_tcp_jaw_channels, camera_coord_to_tcp_jaw_coord
 
-def save_manual_workspace_quad(self, corner_pixels, corner_world_camera_frame, corner_sample_pixels=None):
+def save_manual_workspace_quad(
+    self,
+    corner_pixels,
+    corner_world_camera_frame,
+    corner_sample_pixels=None,
+    corner_world_map_frame=None,
+):
     manual_workspace_json = {
         "corner_pixels": [[int(point[0]), int(point[1])] for point in corner_pixels],
         "corner_world_camera_frame": [
@@ -56,6 +62,11 @@ def save_manual_workspace_quad(self, corner_pixels, corner_world_camera_frame, c
     if corner_sample_pixels is not None:
         manual_workspace_json["corner_sample_pixels"] = [
             [int(point[0]), int(point[1])] for point in corner_sample_pixels
+        ]
+    if corner_world_map_frame is not None and len(corner_world_map_frame) == 4:
+        manual_workspace_json["corner_world_map_frame"] = [
+            [float(point[0]), float(point[1]), float(point[2])]
+            for point in corner_world_map_frame
         ]
 
     with open(self.manual_workspace_quad_file, "w", encoding="utf-8") as file_obj:
@@ -154,11 +165,13 @@ def load_manual_workspace_quad(self):
 
     corner_pixels = manual_workspace_json.get("corner_pixels")
     corner_world_camera_frame = manual_workspace_json.get("corner_world_camera_frame")
+    corner_world_map_frame = manual_workspace_json.get("corner_world_map_frame")
     if not isinstance(corner_pixels, list) or len(corner_pixels) != 4:
         return None
 
     normalized_corner_pixels = []
     normalized_corner_world = []
+    normalized_corner_map = []
     for pixel_point in corner_pixels:
         if not isinstance(pixel_point, (list, tuple)) or len(pixel_point) != 2:
             return None
@@ -181,6 +194,19 @@ def load_manual_workspace_quad(self):
         if len(normalized_corner_world) == 4:
             normalized_workspace["corner_world_camera_frame"] = normalized_corner_world
 
+    if isinstance(corner_world_map_frame, list) and len(corner_world_map_frame) == 4:
+        for map_point in corner_world_map_frame:
+            if not isinstance(map_point, (list, tuple)) or len(map_point) != 3:
+                normalized_corner_map = []
+                break
+            normalized_corner_map.append([
+                float(map_point[0]),
+                float(map_point[1]),
+                float(map_point[2]),
+            ])
+        if len(normalized_corner_map) == 4:
+            normalized_workspace["corner_world_map_frame"] = normalized_corner_map
+
     return normalized_workspace
 
 
@@ -192,12 +218,14 @@ def manual_workspace_quad_callback(self, msg):
     clicked_corner_pixels = []
     corner_sample_pixels = []
     corner_world_camera_frame = []
+    corner_world_map_frame = []
     for corner_index in range(0, len(raw_data), 2):
         pixel_x = int(round(raw_data[corner_index]))
         pixel_y = int(round(raw_data[corner_index + 1]))
         raw_world_coord, sample_pixel, _ = self.get_valid_world_coord_near_pixel(pixel_x, pixel_y)
         if raw_world_coord[0] == 0 or raw_world_coord[1] == 0 or raw_world_coord[2] == 0:
             return
+        map_world_coord = self.transform_camera_point_to_map_frame(raw_world_coord)
 
         clicked_corner_pixels.append([pixel_x, pixel_y])
         corner_sample_pixels.append([int(sample_pixel[0]), int(sample_pixel[1])])
@@ -206,8 +234,18 @@ def manual_workspace_quad_callback(self, msg):
             float(raw_world_coord[1]),
             float(raw_world_coord[2]),
         ])
+        corner_world_map_frame.append(None if map_world_coord is None else [
+            float(map_world_coord[0]),
+            float(map_world_coord[1]),
+            float(map_world_coord[2]),
+        ])
 
-    point_records = list(zip(clicked_corner_pixels, corner_sample_pixels, corner_world_camera_frame))
+    point_records = list(zip(
+        clicked_corner_pixels,
+        corner_sample_pixels,
+        corner_world_camera_frame,
+        corner_world_map_frame,
+    ))
     ordered_corner_pixels = self.sort_polygon_points_clockwise(clicked_corner_pixels)
     ordered_records = []
     remaining_records = point_records[:]
@@ -225,6 +263,11 @@ def manual_workspace_quad_callback(self, msg):
         [record[0] for record in ordered_records],
         [record[2] for record in ordered_records],
         corner_sample_pixels=[record[1] for record in ordered_records],
+        corner_world_map_frame=(
+            [record[3] for record in ordered_records]
+            if all(record[3] is not None for record in ordered_records)
+            else None
+        ),
     )
     self.publish_current_manual_workspace_quad_pixels()
 
@@ -296,11 +339,73 @@ def build_convex_polygon_inside_mask(target_x, target_y, polygon_xy, valid_mask)
 
 
 def get_manual_workspace_camera_polygon_pixel_mask(self):
+    manual_workspace = self.load_manual_workspace_quad()
+    if manual_workspace is None:
+        return None
+
+    corner_world_camera_frame = manual_workspace.get("corner_world_camera_frame")
+    x_channel = getattr(self, "x_channel", None)
+    y_channel = getattr(self, "y_channel", None)
+    z_channel = getattr(self, "depth_v", None)
+    if (
+        isinstance(corner_world_camera_frame, list)
+        and len(corner_world_camera_frame) == 4
+        and x_channel is not None
+        and y_channel is not None
+        and z_channel is not None
+    ):
+        polygon_xy = np.array(
+            [[point[0], point[1]] for point in corner_world_camera_frame],
+            dtype=np.float32,
+        )
+        valid_mask = (
+            np.isfinite(x_channel)
+            & np.isfinite(y_channel)
+            & np.isfinite(z_channel)
+            & (z_channel != 0.0)
+        )
+        world_polygon_mask = build_convex_polygon_inside_mask(
+            x_channel,
+            y_channel,
+            polygon_xy,
+            valid_mask,
+        )
+        if world_polygon_mask is not None:
+            return world_polygon_mask
+
     return self.get_manual_workspace_pixel_mask()
 
 
 def get_manual_workspace_cabin_polygon_pixel_mask(self):
-    return self.get_manual_workspace_camera_polygon_pixel_mask()
+    manual_workspace = self.load_manual_workspace_quad()
+    if manual_workspace is None:
+        return None
+
+    corner_world_map_frame = manual_workspace.get("corner_world_map_frame")
+    if not isinstance(corner_world_map_frame, list) or len(corner_world_map_frame) != 4:
+        rospy.logwarn_throttle(
+            2.0,
+            "pointAI手动工作区缺少corner_world_map_frame，无法按世界坐标投影灰线；请重新确认工作区域。",
+        )
+        return None
+
+    map_channels = self.get_map_frame_xy_channels()
+    if map_channels is None:
+        return None
+
+    polygon_xy = np.array(
+        [[point[0], point[1]] for point in corner_world_map_frame],
+        dtype=np.float32,
+    )
+    world_polygon_mask = build_convex_polygon_inside_mask(
+        map_channels["x"],
+        map_channels["y"],
+        polygon_xy,
+        map_channels["valid_mask"],
+    )
+    if world_polygon_mask is not None:
+        return world_polygon_mask
+    return None
 
 
 def is_point_in_manual_workspace_polygon(self, world_x, world_y):

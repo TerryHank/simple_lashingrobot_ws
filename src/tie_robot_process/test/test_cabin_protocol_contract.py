@@ -266,6 +266,100 @@ class CabinProtocolContractTest(unittest.TestCase):
         result = self.compile_and_run(source)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_heartbeat_frame_and_state_response_decode(self):
+        source = textwrap.dedent(
+            r'''
+            #include "tie_robot_hw/driver/cabin_protocol.hpp"
+
+            #include <cmath>
+            #include <cstdint>
+            #include <cstring>
+            #include <iostream>
+            #include <vector>
+
+            using tie_robot_hw::driver::CabinProtocol;
+            using tie_robot_hw::driver::CabinStateSnapshot;
+
+            void writeFloatLE(std::vector<uint8_t>& bytes, std::size_t offset, float value)
+            {
+                uint32_t raw = 0;
+                std::memcpy(&raw, &value, sizeof(raw));
+                bytes[offset] = static_cast<uint8_t>(raw & 0xFF);
+                bytes[offset + 1] = static_cast<uint8_t>((raw >> 8) & 0xFF);
+                bytes[offset + 2] = static_cast<uint8_t>((raw >> 16) & 0xFF);
+                bytes[offset + 3] = static_cast<uint8_t>((raw >> 24) & 0xFF);
+            }
+
+            uint16_t checksum(const std::vector<uint8_t>& frame, std::size_t payload_size)
+            {
+                uint16_t value = 0;
+                for (std::size_t index = 0; index < payload_size; ++index) {
+                    value = static_cast<uint16_t>(value + frame[index]);
+                }
+                return value;
+            }
+
+            int main()
+            {
+                const auto frame = CabinProtocol::buildHeartbeatFrame(12.5f, -3.25f);
+                if (frame.size() != 14) {
+                    std::cerr << "heartbeat frame size mismatch\n";
+                    return 1;
+                }
+                if (frame[0] != 0xEB || frame[1] != 0x90 || frame[2] != 0x00 || frame[3] != 0x01) {
+                    std::cerr << "heartbeat header mismatch\n";
+                    return 2;
+                }
+                const uint16_t actual_checksum = static_cast<uint16_t>(frame[12]) |
+                    (static_cast<uint16_t>(frame[13]) << 8);
+                if (actual_checksum != checksum(frame, 12)) {
+                    std::cerr << "heartbeat checksum mismatch\n";
+                    return 3;
+                }
+
+                std::vector<uint8_t> response(144, 0x00);
+                response[0] = 0xEB;
+                response[1] = 0x90;
+                writeFloatLE(response, 2, 111.5f);
+                writeFloatLE(response, 6, 222.25f);
+                writeFloatLE(response, 10, 333.75f);
+                writeFloatLE(response, 14, 1.25f);
+                writeFloatLE(response, 18, -2.5f);
+                writeFloatLE(response, 22, 3.75f);
+                response[138] = static_cast<uint8_t>((1u << 3) | (1u << 4));
+                const uint16_t response_checksum = checksum(response, 142);
+                response[142] = static_cast<uint8_t>(response_checksum & 0xFF);
+                response[143] = static_cast<uint8_t>((response_checksum >> 8) & 0xFF);
+
+                CabinStateSnapshot snapshot;
+                const auto error = CabinProtocol::decodeHeartbeatState(response, &snapshot);
+                if (!error.code.empty()) {
+                    std::cerr << "decodeHeartbeatState failed: " << error.code << " " << error.detail << "\n";
+                    return 4;
+                }
+                if (std::fabs(snapshot.x_mm - 111.5f) > 0.001f ||
+                    std::fabs(snapshot.y_mm - 222.25f) > 0.001f ||
+                    std::fabs(snapshot.z_mm - 333.75f) > 0.001f) {
+                    std::cerr << "xyz decode mismatch\n";
+                    return 5;
+                }
+                if (snapshot.motion_status != 1 || snapshot.device_alarm != 1 || snapshot.internal_calc_error != 0) {
+                    std::cerr << "status bit decode mismatch\n";
+                    return 6;
+                }
+                if (std::fabs(snapshot.pitch_deg - 1.25f) > 0.001f ||
+                    std::fabs(snapshot.roll_deg - -2.5f) > 0.001f ||
+                    std::fabs(snapshot.yaw_deg - 3.75f) > 0.001f) {
+                    std::cerr << "attitude decode mismatch\n";
+                    return 7;
+                }
+                return 0;
+            }
+            '''
+        )
+        result = self.compile_and_run(source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_motion_status_with_high_order_bytes_is_normalized_to_protocol_bits(self):
         source = textwrap.dedent(
             r'''

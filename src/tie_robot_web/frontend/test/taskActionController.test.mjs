@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { CONTROL_PANEL_TASKS } from "../src/config/controlPanelCatalog.js";
+import { CONTROL_PANEL_TASKS, CONTROL_PANEL_TASK_SECTIONS } from "../src/config/controlPanelCatalog.js";
 import { GLOBAL_EXECUTION_MODES, PROCESS_IMAGE_REQUEST_MODES } from "../src/config/visualRecognitionMode.js";
 import { TaskActionController } from "../src/controllers/TaskActionController.js";
 import { ROSLIB } from "../src/vendor/roslib.js";
@@ -50,9 +50,28 @@ ROSLIB.Goal = class {
 const submitTask = CONTROL_PANEL_TASKS.find((task) => task.id === "submitQuad");
 const runSavedS2Task = CONTROL_PANEL_TASKS.find((task) => task.id === "runSavedS2");
 const executionVisionOnlyTask = CONTROL_PANEL_TASKS.find((task) => task.id === "executionVisionOnly");
+const startExecutionTask = CONTROL_PANEL_TASKS.find((task) => task.id === "startExecution");
+const taskIds = CONTROL_PANEL_TASKS.map((task) => task.id);
 assert.equal(submitTask?.label, "确认\n工作区域");
-assert.equal(runSavedS2Task?.label, "触发\n视觉识别");
-assert.equal(executionVisionOnlyTask?.label, "执行层视觉\n单侧");
+assert.equal(runSavedS2Task?.label, "触发扫描\n视觉");
+assert.equal(executionVisionOnlyTask?.label, "单点视觉\n测试");
+assert.equal(startExecutionTask?.label, "执行全局\n绑扎");
+assert.deepEqual(CONTROL_PANEL_TASK_SECTIONS.map((section) => section.title), ["扫描区", "执行层", "区域切换"]);
+assert.deepEqual(taskIds, [
+  "moveToPosition",
+  "setRecognitionPose",
+  "submitQuad",
+  "runSavedS2",
+  "startExecution",
+  "triggerSingleBind",
+  "executionVisionOnly",
+  "startExecutionKeepMemory",
+  "previousArea",
+  "nextArea",
+]);
+assert.equal(taskIds.includes("clearVisualRecognition"), false);
+assert.equal(taskIds.includes("scanPlan"), false);
+assert.equal(taskIds.includes("runBindPathTest"), false);
 
 const payload = [10, 20, 110, 20, 110, 120, 10, 120];
 const publishedMessages = [];
@@ -149,35 +168,12 @@ assert.equal(
   true,
 );
 
-const fixedScanMessages = [];
-const fixedScanController = new TaskActionController({
-  rosConnection,
-  workspaceView,
-  getRecognitionPose() {
-    return { x: 490, y: 1700, z: 3197 };
-  },
-  getBindGroupPointCount() {
-    return 9;
-  },
-  callbacks: {
-    onResultMessage: (message) => fixedScanMessages.push(message),
-    onLog: (message, level) => logs.push({ message, level }),
-  },
-});
-
-const fixedScanActionCountBefore = actionGoals.length;
-fixedScanController.triggerPseudoSlamScan();
-assert.equal(actionGoals.length, fixedScanActionCountBefore + 1);
-assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
-  enable_capture_gate: false,
-  scan_strategy: 2,
-  use_fixed_scan_pose_override: true,
-  fixed_scan_pose_x_mm: 490,
-  fixed_scan_pose_y_mm: 1700,
-  fixed_scan_pose_z_mm: 3197,
-  bind_group_point_count: 9,
-});
-assert.equal(fixedScanMessages.some((message) => message.includes("x=490, y=1700, z=3197")), true);
+const actionCountBeforeRemovedActions = actionGoals.length;
+controller.handle("scanPlan");
+controller.handle("runBindPathTest");
+assert.equal(actionGoals.length, actionCountBeforeRemovedActions);
+assert.equal(typeof controller.triggerPseudoSlamScan, "undefined");
+assert.equal(typeof controller.triggerBindPathDirectTest, "undefined");
 
 const defaultExecutionActionCountBefore = actionGoals.length;
 controller.handle("startExecution");

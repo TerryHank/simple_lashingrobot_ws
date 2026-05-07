@@ -1307,6 +1307,8 @@ std::unordered_map<int, PseudoSlamCheckerboardInfo> build_checkerboard_info_by_g
     for (auto& entry : checkerboard_info_by_idx) {
         auto& info = entry.second;
         info.checkerboard_parity = (info.global_row + info.global_col + phase_reference) % 2;
+        info.jump_bind = is_jump_bind_target_parity(info.checkerboard_parity);
+        info.checkerboard_color = checkerboard_color_from_parity(info.checkerboard_parity);
 
         const bool has_horizontal_neighbor =
             occupied_cells.count(encode_checkerboard_cell_key(info.global_row, info.global_col - 1)) > 0 ||
@@ -1584,12 +1586,8 @@ bool load_live_visual_checkerboard_grid(
         std::vector<tie_robot_msgs::PointCoords> planning_world_points;
         std::vector<tie_robot_process::planning::DynamicBindGridIndex> grid_indices;
         for (const auto& point_json : points_json["pseudo_slam_points"]) {
-            if (!point_json.value("is_planning_checkerboard_member", false)) {
-                continue;
-            }
-
-            const int global_row = point_json.value("planning_global_row", -1);
-            const int global_col = point_json.value("planning_global_col", -1);
+            const int global_row = point_json.value("global_row", -1);
+            const int global_col = point_json.value("global_col", -1);
             if (global_row < 0 || global_col < 0) {
                 continue;
             }
@@ -1622,7 +1620,15 @@ bool load_live_visual_checkerboard_grid(
             info.global_idx = global_idx;
             info.global_row = global_row;
             info.global_col = global_col;
-            info.checkerboard_parity = point_json.value("planning_checkerboard_parity", -1);
+            info.checkerboard_parity = point_json.value("checkerboard_parity", -1);
+            info.jump_bind = point_json.value(
+                "jump_bind",
+                is_jump_bind_target_parity(info.checkerboard_parity)
+            );
+            info.checkerboard_color = point_json.value(
+                "checkerboard_color",
+                checkerboard_color_from_parity(info.checkerboard_parity)
+            );
             info.is_checkerboard_member = true;
             checkerboard_grid.info_by_cell_key[encode_checkerboard_cell_key(global_row, global_col)] = info;
         }
@@ -1733,6 +1739,8 @@ bool classify_live_visual_point_into_checkerboard(
         {"global_row", global_row},
         {"global_col", global_col},
         {"checkerboard_parity", checkerboard_it->second.checkerboard_parity},
+        {"jump_bind", checkerboard_it->second.jump_bind},
+        {"checkerboard_color", checkerboard_it->second.checkerboard_color},
         {"is_checkerboard_member", checkerboard_it->second.is_checkerboard_member},
         {"x", world_point.World_coord[0]},
         {"y", world_point.World_coord[1]},

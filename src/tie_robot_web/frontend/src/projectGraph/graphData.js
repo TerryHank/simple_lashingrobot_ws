@@ -198,7 +198,7 @@ export const packageEdges = Object.freeze([
     to: "tie_robot_process",
     label: "scan / global work",
     strength: "strong",
-    description: "前端发起伪 SLAM 扫描、全局执行和账本测试。",
+    description: "前端发起伪 SLAM 扫描、全局执行和人工区域切换。",
   },
   {
     from: "tie_robot_web",

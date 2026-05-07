@@ -1,27 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-WORKSPACE_ROOT="/home/hyq-/simple_lashingrobot_ws"
-LOG_DIR="${WORKSPACE_ROOT}/.runtime_logs"
-mkdir -p "${LOG_DIR}"
+BACKEND_SERVICE="tie-robot-backend.service"
+STANDALONE_PATTERN="roslaunch tie_robot_bringup algorithm_stack.launch"
 
-set +u
-source /opt/ros/noetic/setup.bash
-source "${WORKSPACE_ROOT}/devel/setup.bash"
-set -u
+sudo -n systemctl stop "${BACKEND_SERVICE}" || true
 
-ALGORITHM_NODES=(
-  /pointAINode
-  /bind_map_builder
-  /global_bind_planner
-  /cabin_motion_controller
-  /moduan_motion_controller
-  /bind_task_executor
-)
+# Clean up the old standalone launcher used by earlier UI actions.
+pkill -INT -f "${STANDALONE_PATTERN}" >/dev/null 2>&1 || true
+sleep 1
+pkill -TERM -f "${STANDALONE_PATTERN}" >/dev/null 2>&1 || true
 
-# Stop the standalone algorithm_stack launcher first, then ask ROS nodes to exit.
-pkill -f "roslaunch tie_robot_bringup algorithm_stack.launch" >/dev/null 2>&1 || true
-
-rosnode kill "${ALGORITHM_NODES[@]}" >/dev/null 2>&1 || true
-
-echo "requested algorithm_stack stop"
+echo "requested ${BACKEND_SERVICE} and standalone algorithm_stack.launch stop"

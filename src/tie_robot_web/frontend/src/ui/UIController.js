@@ -1,5 +1,5 @@
 import {
-  CONTROL_PANEL_TASKS,
+  CONTROL_PANEL_TASK_SECTIONS,
   getControlToggleDefinition,
   getControlPanelGroups,
   getInitialControlToggleStateMap,
@@ -52,6 +52,7 @@ const CONNECTION_ALARM_ACTION = { id: "resetAllAlarms", label: "报警复位" };
 
 const STATUS_CHIP_LONG_PRESS_RESTART_MS = 500;
 const STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS = 240;
+const BOTTOM_LINEAR_MODULE_ZERO_HINT = "长按0.5秒线性模组回零";
 
 const CABIN_POSITION_AXES = [
   { id: "x", label: "X" },
@@ -343,6 +344,19 @@ export class UIController {
             </div>
             <div class="panel-content control-panel-content">
               <div id="controlPanelTaskGrid" class="control-button-grid"></div>
+              <section id="controlPanelSpeedSettings" class="control-panel-speed-settings" aria-label="全局遥控速度">
+                <div class="control-section-title">全局遥控速度</div>
+                <div class="control-panel-speed-grid">
+                  <div class="field">
+                    <label for="cabinRemoteSpeed">索驱全局移动速度</label>
+                    <input id="cabinRemoteSpeed" type="number" min="1" step="1" value="300" />
+                  </div>
+                  <div class="field">
+                    <label for="tcpLinearRemoteSpeed">TCP线模执行速度</label>
+                    <input id="tcpLinearRemoteSpeed" type="number" min="1" step="1" value="250" />
+                  </div>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -465,6 +479,10 @@ export class UIController {
                           <input id="visualDebugBindGroupPointCount" type="number" min="1" max="64" step="1" value="4" />
                         </div>
                       </div>
+                      <label class="checkbox-field visual-debug-beam-filter" for="visualDebugBeamExclusionToggle">
+                        <input id="visualDebugBeamExclusionToggle" type="checkbox" />
+                        <span>梁筋 ±13 cm 过滤</span>
+                      </label>
                       <div class="field-grid compact-grid visual-debug-bind-range-grid">
                         <div class="field">
                           <label for="visualDebugBindRangeXMin">绑扎 X min (mm)</label>
@@ -492,7 +510,6 @@ export class UIController {
                         </div>
                       </div>
                       <div class="button-row">
-                        <button id="visualDebugApplyStableFrameCount" class="secondary-btn" type="button">应用帧数</button>
                         <button id="visualDebugTrigger" class="primary-btn" type="button">触发视觉服务</button>
                       </div>
                       <div id="visualDebugTimingSummary" class="info-block mono">单帧=--ms 服务=--ms 释放=3帧 点数=--</div>
@@ -773,10 +790,16 @@ export class UIController {
                   <div class="settings-grid">
                     <div class="settings-section">
                       <div class="section-title">索驱遥控</div>
-                      <label class="checkbox-field">
-                        <input id="cabinKeyboardRemoteToggle" type="checkbox" />
-                        <span>开启键盘遥控（全局生效）</span>
-                      </label>
+                      <div class="cabin-remote-keyboard-step-row">
+                        <label class="checkbox-field cabin-remote-keyboard-field" for="cabinKeyboardRemoteToggle">
+                          <input id="cabinKeyboardRemoteToggle" type="checkbox" />
+                          <span>开启键盘遥控（全局生效）</span>
+                        </label>
+                        <div class="field cabin-remote-step-field">
+                          <label for="cabinRemoteStep">单次点击步距（mm）</label>
+                          <input id="cabinRemoteStep" type="number" min="1" step="1" value="50" />
+                        </div>
+                      </div>
                       <input id="cabinRemoteMoveMode" type="hidden" value="absolute" />
                       <div class="cabin-remote-mode-group" role="group" aria-label="索驱点动模式">
                         ${CABIN_REMOTE_MOVE_MODES.map((mode) => `
@@ -806,16 +829,6 @@ export class UIController {
                         <div class="cabin-remote-pad-spacer" data-cabin-remote-spacer="emptyRight" aria-hidden="true"></div>
                       </div>
                       <div id="cabinRemoteStatus" class="info-block mono">键位：Q/W/E = Z+/X+/Z-，A/S/D = Y+/X-/Y-，空格 = 暂停。</div>
-                      <div class="field-grid compact-grid">
-                        <div class="field">
-                          <label for="cabinRemoteStep">单次点击步距（mm）</label>
-                          <input id="cabinRemoteStep" type="number" min="1" step="1" value="50" />
-                        </div>
-                        <div class="field">
-                          <label for="cabinRemoteSpeed">全局移动速度</label>
-                          <input id="cabinRemoteSpeed" type="number" min="1" step="1" value="300" />
-                        </div>
-                      </div>
                       <div class="section-title">绝对目标位姿</div>
                       <div class="field-grid compact-grid">
                         <div class="field">
@@ -946,8 +959,10 @@ export class UIController {
             id="bottomLinearModulePosition"
             class="bottom-linear-module-position mono"
             data-state="waiting"
-            title="等待线性模组状态和 gripper_frame TF"
-            aria-label="等待线性模组状态和 gripper_frame TF"
+            role="button"
+            tabindex="0"
+            title="等待线性模组状态和 gripper_frame TF；${BOTTOM_LINEAR_MODULE_ZERO_HINT}"
+            aria-label="等待线性模组状态和 gripper_frame TF；${BOTTOM_LINEAR_MODULE_ZERO_HINT}"
           >
             <div class="bottom-linear-module-row" data-bottom-linear-row="local">
               <span class="bottom-linear-module-title">线模本地</span>
@@ -1047,13 +1062,13 @@ export class UIController {
     this.refs.visualDebugExecutionModeInputs = [...this.rootElement.querySelectorAll("input[name='visualDebugExecutionMode']")];
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
     this.refs.visualDebugBindGroupPointCount = this.rootElement.querySelector("#visualDebugBindGroupPointCount");
+    this.refs.visualDebugBeamExclusionToggle = this.rootElement.querySelector("#visualDebugBeamExclusionToggle");
     this.refs.visualDebugBindRangeXMin = this.rootElement.querySelector("#visualDebugBindRangeXMin");
     this.refs.visualDebugBindRangeXMax = this.rootElement.querySelector("#visualDebugBindRangeXMax");
     this.refs.visualDebugBindRangeYMin = this.rootElement.querySelector("#visualDebugBindRangeYMin");
     this.refs.visualDebugBindRangeYMax = this.rootElement.querySelector("#visualDebugBindRangeYMax");
     this.refs.visualDebugBindRangeZMin = this.rootElement.querySelector("#visualDebugBindRangeZMin");
     this.refs.visualDebugBindRangeZMax = this.rootElement.querySelector("#visualDebugBindRangeZMax");
-    this.refs.visualDebugApplyStableFrameCount = this.rootElement.querySelector("#visualDebugApplyStableFrameCount");
     this.refs.visualDebugTrigger = this.rootElement.querySelector("#visualDebugTrigger");
     this.refs.visualDebugTimingSummary = this.rootElement.querySelector("#visualDebugTimingSummary");
     this.refs.visualDebugLogList = this.rootElement.querySelector("#visualDebugLogList");
@@ -1117,6 +1132,7 @@ export class UIController {
     this.refs.tcpLinearRemoteStatus = this.rootElement.querySelector("#tcpLinearRemoteStatus");
     this.refs.tcpLinearRemoteStep = this.rootElement.querySelector("#tcpLinearRemoteStep");
     this.refs.tcpLinearRemoteAngleStep = this.rootElement.querySelector("#tcpLinearRemoteAngleStep");
+    this.refs.tcpLinearRemoteSpeed = this.rootElement.querySelector("#tcpLinearRemoteSpeed");
     this.refs.tcpLinearRemoteButtons = [...this.rootElement.querySelectorAll("[data-tcp-linear-remote-axis]")];
     this.refs.tcpLinearRemoteStopButton = this.rootElement.querySelector("[data-tcp-linear-remote-stop]");
     this.refs.taskButtons = [...this.rootElement.querySelectorAll("[data-task-action]")];
@@ -2014,14 +2030,21 @@ export class UIController {
   }
 
   renderControlPanelTasks() {
-    this.refs.controlPanelTaskGrid.innerHTML = CONTROL_PANEL_TASKS.map((task) => `
-      <button
-        class="control-action-btn"
-        type="button"
-        data-task-action="${task.id}"
-        data-tone="${task.tone}"
-        disabled
-      >${task.label.replaceAll("\n", "<br />")}</button>
+    this.refs.controlPanelTaskGrid.innerHTML = CONTROL_PANEL_TASK_SECTIONS.map((section) => `
+      <section class="control-task-section" data-control-task-section="${section.id}">
+        <div class="control-group-title">${escapeHtml(section.title)}</div>
+        <div class="control-task-section-grid">
+          ${section.tasks.map((task) => `
+            <button
+              class="control-action-btn"
+              type="button"
+              data-task-action="${task.id}"
+              data-tone="${task.tone}"
+              disabled
+            >${task.label.replaceAll("\n", "<br />")}</button>
+          `).join("")}
+        </div>
+      </section>
     `).join("");
     this.refs.taskButtons = [...this.refs.controlPanelTaskGrid.querySelectorAll("[data-task-action]")];
   }
@@ -2295,6 +2318,7 @@ export class UIController {
         64,
         Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugBindGroupPointCount?.value || "4"))),
       ),
+      enableBeamExclusion: Boolean(this.refs.visualDebugBeamExclusionToggle?.checked),
       linearModuleBindRangeMm: this.getVisualDebugBindRangeInputs(),
     };
   }
@@ -2320,6 +2344,9 @@ export class UIController {
     }
     if (this.refs.visualDebugBindGroupPointCount) {
       this.refs.visualDebugBindGroupPointCount.value = String(bindGroupPointCount);
+    }
+    if (this.refs.visualDebugBeamExclusionToggle) {
+      this.refs.visualDebugBeamExclusionToggle.checked = Boolean(settings?.enableBeamExclusion);
     }
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
@@ -2355,7 +2382,29 @@ export class UIController {
     return {
       step: Number.parseFloat(this.refs.tcpLinearRemoteStep?.value || "5"),
       angleStep: Number.parseFloat(this.refs.tcpLinearRemoteAngleStep?.value || "5"),
+      speed: Number.parseFloat(this.refs.tcpLinearRemoteSpeed?.value || "250"),
     };
+  }
+
+  setTcpLinearRemoteSettings(settings) {
+    const step = Number.isFinite(Number(settings?.step)) && Number(settings.step) > 0
+      ? Number(settings.step)
+      : 5;
+    const angleStep = Number.isFinite(Number(settings?.angleStep)) && Number(settings.angleStep) > 0
+      ? Number(settings.angleStep)
+      : 5;
+    const speed = Number.isFinite(Number(settings?.speed)) && Number(settings.speed) > 0
+      ? Number(settings.speed)
+      : 250;
+    if (this.refs.tcpLinearRemoteStep) {
+      this.refs.tcpLinearRemoteStep.value = String(step);
+    }
+    if (this.refs.tcpLinearRemoteAngleStep) {
+      this.refs.tcpLinearRemoteAngleStep.value = String(angleStep);
+    }
+    if (this.refs.tcpLinearRemoteSpeed) {
+      this.refs.tcpLinearRemoteSpeed.value = String(speed);
+    }
   }
 
   isPanelVisible(panelId) {
@@ -2475,6 +2524,97 @@ export class UIController {
         }
         callback(button.dataset.statusId, button.dataset.statusAction);
       });
+    });
+  }
+
+  onBottomLinearModuleZeroAction(callback) {
+    const target = this.refs.bottomLinearModulePosition;
+    if (!target) {
+      return;
+    }
+
+    let longPressTimer = null;
+    let chargeCompleteCleanupTimer = null;
+    let longPressTriggered = false;
+    let suppressNextClick = false;
+    const clearChargeComplete = () => {
+      if (chargeCompleteCleanupTimer) {
+        window.clearTimeout(chargeCompleteCleanupTimer);
+        chargeCompleteCleanupTimer = null;
+      }
+      target.classList.remove("is-long-press-complete");
+      longPressTriggered = false;
+    };
+    const clearLongPressTimer = () => {
+      target.classList.remove("is-long-press-charging");
+      if (!longPressTriggered) {
+        target.classList.remove("is-long-press-complete");
+      }
+      if (!longPressTimer) {
+        return;
+      }
+      window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    };
+    const startLongPress = (event = {}) => {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+      if (target.disabled || target.getAttribute?.("aria-disabled") === "true") {
+        return;
+      }
+      event.preventDefault?.();
+      clearLongPressTimer();
+      clearChargeComplete();
+      suppressNextClick = false;
+      target.classList.add("is-long-press-charging");
+      longPressTimer = window.setTimeout(() => {
+        longPressTimer = null;
+        suppressNextClick = true;
+        target.classList.remove("is-long-press-charging");
+        target.classList.add("is-long-press-complete");
+        longPressTriggered = true;
+        if (!target.disabled && target.getAttribute?.("aria-disabled") !== "true") {
+          callback();
+        }
+        chargeCompleteCleanupTimer = window.setTimeout(clearChargeComplete, STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS);
+      }, STATUS_CHIP_LONG_PRESS_RESTART_MS);
+    };
+    target.addEventListener("pointerdown", startLongPress);
+    ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
+      target.addEventListener(eventName, () => {
+        if (!longPressTriggered) {
+          clearLongPressTimer();
+        }
+      });
+    });
+    target.addEventListener("keydown", (event) => {
+      if (event.repeat || (event.key !== "Enter" && event.key !== " ")) {
+        return;
+      }
+      startLongPress(event);
+    });
+    target.addEventListener("keyup", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      if (!longPressTriggered) {
+        clearLongPressTimer();
+      }
+    });
+    target.addEventListener("blur", () => {
+      if (!longPressTriggered) {
+        clearLongPressTimer();
+      }
+    });
+    target.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        return;
+      }
+      clearLongPressTimer();
     });
   }
 
@@ -2716,18 +2856,12 @@ export class UIController {
   }
 
   onTcpLinearRemoteSettingsChange(callback) {
-    [this.refs.tcpLinearRemoteStep, this.refs.tcpLinearRemoteAngleStep]
+    [this.refs.tcpLinearRemoteStep, this.refs.tcpLinearRemoteAngleStep, this.refs.tcpLinearRemoteSpeed]
       .filter(Boolean)
       .forEach((element) => {
         element.addEventListener("input", () => callback(this.getTcpLinearRemoteSettings()));
         element.addEventListener("change", () => callback(this.getTcpLinearRemoteSettings()));
       });
-  }
-
-  onVisualDebugApplyStableFrameCount(callback) {
-    this.refs.visualDebugApplyStableFrameCount?.addEventListener("click", () => {
-      callback(this.getVisualDebugSettings());
-    });
   }
 
   onVisualDebugTrigger(callback) {
@@ -2741,6 +2875,7 @@ export class UIController {
       ...this.refs.visualDebugExecutionModeInputs,
       this.refs.visualDebugStableFrameCount,
       this.refs.visualDebugBindGroupPointCount,
+      this.refs.visualDebugBeamExclusionToggle,
       ...VISUAL_DEBUG_BIND_RANGE_AXES.flatMap((axisConfig) => [
         this.refs[axisConfig.minRef],
         this.refs[axisConfig.maxRef],
@@ -3684,12 +3819,13 @@ export class UIController {
         .map(({ id, label: axisLabel, unit = "mm" }) => `${axisLabel}=${formatLinearAxisTitleValue(position?.[id], unit)}`)
         .join(" ")}`
     );
-    const title = hasLocalPosition
+    const positionTitle = hasLocalPosition
       ? [
         describePosition("线模本地", localPosition, LINEAR_MODULE_LOCAL_AXES),
         hasGlobalPosition ? describePosition("线模全局", globalPosition, CABIN_POSITION_AXES) : "线模全局：等待 gripper_frame TF",
       ].join("；")
       : "等待线性模组状态和 gripper_frame TF";
+    const title = `${positionTitle}；${BOTTOM_LINEAR_MODULE_ZERO_HINT}`;
 
     this.refs.bottomLinearModulePosition.dataset.state = state;
     this.refs.bottomLinearModulePosition.title = title;

@@ -185,7 +185,6 @@ def build_detection_summary_log(
     self,
     request_mode,
     raw_candidate_count,
-    duplicate_removed_count,
     in_range_candidate_count,
     out_of_range_point_count,
     selected_count,
@@ -200,7 +199,6 @@ def build_detection_summary_log(
             ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  可执行范围过滤: ")
             +
             f"原始候选={raw_candidate_count}, "
-            f"去重移除={duplicate_removed_count}, "
             f"范围内={in_range_candidate_count}, "
             f"范围外={out_of_range_point_count}, "
             f"2x2选中={selected_count}, "
@@ -363,6 +361,7 @@ def build_process_image_response(self, success, point_coords=None, message="", o
 def wait_for_stable_point_coords(self, request_mode):
     stable_snapshots = []
     latest_point_coords = None
+    execution_refine_no_points_start_time = None
     last_processed_frame_seq = -1
     start_time = time.time()
     rate = rospy.Rate(self.process_request_rate_hz)
@@ -409,15 +408,41 @@ def wait_for_stable_point_coords(self, request_mode):
             if not self.has_detected_points(point_coords):
                 stable_snapshots = []
                 latest_point_coords = None
+                now = time.time()
+                if execution_refine_no_points_start_time is None:
+                    execution_refine_no_points_start_time = now
+                no_points_timeout_sec = float(
+                    getattr(self, "execution_refine_no_points_timeout_sec", 3.0)
+                )
+                no_points_elapsed_sec = now - execution_refine_no_points_start_time
+                if no_points_timeout_sec > 0 and no_points_elapsed_sec >= no_points_timeout_sec:
+                    message = "EXECUTION_REFINE_NO_POINTS: 执行微调在当前区域未返回可执行点，跳过当前区域"
+                    rospy.logwarn(
+                        "%s；最近视觉消息：%s",
+                        message,
+                        execution_refine_result.get("message", "unknown error"),
+                    )
+                    return {
+                        "success": False,
+                        "message": message,
+                        "point_coords": point_coords,
+                        "out_of_height_count": 0,
+                        "out_of_height_point_indices": [],
+                        "out_of_height_z_values": [],
+                        "single_frame_elapsed_ms": single_frame_elapsed_ms,
+                    }
                 rospy.logwarn_throttle(
                     2.0,
-                    "pointAI等待执行微调平面分割+Hough有效点: %s",
+                    "pointAI等待执行微调平面分割+Hough有效点: %s（无点等待%.1fs/%.1fs）",
                     execution_refine_result.get("message", "unknown error"),
+                    no_points_elapsed_sec,
+                    no_points_timeout_sec,
                 )
                 rate.sleep()
                 continue
 
             latest_point_coords = point_coords
+            execution_refine_no_points_start_time = None
             snapshot = self.build_coordinate_snapshot(point_coords)
             stable_snapshots.append(snapshot)
             stable_snapshots = stable_snapshots[-mode_frame_count:]

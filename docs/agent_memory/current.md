@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 04:52:00，当前 HEAD：`d45925d`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 11:09:56，当前 HEAD：`a861d93`。
 
 ## Bootstrap Files
 
@@ -36,23 +36,23 @@
 
 ## Latest CHANGELOG Signals
 
-- “视觉调试”设置新增“每组点数”，默认保持 4 点，即原有 2x2 分组；扫描动作会把该值随 `StartPseudoSlamScan` 服务和 action 目标透传到后端规划链。
-- 动态绑扎规划支持按用户输入选择矩形分组：例如 6 点会优先尝试接近正方形的 2x3，并在网格形状或可达性不满足时尝试 3x2；分组仍按当前世界坐标蛇形顺序输出。
-- 每个候选组都会在当前路径规划高度下，以该组中心规划索驱位姿，再校验组内所有点是否落在线性模组可达盒内；若用户设置的点数无法形成任何可达分组，`pseudo_slam` 会返回“无法规划”提示，要求调小每组点数或调整路径高度。
-- 规划层新增 `requested_group_point_count` 默认值 4，并补充 6 点、9 点不可达和 Surface-DP 网格轴向推断相关测试，避免现场行列轴与世界 X/Y 交换时误分组。
-- `/moduan/sg` 单点绑扎在执行微调 Hough 返回一个区域的多个点后，会先把相机点转换到 `gripper_frame`，再按 TCP 局部 `x` 分行、`y` 交替方向蛇形排序后下发线性模组，确保绑扎枪按区域内蛇形点序移动。
-- `MODE_EXECUTION_REFINE` 返回给服务响应和执行底图编号的点序同步改为同一 TCP 蛇形口径：从 TCP 局部 `x` 最小行开始，偶数行 `y` 小到大，奇数行 `y` 大到小；扫描建图点序不随本次修改改变。
-- 现场口径固定：绑扎点从识别到下发只走一层执行范围校验，即 pointAI 的视觉 / TCP ROI 校验；控制层和预生成组加载层不再使用旧 `X[0,360] / Y[0,320] / Z[0,160]` 或类似硬行程二次拒绝点位。
-- `tie_robot_control` 已删除 `execute_bind_points(...)` 内的 `is_valid_precomputed_tcp_travel_point(...)` 过滤和相关 `kTravelMax*` 常量，视觉已经选中的点不会再因控制层旧边界被丢弃；手动 `/moduan/move` 入口也不再复用这组旧硬范围拦截。
+- 前端控制面板下线“清除识别结果”“固定扫描规划”和“账本测试”三个旧按钮及其入口逻辑，任务按钮按“扫描区”“执行层”“区域切换”重新分组展示。
+- “开始执行层”改名为“执行全局绑扎”，“执行层视觉单侧”改名为“单点视觉测试”；扫描区保留“移动到位姿”“设为识别位姿”“确认工作区域”“触发扫描视觉”，执行层保留“执行全局绑扎”“触发单点绑扎”“单点视觉测试”“记忆续跑开始”。
+- 新增“上一个区域 / 下一个区域”人工切区：前端先发布 `/web/cabin/manual_area_takeover` 终止当前自动执行链并让线性模组归零，再按当前区域进度或当前位置邻近区域移动索驱到相邻 `cabin_pose`；暂停后未恢复时，后续区域交由人工操作。
+- 清理执行视觉链路遗留的“近点排斥/去重”算法：`MODE_EXECUTION_REFINE` 的 Hough 候选点不再因为世界 XY 距离小于旧 `100mm` 阈值而成对丢弃；多根钢筋靠得近时，只要有有效 3D 坐标且落在 TCP 执行范围内，就继续进入排序和下发。
+- 执行底图诊断同步移除 `DUP` 标记，日志也不再输出“去重移除”；现场漏点只剩 `H` 原始交点、`ZERO` 无有效 3D 坐标、`OUT` 超出 TCP 范围和 `SEL/编号` 最终输出这几类有效门控。
+- Surface-DP 运行态新增 `beam_candidate` 梁筋候选诊断：基于收束底图中的宽、连续、高响应竖向 band 识别梁筋候选，并输出 `beam_candidate_bands`、`beam_candidate_count` 和像素统计。
+- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可选择启用「梁筋 ±13 cm 过滤」，默认关闭，启用后只过滤落入梁筋候选扩张范围的最终绑扎点，不删除普通钢筋线族。
+- 梁筋候选识别补充「黑色竖沟 + 双侧窄亮边」形态：现场截图中梁筋中间常表现为贯穿全高的暗沟，而不是整条宽亮带；检测逻辑会把两侧连续亮边与中间低覆盖暗沟合并成一条 beam_candidate 竖带，避免漏掉这种梁筋。
 
 ## Recent Session Memory
 
-- `2026-05-07 04:51 - 当前视野边界改为后端IR灰线`：用户明确否定前端 SVG/Canvas/三维工作区范围方案；索驱降下后相机当前可见区域边界由 pointAI 后端基于 raw_world_coord/world_coord 有效 Z 区域计算外轮廓，并直接绘制到 /pointAI/result_image_raw 的 IR 结果图上，使用灰色边界线。前端不再订阅 workspace/quad_camera_points，不再创建 workspaceRangeGroup，也不再把实时工作区范围投影回图像；仅保留 TCP/线性模组范围投影覆盖层。
-- `2026-05-07 04:43 - 视觉调试每组绑扎点数可配置`：视觉调试页新增每组点数，StartPseudoSlamScan 服务/action 透传 bind_group_point_count；动态绑扎规划按 requested_group_point_count 生成矩形候选，默认 4 保持 2x2，6 点可按可达性选择 2x3 或 3x2，9 点等在当前路径高度和线性模组可达盒内无法覆盖全组时返回无法规划提示。
-- `2026-05-07 04:36 - live_visual 微调匹配轴向按扫描行列推断`：账本+微调执行链中，MODE_EXECUTION_REFINE 返回相机点后会先转 map 再归入扫描账本棋盘格。当前 Surface-DP 行列在现场数据中 row 稳定对应 world_x、col 稳定对应 world_y，不能再硬编码 row=world_y/col=world_x；live_visual 现在从 pseudo_slam_points 的规划行列 span 推断 row/col 对应世界轴，再用该轴向做 80mm 棋盘格归类和 30mm/6mm 微调门限。
-- `2026-05-07 04:17 - 当前视野边界贴边可视化`：实时相机可视边界来自 /Scepter/worldCoord/raw_world_coord 的有效 3D 像素边缘，并在 IR 底层 SVG 绘制；raw 边界抽样需过滤 z<=0 的无效深度，投影时少量点失败不隐藏整条边界。若边界几何上贴着整幅图像边缘，SVG 仅在显示层向内收 8px 画出，避免绿线被图像边框吃掉；线性模组/TCP 青蓝范围仍由 overlay canvas 保留。
-- `2026-05-07 04:00 - 连接徽标长按重启中动画`：前端顶部“连接成功”徽标长按触发 restartRosStack 后，现在会像索驱、末端、视觉状态胶囊一样进入 pending：禁用按钮、显示“重启中”、保留连接成功主标签并启用旋转/滑入动画；连接状态刷新不会打断该 pending 反馈，完成后恢复“长按重启”。
-- `2026-05-07 03:56 - 当前视野边界改为IR底层SVG`：用户要求当前可视区域边界不要通过 overlay canvas 重绘，避免高频 clearRect/stroke 消耗。前端图像层现在在 irCanvas 和 overlayCanvas 之间新增 irBaseBoundaryLayer SVG，实时视野边界只更新 SVG polygon/circle DOM 属性；overlayCanvas 继续只承载算法结果、线模范围、识别点和悬停读数。
+- `2026-05-07 11:09 - 非4点分组统一为2x3物理方向`：动态绑扎规划的非4点模式已按现场口径收口：默认只把3个点跨度放在线模长轴方向，短轴最多2点；不再在2x3不可用时自动切到3x2，也不再让9点请求生成3x3。请求9时按世界坐标蛇形优先使用2x3，再用2x2、1x3、1x2等更小可达矩形补剩余点，所有候选仍按规划cabin_z校验线模工作范围。
+- `2026-05-07 11:07 - Surface-DP 梁筋禁入前移到曲线追踪`：用户明确要求不要改默认开关，只把 beam mask 前移到 tracing 阶段。当前 scan_surface_dp 在启用梁筋±13cm过滤时，会先生成 beam_candidate_13cm_mask 作为 curve_trace_mask 禁区，再跑 curved_families；workspace_s2 曲线追踪只保留 support_mask 内的 polyline_points，并新增 polyline_segments，交点只在连续有效段之间求，避免曲线穿过梁筋后再靠最终删点兜底。
+- `2026-05-07 10:58 - 动态分组起点兜底优先于后续完整组`：动态绑扎规划在请求 6/9 等多点分组时，不能先执行后续可达完整组再回头补世界最小起点附近的小组；完整候选和可达兜底候选需要进入同一条世界坐标蛇形队列，同一起点优先点数更多的组。这样 9 点组因规划高度或线模范围不可达时，会先在世界最小角附近落到最大可达小组，再继续蛇形填充后续区域。
+- `2026-05-07 10:55 - 旧idx跳绑过滤已移除`：末端控制层旧跳绑链路已删除：不再使用 send_odd_points、/web/moduan/send_odd_points、ExecuteBindPointsTask.apply_jump_bind_filter 或 should_keep_jump_bind_point(idx==1/4) 托底过滤。execute_bind_points 现在只执行上游传入的点；跳绑选择保留在流程层，按 scan/bind path 中的 jump_bind、checkerboard_color、checkerboard_parity 元数据和 /web/moduan/jump_bind_enabled、/web/moduan/jump_bind_parity 决定。以后不要把旧 idx==1||4 过滤恢复到 moduan 层。
+- `2026-05-07 10:22 - 控制面板任务区收口与人工切区接管`：前端控制面板已下线“清除识别结果”“固定扫描规划”“账本测试”旧入口，改为扫描区、执行层、区域切换三组；上一个/下一个区域会发布 /web/cabin/manual_area_takeover，先让当前自动执行链放弃后续区域并让线性模组归零，再按当前区域进度或当前位置邻近区域移动索驱到相邻 cabin_pose。
+- `2026-05-07 10:14 - 索驱设备运动中不再触发自动跳区`：自动执行下发索驱位姿时，设备运动中/status_word=0x00000004 属于索驱忙的暂态，应等待并重试当前目标；Z超正限位、速度错误等真实拒绝仍保持硬失败，不能被通信恢复逻辑吞掉。等待轴到位时缓存索驱协议异常需记录 command_word，只有 TCP 运动类指令(0x0010/0x0011/0x0012)返回纯 bit2 设备运动中才按暂态处理。
 
 ## Handoff Documents
 

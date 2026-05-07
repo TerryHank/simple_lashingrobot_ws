@@ -9,7 +9,6 @@ import {
 import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
 const WORKSPACE_QUAD_ACK_TIMEOUT_MS = 4000;
-const DEFAULT_FIXED_SCAN_POSE_MM = Object.freeze({ x: 490, y: 1700, z: 3197 });
 
 function buildWorkspaceQuadPayloadKey(payload) {
   if (!Array.isArray(payload) || payload.length !== 8) {
@@ -23,36 +22,10 @@ function buildWorkspaceQuadPayloadKey(payload) {
   return pairs.sort().join("|");
 }
 
-function normalizeFixedScanPoseMm(pose) {
-  const source = pose || DEFAULT_FIXED_SCAN_POSE_MM;
-  const normalized = {
-    x: Number(source.x),
-    y: Number(source.y),
-    z: Number(source.z),
-  };
-  if (!["x", "y", "z"].every((axis) => Number.isFinite(normalized[axis]))) {
-    return DEFAULT_FIXED_SCAN_POSE_MM;
-  }
-  return normalized;
-}
-
 function normalizeBindGroupPointCount(value) {
   const numericValue = Number(value);
   const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : 4;
   return Math.min(64, Math.max(1, roundedValue));
-}
-
-function buildFixedScanGoalMessage(pose, bindGroupPointCount = 4) {
-  const fixedPose = normalizeFixedScanPoseMm(pose);
-  return {
-    enable_capture_gate: false,
-    scan_strategy: 2,
-    use_fixed_scan_pose_override: true,
-    fixed_scan_pose_x_mm: fixedPose.x,
-    fixed_scan_pose_y_mm: fixedPose.y,
-    fixed_scan_pose_z_mm: fixedPose.z,
-    bind_group_point_count: normalizeBindGroupPointCount(bindGroupPointCount),
-  };
 }
 
 function normalizeGlobalExecutionMode(value) {
@@ -67,14 +40,12 @@ export class TaskActionController {
   constructor({
     rosConnection,
     workspaceView,
-    getRecognitionPose = null,
     getExecutionMode = null,
     getBindGroupPointCount = null,
     callbacks = {},
   }) {
     this.rosConnection = rosConnection;
     this.workspaceView = workspaceView;
-    this.getRecognitionPose = getRecognitionPose;
     this.getExecutionMode = getExecutionMode;
     this.getBindGroupPointCount = getBindGroupPointCount;
     this.callbacks = callbacks;
@@ -91,14 +62,10 @@ export class TaskActionController {
         return this.triggerExecutionRefineVisionOnly();
       case "triggerSingleBind":
         return this.triggerSinglePointBind();
-      case "scanPlan":
-        return this.triggerPseudoSlamScan();
       case "startExecution":
         return this.triggerExecutionLayer({ useExecutionMemory: false, clearExecutionMemory: false });
       case "startExecutionKeepMemory":
         return this.triggerExecutionLayer({ useExecutionMemory: true, clearExecutionMemory: false });
-      case "runBindPathTest":
-        return this.triggerBindPathDirectTest();
       default:
         this.report(`未识别的任务动作: ${taskAction}`, "warn");
     }
@@ -268,28 +235,6 @@ export class TaskActionController {
     return true;
   }
 
-  triggerPseudoSlamScan() {
-    const resources = this.rosConnection.getResources();
-    if (!resources?.startPseudoSlamScanActionClient) {
-      this.report("ROS 还没连好，暂时不能开始固定扫描规划", "warn");
-      return;
-    }
-    this.workspaceView.setExecutionOverlayMessage(null);
-    const fixedScanPose = normalizeFixedScanPoseMm(this.getRecognitionPose?.());
-    const bindGroupPointCount = normalizeBindGroupPointCount(this.getBindGroupPointCount?.());
-    this.callbacks.onResultMessage?.(
-      `正在执行固定工作区扫描：移动到 x=${Math.round(fixedScanPose.x)}, y=${Math.round(fixedScanPose.y)}, z=${Math.round(fixedScanPose.z)}，` +
-        `每组${bindGroupPointCount}个点动态规划，结果会叠加到红外原图。`,
-    );
-    this.callbacks.onLog?.("已触发固定扫描建图任务", "success");
-    return this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
-      goalMessage: buildFixedScanGoalMessage(fixedScanPose, bindGroupPointCount),
-      feedbackPrefix: "扫描建图进行中",
-      successPrefix: "扫描建图完成",
-      failurePrefix: "扫描建图失败",
-    });
-  }
-
   triggerExecutionLayer({ useExecutionMemory = false, clearExecutionMemory = false } = {}) {
     const resources = this.rosConnection.getResources();
     if (!resources?.executionModeService || !resources?.startGlobalWorkActionClient) {
@@ -328,24 +273,6 @@ export class TaskActionController {
       },
       (error) => this.report(`执行模式切换失败: ${error?.message || String(error)}`, "error"),
     );
-  }
-
-  triggerBindPathDirectTest() {
-    const resources = this.rosConnection.getResources();
-    if (!resources?.runDirectBindPathTestActionClient) {
-      this.report("ROS 还没连好，暂时不能直接执行账本测试", "warn");
-      return;
-    }
-    this.callbacks.onResultMessage?.(
-      "直接执行账本测试已触发：后端将只按 pseudo_slam_bind_path.json 的 path_origin、cabin_pose 和 x/y/z 执行。",
-    );
-    this.callbacks.onLog?.("已触发直接执行账本测试", "success");
-    return this.sendActionGoal(resources.runDirectBindPathTestActionClient, {
-      goalMessage: {},
-      feedbackPrefix: "账本测试进行中",
-      successPrefix: "账本测试完成",
-      failurePrefix: "账本测试失败",
-    });
   }
 
   sendActionGoal(actionClient, { goalMessage, feedbackPrefix, successPrefix, failurePrefix }) {

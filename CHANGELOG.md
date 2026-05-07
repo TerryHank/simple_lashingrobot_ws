@@ -5,12 +5,54 @@
 
 ## 2026-05-07
 
+### 控制面板任务区收口与人工切区
+
+- 前端控制面板下线“清除识别结果”“固定扫描规划”和“账本测试”三个旧按钮及其入口逻辑，任务按钮按“扫描区”“执行层”“区域切换”重新分组展示。
+- “开始执行层”改名为“执行全局绑扎”，“执行层视觉单侧”改名为“单点视觉测试”；扫描区保留“移动到位姿”“设为识别位姿”“确认工作区域”“触发扫描视觉”，执行层保留“执行全局绑扎”“触发单点绑扎”“单点视觉测试”“记忆续跑开始”。
+- 新增“上一个区域 / 下一个区域”人工切区：前端先发布 `/web/cabin/manual_area_takeover` 终止当前自动执行链并让线性模组归零，再按当前区域进度或当前位置邻近区域移动索驱到相邻 `cabin_pose`；暂停后未恢复时，后续区域交由人工操作。
+
+### 执行微调近点排斥清理
+
+- 清理执行视觉链路遗留的“近点排斥/去重”算法：`MODE_EXECUTION_REFINE` 的 Hough 候选点不再因为世界 XY 距离小于旧 `100mm` 阈值而成对丢弃；多根钢筋靠得近时，只要有有效 3D 坐标且落在 TCP 执行范围内，就继续进入排序和下发。
+- 执行底图诊断同步移除 `DUP` 标记，日志也不再输出“去重移除”；现场漏点只剩 `H` 原始交点、`ZERO` 无有效 3D 坐标、`OUT` 超出 TCP 范围和 `SEL/编号` 最终输出这几类有效门控。
+
+### 扫描 DP 底图梁筋候选可视化
+
+- Surface-DP 运行态新增 `beam_candidate` 梁筋候选诊断：基于收束底图中的宽、连续、高响应竖向 band 识别梁筋候选，并输出 `beam_candidate_bands`、`beam_candidate_count` 和像素统计。
+- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可选择启用「梁筋 ±13 cm 过滤」，默认关闭，启用后只过滤落入梁筋候选扩张范围的最终绑扎点，不删除普通钢筋线族。
+- 梁筋候选识别补充「黑色竖沟 + 双侧窄亮边」形态：现场截图中梁筋中间常表现为贯穿全高的暗沟，而不是整条宽亮带；检测逻辑会把两侧连续亮边与中间低覆盖暗沟合并成一条 beam_candidate 竖带，避免漏掉这种梁筋。
+- 梁筋候选进一步增加高度门控：竖带这一列必须在 `background_depth - filled_depth` 高度响应上高于邻近普通钢筋才会标为梁筋；红色半透明带按高度峰值列收窄，避免把只是更宽、更亮但不更高的普通钢筋误判为梁筋。
+- 梁筋候选再增加网格线族上下文门控：候选竖带必须位于相邻普通竖向钢筋列之间，并接近这两列的中点；如果候选中心落在正常竖筋 line-family 上，会被视为普通钢筋抬高或局部变粗而剔除，降低误识别红带。
+
+### 跳绑长按启停与黑白棋选择
+
+- 前端控制面板的跳绑按钮改为长按启停：长按发布 `/web/moduan/send_odd_points` 的 Bool 开关，单击只在“只绑黑棋 / 只绑白棋”之间切换，不再误触启停。
+- 新增 `/web/moduan/jump_bind_parity`（`std_msgs/Int32`）同步前端选择，约定 `0=black`、`1=white`；后端全局执行、账本测试和账本+微调执行开启跳绑时按当前 parity 过滤账本点。
+- 3D 规划路径图层在跳绑开启后，会额外用更大、更深的点叠加高亮当前要跳绑的黑/白棋点；关闭跳绑时恢复普通全点显示。
+
+### 跳绑账本点颜色属性
+
+- 扫描后生成的 `pseudo_slam_points.json`、`pseudo_slam_bind_path.json` 和执行回写的 `bind_execution_memory.json` 会为每个棋盘格点写入 `jump_bind` 和 `checkerboard_color`；当前约定 `checkerboard_parity==0` 为 `black` / `jump_bind=true`，`checkerboard_parity==1` 为 `white` / `jump_bind=false`。
+- 全局执行、账本测试和账本+微调执行在跳绑开关开启时改为优先按 `jump_bind=true` 过滤；旧账本缺少该字段时仍回退到 `checkerboard_parity==0`，避免现场已有产物立即失效。
+- 前端静态规划路径 API 和 `bindPathGeometry` 归一化会保留 `jump_bind`、`checkerboard_color` 与 parity 元数据，后续 3D/调试显示可直接区分黑白棋子。
+
+### 原始账本口径回退
+
+- 用户最新口径：撤回账本杂点过滤方案，扫描生成 `pseudo_slam_points.json` 和 `pseudo_slam_bind_path.json` 时保留扫描原始点；执行层不再按 `outlier`、`blocked` 或 planning 棋盘成员标记删点。跳绑仍只作为用户主动选择黑 / 白棋点的执行开关。
+
 ### 视觉调试可配置绑扎分组点数
 
 - “视觉调试”设置新增“每组点数”，默认保持 4 点，即原有 2x2 分组；扫描动作会把该值随 `StartPseudoSlamScan` 服务和 action 目标透传到后端规划链。
-- 动态绑扎规划支持按用户输入选择矩形分组：例如 6 点会优先尝试接近正方形的 2x3，并在网格形状或可达性不满足时尝试 3x2；分组仍按当前世界坐标蛇形顺序输出。
+- 动态绑扎规划的非 4 点模式收口为统一物理方向：短轴最多 2 点、长轴最多 3 点，默认使用 2x3 作为最大安全组；不再因为 2x3 不满足就切换到 3x2，也不再让 9 点请求生成 3x3。若用户填 9，规划会按世界坐标蛇形优先填 2x3，再用 2x2、1x3、1x2 等更小可达矩形补剩余点。
 - 每个候选组都会在当前路径规划高度下，以该组中心规划索驱位姿，再校验组内所有点是否落在线性模组可达盒内；若用户设置的点数无法形成任何可达分组，`pseudo_slam` 会返回“无法规划”提示，要求调小每组点数或调整路径高度。
+- 动态绑扎路径规划进一步收口为以中心重合反算索驱位姿：每个分组的世界坐标中心优先对齐线性模组工作盒中心，即 `tcp_max_x / 2`、`tcp_max_y / 2`、`tcp_max_z / 2`；旧 `template_center_*` 偏移不再参与索驱位姿反算。
+- 默认 4 点分组的成组口径回到 `slam/v35`：固定 2x2 切块、边缘 2 点补组和蛇形排序不因中心反算高度触底而丢组；若索驱高度低于最小绑扎高度，最终 `cabin_pose.z` 按 v35 口径夹到安全下限，保持 256 点网格可稳定输出 64 个 2x2 组。
 - 规划层新增 `requested_group_point_count` 默认值 4，并补充 6 点、9 点不可达和 Surface-DP 网格轴向推断相关测试，避免现场行列轴与世界 X/Y 交换时误分组。
+
+### 视觉调试设置填完即用
+
+- “视觉调试”卡里的释放帧数、每组点数、梁筋过滤开关和绑扎范围输入统一改为填完即用：输入变化会立即保存设置、刷新 3D / IR 绑扎范围，并同步发布 `/web/pointAI/set_stable_frame_count`、`/web/pointAI/set_execution_refine_tcp_roi` 与 `/web/pointAI/set_scan_beam_exclusion`，不再需要点击“应用帧数”。
+- “触发视觉服务”按钮继续保留，只负责主动发起一次视觉识别 / 扫描动作；它不承担设置确认语义。
 
 ### 单点绑扎区域内蛇形点序
 
@@ -42,12 +84,12 @@
 - 执行微调结果图中的 `tcp=(...)` 改为当前运动 TCP/虎口坐标：先按 `Scepter_depth_frame -> gripper_frame` 得到线模绝对目标坐标，再减去当前线性模组 X/Y/Z，使越靠近当前虎口的点数值越接近 0；执行层写 PLC 的点位仍使用绝对线模目标坐标，不受显示相对坐标影响。
 - `pointAI` 新增订阅 `/moduan/moduan_gesture_data` 缓存当前线模位置；若线模状态暂未到达，显示转换会自然退回只基于静态相机-TCP外参的旧口径。
 - 前端图像层“执行底图 Hough二值”对应的 `/perception/lashing/execution_refine_base_image` 在 Hough 输出点生成后会重新发布带点位叠加的 `bgr8` 调试图：白/黑二值底图不变，识别出的执行点以黄色圆圈、红色中心和编号标出。
-- 视觉图像层不再使用固定像素矩形 ROI：移除 `point1/point2` 白框过滤、执行 Hough 的 `roi_reject` 门和执行范围 mask 对静态 ROI 的叠加；候选点只受有效 3D 坐标、近点去重、手动/规划工作区和执行范围约束。
+- 视觉图像层不再使用固定像素矩形 ROI：移除 `point1/point2` 白框过滤、执行 Hough 的 `roi_reject` 门和执行范围 mask 对静态 ROI 的叠加；候选点只受有效 3D 坐标、手动/规划工作区和执行范围约束。2026-05-07 起执行微调里的近点去重也已移除。
 - 执行层视觉微调恢复独立的 TCP 遮挡黑色 mask：仅 `MODE_EXECUTION_REFINE` 会在 Hough 二值化前把已知 TCP 遮挡矩形 `(160,0)-(523,80)` 置黑，不作为点位 ROI 过滤，也不产生 `ROI` 拒绝诊断。
 - 执行层视觉微调的 ROI 改为 TCP 坐标执行盒，而不是像素矩形：Hough 二值化前会把 raw world 像素按 `Scepter_depth_frame -> gripper_frame` 外参批量转换，只保留 `x[0,380] / y[0,330] / z[0,160]mm` 内的像素和候选点，范围外视图不再参与 Hough。
 - 绑扎点识别结果的编号与行列索引按当前现场像素轴向固定：画面上方为 `x=0`，从上到下为 `x+`；画面右侧为 `y=0`，从右到左为 `y+`，即右上角为 TCP 工具原点。Surface-DP 扫描点和执行层 Hough 输出点都按该口径从小坐标开始排序。
 - 执行层结果图 `tcp=(...)` 不再直接显示 gripper 投影轴值；现在与红外 TCP 工作范围覆盖层使用同一工具坐标口径：`tcp.x = 380 - gripper_y`、`tcp.y = gripper_x`、`tcp.z = gripper_z`，再减去当前线性模组位置。这样画面上方点的 `tcp.x` 小于下方点，同列上下点编号不会再出现 1 的坐标大于 3。
-- “执行底图 Hough二值”进一步叠加诊断标记：`H` 为 Hough 原始交点，`ZERO` 为取不到有效 3D 坐标，`OUT` 为 TCP 执行范围外，`DUP` 为近点去重移除，`SEL/编号` 为最终输出点；现场漏点时可直接从同一图层判断掉在哪道门。
+- “执行底图 Hough二值”进一步叠加诊断标记：`H` 为 Hough 原始交点，`ZERO` 为取不到有效 3D 坐标，`OUT` 为 TCP 执行范围外，`SEL/编号` 为最终输出点；现场漏点时可直接从同一图层判断掉在哪道门。2026-05-07 起不再存在 `DUP` 近点去重门。
 
 ### 单点绑扎相机点到 TCP 局部坐标修正
 
@@ -89,7 +131,7 @@
 - 用户明确口径：视觉请求和触发链路保持当前 `/pointAI/process_image request_mode=3`，只把扫描视觉算法本体恢复到 2026-04-22 那版 `manual workspace S2`。
 - 扫描 S2 主链回到 depth-only 版本：手动工作区透视展开后，基于深度背景差分构造响应图，分别对 rectified 图的纵向、横向 profile 做周期和相位估计，再用 `build_workspace_s2_projective_line_segments` 与 inverse mapping 投回原图。
 - 扫描 S2 与 `38baa98` 的算法差异继续收口：运行态会完整评分 `background_depth - filled_depth` 与 `filled_depth - background_depth` 两个 depth 响应变体，并按纵横周期估计总分选择最佳变体；透视展开几何优先使用当前 `map` 口径的 `corner_world_map_frame`，缺失时才回退兼容当前已有的 `corner_world_camera_frame`。
-- 当前扫描算法不再使用行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、梁筋 ±13 cm 扩张过滤、稳定采样择优或 phase lock；这些实验链路只保留为报告/研究参考，不进入扫描运行路径。
+- 当前扫描算法不再使用行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、稳定采样择优或 phase lock；梁筋 ±13 cm 过滤仅作为视觉调试开关控制的最终点级排除，不恢复旧实验链路，也不删除整条钢筋线族。
 - `MODE_EXECUTION_REFINE` 仍按 2026-04-30 口径走平面分割 + Hough 局部视觉；本次不修改前端按钮、Web action、`/pointAI/process_image` 服务入口或执行层 Hough 分流。
 
 ### 当前视觉识别流程效果页

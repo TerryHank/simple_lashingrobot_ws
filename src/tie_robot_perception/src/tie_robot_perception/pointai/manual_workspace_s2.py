@@ -239,21 +239,68 @@ def normalize_scan_surface_dp_debug_image(image):
     return output
 
 
-def draw_scan_surface_dp_debug_points(normalized_image, overlay_points=None):
+def draw_scan_surface_dp_debug_beam_bands(normalized_image, overlay_beam_bands=None):
     if normalized_image is None:
         return None
-    if overlay_points is None:
+    if overlay_beam_bands is None:
         return normalized_image
 
     rendered_image = cv2.cvtColor(normalized_image, cv2.COLOR_GRAY2BGR)
     height, width = normalized_image.shape[:2]
+    overlay_image = rendered_image.copy()
+    drew_band = False
+
+    try:
+        band_iter = iter(overlay_beam_bands)
+    except TypeError:
+        return normalized_image
+
+    for band in band_iter:
+        if not isinstance(band, dict):
+            continue
+        axis = str(band.get("axis", "x"))
+        try:
+            start = int(round(float(band.get("start", 0))))
+            end = int(round(float(band.get("end", start))))
+        except (TypeError, ValueError):
+            continue
+        if axis == "y":
+            start = max(0, min(height - 1, start))
+            end = max(start, min(height - 1, end))
+            cv2.rectangle(overlay_image, (0, start), (width - 1, end), (0, 0, 255), -1)
+            cv2.rectangle(rendered_image, (0, start), (width - 1, end), (255, 255, 255), 1)
+        else:
+            start = max(0, min(width - 1, start))
+            end = max(start, min(width - 1, end))
+            cv2.rectangle(overlay_image, (start, 0), (end, height - 1), (0, 0, 255), -1)
+            cv2.rectangle(rendered_image, (start, 0), (end, height - 1), (255, 255, 255), 1)
+        drew_band = True
+
+    if not drew_band:
+        return normalized_image
+    return cv2.addWeighted(overlay_image, 0.32, rendered_image, 0.68, 0.0)
+
+
+def draw_scan_surface_dp_debug_points(normalized_image, overlay_points=None, overlay_beam_bands=None):
+    if normalized_image is None:
+        return None
+
+    rendered_image = draw_scan_surface_dp_debug_beam_bands(normalized_image, overlay_beam_bands)
+    if rendered_image is None:
+        return None
+    if overlay_points is None:
+        return rendered_image
+
+    if rendered_image.ndim == 2:
+        rendered_image = cv2.cvtColor(rendered_image, cv2.COLOR_GRAY2BGR)
+    height, width = rendered_image.shape[:2]
     point_radius = max(3, int(round(min(height, width) * 0.008)))
     drew_point = False
 
     try:
         point_iter = iter(overlay_points)
     except TypeError:
-        return normalized_image
+        return rendered_image
 
     for point in point_iter:
         if point is None:
@@ -289,10 +336,18 @@ def draw_scan_surface_dp_debug_points(normalized_image, overlay_points=None):
         )
         drew_point = True
 
-    return rendered_image if drew_point else normalized_image
+    return rendered_image if drew_point or rendered_image.ndim == 3 else normalized_image
 
 
-def publish_scan_surface_dp_debug_image(self, publisher_name, image, frame_id, stamp, overlay_points=None):
+def publish_scan_surface_dp_debug_image(
+    self,
+    publisher_name,
+    image,
+    frame_id,
+    stamp,
+    overlay_points=None,
+    overlay_beam_bands=None,
+):
     publisher = getattr(self, publisher_name, None)
     if publisher is None:
         return
@@ -300,7 +355,11 @@ def publish_scan_surface_dp_debug_image(self, publisher_name, image, frame_id, s
     if normalized_image is None:
         return
 
-    rendered_image = draw_scan_surface_dp_debug_points(normalized_image, overlay_points)
+    rendered_image = draw_scan_surface_dp_debug_points(
+        normalized_image,
+        overlay_points,
+        overlay_beam_bands=overlay_beam_bands,
+    )
     encoding = "bgr8" if rendered_image.ndim == 3 else "mono8"
     image_msg = self.bridge.cv2_to_imgmsg(rendered_image, encoding=encoding)
     image_msg.header.stamp = stamp
@@ -314,6 +373,7 @@ def publish_scan_surface_dp_base_images(self, surface_result):
     completed_response = surface_result.get("completed_surface_response")
     if completed_response is None:
         completed_response = (surface_result.get("surface") or {}).get("completed_surface_response")
+    beam_candidate_bands = surface_result.get("beam_candidate_bands", [])
 
     publish_scan_surface_dp_debug_image(
         self,
@@ -322,6 +382,7 @@ def publish_scan_surface_dp_base_images(self, surface_result):
         "surface_dp_rectified_workspace",
         stamp,
         overlay_points=surface_result.get("rectified_intersections", []),
+        overlay_beam_bands=surface_result.get("beam_candidate_bands", []),
     )
     publish_scan_surface_dp_debug_image(
         self,
@@ -330,6 +391,7 @@ def publish_scan_surface_dp_base_images(self, surface_result):
         "surface_dp_rectified_workspace",
         stamp,
         overlay_points=surface_result.get("rectified_intersections", []),
+        overlay_beam_bands=beam_candidate_bands,
     )
 
 
@@ -490,7 +552,11 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
         "response_source": "manual_workspace_s2_depth_selected",
         "rectified_geometry": rectified_geometry,
     }
-    surface_result = scan_surface_dp.build_scan_surface_dp_result(rectified_result)
+    surface_result = scan_surface_dp.build_scan_surface_dp_result(
+        rectified_result,
+        enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False)),
+        beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 130.0)),
+    )
     if not surface_result.get("success", False):
         return {
             "success": False,

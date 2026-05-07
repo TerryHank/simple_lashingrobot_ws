@@ -44,7 +44,7 @@ class CurrentVisualRecognitionFlowReportTest(unittest.TestCase):
             "depth-only 背景差分",
             "纵横 profile 周期相位",
             "透视网格反投影",
-            "不包含 depth+IR 组合响应、方向线族或梁筋 ±13 cm 过滤",
+            "Surface-DP 底图上叠加 beam_candidate 梁筋候选；视觉调试开关启用时",
         ):
             self.assertIn(required_text, report_html)
 
