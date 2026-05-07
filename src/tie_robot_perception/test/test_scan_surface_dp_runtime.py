@@ -500,6 +500,62 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertEqual(beam_bands, [])
 
+    def test_surface_dp_filters_line_rhos_that_overlap_beam_candidate_mask(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        beam_mask = np.zeros((200, 260), dtype=bool)
+        beam_mask[:, 172:181] = True
+        line_families = [
+            {
+                "axis_orientation": "vertical",
+                "line_angle_deg": 90.0,
+                "normal": [1.0, 0.0],
+                "line_rhos": [152.0, 176.0, 204.0],
+            },
+            {
+                "axis_orientation": "horizontal",
+                "line_angle_deg": 0.0,
+                "normal": [0.0, 1.0],
+                "line_rhos": [48.0, 76.0, 104.0],
+            },
+        ]
+
+        filtered_families = scan_surface_dp._filter_line_families_by_beam_overlap(
+            line_families,
+            beam_mask,
+        )
+
+        self.assertEqual(filtered_families[0]["line_rhos"], [152.0, 204.0])
+        self.assertEqual(filtered_families[1]["line_rhos"], [48.0, 76.0, 104.0])
+
+    def test_surface_dp_keeps_curve_tracing_outside_beam_candidate_mask_without_margin_filter(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_beam_band(),
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        beam_mask = np.asarray(result["beam_candidate_mask"], dtype=bool)
+        traced_points_inside_beam_mask = 0
+        traced_points_sampled = 0
+        for family in result.get("curved_families", []):
+            for curved_line in family.get("curved_lines", []):
+                for point in curved_line.get("polyline_points", []):
+                    x_index = int(round(float(point[0])))
+                    y_index = int(round(float(point[1])))
+                    if x_index < 0 or y_index < 0:
+                        continue
+                    if y_index >= beam_mask.shape[0] or x_index >= beam_mask.shape[1]:
+                        continue
+                    traced_points_sampled += 1
+                    if beam_mask[y_index, x_index]:
+                        traced_points_inside_beam_mask += 1
+
+        self.assertGreater(traced_points_sampled, 0)
+        self.assertEqual(traced_points_inside_beam_mask, 0)
+
     def test_surface_dp_keeps_final_points_outside_beam_candidate_thirteen_centimeter_margin(self):
         from tie_robot_perception.pointai import scan_surface_dp
 

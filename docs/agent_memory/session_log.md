@@ -2,6 +2,88 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-07 11:22 - Surface-DP raw beam 默认禁入 tracing 与 line_rho
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 在用户反馈点仍落到梁筋上后，scan_surface_dp 进一步收口：不再把 raw beam 候选禁入只绑定到 ±13cm 开关。当前会先用 beam_candidate_mask 过滤 line_families 中与梁筋重叠的 line_rhos，并让 curved_families 默认避开 raw beam mask；只有 beam exclusion 开启时，才把 tracing 禁区和最终点过滤扩展到 13cm margin。这样即使不开 ±13cm，梁筋本体也不会继续参与 tracing 和基准线选取。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -k beam && PYTHONPATH=src/tie_robot_perception/src python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py -k curve_trace && PYTHONPATH=src/tie_robot_perception/src python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py -k workspace_s2_intersects_curved_line_families_by_polyline_geometry`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 11:15 - 6点分组统一物理方向而非写死rowcol
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 动态绑扎规划的6/9点模式不再简单写死成row<=2、col<=3，而是先根据提供的全局行列与世界X/Y的映射判断哪一维对应线模长轴。3点跨度始终落在物理长轴上，因此同一现场可能表现为2x3或3x2，但不会把3个点压到短轴上；若长轴方向的完整组不可达，再退到同一物理朝向下的更小矩形。
+
+### 影响范围
+
+- `CHANGELOG.md`
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && ./devel/lib/tie_robot_process/test_dynamic_bind_planning -> 27/27 tests passed; git diff --check -> clean`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-07 11:14 - 索驱状态轮询改走驱动层 pollState
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 索驱状态读取不再在 suoquNode 里直接用旧 Frame_Generate_With_Retry 抢占全局 sockfd。新增 CabinProtocol.decodeHeartbeatState 和 CabinDriver.pollState，read_cabin_state 改为通过 g_cabin_driver->pollState 走同一条驱动 transport/io_mutex 链路，避免状态包与运动回包互串。状态轮询默认节拍由 100ms 提升到 20ms；connectToServer 不再把仅连接成功误记为 fresh state，而是等待真实状态包刷新 cabin_driver_last_state_stamp_sec。
+
+### 影响范围
+
+- `src/tie_robot_hw/include/tie_robot_hw/driver/cabin_protocol.hpp`
+- `src/tie_robot_hw/src/driver/cabin_protocol.cpp`
+- `src/tie_robot_hw/include/tie_robot_hw/driver/cabin_driver.hpp`
+- `src/tie_robot_hw/src/driver/cabin_driver.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_cabin_protocol_contract.py`
+- `src/tie_robot_process/test/test_cabin_tcp_transport_contract.py`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_cabin_protocol_contract src.tie_robot_process.test.test_cabin_tcp_transport_contract src.tie_robot_process.test.test_motion_chain_signal_guard ; source /opt/ros/noetic/setup.bash && catkin_make -DCATKIN_WHITELIST_PACKAGES=`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-07 11:09 - 非4点分组统一为2x3物理方向
 
 <!-- AGENT-MEMORY: entry -->

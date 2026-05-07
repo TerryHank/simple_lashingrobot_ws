@@ -12,6 +12,7 @@ from tie_robot_perception.perception.workspace_s2 import (
     build_workspace_s2_axis_profile,
     build_workspace_s2_curved_line_families,
     expand_workspace_s2_exclusion_mask_by_metric_margin,
+    filter_workspace_s2_line_rhos_by_mask_overlap,
     filter_workspace_s2_rectified_points_outside_mask,
     intersect_workspace_s2_curved_line_families,
     intersect_workspace_s2_oriented_line_families,
@@ -1084,6 +1085,25 @@ def _filter_beam_candidate_bands_by_lattice_context(beam_candidate_bands, line_f
     return accepted_bands, int(rejected_count)
 
 
+def _filter_line_families_by_beam_overlap(line_families, beam_candidate_mask, max_overlap_fraction=0.35):
+    beam_candidate_mask = np.asarray(beam_candidate_mask, dtype=bool)
+    if beam_candidate_mask.ndim != 2 or beam_candidate_mask.size == 0 or not np.any(beam_candidate_mask):
+        return [dict(family) for family in (line_families or [])]
+
+    filtered_families = []
+    for family in line_families or []:
+        filtered_family = dict(family)
+        filtered_family["line_rhos"] = filter_workspace_s2_line_rhos_by_mask_overlap(
+            family.get("line_rhos", []),
+            line_angle_deg=float(family.get("line_angle_deg", 0.0)),
+            normal=family.get("normal", [0.0, 1.0]),
+            exclusion_mask=beam_candidate_mask,
+            max_overlap_fraction=float(max_overlap_fraction),
+        )
+        filtered_families.append(filtered_family)
+    return filtered_families
+
+
 def _project_rectified_points_to_image(rectified_points, inverse_h):
     if not rectified_points:
         return []
@@ -1136,16 +1156,26 @@ def build_scan_surface_dp_result(
     modalities["beam_candidate_lattice_rejected_count"] = int(beam_candidate_lattice_rejected_count)
 
     beam_candidate_margin_mask = np.zeros_like(valid_mask, dtype=bool)
-    curve_trace_mask = valid_mask
+    line_families = _filter_line_families_by_beam_overlap(
+        line_families,
+        modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
+    )
+    curve_trace_exclusion_mask = np.asarray(
+        modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
+        dtype=bool,
+    )
     if bool(enable_beam_exclusion):
         beam_candidate_margin_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
             modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
             rectified_geometry,
             margin_mm=float(beam_exclusion_margin_mm),
         )
-        candidate_curve_trace_mask = valid_mask & (~beam_candidate_margin_mask)
-        if np.any(candidate_curve_trace_mask):
-            curve_trace_mask = candidate_curve_trace_mask
+        curve_trace_exclusion_mask = beam_candidate_margin_mask
+
+    curve_trace_mask = valid_mask
+    candidate_curve_trace_mask = valid_mask & (~curve_trace_exclusion_mask)
+    if np.any(candidate_curve_trace_mask):
+        curve_trace_mask = candidate_curve_trace_mask
 
     curved_families = build_workspace_s2_curved_line_families(
         surface["completed_surface_response"],

@@ -130,12 +130,28 @@ struct GridRectangleShape
     int column_count = 1;
 };
 
-bool is_safe_long_axis_rectangle_shape(const GridRectangleShape& shape)
+bool is_safe_long_axis_rectangle_shape(
+    const GridRectangleShape& shape,
+    bool prefer_long_span_on_rows)
 {
     return shape.row_count >= 1 &&
            shape.column_count >= 1 &&
-           shape.row_count <= 2 &&
-           shape.column_count <= 3;
+           (prefer_long_span_on_rows ? shape.row_count <= 3 : shape.row_count <= 2) &&
+           (prefer_long_span_on_rows ? shape.column_count <= 2 : shape.column_count <= 3);
+}
+
+DynamicBindWorldAxis select_preferred_long_span_world_axis(const DynamicBindPlannerConfig& config)
+{
+    return config.tcp_max_x_mm >= config.tcp_max_y_mm
+        ? DynamicBindWorldAxis::kX
+        : DynamicBindWorldAxis::kY;
+}
+
+bool should_prefer_long_span_on_grid_rows(
+    const DynamicBindGridAxisMapping& axis_mapping,
+    const DynamicBindPlannerConfig& config)
+{
+    return axis_mapping.row_axis == select_preferred_long_span_world_axis(config);
 }
 
 int normalize_requested_group_point_count(const DynamicBindPlannerConfig& config)
@@ -144,7 +160,8 @@ int normalize_requested_group_point_count(const DynamicBindPlannerConfig& config
 }
 
 std::vector<GridRectangleShape> build_requested_group_rectangle_shapes(
-    const DynamicBindPlannerConfig& config)
+    const DynamicBindPlannerConfig& config,
+    bool prefer_long_span_on_rows)
 {
     const int requested_count = normalize_requested_group_point_count(config);
     std::vector<GridRectangleShape> shapes;
@@ -154,7 +171,8 @@ std::vector<GridRectangleShape> build_requested_group_rectangle_shapes(
         }
         const int column_count = requested_count / row_count;
         GridRectangleShape shape{row_count, column_count};
-        if (requested_count != 4 && !is_safe_long_axis_rectangle_shape(shape)) {
+        if (requested_count != 4 &&
+            !is_safe_long_axis_rectangle_shape(shape, prefer_long_span_on_rows)) {
             continue;
         }
         shapes.push_back(shape);
@@ -180,7 +198,8 @@ bool supports_smaller_group_fallback(int requested_group_point_count)
 }
 
 std::vector<GridRectangleShape> build_smaller_group_rectangle_shapes(
-    int requested_group_point_count)
+    int requested_group_point_count,
+    bool prefer_long_span_on_rows)
 {
     std::vector<GridRectangleShape> shapes;
     for (int point_count = requested_group_point_count - 1; point_count >= 1; --point_count) {
@@ -189,7 +208,7 @@ std::vector<GridRectangleShape> build_smaller_group_rectangle_shapes(
                 continue;
             }
             GridRectangleShape shape{row_count, point_count / row_count};
-            if (!is_safe_long_axis_rectangle_shape(shape)) {
+            if (!is_safe_long_axis_rectangle_shape(shape, prefer_long_span_on_rows)) {
                 continue;
             }
             shapes.push_back(shape);
@@ -857,7 +876,8 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_recta
     const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
     int row_count,
     int column_count,
-    const DynamicBindPlannerConfig& config)
+    const DynamicBindPlannerConfig& config,
+    bool prefer_long_span_on_rows)
 {
     std::vector<GridSquareCandidate> selected_candidates;
     if (row_count <= 0 || column_count <= 0) {
@@ -873,7 +893,7 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_recta
     };
 
     const std::vector<GridRectangleShape> shapes =
-        build_requested_group_rectangle_shapes(config);
+        build_requested_group_rectangle_shapes(config, prefer_long_span_on_rows);
     for (const auto& shape : shapes) {
         if (shape.row_count <= 0 ||
             shape.column_count <= 0 ||
@@ -1505,6 +1525,14 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
         return bind_area_entries;
     }
 
+    DynamicBindGridAxisMapping planner_axis_mapping;
+    if (has_provided_grid) {
+        planner_axis_mapping =
+            infer_dynamic_bind_grid_axis_mapping(planning_world_points, grid_indices);
+    }
+    const bool prefer_long_span_on_rows =
+        should_prefer_long_span_on_grid_rows(planner_axis_mapping, config);
+
     std::unordered_map<long long, std::vector<GridPointRef>> point_refs_by_grid_cell;
     for (size_t point_index = 0; point_index < planning_world_points.size(); ++point_index) {
         const auto& world_point = planning_world_points[point_index];
@@ -1646,7 +1674,8 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
                   point_refs_by_grid_cell,
                   static_cast<int>(row_keys.size()),
                   static_cast<int>(column_keys.size()),
-                  config)
+                  config,
+                  prefer_long_span_on_rows)
             : has_provided_grid
             ? select_grid_group_candidates_by_fixed_two_by_two_tiling(
                   point_refs_by_grid_cell,
@@ -1663,7 +1692,9 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
         const int grid_row_count = static_cast<int>(row_keys.size());
         const int grid_column_count = static_cast<int>(column_keys.size());
         const std::vector<GridRectangleShape> fallback_shapes =
-            build_smaller_group_rectangle_shapes(requested_group_point_count);
+            build_smaller_group_rectangle_shapes(
+                requested_group_point_count,
+                prefer_long_span_on_rows);
 
         auto find_cell_refs = [&](int row_index, int column_index) -> const std::vector<GridPointRef>* {
             const auto cell_key = encode_grid_cell_key(row_index, column_index);

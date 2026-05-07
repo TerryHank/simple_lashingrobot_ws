@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 11:09:56，当前 HEAD：`a861d93`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 11:22:14，当前 HEAD：`f619019`。
 
 ## Bootstrap Files
 
@@ -47,12 +47,12 @@
 
 ## Recent Session Memory
 
+- `2026-05-07 11:22 - Surface-DP raw beam 默认禁入 tracing 与 line_rho`：在用户反馈点仍落到梁筋上后，scan_surface_dp 进一步收口：不再把 raw beam 候选禁入只绑定到 ±13cm 开关。当前会先用 beam_candidate_mask 过滤 line_families 中与梁筋重叠的 line_rhos，并让 curved_families 默认避开 raw beam mask；只有 beam exclusion 开启时，才把 tracing 禁区和最终点过滤扩展到 13cm margin。这样即使不开 ±13cm，梁筋本体也不会继续参与 tracing 和基准线选取。
+- `2026-05-07 11:15 - 6点分组统一物理方向而非写死rowcol`：动态绑扎规划的6/9点模式不再简单写死成row<=2、col<=3，而是先根据提供的全局行列与世界X/Y的映射判断哪一维对应线模长轴。3点跨度始终落在物理长轴上，因此同一现场可能表现为2x3或3x2，但不会把3个点压到短轴上；若长轴方向的完整组不可达，再退到同一物理朝向下的更小矩形。
+- `2026-05-07 11:14 - 索驱状态轮询改走驱动层 pollState`：索驱状态读取不再在 suoquNode 里直接用旧 Frame_Generate_With_Retry 抢占全局 sockfd。新增 CabinProtocol.decodeHeartbeatState 和 CabinDriver.pollState，read_cabin_state 改为通过 g_cabin_driver->pollState 走同一条驱动 transport/io_mutex 链路，避免状态包与运动回包互串。状态轮询默认节拍由 100ms 提升到 20ms；connectToServer 不再把仅连接成功误记为 fresh state，而是等待真实状态包刷新 cabin_driver_last_state_stamp_sec。
 - `2026-05-07 11:09 - 非4点分组统一为2x3物理方向`：动态绑扎规划的非4点模式已按现场口径收口：默认只把3个点跨度放在线模长轴方向，短轴最多2点；不再在2x3不可用时自动切到3x2，也不再让9点请求生成3x3。请求9时按世界坐标蛇形优先使用2x3，再用2x2、1x3、1x2等更小可达矩形补剩余点，所有候选仍按规划cabin_z校验线模工作范围。
 - `2026-05-07 11:07 - Surface-DP 梁筋禁入前移到曲线追踪`：用户明确要求不要改默认开关，只把 beam mask 前移到 tracing 阶段。当前 scan_surface_dp 在启用梁筋±13cm过滤时，会先生成 beam_candidate_13cm_mask 作为 curve_trace_mask 禁区，再跑 curved_families；workspace_s2 曲线追踪只保留 support_mask 内的 polyline_points，并新增 polyline_segments，交点只在连续有效段之间求，避免曲线穿过梁筋后再靠最终删点兜底。
 - `2026-05-07 10:58 - 动态分组起点兜底优先于后续完整组`：动态绑扎规划在请求 6/9 等多点分组时，不能先执行后续可达完整组再回头补世界最小起点附近的小组；完整候选和可达兜底候选需要进入同一条世界坐标蛇形队列，同一起点优先点数更多的组。这样 9 点组因规划高度或线模范围不可达时，会先在世界最小角附近落到最大可达小组，再继续蛇形填充后续区域。
-- `2026-05-07 10:55 - 旧idx跳绑过滤已移除`：末端控制层旧跳绑链路已删除：不再使用 send_odd_points、/web/moduan/send_odd_points、ExecuteBindPointsTask.apply_jump_bind_filter 或 should_keep_jump_bind_point(idx==1/4) 托底过滤。execute_bind_points 现在只执行上游传入的点；跳绑选择保留在流程层，按 scan/bind path 中的 jump_bind、checkerboard_color、checkerboard_parity 元数据和 /web/moduan/jump_bind_enabled、/web/moduan/jump_bind_parity 决定。以后不要把旧 idx==1||4 过滤恢复到 moduan 层。
-- `2026-05-07 10:22 - 控制面板任务区收口与人工切区接管`：前端控制面板已下线“清除识别结果”“固定扫描规划”“账本测试”旧入口，改为扫描区、执行层、区域切换三组；上一个/下一个区域会发布 /web/cabin/manual_area_takeover，先让当前自动执行链放弃后续区域并让线性模组归零，再按当前区域进度或当前位置邻近区域移动索驱到相邻 cabin_pose。
-- `2026-05-07 10:14 - 索驱设备运动中不再触发自动跳区`：自动执行下发索驱位姿时，设备运动中/status_word=0x00000004 属于索驱忙的暂态，应等待并重试当前目标；Z超正限位、速度错误等真实拒绝仍保持硬失败，不能被通信恢复逻辑吞掉。等待轴到位时缓存索驱协议异常需记录 command_word，只有 TCP 运动类指令(0x0010/0x0011/0x0012)返回纯 bit2 设备运动中才按暂态处理。
 
 ## Handoff Documents
 

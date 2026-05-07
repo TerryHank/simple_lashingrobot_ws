@@ -11,6 +11,7 @@ namespace driver {
 namespace {
 
 constexpr float kIncrementalAxisEpsilonMm = 0.001f;
+constexpr std::size_t kHeartbeatStateResponseBytes = 144;
 
 struct IncrementalAxisPayload {
     uint16_t control_word = 0;
@@ -182,6 +183,11 @@ float readFloatLittleEndian(const std::vector<uint8_t>& bytes, std::size_t offse
     return value;
 }
 
+float normalizeTinyFloat(float value)
+{
+    return std::fabs(value) < 1e-6f ? 0.0f : value;
+}
+
 std::string formatByteFrame(const std::vector<uint8_t>& bytes)
 {
     std::ostringstream stream;
@@ -345,6 +351,59 @@ std::vector<uint8_t> CabinProtocol::buildHeartbeatFrame(float x_gesture_deg, flo
     frame.push_back(static_cast<uint8_t>(checksum & 0xFF));
     frame.push_back(static_cast<uint8_t>((checksum >> 8) & 0xFF));
     return frame;
+}
+
+DriverError CabinProtocol::decodeHeartbeatState(
+    const std::vector<uint8_t>& response,
+    CabinStateSnapshot* snapshot)
+{
+    DriverError error;
+    if (snapshot == nullptr) {
+        error.code = "state_snapshot_missing";
+        error.message = "索驱状态查询缺少状态输出对象";
+        error.retryable = false;
+        return error;
+    }
+
+    if (response.size() != kHeartbeatStateResponseBytes) {
+        error.code = "protocol_response_too_short";
+        error.message = "索驱状态查询回包长度不匹配";
+        error.detail = "expected_bytes=" + std::to_string(kHeartbeatStateResponseBytes) +
+                       "，response_bytes=" + std::to_string(response.size());
+        error.retryable = true;
+        return error;
+    }
+
+    if (response[0] != 0xEB || response[1] != 0x90) {
+        error.code = "protocol_header_mismatch";
+        error.message = "索驱状态查询回包头不匹配";
+        error.detail = "response_frame=" + formatByteFrame(response);
+        error.retryable = true;
+        return error;
+    }
+
+    const uint16_t actual_checksum = readUInt16LittleEndian(response, response.size() - 2);
+    const uint16_t expected_checksum = computeChecksum(response, response.size() - 2);
+    if (actual_checksum != expected_checksum) {
+        error.code = "protocol_checksum_mismatch";
+        error.message = "索驱状态查询回包校验失败";
+        error.detail = "expected_checksum=" + std::to_string(expected_checksum) +
+                       "，actual_checksum=" + std::to_string(actual_checksum);
+        error.retryable = true;
+        return error;
+    }
+
+    snapshot->x_mm = normalizeTinyFloat(readFloatLittleEndian(response, 2));
+    snapshot->y_mm = normalizeTinyFloat(readFloatLittleEndian(response, 6));
+    snapshot->z_mm = normalizeTinyFloat(readFloatLittleEndian(response, 10));
+    snapshot->pitch_deg = readFloatLittleEndian(response, 14);
+    snapshot->roll_deg = readFloatLittleEndian(response, 18);
+    snapshot->yaw_deg = readFloatLittleEndian(response, 22);
+    snapshot->motion_status = static_cast<int>((response[138] >> 3) & 0x01);
+    snapshot->device_alarm = static_cast<int>((response[138] >> 4) & 0x01);
+    snapshot->internal_calc_error = static_cast<int>((response[138] >> 5) & 0x01);
+    snapshot->connected = true;
+    return error;
 }
 
 DriverError CabinProtocol::decodeStatus(uint16_t command_word, const std::vector<uint8_t>& response)

@@ -560,6 +560,40 @@ TEST(DynamicBindPlanningTest, UsesSmallerGroupsInsteadOfSwitchingSixPointOrienta
     EXPECT_EQ(bind_area_entries[1].bind_groups.front().group_type, "matrix_1x2");
 }
 
+TEST(DynamicBindPlanningTest, UsesThreeByTwoWhenGridRowsMapToWorldXLongAxis)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 2; ++col) {
+            const int idx = row * 2 + col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(row) * 150.0f,
+                static_cast<float>(col) * 150.0f,
+                430.0f));
+            grid_indices.push_back(make_grid_index(idx, row, col));
+        }
+    }
+
+    DynamicBindPlannerConfig config;
+    config.requested_group_point_count = 6;
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        config,
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 1u);
+    EXPECT_EQ(collect_unique_indices(bind_area_entries.front().bind_groups.front()).size(), 6u);
+    EXPECT_EQ(bind_area_entries.front().bind_groups.front().group_type, "matrix_3x2");
+}
+
 TEST(DynamicBindPlanningTest, FillsSixPointModeRemainderWithSmallerReachableGroups)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();

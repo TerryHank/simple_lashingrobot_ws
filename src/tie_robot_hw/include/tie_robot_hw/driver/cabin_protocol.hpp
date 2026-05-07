@@ -15,6 +15,9 @@ public:
     static std::vector<uint8_t> buildIncrementalMoveFrame(const CabinPoseCommand& command);
     static std::vector<uint8_t> buildStopFrame();
     static std::vector<uint8_t> buildHeartbeatFrame(float x_gesture_deg, float y_gesture_deg);
+    static DriverError decodeHeartbeatState(
+        const std::vector<uint8_t>& response,
+        CabinStateSnapshot* snapshot);
     static DriverError decodeStatus(uint16_t command_word, const std::vector<uint8_t>& response);
 
 private:

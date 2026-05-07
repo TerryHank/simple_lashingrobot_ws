@@ -163,6 +163,8 @@ constexpr int kMotionWaitTimeoutSec = 30;
 constexpr int kMotionWaitLogIntervalSec = 2;
 constexpr int kExecutionArrivalSoftTimeoutSec = kMotionWaitTimeoutSec;
 constexpr int kExecutionArrivalSoftTimeoutLogIntervalSec = 10;
+constexpr int kCabinStatePollIntervalMs = 20;
+constexpr int kCabinStatePollErrorLogIntervalSec = 2;
 constexpr double kCabinDriverStateFreshMaxAgeSec = 3.0;
 constexpr int kCabinDriverStateRecoveryLogIntervalSec = 2;
 constexpr int kCabinDriverStateRecoveryReissueIntervalSec = 2;
@@ -1594,7 +1596,7 @@ bool connectToServer()
     }
 
     clear_last_cabin_transport_error_detail();
-    cabin_driver_last_state_stamp_sec.store(ros::Time::now().toSec());
+    cabin_driver_last_state_stamp_sec.store(0.0);
     printCurrentTime();
     ros_log_printf("Cabin_log: TCP连接成功。\n");
     return true;
@@ -5667,91 +5669,92 @@ bool run_bind_from_scan(std::string& message, bool use_execution_memory)
     读取索驱状态
 */
 void read_cabin_state(Cabin_State *cab_state) {    
-    float x_gesture,y_gesture;
-    uint16_t check_sum=0;
+    auto last_poll_error_log_time =
+        std::chrono::steady_clock::now() - std::chrono::seconds(kCabinStatePollErrorLogIntervalSec);
     while (true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100)); //防止固定锁
+        std::this_thread::sleep_for(std::chrono::milliseconds(kCabinStatePollIntervalMs));
         if (!cabin_driver_enabled.load()) {
             if (g_cabin_driver) {
                 g_cabin_driver->stop();
             }
             sync_global_socket_fd_from_cabin_driver();
             cabin_driver_last_state_stamp_sec.store(0.0);
+            cabin_data_upload.cabin_connect_flag = 0;
+            pub_cabin_data_upload.publish(cabin_data_upload);
             continue;
         }
-        {
-            std::lock_guard<std::mutex> lock2(socket_mutex);
-            check_sum=0;
-            x_gesture=cab_state->cabin_x_gesture;
-            FtoU(&x_gesture);
-            TCP_Normal_Connection[4]=FtoU_register[3];
-            TCP_Normal_Connection[5]=FtoU_register[2];
-            TCP_Normal_Connection[6]=FtoU_register[1];
-            TCP_Normal_Connection[7]=FtoU_register[0];
-            y_gesture=cab_state->cabin_y_gesture;
-            FtoU(&y_gesture);
-            TCP_Normal_Connection[8]=FtoU_register[3];
-            TCP_Normal_Connection[9]=FtoU_register[2];
-            TCP_Normal_Connection[10]=FtoU_register[1];
-            TCP_Normal_Connection[11]=FtoU_register[0];
-            for(int i=0;i<12;i++)
-            {
-                check_sum+=TCP_Normal_Connection[i];
-            }
-            TCP_Normal_Connection[12]=check_sum;
-            TCP_Normal_Connection[13]=check_sum>>8;
-            const int state_frame_result = Frame_Generate_With_Retry(TCP_Normal_Connection, 14, CABIN_STATE_RESPONSE_BYTES);
-            if (state_frame_result == 0 && g_cabin_driver) {
-                g_cabin_driver->markExternalIoSuccess();
-            }
+        if (!g_cabin_driver) {
+            cabin_driver_last_state_stamp_sec.store(0.0);
+            cabin_data_upload.cabin_connect_flag = 0;
+            pub_cabin_data_upload.publish(cabin_data_upload);
+            continue;
         }
 
-        // 校验和计算和验证
-        uint16_t sum = 0;
-        for (int i = 0; i < 142; ++i) {
-            sum += cabin_state_buffer[i];
-        }
-        //uint16_t calculatedChecksum = static_cast<uint16_t>(sum & 0xFFFF); // 保留最低16位
-        uint16_t receivedChecksum = cabin_state_buffer[142]| (cabin_state_buffer[143]<<8);
-        if (receivedChecksum != sum) {
-            // 校验和不匹配，跳过本次循环
-            printCurrentTime();
-            ros_log_printf("Cabin_log: 校验和错误，当前TCP数据包被丢弃。\n");
-            continue;
-        }
- 
-        // 保护 cabin_state 读写操作，避免数据竞争
+        float x_gesture = 0.0f;
+        float y_gesture = 0.0f;
         {
             std::lock_guard<std::mutex> lock1(cabin_state_mutex);
-            memcpy(&cab_state->X, &cabin_state_buffer[2], sizeof(float));
-            memcpy(&cab_state->Y, &cabin_state_buffer[6], sizeof(float));
-            memcpy(&cab_state->Z, &cabin_state_buffer[10], sizeof(float));
-            memcpy(&cab_state->A, &cabin_state_buffer[14], sizeof(float));
-            memcpy(&cab_state->B, &cabin_state_buffer[18], sizeof(float));
-            memcpy(&cab_state->C, &cabin_state_buffer[22], sizeof(float));
-            cab_state->motion_status = int((cabin_state_buffer[138] >> 3) & 0x01);
-            // 获取设备报警和内部计算错误状态
-            cab_state->device_alarm = int(cabin_state_buffer[138] & (1 << 4));         // bit4
-            cab_state->internal_calc_error = int(cabin_state_buffer[138] & (1 << 5));  // bit5
-            // cabin_state.X, cabin_state.Y,cabin_state.Z 读取到的0可能是一个很小的数值,float的存储精度问题
-            if(std::abs(cab_state->X) < 1e-6)
-                cab_state->X = 0;
-            if(std::abs(cab_state->Y) < 1e-6)
-                cab_state->Y = 0;
-            if(std::abs(cab_state->Z) < 1e-6)
-                cab_state->Z = 0;
+            x_gesture = cab_state->cabin_x_gesture;
+            y_gesture = cab_state->cabin_y_gesture;
         }
-        // printCurrentTime();
-        // ros_log_printf("Cabin_log: 现在索驱的位置坐标为(%f,%f,%f),运动状态为", cab_state->X,cab_state->Y,cab_state->Z);
-        // ros_log_printf("%s\n", cab_state->motion_status ? " 运动。" : " 停止。");
-        
-        // 整合数据part1以上传
-        cabin_data_upload.cabin_state_X = cab_state->X;
-        cabin_data_upload.cabin_state_Y = cab_state->Y;
-        cabin_data_upload.cabin_state_Z = cab_state->Z;
-        cabin_data_upload.motion_status = cab_state->motion_status;
-        cabin_data_upload.device_alarm = cab_state->device_alarm;
-        cabin_data_upload.internal_calc_error = cab_state->internal_calc_error;
+
+        tie_robot_hw::driver::CabinStateSnapshot snapshot;
+        tie_robot_hw::driver::DriverError driver_error;
+        bool poll_ok = false;
+        {
+            std::lock_guard<std::mutex> lock2(socket_mutex);
+            poll_ok = g_cabin_driver->pollState(x_gesture, y_gesture, &snapshot, &driver_error);
+            sync_global_socket_fd_from_cabin_driver();
+        }
+
+        if (!poll_ok) {
+            const std::string detail =
+                compose_cabin_driver_error_message("索驱状态查询失败", driver_error);
+            update_last_cabin_transport_error_detail(detail);
+            const auto now = std::chrono::steady_clock::now();
+            const auto log_elapsed_sec =
+                std::chrono::duration_cast<std::chrono::seconds>(now - last_poll_error_log_time).count();
+            if (log_elapsed_sec >= kCabinStatePollErrorLogIntervalSec) {
+                printCurrentTime();
+                ros_log_printf(
+                    driver_error.retryable
+                        ? "Cabin_Warn: %s，保持当前任务等待索驱状态恢复。\n"
+                        : "Cabin_Error: %s\n",
+                    detail.c_str()
+                );
+                if (driver_error.retryable) {
+                    log_cabin_warn_ros(detail);
+                } else {
+                    log_cabin_error_ros(detail);
+                }
+                last_poll_error_log_time = now;
+            }
+            cabin_driver_last_state_stamp_sec.store(0.0);
+            cabin_data_upload.cabin_connect_flag = 0;
+            pub_cabin_data_upload.publish(cabin_data_upload);
+            continue;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock1(cabin_state_mutex);
+            cab_state->X = snapshot.x_mm;
+            cab_state->Y = snapshot.y_mm;
+            cab_state->Z = snapshot.z_mm;
+            cab_state->A = snapshot.pitch_deg;
+            cab_state->B = snapshot.roll_deg;
+            cab_state->C = snapshot.yaw_deg;
+            cab_state->motion_status = snapshot.motion_status;
+            cab_state->device_alarm = snapshot.device_alarm;
+            cab_state->internal_calc_error = snapshot.internal_calc_error;
+        }
+
+        clear_last_cabin_transport_error_detail();
+        cabin_data_upload.cabin_state_X = snapshot.x_mm;
+        cabin_data_upload.cabin_state_Y = snapshot.y_mm;
+        cabin_data_upload.cabin_state_Z = snapshot.z_mm;
+        cabin_data_upload.motion_status = snapshot.motion_status;
+        cabin_data_upload.device_alarm = snapshot.device_alarm;
+        cabin_data_upload.internal_calc_error = snapshot.internal_calc_error;
         cabin_data_upload.cabin_connect_flag = 1;
         pub_cabin_data_upload.publish(cabin_data_upload);
         cabin_driver_last_state_stamp_sec.store(ros::Time::now().toSec());
