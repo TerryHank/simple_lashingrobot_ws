@@ -93,10 +93,34 @@ function collectRawAreaPoints(areas) {
     const groups = Array.isArray(area?.groups) ? area.groups : [];
     groups.forEach((group) => {
       const groupPoints = Array.isArray(group?.points) ? group.points : [];
+      if (groupPoints.length < 2) {
+        return;
+      }
       rawPoints.push(...groupPoints);
     });
   });
   return rawPoints;
+}
+
+function collectGroupedGlobalIndices(areas) {
+  const bindPathAreas = Array.isArray(areas) ? areas : [];
+  const indices = new Set();
+  bindPathAreas.forEach((area) => {
+    const groups = Array.isArray(area?.groups) ? area.groups : [];
+    groups.forEach((group) => {
+      const groupPoints = Array.isArray(group?.points) ? group.points : [];
+      if (groupPoints.length < 2) {
+        return;
+      }
+      groupPoints.forEach((rawPoint) => {
+        const globalIdx = toFiniteNumber(rawPoint?.global_idx ?? rawPoint?.idx);
+        if (globalIdx !== null && globalIdx > 0) {
+          indices.add(globalIdx);
+        }
+      });
+    });
+  });
+  return indices;
 }
 
 function collectBindGroupPoints(group, fallbackStartIndex = 0) {
@@ -161,6 +185,9 @@ export function collectBindPathGridPoints(areas, gridPoints = []) {
   const authoritativeGridPoints = Array.isArray(gridPoints) && gridPoints.length > 0
     ? gridPoints
     : collectRawAreaPoints(areas);
+  const groupedGlobalIndices = Array.isArray(gridPoints) && gridPoints.length > 0
+    ? collectGroupedGlobalIndices(areas)
+    : new Set();
   const points = [];
   const seenKeys = new Set();
   let fallbackIndex = 0;
@@ -169,6 +196,9 @@ export function collectBindPathGridPoints(areas, gridPoints = []) {
     const point = normalizeBindGridPoint(rawPoint, fallbackIndex);
     fallbackIndex += 1;
     if (!point) {
+      return;
+    }
+    if (groupedGlobalIndices.size > 0 && !groupedGlobalIndices.has(point.globalIdx)) {
       return;
     }
 
@@ -209,6 +239,80 @@ function pointMatchesSelectedCheckerboardParity(point, selectedParity) {
     return normalizedParity === 0 ? point.jumpBind : !point.jumpBind;
   }
   return normalizedParity === 0;
+}
+
+function buildScenePointHoverEntry(point, label) {
+  return {
+    label,
+    globalIdx: point.globalIdx,
+    row: point.row,
+    col: point.col,
+    worldMm: {
+      x: point.x * 1000.0,
+      y: point.y * 1000.0,
+      z: point.z * 1000.0,
+    },
+  };
+}
+
+function normalizeAreaIndex(area, fallbackIndex) {
+  const areaIndex = toFiniteNumber(area?.area_index);
+  return areaIndex === null ? fallbackIndex + 1 : areaIndex;
+}
+
+export function buildBindPathPointHoverEntries(areas, gridPoints = []) {
+  return collectBindPathGridPoints(areas, gridPoints)
+    .map((point) => buildScenePointHoverEntry(point, "绑扎点"));
+}
+
+export function buildJumpBindPointHoverEntries(
+  areas,
+  { gridPoints = [], enabled = false, selectedParity = 0 } = {},
+) {
+  if (!enabled) {
+    return [];
+  }
+  return collectBindPathGridPoints(areas, gridPoints)
+    .filter((point) => pointMatchesSelectedCheckerboardParity(point, selectedParity))
+    .map((point) => buildScenePointHoverEntry(point, "绑扎点"));
+}
+
+export function buildCabinPathPointHoverEntries(areas = []) {
+  const bindPathAreas = Array.isArray(areas) ? areas : [];
+  return bindPathAreas.flatMap((area, areaIndex) => {
+    const cabinPose = area?.cabin_pose || {};
+    const x = toFiniteNumber(cabinPose.x);
+    const y = toFiniteNumber(cabinPose.y);
+    const z = toFiniteNumber(cabinPose.z);
+    if (x === null || y === null || z === null) {
+      return [];
+    }
+    return [{
+      label: "索驱规划点",
+      areaIndex: normalizeAreaIndex(area, areaIndex),
+      worldMm: { x, y, z },
+    }];
+  });
+}
+
+function formatCoordinateMm(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(1) : "NaN";
+}
+
+export function formatScenePointWorldCoordinate(entry) {
+  const suffix = entry?.globalIdx > 0
+    ? ` #${entry.globalIdx}`
+    : entry?.areaIndex > 0
+      ? ` 区域${entry.areaIndex}`
+      : "";
+  const worldMm = entry?.worldMm || {};
+  return [
+    `${entry?.label || "点"}${suffix}`,
+    `世界 X ${formatCoordinateMm(worldMm.x)} mm`,
+    `世界 Y ${formatCoordinateMm(worldMm.y)} mm`,
+    `世界 Z ${formatCoordinateMm(worldMm.z)} mm`,
+  ].join("\n");
 }
 
 export function buildJumpBindPointPositions(

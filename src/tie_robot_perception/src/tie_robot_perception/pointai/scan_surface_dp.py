@@ -12,7 +12,6 @@ from tie_robot_perception.perception.workspace_s2 import (
     build_workspace_s2_axis_profile,
     build_workspace_s2_curved_line_families,
     expand_workspace_s2_exclusion_mask_by_metric_margin,
-    filter_workspace_s2_line_rhos_by_mask_overlap,
     filter_workspace_s2_rectified_points_outside_mask,
     intersect_workspace_s2_curved_line_families,
     intersect_workspace_s2_oriented_line_families,
@@ -23,8 +22,8 @@ from tie_robot_perception.perception.workspace_s2 import (
 
 
 FULL_SCAN_REBAR_SPACING_MM_RANGE = (120.0, 160.0)
-FULL_SCAN_LINE_COUNT_RANGE = (15, 18)
-LOCAL_VISIBLE_LINE_COUNT_RANGE = (2, 18)
+MIN_PHYSICAL_LATTICE_LINE_COUNT = 2
+FULL_WORKSPACE_MODE_MIN_VISIBLE_LINE_COUNT = 15
 DEFAULT_RESOLUTION_MM_PER_PX = 5.0
 
 
@@ -293,8 +292,8 @@ def _refine_beam_band_by_height(start, end, height_profile, image_width):
     if band_values.size == 0:
         return None
 
-    guard_width = max(16, int(round(image_width * 0.035)))
-    context_width = max(24, min(image_width, int(round(image_width * 0.12))))
+    guard_width = max(4, min(10, int(round(image_width * 0.012))))
+    context_width = max(20, min(image_width, int(round(image_width * 0.065))))
     left_start = max(0, original_start - guard_width - context_width)
     left_end = max(left_start, original_start - guard_width)
     right_start = min(image_width, original_end + guard_width + 1)
@@ -382,6 +381,102 @@ def _refine_beam_band_by_height(start, end, height_profile, image_width):
     }
 
 
+def _refine_beam_band_by_structural_continuity(
+    start,
+    end,
+    structural_profile,
+    vertical_coverage,
+    height_profile,
+    image_width,
+):
+    structural_profile = np.asarray(structural_profile, dtype=np.float32).reshape(-1)
+    vertical_coverage = np.asarray(vertical_coverage, dtype=np.float32).reshape(-1)
+    image_width = int(max(1, image_width))
+    if structural_profile.size != image_width or vertical_coverage.size != image_width:
+        return None
+
+    original_start = int(np.clip(int(start), 0, image_width - 1))
+    original_end = int(np.clip(int(end), original_start, image_width - 1))
+    original_width = int(original_end - original_start + 1)
+    min_width = max(8, int(round(image_width * 0.016)))
+    if original_width < min_width:
+        return None
+
+    band_values = structural_profile[original_start:original_end + 1]
+    coverage_values = vertical_coverage[original_start:original_end + 1]
+    if band_values.size == 0 or coverage_values.size == 0:
+        return None
+
+    guard_width = max(4, min(10, int(round(image_width * 0.012))))
+    context_width = max(20, min(image_width, int(round(image_width * 0.065))))
+    left_start = max(0, original_start - guard_width - context_width)
+    left_end = max(left_start, original_start - guard_width)
+    right_start = min(image_width, original_end + guard_width + 1)
+    right_end = min(image_width, original_end + guard_width + 1 + context_width)
+    context_parts = []
+    if left_end > left_start:
+        context_parts.append(structural_profile[left_start:left_end])
+    if right_end > right_start:
+        context_parts.append(structural_profile[right_start:right_end])
+    if context_parts:
+        context_values = np.concatenate(context_parts)
+    else:
+        context_values = np.concatenate(
+            (structural_profile[:original_start], structural_profile[original_end + 1:])
+        )
+    if context_values.size == 0:
+        return None
+
+    peak_score = float(np.max(band_values))
+    structural_score = _top_fraction_mean(band_values, fraction=0.25)
+    surrounding_structural_score = _top_fraction_mean(context_values, fraction=0.15)
+    structural_delta = float(structural_score - surrounding_structural_score)
+    coverage_score = float(np.mean(coverage_values))
+    coverage_peak = float(np.max(coverage_values))
+    if not (
+        peak_score >= 1.32
+        and structural_delta >= 0.18
+        and coverage_score >= 0.34
+        and coverage_peak >= 0.36
+    ):
+        return None
+
+    height_peak = None
+    height_score = None
+    height_delta = None
+    if height_profile is not None:
+        height_profile = np.asarray(height_profile, dtype=np.float32).reshape(-1)
+        if height_profile.size == image_width:
+            height_band = height_profile[original_start:original_end + 1]
+            height_context = []
+            if left_end > left_start:
+                height_context.append(height_profile[left_start:left_end])
+            if right_end > right_start:
+                height_context.append(height_profile[right_start:right_end])
+            height_peak = float(np.max(height_band)) if height_band.size else 0.0
+            height_score = _top_fraction_mean(height_band, fraction=0.18)
+            if height_context:
+                surrounding_height = _top_fraction_mean(np.concatenate(height_context), fraction=0.12)
+                height_delta = float(height_score - surrounding_height)
+
+    return {
+        "start": int(original_start),
+        "end": int(original_end),
+        "width": int(original_width),
+        "original_start": int(original_start),
+        "original_end": int(original_end),
+        "original_width": int(original_width),
+        "height_score": float(height_score) if height_score is not None else 0.0,
+        "height_peak": float(height_peak) if height_peak is not None else 0.0,
+        "height_delta": float(height_delta) if height_delta is not None else 0.0,
+        "structural_score": float(structural_score),
+        "surrounding_structural_score": float(surrounding_structural_score),
+        "structural_delta": float(structural_delta),
+        "coverage_score": float(coverage_score),
+        "coverage_peak": float(coverage_peak),
+    }
+
+
 def detect_beam_candidate_bands(candidate_response, binary_candidate, valid_mask, height_response=None):
     candidate_response = np.asarray(candidate_response, dtype=np.float32)
     binary_candidate = np.asarray(binary_candidate, dtype=bool)
@@ -428,15 +523,41 @@ def detect_beam_candidate_bands(candidate_response, binary_candidate, valid_mask
         wide_enough = component["width"] >= max(5, int(round(width * 0.012)))
         tall_enough = coverage >= 0.38
         strong_enough = float(component["peak"]) >= 0.75
-        if not (wide_enough and tall_enough and strong_enough):
+        if not (wide_enough and strong_enough):
             continue
-        height_band = _refine_beam_band_by_height(
-            int(component["start"]),
-            int(component["end"]),
-            height_profile,
-            width,
-        )
+        height_band = None
+        if tall_enough:
+            height_band = _refine_beam_band_by_height(
+                int(component["start"]),
+                int(component["end"]),
+                height_profile,
+                width,
+            )
         if height_band is None:
+            height_band = _refine_beam_band_by_structural_continuity(
+                int(component["start"]),
+                int(component["end"]),
+                structural_profile,
+                vertical_coverage,
+                height_profile,
+                width,
+            )
+            if height_band is None:
+                continue
+            bands.append(
+                {
+                    "axis": "x",
+                    "start": int(height_band["start"]),
+                    "end": int(height_band["end"]),
+                    "width": int(height_band["width"]),
+                    "peak": float(component["peak"]),
+                    "coverage": coverage,
+                    "type": "beam_candidate",
+                    "beam_signature": "wide_continuous_column",
+                    "height_gate": "structure_continuity_height_flat",
+                    **height_band,
+                }
+            )
             continue
         bands.append(
             {
@@ -577,20 +698,13 @@ def _physical_spacing_px_range(rectified_geometry):
 def _axis_physical_prior_for_length(axis_length, spacing_px_range):
     axis_length = max(0, int(round(axis_length)))
     min_spacing_px, _max_spacing_px = spacing_px_range
-    full_min, full_max = FULL_SCAN_LINE_COUNT_RANGE
     max_visible_count = int(np.floor(max(0.0, float(axis_length - 1)) / max(min_spacing_px, 1.0))) + 1
-    if max_visible_count >= int(full_min):
-        return {
-            "mode": "full_workspace",
-            "line_count_range": [int(full_min), int(full_max)],
-            "max_visible_count": int(max_visible_count),
-        }
-
-    local_min, local_max = LOCAL_VISIBLE_LINE_COUNT_RANGE
-    local_max = min(int(local_max), max(int(local_min), int(max_visible_count)))
+    min_count = int(MIN_PHYSICAL_LATTICE_LINE_COUNT)
+    max_count = max(min_count, int(max_visible_count))
+    mode = "full_workspace" if max_visible_count >= int(FULL_WORKSPACE_MODE_MIN_VISIBLE_LINE_COUNT) else "visible_local"
     return {
-        "mode": "visible_local",
-        "line_count_range": [int(local_min), int(local_max)],
+        "mode": mode,
+        "line_count_range": [int(min_count), int(max_count)],
         "max_visible_count": int(max_visible_count),
     }
 
@@ -642,6 +756,9 @@ def _select_physical_lattice_positions(
         return [], {}
 
     candidate_positions = sorted(float(position) for position in candidate_positions)
+    max_count = min(int(max_count), int(len(candidate_positions)))
+    if max_count < min_count:
+        return [], {}
     candidate_scores = _score_profile_positions(support_profile, candidate_positions)
     candidate_array = np.asarray(candidate_positions, dtype=np.float32)
     spacing_candidates = set()
@@ -653,7 +770,7 @@ def _select_physical_lattice_positions(
     for spacing in np.linspace(min_spacing_px, max_spacing_px, 18):
         spacing_candidates.add(round(float(spacing), 3))
 
-    preferred_count = 16 if mode == "full_workspace" else max_count
+    preferred_count = max_count
     preferred_count = int(np.clip(preferred_count, min_count, max_count))
     best_positions = []
     best_metadata = {}
@@ -1047,8 +1164,71 @@ def _filter_beam_candidate_bands_by_lattice_context(beam_candidate_bands, line_f
         start = float(band.get("start", 0.0))
         end = float(band.get("end", start))
         center = (start + end) * 0.5
-        nearest_line_gap = float(np.min(np.abs(vertical_array - center)))
+        nearest_line_index = int(np.argmin(np.abs(vertical_array - center)))
+        nearest_vertical_line = float(vertical_array[nearest_line_index])
+        nearest_line_gap = float(abs(nearest_vertical_line - center))
+        original_width = float(band.get("original_width", max(1.0, end - start + 1.0)))
+        height_delta = float(band.get("height_delta", 0.0))
+        interior_coverage = band.get("interior_coverage")
+        interior_dark_enough = True
+        if interior_coverage is not None:
+            interior_dark_enough = float(interior_coverage) <= 0.12
+        dark_gutter_line_signature = (
+            band.get("beam_signature") == "dark_gutter_edge_pair"
+            and original_width >= max(18.0, median_spacing * 0.55)
+            and height_delta >= 0.055
+            and interior_dark_enough
+        )
+        wide_continuous_line_signature = (
+            band.get("beam_signature") == "wide_continuous_column"
+            and original_width >= max(8.0, median_spacing * 0.24)
+            and float(band.get("peak", 0.0)) >= 1.30
+            and float(band.get("coverage", band.get("coverage_score", 0.0))) >= 0.34
+            and float(band.get("structural_delta", 0.0)) >= 0.18
+        )
         if nearest_line_gap <= line_tolerance_px:
+            if dark_gutter_line_signature:
+                accepted_band = dict(band)
+                accepted_band.update(
+                    {
+                        "lattice_gate": "dark_gutter_over_vertical_rebar_line",
+                        "nearest_vertical_line": float(nearest_vertical_line),
+                        "nearest_vertical_line_gap": float(nearest_line_gap),
+                        "lattice_median_spacing": float(median_spacing),
+                    }
+                )
+                accepted_bands.append(accepted_band)
+                continue
+            if wide_continuous_line_signature:
+                left_gap = None
+                right_gap = None
+                if nearest_line_index > 0:
+                    left_gap = nearest_vertical_line - float(vertical_array[nearest_line_index - 1])
+                if nearest_line_index + 1 < len(vertical_array):
+                    right_gap = float(vertical_array[nearest_line_index + 1]) - nearest_vertical_line
+                neighbor_gaps = [
+                    float(gap)
+                    for gap in (left_gap, right_gap)
+                    if gap is not None and np.isfinite(float(gap)) and float(gap) > 1.0
+                ]
+                spacing_distorted = any(
+                    gap <= (median_spacing * 0.90) or gap >= (median_spacing * 1.10)
+                    for gap in neighbor_gaps
+                )
+                if spacing_distorted:
+                    accepted_band = dict(band)
+                    accepted_band.update(
+                        {
+                            "lattice_gate": "structural_beam_over_vertical_rebar_line",
+                            "nearest_vertical_line": float(nearest_vertical_line),
+                            "nearest_vertical_line_gap": float(nearest_line_gap),
+                            "lattice_median_spacing": float(median_spacing),
+                            "lattice_left_gap": float(left_gap) if left_gap is not None else None,
+                            "lattice_right_gap": float(right_gap) if right_gap is not None else None,
+                        }
+                    )
+                    accepted_bands.append(accepted_band)
+                    continue
             rejected_count += 1
             continue
 
@@ -1083,25 +1263,6 @@ def _filter_beam_candidate_bands_by_lattice_context(beam_candidate_bands, line_f
         accepted_bands.append(accepted_band)
 
     return accepted_bands, int(rejected_count)
-
-
-def _filter_line_families_by_beam_overlap(line_families, beam_candidate_mask, max_overlap_fraction=0.35):
-    beam_candidate_mask = np.asarray(beam_candidate_mask, dtype=bool)
-    if beam_candidate_mask.ndim != 2 or beam_candidate_mask.size == 0 or not np.any(beam_candidate_mask):
-        return [dict(family) for family in (line_families or [])]
-
-    filtered_families = []
-    for family in line_families or []:
-        filtered_family = dict(family)
-        filtered_family["line_rhos"] = filter_workspace_s2_line_rhos_by_mask_overlap(
-            family.get("line_rhos", []),
-            line_angle_deg=float(family.get("line_angle_deg", 0.0)),
-            normal=family.get("normal", [0.0, 1.0]),
-            exclusion_mask=beam_candidate_mask,
-            max_overlap_fraction=float(max_overlap_fraction),
-        )
-        filtered_families.append(filtered_family)
-    return filtered_families
 
 
 def _project_rectified_points_to_image(rectified_points, inverse_h):
@@ -1156,26 +1317,16 @@ def build_scan_surface_dp_result(
     modalities["beam_candidate_lattice_rejected_count"] = int(beam_candidate_lattice_rejected_count)
 
     beam_candidate_margin_mask = np.zeros_like(valid_mask, dtype=bool)
-    line_families = _filter_line_families_by_beam_overlap(
-        line_families,
-        modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
-    )
-    curve_trace_exclusion_mask = np.asarray(
-        modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
-        dtype=bool,
-    )
+    curve_trace_mask = valid_mask
     if bool(enable_beam_exclusion):
         beam_candidate_margin_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
             modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
             rectified_geometry,
             margin_mm=float(beam_exclusion_margin_mm),
         )
-        curve_trace_exclusion_mask = beam_candidate_margin_mask
-
-    curve_trace_mask = valid_mask
-    candidate_curve_trace_mask = valid_mask & (~curve_trace_exclusion_mask)
-    if np.any(candidate_curve_trace_mask):
-        curve_trace_mask = candidate_curve_trace_mask
+        candidate_curve_trace_mask = valid_mask & (~beam_candidate_margin_mask)
+        if np.any(candidate_curve_trace_mask):
+            curve_trace_mask = candidate_curve_trace_mask
 
     curved_families = build_workspace_s2_curved_line_families(
         surface["completed_surface_response"],
@@ -1301,10 +1452,6 @@ def build_scan_surface_dp_result(
                 float(surface["physical_spacing_px_range"][1]),
             ],
             "physical_resolution_mm_per_px": float(surface["physical_resolution_mm_per_px"]),
-            "full_workspace_line_count_range": [
-                int(FULL_SCAN_LINE_COUNT_RANGE[0]),
-                int(FULL_SCAN_LINE_COUNT_RANGE[1]),
-            ],
             "base_physical_source": surface.get("base_physical_source"),
             "completed_physical_source": surface.get("completed_physical_source"),
         },

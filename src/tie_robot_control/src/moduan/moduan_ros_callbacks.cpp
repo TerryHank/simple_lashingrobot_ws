@@ -37,6 +37,11 @@ constexpr const char* kModuanDiagnosticHardwareId = "tie_robot/moduan_driver";
 constexpr const char* kScepterDepthFrame = "Scepter_depth_frame";
 constexpr const char* kGripperFrame = "gripper_frame";
 constexpr float kSinglePointBindSnakeRowToleranceMm = 40.0f;
+constexpr double kModuanStateMovingSpeedEpsilon = 10.0;
+constexpr auto kOrderedReturnZeroLockPollInterval = std::chrono::milliseconds(100);
+constexpr auto kOrderedReturnZeroLockTimeout = std::chrono::seconds(30);
+constexpr auto kOrderedReturnZeroMotionReleaseTimeout = std::chrono::seconds(8);
+constexpr auto kOrderedReturnZeroLogInterval = std::chrono::seconds(2);
 std::unique_ptr<diagnostic_updater::Updater> g_moduan_diagnostic_updater;
 using ExecuteBindPointsActionServer =
     actionlib::SimpleActionServer<tie_robot_msgs::ExecuteBindPointsTaskAction>;
@@ -413,7 +418,11 @@ void publish_moduan_state_topic(
     Motor_State* mot_state)
 {
     tie_robot_msgs::ModuanState state_msg;
-    const bool executing = moduan_plc_execution_state.load(std::memory_order_acquire);
+    const bool axis_motion =
+        std::fabs(state->X_SPEED) > kModuanStateMovingSpeedEpsilon ||
+        std::fabs(state->Y_SPEED) > kModuanStateMovingSpeedEpsilon ||
+        std::fabs(state->Z_SPEED) > kModuanStateMovingSpeedEpsilon ||
+        std::fabs(mot_state->MOTOR_SPEED) > kModuanStateMovingSpeedEpsilon;
     const bool error =
         state->ERROR_FLAG_X != 0 ||
         state->ERROR_FLAG_Y != 0 ||
@@ -430,14 +439,14 @@ void publish_moduan_state_topic(
 
     state_msg.connected = plc != nullptr;
     state_msg.ready = state_msg.connected && !error;
-    state_msg.executing = executing;
+    state_msg.executing = axis_motion;
     state_msg.finish_all = state->FINISH_ALL_FLAG != 0;
     state_msg.error = error;
     state_msg.x = state->X;
     state_msg.y = state->Y;
     state_msg.z = state->Z;
     state_msg.motor_angle = mot_state->MOTOR_ANGLE;
-    state_msg.phase = executing ? "executing" : (state_msg.finish_all ? "finished" : "idle");
+    state_msg.phase = state_msg.executing ? "executing" : (state_msg.finish_all ? "finished" : "idle");
     state_msg.last_error = runtime_error;
     pub_moduan_state_topic.publish(state_msg);
 }
@@ -626,6 +635,115 @@ void forced_stop_nodeCallback(const std_msgs::Float32 &debug_mes)
     }
 }
 
+bool wait_for_lashing_mutex_for_ordered_return_zero(
+    std::unique_lock<std::mutex>& lashing_lock,
+    std::string& response_message)
+{
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+
+    while (ros::ok()) {
+        if (lashing_lock.try_lock()) {
+            return true;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - start_time >= kOrderedReturnZeroLockTimeout) {
+            response_message = "等待当前末端执行链释放后有序回零超时，请确认线性模组已停止后重试。";
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Error: %s 超时=%ds。\n",
+                response_message.c_str(),
+                static_cast<int>(kOrderedReturnZeroLockTimeout.count())
+            );
+            return false;
+        }
+
+        if (now - last_log_time >= kOrderedReturnZeroLogInterval) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_log: 长按停止并回起点已收到，正在等待当前末端执行链释放后再有序回零。\n"
+            );
+            last_log_time = now;
+        }
+
+        std::this_thread::sleep_for(kOrderedReturnZeroLockPollInterval);
+    }
+
+    response_message = "ROS 已退出，取消等待当前末端执行链释放。";
+    return false;
+}
+
+bool wait_for_ordered_return_zero_motion_release(std::string& response_message)
+{
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+
+    while (ros::ok()) {
+        double x_speed = 0.0;
+        double y_speed = 0.0;
+        double z_speed = 0.0;
+        double cur_x = 0.0;
+        double cur_y = 0.0;
+        double cur_z = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(module_state_mutex);
+            x_speed = module_state.X_SPEED;
+            y_speed = module_state.Y_SPEED;
+            z_speed = module_state.Z_SPEED;
+            cur_x = module_state.X;
+            cur_y = module_state.Y;
+            cur_z = module_state.Z;
+        }
+
+        const bool axis_motion =
+            std::fabs(x_speed) > kModuanStateMovingSpeedEpsilon ||
+            std::fabs(y_speed) > kModuanStateMovingSpeedEpsilon ||
+            std::fabs(z_speed) > kModuanStateMovingSpeedEpsilon;
+        if (!axis_motion) {
+            return true;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - start_time >= kOrderedReturnZeroMotionReleaseTimeout) {
+            std::ostringstream oss;
+            oss << "等待线性模组真实运动释放超时，当前速度(X,Y,Z)=("
+                << x_speed << "," << y_speed << "," << z_speed << ")mm/s";
+            response_message = oss.str();
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Error: %s，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)，速度阈值=%.2fmm/s。\n",
+                response_message.c_str(),
+                cur_x,
+                cur_y,
+                cur_z,
+                kModuanStateMovingSpeedEpsilon
+            );
+            return false;
+        }
+
+        if (now - last_log_time >= kOrderedReturnZeroLogInterval) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_log: 执行链已释放，正在等待线性模组真实运动释放，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)，速度(X,Y,Z)=(%.2f,%.2f,%.2f)mm/s，阈值=%.2fmm/s。\n",
+                cur_x,
+                cur_y,
+                cur_z,
+                x_speed,
+                y_speed,
+                z_speed,
+                kModuanStateMovingSpeedEpsilon
+            );
+            last_log_time = now;
+        }
+
+        std::this_thread::sleep_for(kOrderedReturnZeroLockPollInterval);
+    }
+
+    response_message = "ROS 已退出，取消等待线性模组真实运动释放。";
+    return false;
+}
+
 void request_legacy_moduan_zero(const char* reason)
 {
     const char* zero_reason = (reason != nullptr && reason[0] != '\0') ? reason : "末端返回零点";
@@ -650,9 +768,25 @@ void request_moduan_zero(const char* reason)
 bool return_zero_ordered_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res)
 {
     (void)req;
-    std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
     printCurrentTime();
-    ros_log_printf("Moduan_log:收到暂停恢复有序回零请求：先抬升Z轴回0，再回X/Y到0。\n");
+    ros_log_printf("Moduan_log:收到暂停恢复有序回零请求：先停止当前末端执行链，轮询释放后先抬升Z轴回0，再回X/Y到0。\n");
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        moduan_return_zero_ordered_requested.store(true, std::memory_order_release);
+        PLC_Order_Write(IS_STOP, 1, plc);
+        PLC_Order_Write(FINISHALL, 0, plc);
+        handle_pause_interrupt = true;
+    }
+
+    std::unique_lock<std::mutex> lashing_lock(lashing_mutex, std::defer_lock);
+    std::string wait_message;
+    if (!wait_for_lashing_mutex_for_ordered_return_zero(lashing_lock, wait_message) ||
+        !wait_for_ordered_return_zero_motion_release(wait_message)) {
+        res.success = false;
+        res.message = wait_message;
+        return true;
+    }
+
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         moduan_return_zero_ordered_requested.store(false, std::memory_order_release);
@@ -660,7 +794,6 @@ bool return_zero_ordered_service(std_srvs::Trigger::Request& req, std_srvs::Trig
         PLC_Order_Write(FINISHALL, 0, plc);
         handle_pause_interrupt = false;
     }
-
     const bool moved_to_origin = move_linear_module_to_origin();
     res.success = moved_to_origin;
     res.message = moved_to_origin
@@ -1043,6 +1176,7 @@ bool moduan_driver_raw_execute_points_service(
     tie_robot_msgs::ExecuteBindPoints::Request& req,
     tie_robot_msgs::ExecuteBindPoints::Response& res)
 {
+    std::lock_guard<std::mutex> lashing_lock(lashing_mutex);
     const bool previous_remote_mode = g_use_remote_moduan_driver.exchange(false);
     res.success = execute_bind_points(req.points, res.message);
     g_use_remote_moduan_driver.store(previous_remote_mode);

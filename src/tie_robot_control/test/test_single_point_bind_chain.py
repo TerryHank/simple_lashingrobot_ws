@@ -178,6 +178,86 @@ class SinglePointBindChainTest(unittest.TestCase):
         self.assertNotIn("execute_bind_points(", raw_move_body)
         self.assertIn('advertiseService("/moduan/driver/raw_single_move"', callbacks)
 
+    def test_driver_raw_execute_points_serializes_with_ordered_return_zero(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        raw_execute_start = callbacks.index("bool moduan_driver_raw_execute_points_service(")
+        raw_execute_end = callbacks.index("\nint RunModuanNodeWithDefaultRole", raw_execute_start)
+        raw_execute_body = callbacks[raw_execute_start:raw_execute_end]
+
+        self.assertIn("std::lock_guard<std::mutex> lashing_lock(lashing_mutex);", raw_execute_body)
+        self.assertLess(
+            raw_execute_body.index("std::lock_guard<std::mutex> lashing_lock(lashing_mutex);"),
+            raw_execute_body.index("execute_bind_points("),
+        )
+
+        return_zero_start = callbacks.index("bool return_zero_ordered_service(")
+        return_zero_end = callbacks.index("\nvoid moduan_move_zero_forthread", return_zero_start)
+        return_zero_body = callbacks[return_zero_start:return_zero_end]
+        self.assertIn("std::unique_lock<std::mutex> lashing_lock(lashing_mutex, std::defer_lock);", return_zero_body)
+        self.assertIn("wait_for_lashing_mutex_for_ordered_return_zero(lashing_lock", return_zero_body)
+        self.assertLess(
+            return_zero_body.index("wait_for_lashing_mutex_for_ordered_return_zero(lashing_lock"),
+            return_zero_body.index("move_linear_module_to_origin()"),
+        )
+
+    def test_ordered_return_zero_polls_for_current_execution_and_motion_release(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("kOrderedReturnZeroLockTimeout", callbacks)
+        self.assertIn("kOrderedReturnZeroMotionReleaseTimeout", callbacks)
+        self.assertIn("kOrderedReturnZeroLockPollInterval", callbacks)
+        self.assertIn("bool wait_for_lashing_mutex_for_ordered_return_zero(", callbacks)
+        wait_lock_start = callbacks.index("bool wait_for_lashing_mutex_for_ordered_return_zero(")
+        wait_lock_end = callbacks.index("\n}\n\nbool wait_for_ordered_return_zero_motion_release", wait_lock_start) + 3
+        wait_lock_body = callbacks[wait_lock_start:wait_lock_end]
+        self.assertIn("lashing_lock.try_lock()", wait_lock_body)
+        self.assertIn("std::this_thread::sleep_for(kOrderedReturnZeroLockPollInterval)", wait_lock_body)
+        self.assertIn("kOrderedReturnZeroLockTimeout", wait_lock_body)
+        self.assertIn("等待当前末端执行链释放", wait_lock_body)
+        self.assertIn("超时", wait_lock_body)
+
+        wait_motion_start = callbacks.index("bool wait_for_ordered_return_zero_motion_release(")
+        wait_motion_end = callbacks.index("\n}\n\nvoid request_legacy_moduan_zero", wait_motion_start) + 3
+        wait_motion_body = callbacks[wait_motion_start:wait_motion_end]
+        self.assertIn("module_state.X_SPEED", wait_motion_body)
+        self.assertIn("module_state.Y_SPEED", wait_motion_body)
+        self.assertIn("module_state.Z_SPEED", wait_motion_body)
+        self.assertIn("kModuanStateMovingSpeedEpsilon", wait_motion_body)
+        self.assertIn("std::this_thread::sleep_for(kOrderedReturnZeroLockPollInterval)", wait_motion_body)
+        self.assertIn("kOrderedReturnZeroMotionReleaseTimeout", wait_motion_body)
+
+        service_start = callbacks.index("bool return_zero_ordered_service(")
+        service_end = callbacks.index("\nvoid moduan_move_zero_forthread", service_start)
+        service_body = callbacks[service_start:service_end]
+        request_index = service_body.index("moduan_return_zero_ordered_requested.store(true")
+        lock_wait_index = service_body.index("wait_for_lashing_mutex_for_ordered_return_zero")
+        motion_wait_index = service_body.index("wait_for_ordered_return_zero_motion_release")
+        clear_index = service_body.index("moduan_return_zero_ordered_requested.store(false")
+        move_index = service_body.index("move_linear_module_to_origin()")
+        self.assertLess(request_index, lock_wait_index)
+        self.assertLess(lock_wait_index, motion_wait_index)
+        self.assertLess(motion_wait_index, clear_index)
+        self.assertLess(clear_index, move_index)
+
+    def test_linear_module_axis_wait_aborts_when_ordered_return_zero_requested(self):
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+
+        wait_start = executor.index("bool wait_linear_module_axis_arrival(")
+        wait_end = executor.index("\nbool arrive_z", wait_start)
+        wait_body = executor[wait_start:wait_end]
+        self.assertIn("moduan_return_zero_ordered_requested.load(std::memory_order_acquire)", wait_body)
+        request_index = wait_body.index("moduan_return_zero_ordered_requested.load(std::memory_order_acquire)")
+        timeout_index = wait_body.index("if (elapsed_sec >= kLinearModuleAxisArrivalTimeoutSec)")
+        self.assertLess(request_index, timeout_index)
+        self.assertIn("收到长按停止并回起点请求", wait_body[request_index:timeout_index])
+
     def test_pause_return_zero_service_moves_z_to_zero_before_xy(self):
         executor = (
             CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
@@ -328,8 +408,10 @@ class SinglePointBindChainTest(unittest.TestCase):
         finish_index = wait_body.index("if (finishall_flag) break;")
         self.assertLess(pause_index, finish_index)
         self.assertIn("人工暂停", wait_body)
-        self.assertIn("while (handle_pause_interrupt", wait_body[pause_index:finish_index])
-        self.assertIn("恢复当前末端执行等待", wait_body[pause_index:finish_index])
+        pause_wait_body = wait_body[pause_index:finish_index]
+        self.assertIn("while (", pause_wait_body)
+        self.assertIn("handle_pause_interrupt &&", pause_wait_body)
+        self.assertIn("恢复当前末端执行等待", pause_wait_body)
         self.assertIn("return false;", wait_body[return_index:pause_index])
 
         hand_start = callbacks.index("void handSolveWarnCallback(")

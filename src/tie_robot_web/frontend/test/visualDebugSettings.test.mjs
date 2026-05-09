@@ -156,15 +156,17 @@ assert.deepEqual(loadVisualDebugSettings().linearModuleBindRangeMm, {
   y: { min: 0, max: 330 },
   z: { min: 0, max: 160 },
 });
-assert.equal(loadVisualDebugSettings().bindGroupPointCount, 4);
+assert.equal(loadVisualDebugSettings().bindExecutionCabinMinZMm, 485);
+assert.equal(loadVisualDebugSettings().adaptiveBindGrouping, false);
 assert.equal(loadVisualDebugSettings().enableBeamExclusion, false);
 assert.equal(loadVisualDebugSettings().executionMode, GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE);
 
 localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify({
   stableFrameCount: 5,
   executionMode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
-  bindGroupPointCount: 6,
+  adaptiveBindGrouping: true,
   enableBeamExclusion: true,
+  bindExecutionCabinMinZMm: 420,
   linearModuleBindRangeMm: {
     x: { min: 30, max: 180 },
     y: { min: 40, max: 280 },
@@ -175,8 +177,9 @@ assert.deepEqual(loadVisualDebugSettings(), {
   stableFrameCount: 5,
   requestMode: 3,
   executionMode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
-  bindGroupPointCount: 6,
+  adaptiveBindGrouping: true,
   enableBeamExclusion: true,
+  bindExecutionCabinMinZMm: 420,
   linearModuleBindRangeMm: {
     x: { min: 30, max: 180 },
     y: { min: 40, max: 280 },
@@ -187,8 +190,9 @@ assert.deepEqual(loadVisualDebugSettings(), {
 saveVisualDebugSettings({
   stableFrameCount: 2,
   executionMode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
-  bindGroupPointCount: 9,
+  adaptiveBindGrouping: true,
   enableBeamExclusion: true,
+  bindExecutionCabinMinZMm: 430,
   linearModuleBindRangeMm: {
     x: { min: 150, max: 20 },
     y: { min: 25, max: 225 },
@@ -199,8 +203,9 @@ assert.deepEqual(JSON.parse(localStorage.getItem(VISUAL_DEBUG_SETTINGS_KEY)), {
   stableFrameCount: 2,
   requestMode: 3,
   executionMode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
-  bindGroupPointCount: 9,
+  adaptiveBindGrouping: true,
   enableBeamExclusion: true,
+  bindExecutionCabinMinZMm: 430,
   linearModuleBindRangeMm: {
     x: { min: 20, max: 150 },
     y: { min: 25, max: 225 },
@@ -217,10 +222,13 @@ assert.equal(controller.resources.processImageService.calls.at(-1).request_mode,
 const uiControllerText = readFileSync(resolve(frontendRoot, "src/ui/UIController.js"), "utf-8");
 const appText = readFileSync(resolve(frontendRoot, "src/app/TieRobotFrontApp.js"), "utf-8");
 assert.match(uiControllerText, /id: "visualDebug", label: "视觉调试"/);
-assert.match(uiControllerText, /id="visualDebugTrigger"/);
+assert.doesNotMatch(uiControllerText, /id="visualDebugTrigger"/);
+assert.doesNotMatch(uiControllerText, /触发视觉服务/);
 assert.match(uiControllerText, /id="visualDebugStableFrameCount"/);
-assert.match(uiControllerText, /id="visualDebugBindGroupPointCount"/);
-assert.match(uiControllerText, /每组点数/);
+assert.match(uiControllerText, /id="visualDebugBindExecutionCabinMinZ"/);
+assert.match(uiControllerText, /索驱规划 Z 下限/);
+assert.match(uiControllerText, /id="visualDebugAdaptiveBindGrouping"/);
+assert.match(uiControllerText, /自适应每组绑扎点数/);
 assert.match(uiControllerText, /id="visualDebugBeamExclusionToggle"/);
 assert.match(uiControllerText, /梁筋 ±13 cm 过滤/);
 assert.match(uiControllerText, /id="visualDebugBindRangeXMin"/);
@@ -233,7 +241,10 @@ assert.match(uiControllerText, /visualDebugExecutionModeLedgerRefine/);
 assert.match(uiControllerText, /账本\+微调/);
 assert.match(uiControllerText, /规划路径\+纯微调/);
 assert.match(uiControllerText, /id="visualDebugTimingSummary"/);
+assert.match(uiControllerText, /Z下限=/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugRequestMode"/);
+assert.doesNotMatch(uiControllerText, /id="visualDebugBindGroupPointCount"/);
+assert.doesNotMatch(uiControllerText, /每组点数/);
 assert.doesNotMatch(uiControllerText, /visualDebugApplyStableFrameCount|应用帧数/);
 assert.doesNotMatch(uiControllerText, /TCP z=0 x0-380 y0-330/);
 assert.doesNotMatch(uiControllerText, /tcp工具坐标系下x[:：]0~380/);
@@ -253,19 +264,34 @@ assert.doesNotMatch(visualDebugPageMarkup, /视觉调试日志|暂无视觉调�
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS/);
 assert.match(appText, /applyVisualDebugBeamExclusionSettings/);
 const visualDebugSettingsChangeStart = appText.indexOf("this.ui.onVisualDebugSettingsChange((settings) => {");
-const visualDebugSettingsChangeEnd = appText.indexOf("this.ui.onVisualDebugTrigger", visualDebugSettingsChangeStart);
+const visualDebugSettingsChangeEnd = appText.indexOf("this.ui.onLegacyCommand", visualDebugSettingsChangeStart);
 assert.notEqual(visualDebugSettingsChangeStart, -1);
 assert.notEqual(visualDebugSettingsChangeEnd, -1);
 const visualDebugSettingsChangeBlock = appText.slice(
   visualDebugSettingsChangeStart,
   visualDebugSettingsChangeEnd,
 );
-assert.match(visualDebugSettingsChangeBlock, /this\.applyVisualDebugStableFrameCount\(\{ suppressLog: true \}\)/);
+assert.match(visualDebugSettingsChangeBlock, /this\.applyVisualDebugRuntimeSettings\(settings, \{ suppressLog: true \}\)/);
+const visualDebugRuntimeSettingsStart = appText.indexOf("applyVisualDebugRuntimeSettings(");
+const visualDebugRuntimeSettingsEnd = appText.indexOf("applyVisualDebugStableFrameCount", visualDebugRuntimeSettingsStart);
+assert.notEqual(visualDebugRuntimeSettingsStart, -1);
+assert.notEqual(visualDebugRuntimeSettingsEnd, -1);
+const visualDebugRuntimeSettingsBlock = appText.slice(
+  visualDebugRuntimeSettingsStart,
+  visualDebugRuntimeSettingsEnd,
+);
+assert.match(visualDebugRuntimeSettingsBlock, /saveVisualDebugSettings\(nextSettings\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /this\.applyVisualDebugBindRangeSettings\(nextSettings\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /publishStableFrameCount\(nextSettings\.stableFrameCount\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /this\.applyVisualDebugBeamExclusionSettings\(nextSettings, \{ suppressLog \}\)/);
 assert.doesNotMatch(appText, /onVisualDebugApplyStableFrameCount/);
+assert.doesNotMatch(appText, /onVisualDebugTrigger|handleVisualDebugTrigger|VISUAL_DEBUG_REQUEST_MODE_LABELS/);
 for (const actionId of ["runSavedS2", "executionVisionOnly", "triggerSingleBind", "startExecution", "startExecutionKeepMemory"]) {
   assert.match(appText, new RegExp(`"${actionId}"`));
 }
 assert.doesNotMatch(appText, /"scanPlan"/);
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS\.has\(taskAction\)/);
-assert.match(appText, /this\.applyVisualDebugStableFrameCount\(\{ suppressLog: true \}\)/);
-assert.match(appText, /bindGroupPointCount/);
+assert.match(appText, /this\.applyVisualDebugRuntimeSettings\(this\.visualDebugSettings, \{ suppressLog: true \}\)/);
+assert.match(appText, /adaptiveBindGrouping/);
+assert.match(appText, /getBindExecutionCabinMinZ/);
+assert.doesNotMatch(appText, /bindGroupPointCount/);

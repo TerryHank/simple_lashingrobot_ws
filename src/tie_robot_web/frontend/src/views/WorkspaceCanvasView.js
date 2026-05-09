@@ -122,7 +122,11 @@ export class WorkspaceCanvasView {
 
   setOverlayEnabled(enabled) {
     this.overlayEnabled = Boolean(enabled);
-    this.drawOverlay();
+    if (!this.isWorkspacePickingActive()) {
+      this.dragState = { activeIndex: -1, moved: false };
+      this.suppressNextCanvasClick = false;
+    }
+    this.draw();
   }
 
   setImageOverlayLayerState(state = {}) {
@@ -143,10 +147,14 @@ export class WorkspaceCanvasView {
 
   setWorkspacePickingEnabled(enabled) {
     this.workspacePickingEnabled = Boolean(enabled);
-    if (this.workspacePickingEnabled) {
+    if (this.isWorkspacePickingActive()) {
       this.setHoverCoordinateReadout(null);
       this.onHoverPixelChanged?.(null);
     }
+  }
+
+  isWorkspacePickingActive() {
+    return this.workspacePickingEnabled && this.overlayEnabled;
   }
 
   setHoverCoordinateReadout(readout) {
@@ -489,7 +497,7 @@ export class WorkspaceCanvasView {
     this.ctx.lineWidth = 2;
     this.ctx.font = "18px monospace";
 
-    if (this.workspacePickingEnabled && this.selectedPoints.length) {
+    if (this.isWorkspacePickingActive() && this.selectedPoints.length) {
       this.ctx.strokeStyle = "#4de3a5";
       this.ctx.fillStyle = "#ffae42";
       if (this.selectedPoints.length >= 2) {
@@ -519,7 +527,7 @@ export class WorkspaceCanvasView {
   }
 
   handleCanvasClick(event) {
-    if (!this.workspacePickingEnabled) {
+    if (!this.isWorkspacePickingActive()) {
       return;
     }
     if (this.suppressNextCanvasClick) {
@@ -547,7 +555,7 @@ export class WorkspaceCanvasView {
   }
 
   handlePointerDown(event) {
-    if (!this.workspacePickingEnabled) {
+    if (!this.isWorkspacePickingActive()) {
       return;
     }
     if (!this.lastImageMessage || !this.selectedPoints.length) {
@@ -569,7 +577,7 @@ export class WorkspaceCanvasView {
   }
 
   handlePointerMove(event) {
-    if (!this.workspacePickingEnabled) {
+    if (!this.isWorkspacePickingActive()) {
       this.emitHoverPixelFromPointerEvent(event);
       return;
     }
@@ -602,7 +610,7 @@ export class WorkspaceCanvasView {
 
   handlePointerLeave() {
     this.handlePointerUp();
-    if (!this.workspacePickingEnabled) {
+    if (!this.isWorkspacePickingActive()) {
       this.onHoverPixelChanged?.(null);
       this.setHoverCoordinateReadout(null);
     }

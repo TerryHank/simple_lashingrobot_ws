@@ -135,6 +135,20 @@ assert.deepEqual(
   ],
 );
 
+const incompatibleTopicWorkspaceContext = createRecordingContext();
+const incompatibleTopicWorkspaceView = new WorkspaceCanvasView({
+  canvas: createCanvas(incompatibleTopicWorkspaceContext),
+  overlayCanvas: createCanvas(createRecordingContext()),
+});
+incompatibleTopicWorkspaceView.setSelectedWorkspacePayload([20, 30, 220, 30, 220, 130, 20, 130]);
+incompatibleTopicWorkspaceView.setWorkspacePickingEnabled(true);
+incompatibleTopicWorkspaceView.setOverlayEnabled(false);
+incompatibleTopicWorkspaceView.drawWorkspacePolylines();
+assert.deepEqual(
+  incompatibleTopicWorkspaceContext.calls.filter(([name]) => name === "moveTo" || name === "lineTo").slice(0, 4),
+  [],
+);
+
 const workspaceCanvasViewText = await import("node:fs").then(({ readFileSync }) => (
   readFileSync(new URL("../src/views/WorkspaceCanvasView.js", import.meta.url), "utf-8")
 ));

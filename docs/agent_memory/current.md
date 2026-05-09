@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-07 11:22:14，当前 HEAD：`f619019`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-09 17:25:37，当前 HEAD：`da94e23`。
 
 ## Bootstrap Files
 
@@ -36,23 +36,18 @@
 
 ## Latest CHANGELOG Signals
 
-- 前端控制面板下线“清除识别结果”“固定扫描规划”和“账本测试”三个旧按钮及其入口逻辑，任务按钮按“扫描区”“执行层”“区域切换”重新分组展示。
-- “开始执行层”改名为“执行全局绑扎”，“执行层视觉单侧”改名为“单点视觉测试”；扫描区保留“移动到位姿”“设为识别位姿”“确认工作区域”“触发扫描视觉”，执行层保留“执行全局绑扎”“触发单点绑扎”“单点视觉测试”“记忆续跑开始”。
-- 新增“上一个区域 / 下一个区域”人工切区：前端先发布 `/web/cabin/manual_area_takeover` 终止当前自动执行链并让线性模组归零，再按当前区域进度或当前位置邻近区域移动索驱到相邻 `cabin_pose`；暂停后未恢复时，后续区域交由人工操作。
-- 清理执行视觉链路遗留的“近点排斥/去重”算法：`MODE_EXECUTION_REFINE` 的 Hough 候选点不再因为世界 XY 距离小于旧 `100mm` 阈值而成对丢弃；多根钢筋靠得近时，只要有有效 3D 坐标且落在 TCP 执行范围内，就继续进入排序和下发。
-- 执行底图诊断同步移除 `DUP` 标记，日志也不再输出“去重移除”；现场漏点只剩 `H` 原始交点、`ZERO` 无有效 3D 坐标、`OUT` 超出 TCP 范围和 `SEL/编号` 最终输出这几类有效门控。
-- Surface-DP 运行态新增 `beam_candidate` 梁筋候选诊断：基于收束底图中的宽、连续、高响应竖向 band 识别梁筋候选，并输出 `beam_candidate_bands`、`beam_candidate_count` 和像素统计。
-- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可选择启用「梁筋 ±13 cm 过滤」，默认关闭，启用后只过滤落入梁筋候选扩张范围的最终绑扎点，不删除普通钢筋线族。
-- 梁筋候选识别补充「黑色竖沟 + 双侧窄亮边」形态：现场截图中梁筋中间常表现为贯穿全高的暗沟，而不是整条宽亮带；检测逻辑会把两侧连续亮边与中间低覆盖暗沟合并成一条 beam_candidate 竖带，避免漏掉这种梁筋。
+- 用户最新口径：新前端 header 的“演示模式”点击后只关闭当前 `simple_lashingrobot_ws` 工程相关进程和后台服务，然后按钮状态变绿；不再启动、停止或清理 `/home/hyq-/lashingrobotROS` 或 `/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws` 里的任何内容。
+- 演示模式进入动作收口为停止本工程 `tie-robot-backend.service`、三个 driver service 与 `tie-robot-rosbridge.service`，并且只按当前工作区路径清理残留 ROS 进程；不再启动旧前端、旧 `chassis_ctrl api.launch`、`tie-robot-demo-rosbridge.service` 或 `tie-robot-demo-show-full.service`。
+- 演示模式退出动作仍按当前工程依赖顺序恢复 `tie-robot-rosbridge.service`、三个 driver service 和 `tie-robot-backend.service`。
 
 ## Recent Session Memory
 
-- `2026-05-07 11:22 - Surface-DP raw beam 默认禁入 tracing 与 line_rho`：在用户反馈点仍落到梁筋上后，scan_surface_dp 进一步收口：不再把 raw beam 候选禁入只绑定到 ±13cm 开关。当前会先用 beam_candidate_mask 过滤 line_families 中与梁筋重叠的 line_rhos，并让 curved_families 默认避开 raw beam mask；只有 beam exclusion 开启时，才把 tracing 禁区和最终点过滤扩展到 13cm margin。这样即使不开 ±13cm，梁筋本体也不会继续参与 tracing 和基准线选取。
-- `2026-05-07 11:15 - 6点分组统一物理方向而非写死rowcol`：动态绑扎规划的6/9点模式不再简单写死成row<=2、col<=3，而是先根据提供的全局行列与世界X/Y的映射判断哪一维对应线模长轴。3点跨度始终落在物理长轴上，因此同一现场可能表现为2x3或3x2，但不会把3个点压到短轴上；若长轴方向的完整组不可达，再退到同一物理朝向下的更小矩形。
-- `2026-05-07 11:14 - 索驱状态轮询改走驱动层 pollState`：索驱状态读取不再在 suoquNode 里直接用旧 Frame_Generate_With_Retry 抢占全局 sockfd。新增 CabinProtocol.decodeHeartbeatState 和 CabinDriver.pollState，read_cabin_state 改为通过 g_cabin_driver->pollState 走同一条驱动 transport/io_mutex 链路，避免状态包与运动回包互串。状态轮询默认节拍由 100ms 提升到 20ms；connectToServer 不再把仅连接成功误记为 fresh state，而是等待真实状态包刷新 cabin_driver_last_state_stamp_sec。
-- `2026-05-07 11:09 - 非4点分组统一为2x3物理方向`：动态绑扎规划的非4点模式已按现场口径收口：默认只把3个点跨度放在线模长轴方向，短轴最多2点；不再在2x3不可用时自动切到3x2，也不再让9点请求生成3x3。请求9时按世界坐标蛇形优先使用2x3，再用2x2、1x3、1x2等更小可达矩形补剩余点，所有候选仍按规划cabin_z校验线模工作范围。
-- `2026-05-07 11:07 - Surface-DP 梁筋禁入前移到曲线追踪`：用户明确要求不要改默认开关，只把 beam mask 前移到 tracing 阶段。当前 scan_surface_dp 在启用梁筋±13cm过滤时，会先生成 beam_candidate_13cm_mask 作为 curve_trace_mask 禁区，再跑 curved_families；workspace_s2 曲线追踪只保留 support_mask 内的 polyline_points，并新增 polyline_segments，交点只在连续有效段之间求，避免曲线穿过梁筋后再靠最终删点兜底。
-- `2026-05-07 10:58 - 动态分组起点兜底优先于后续完整组`：动态绑扎规划在请求 6/9 等多点分组时，不能先执行后续可达完整组再回头补世界最小起点附近的小组；完整候选和可达兜底候选需要进入同一条世界坐标蛇形队列，同一起点优先点数更多的组。这样 9 点组因规划高度或线模范围不可达时，会先在世界最小角附近落到最大可达小组，再继续蛇形填充后续区域。
+- `2026-05-09 17:25 - 3D执行点只显示已分组点`：2026-05-09：前端 /api/planning/bind-path 会把 pseudo_slam_points.json 的全量 grid_points 附到 bind_path 上，但 3D Scene 的执行/规划点、行列线、跳绑高亮应只使用 pseudo_slam_bind_path.json 中有效分组（至少2点）引用到的 global_idx；未进入分组的扫描网格点不能显示成黄色单点，避免误以为产生了单点执行组。当前账本验证：176个grid_points中112个进入2/4点分组，64个未分组点会被隐藏。
+- `2026-05-09 16:40 - 扫描物理先验取消钢筋数量限制`：2026-05-09：扫描层 Surface-DP 物理先验只保留钢筋间距约束（FULL_SCAN_REBAR_SPACING_MM_RANGE=120-160mm），不再使用 full workspace 15-18 条或固定 16 条偏好作为钢筋数量限制。线族数量上限改为当前视野按最小合法间距可容纳的数量，并按实际峰值与间距一致性选择；13x13 等合法间距网格应通过。梁筋候选、梁筋过滤开关和 lattice gate 语义本次不改。
+- `2026-05-09 15:56 - PointAI扫描编号按map最小坐标起排`：2026-05-09：PointAI manual_workspace_s2 扫描点返回和结果图显示编号不再按右上角/TCP图像口径排序；每个点优先用 Scepter_depth_frame->map 转换后的坐标排序，按世界 Y 行、世界 X 正向编号，取不到 TF 时回退到原相机坐标。Surface-DP global_row/global_col 元数据继续保留原拓扑语义。
+- `2026-05-09 15:52 - 扫描点按世界最小点重新编号`：2026-05-09：扫描代表点在写入 pseudo_slam_points.json、发布 pseudo_slam markers 和进入动态绑扎规划前，会先按 map/world 坐标排序并重新赋 idx/global_idx。排序先按世界 Y 聚行，再在每行按世界 X 正向排列；因此世界坐标最小角点成为 1 号点，不再沿用 PointAI 图像行列或视觉返回顺序。
+- `2026-05-09 15:46 - 3D点悬停高亮反馈`：2026-05-09：新前端 3D Scene 的点悬停反馈已改为“点自身高亮”，不再叠加额外覆盖点。鼠标悬停绑扎点、路径规划点、跳绑覆盖点或索驱规划区域中心时，Scene3DView 通过同一 raycaster 命中管线设置该 THREE.Points 几何里的 pointHoverScale / pointHoverColorMix 顶点属性，由 PointsMaterial shader 让被命中的原始点自己变大变亮；移出或未命中时把该点属性恢复。
+- `2026-05-09 15:26 - 演示模式只管本工程服务`：2026-05-09：用户明确要求新前端 header 的“演示模式”只关闭当前 /home/hyq-/simple_lashingrobot_ws 工程相关进程和后台服务，进入后按钮变绿；不得再启动、停止、清理或跳转 /home/hyq-/lashingrobotROS 或 /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws 的任何内容。当前实现把演示模式收口为停止本工程 tie-robot-backend.service、tie-robot-rosbridge.service 与三个 driver service，只按当前工作区路径清理残留 ROS 进程；退出时按当前工程依赖顺序恢复 rosbridge、三个 driver 和 backend。旧 demo rosbridge/show_full unit 与 launch 模板已删除，frontend autostart 不再安装旧前端或 demo 模式服务。
 
 ## Handoff Documents
 

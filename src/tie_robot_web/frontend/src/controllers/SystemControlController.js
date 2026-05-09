@@ -162,8 +162,5 @@ export class SystemControlController {
       return;
     }
     this.callbacks.onDemoModeStatus?.(payload);
-    if (payload?.active && payload?.legacyFrontendUrl) {
-      this.callbacks.onOpenUrl?.(payload.legacyFrontendUrl);
-    }
   }
 }

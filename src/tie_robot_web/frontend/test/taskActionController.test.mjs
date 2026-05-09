@@ -131,8 +131,11 @@ const rosConnection = {
 const controller = new TaskActionController({
   rosConnection,
   workspaceView,
-  getBindGroupPointCount() {
-    return 6;
+  getAdaptiveBindGrouping() {
+    return true;
+  },
+  getBindExecutionCabinMinZ() {
+    return 420;
   },
   callbacks: {
     onResultMessage: (message) => resultMessages.push(message),
@@ -150,7 +153,12 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.deepEqual(processImageCalls, []);
 assert.equal(actionGoals.length, 1);
 assert.equal(actionGoals.at(-1)?.actionClient, scanActionClient);
-assert.deepEqual(actionGoals.at(-1)?.goalMessage, { enable_capture_gate: false, scan_strategy: 3, bind_group_point_count: 6 });
+assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
+  enable_capture_gate: false,
+  scan_strategy: 3,
+  bind_group_point_count: 0,
+  bind_execution_cabin_min_z_mm: 420,
+});
 assert.equal(actionGoals.at(-1)?.sent, true);
 assert.match(resultMessages.at(-1), /Surface-DP|视觉识别/);
 assert.equal(logs.some((entry) => /自动触发.*视觉识别/.test(entry.message)), true);

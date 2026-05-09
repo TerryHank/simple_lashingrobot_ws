@@ -2,7 +2,7 @@ import { STATUS_MONITORS } from "../config/statusMonitorCatalog.js";
 import { MESSAGE_TYPES, TOPICS } from "../config/topicRegistry.js";
 import { ROSLIB } from "../vendor/roslib.js";
 
-const DIAGNOSTIC_STALE_MS = 3000;
+const DEFAULT_DIAGNOSTIC_STALE_MS = 3000;
 
 const MODUAN_ALARM_VALUE_LABELS = [
   ["error_x", "X轴异常"],
@@ -205,7 +205,8 @@ export class StatusMonitorController {
           this.setAlarmLabels(`diagnostic:${monitor.id}`, []);
           return;
         }
-        const stale = now - cached.receivedAt > DIAGNOSTIC_STALE_MS;
+        const staleMs = monitor.diagnosticStaleMs ?? DEFAULT_DIAGNOSTIC_STALE_MS;
+        const stale = now - cached.receivedAt > staleMs;
         const detail = stale
           ? `${monitor.label}状态超时`
           : formatDiagnosticDetail(cached.status);

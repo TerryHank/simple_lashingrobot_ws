@@ -9,10 +9,14 @@ import {
   projectCameraPointMetersToImagePixel,
 } from "../utils/tcpWorkspaceOverlay.js";
 import {
+  buildBindPathPointHoverEntries,
   buildBindGridLineSegmentPositions,
   buildBindGroupLineSegmentPositions,
   buildBindPathPointPositions,
+  buildCabinPathPointHoverEntries,
+  buildJumpBindPointHoverEntries,
   buildJumpBindPointPositions,
+  formatScenePointWorldCoordinate,
 } from "../utils/bindPathGeometry.js";
 
 const MAP_FRAME = "map";
@@ -39,6 +43,131 @@ const MARKER_TYPE_SPHERE_LIST = 7;
 const MARKER_TYPE_POINTS = 8;
 const BIND_GROUP_LINE_Z_OFFSET_METERS = 0.012;
 const LINEAR_MODULE_BIND_RANGE_MIN_SIZE_METERS = 0.001;
+const POINT_SELF_HOVER_SCALE = 2.8;
+const POINT_SELF_HOVER_COLOR_MIX = 0.9;
+const POINT_HOVER_SCALE_ATTRIBUTE = "pointHoverScale";
+const POINT_HOVER_COLOR_MIX_ATTRIBUTE = "pointHoverColorMix";
+
+function getPointSelfHoverColor(theme) {
+  return new THREE.Color(theme === "light" ? 0x0f172a : 0xffffff);
+}
+
+function enablePointSelfHoverMaterial(material) {
+  material.userData.pointHoverColor = getPointSelfHoverColor("dark");
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.pointHoverColor = {
+      value: material.userData.pointHoverColor,
+    };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        [
+          "#include <common>",
+          `attribute float ${POINT_HOVER_SCALE_ATTRIBUTE};`,
+          `attribute float ${POINT_HOVER_COLOR_MIX_ATTRIBUTE};`,
+          "varying float vPointHoverColorMix;",
+        ].join("\n"),
+      )
+      .replace(
+        "void main() {",
+        [
+          "void main() {",
+          `\tvPointHoverColorMix = clamp(${POINT_HOVER_COLOR_MIX_ATTRIBUTE}, 0.0, 1.0);`,
+        ].join("\n"),
+      )
+      .replace(
+        "gl_PointSize = size;",
+        `gl_PointSize = size * max(1.0, ${POINT_HOVER_SCALE_ATTRIBUTE});`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        [
+          "#include <common>",
+          "uniform vec3 pointHoverColor;",
+          "varying float vPointHoverColorMix;",
+        ].join("\n"),
+      )
+      .replace(
+        "#include <color_fragment>",
+        [
+          "#include <color_fragment>",
+          "diffuseColor.rgb = mix(diffuseColor.rgb, pointHoverColor, vPointHoverColorMix);",
+        ].join("\n"),
+      );
+    material.userData.pointHoverShader = shader;
+  };
+  material.customProgramCacheKey = () => "tie-robot-point-self-hover-v1";
+}
+
+function setPointSelfHoverMaterialColor(object, theme) {
+  const material = object?.material;
+  if (!material?.userData) {
+    return;
+  }
+  material.userData.pointHoverColor = getPointSelfHoverColor(theme);
+  const uniform = material.userData.pointHoverShader?.uniforms?.pointHoverColor;
+  if (uniform?.value) {
+    uniform.value.copy(material.userData.pointHoverColor);
+  }
+}
+
+function resetPointSelfHoverAttributes(object) {
+  const geometry = object?.geometry;
+  const positionAttribute = geometry?.getAttribute?.("position");
+  if (!geometry || !positionAttribute) {
+    return;
+  }
+  const count = positionAttribute.count;
+  const scaleArray = new Float32Array(count);
+  scaleArray.fill(1);
+  geometry.setAttribute(POINT_HOVER_SCALE_ATTRIBUTE, new THREE.Float32BufferAttribute(scaleArray, 1));
+  geometry.setAttribute(POINT_HOVER_COLOR_MIX_ATTRIBUTE, new THREE.Float32BufferAttribute(new Float32Array(count), 1));
+}
+
+function ensurePointSelfHoverAttributes(object) {
+  const geometry = object?.geometry;
+  const positionAttribute = geometry?.getAttribute?.("position");
+  if (!geometry || !positionAttribute) {
+    return;
+  }
+  const count = positionAttribute.count;
+  const scaleAttribute = geometry.getAttribute(POINT_HOVER_SCALE_ATTRIBUTE);
+  const colorMixAttribute = geometry.getAttribute(POINT_HOVER_COLOR_MIX_ATTRIBUTE);
+  if (scaleAttribute?.count === count && colorMixAttribute?.count === count) {
+    return;
+  }
+  resetPointSelfHoverAttributes(object);
+}
+
+function setPointSelfHoverAttributes(object, pointIndex, { scale, colorMix }) {
+  ensurePointSelfHoverAttributes(object);
+  const geometry = object?.geometry;
+  const normalizedIndex = Number(pointIndex);
+  const positionAttribute = geometry?.getAttribute?.("position");
+  if (
+    !geometry
+    || !positionAttribute
+    || !Number.isInteger(normalizedIndex)
+    || normalizedIndex < 0
+    || normalizedIndex >= positionAttribute.count
+  ) {
+    return false;
+  }
+  const scaleAttribute = geometry.getAttribute(POINT_HOVER_SCALE_ATTRIBUTE);
+  const colorMixAttribute = geometry.getAttribute(POINT_HOVER_COLOR_MIX_ATTRIBUTE);
+  scaleAttribute.setX(normalizedIndex, scale);
+  colorMixAttribute.setX(normalizedIndex, colorMix);
+  scaleAttribute.needsUpdate = true;
+  colorMixAttribute.needsUpdate = true;
+  return true;
+}
+
+function setPointObjectPositions(object, positions) {
+  object.geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  resetPointSelfHoverAttributes(object);
+  object.geometry.computeBoundingSphere();
+}
 
 function buildPointsObject(colorHex) {
   const geometry = new THREE.BufferGeometry();
@@ -50,7 +179,10 @@ function buildPointsObject(colorHex) {
     opacity: 0.78,
     sizeAttenuation: true,
   });
-  return new THREE.Points(geometry, material);
+  enablePointSelfHoverMaterial(material);
+  const object = new THREE.Points(geometry, material);
+  resetPointSelfHoverAttributes(object);
+  return object;
 }
 
 function buildLineSegmentsObject(colorHex) {
@@ -62,6 +194,25 @@ function buildLineSegmentsObject(colorHex) {
     opacity: 0.6,
   });
   return new THREE.LineSegments(geometry, material);
+}
+
+function getPointWorldPositionFromObject(object, pointIndex) {
+  const positionAttribute = object?.geometry?.getAttribute?.("position");
+  const normalizedIndex = Number(pointIndex);
+  if (
+    !positionAttribute
+    || !Number.isInteger(normalizedIndex)
+    || normalizedIndex < 0
+    || normalizedIndex >= positionAttribute.count
+  ) {
+    return null;
+  }
+  const point = new THREE.Vector3(
+    positionAttribute.getX(normalizedIndex),
+    positionAttribute.getY(normalizedIndex),
+    positionAttribute.getZ(normalizedIndex),
+  );
+  return typeof object.localToWorld === "function" ? object.localToWorld(point) : point;
 }
 
 function toVector3Meters(point) {
@@ -107,6 +258,21 @@ function buildMarkerPointPositions(markers) {
     });
   });
   return positions;
+}
+
+function buildHoverEntriesFromPositionArray(positions, label) {
+  const entries = [];
+  for (let index = 0; index + 2 < positions.length; index += 3) {
+    entries.push({
+      label,
+      worldMm: {
+        x: Number(positions[index]) * 1000.0,
+        y: Number(positions[index + 1]) * 1000.0,
+        z: Number(positions[index + 2]) * 1000.0,
+      },
+    });
+  }
+  return entries;
 }
 
 function toMetersFromMillimeters(value) {
@@ -356,6 +522,14 @@ export class Scene3DView {
       bindPathPoints: 0,
       jumpBindPoints: 0,
     };
+    this.pointHoverEntries = {
+      tiePoints: [],
+      planningPoints: [],
+      bindPathPoints: [],
+      jumpBindPoints: [],
+      planningAreaCenters: [],
+    };
+    this.scenePointHoverSelection = null;
 
     this.scene = new THREE.Scene();
     this.scene.up.set(0, 0, 1);
@@ -367,6 +541,12 @@ export class Scene3DView {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.container.appendChild(this.renderer.domElement);
+    this.pointHoverRaycaster = new THREE.Raycaster();
+    this.pointHoverRaycaster.params.Points.threshold = 0.055;
+    this.pointHoverPointer = new THREE.Vector2();
+    this.scenePointHoverTooltip = this.createScenePointHoverTooltip();
+    this.renderer.domElement.addEventListener("pointermove", (event) => this.handleScenePointerMove(event));
+    this.renderer.domElement.addEventListener("pointerleave", () => this.hideScenePointHoverTooltip());
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -613,6 +793,163 @@ export class Scene3DView {
     this.jumpBindPoints.material.size = Math.max((Number(state.pointSize) || 0.035) * 2.2, 0.085);
     this.jumpBindPoints.material.opacity = 1;
     this.jumpBindPoints.material.needsUpdate = true;
+  }
+
+  createScenePointHoverTooltip() {
+    if (typeof document === "undefined" || !document.createElement) {
+      return null;
+    }
+    const tooltip = document.createElement("div");
+    tooltip.className = "scene-point-hover-tooltip";
+    tooltip.hidden = true;
+    tooltip.setAttribute("role", "status");
+    tooltip.setAttribute("aria-live", "polite");
+    this.container.appendChild(tooltip);
+    return tooltip;
+  }
+
+  getScenePointHoverSources() {
+    return [
+      { key: "jumpBindPoints", object: this.jumpBindPoints, entries: this.pointHoverEntries.jumpBindPoints },
+      { key: "bindPathPoints", object: this.bindPathPoints, entries: this.pointHoverEntries.bindPathPoints },
+      { key: "planningAreaCenters", object: this.planningAreaCenters, entries: this.pointHoverEntries.planningAreaCenters },
+      { key: "planningPoints", object: this.planningPoints, entries: this.pointHoverEntries.planningPoints },
+      { key: "tiePoints", object: this.tiePoints, entries: this.pointHoverEntries.tiePoints },
+    ];
+  }
+
+  pickScenePointAtClientPosition(clientX, clientY) {
+    const canvas = this.renderer?.domElement;
+    const rect = canvas?.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    this.pointHoverPointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -(((clientY - rect.top) / rect.height) * 2 - 1),
+    );
+    this.pointHoverRaycaster.setFromCamera(this.pointHoverPointer, this.camera);
+
+    let bestHit = null;
+    this.getScenePointHoverSources().forEach((source, sourcePriority) => {
+      if (!source.object?.visible || !source.entries?.length) {
+        return;
+      }
+      const intersections = this.pointHoverRaycaster.intersectObject(source.object, false);
+      intersections.forEach((intersection) => {
+        const entry = source.entries[intersection.index];
+        if (!entry) {
+          return;
+        }
+        const point = intersection.point?.clone?.()
+          || getPointWorldPositionFromObject(source.object, intersection.index);
+        if (!point) {
+          return;
+        }
+        const candidate = {
+          entry,
+          distance: Number(intersection.distance) || 0,
+          index: intersection.index,
+          object: source.object,
+          point,
+          sourceKey: source.key,
+          sourcePriority,
+        };
+        if (
+          !bestHit ||
+          candidate.distance < bestHit.distance ||
+          (candidate.distance === bestHit.distance && candidate.sourcePriority < bestHit.sourcePriority)
+        ) {
+          bestHit = candidate;
+        }
+      });
+    });
+    return bestHit;
+  }
+
+  handleScenePointerMove(event) {
+    const hit = this.pickScenePointAtClientPosition(event.clientX, event.clientY);
+    if (!hit) {
+      this.hideScenePointHoverTooltip();
+      return null;
+    }
+    this.setScenePointSelfHover(hit);
+    this.showScenePointHoverTooltip(hit.entry, event);
+    return hit.entry;
+  }
+
+  setScenePointSelfHover(hit) {
+    const object = hit?.object;
+    const index = Number(hit?.index);
+    const positionAttribute = object?.geometry?.getAttribute?.("position");
+    if (
+      !object
+      || !positionAttribute
+      || !Number.isInteger(index)
+      || index < 0
+      || index >= positionAttribute.count
+    ) {
+      this.clearScenePointSelfHover();
+      return;
+    }
+
+    const previous = this.scenePointHoverSelection;
+    if (previous?.object === object && previous.index === index) {
+      return;
+    }
+
+    this.clearScenePointSelfHover();
+    const applied = setPointSelfHoverAttributes(object, index, {
+      scale: POINT_SELF_HOVER_SCALE,
+      colorMix: POINT_SELF_HOVER_COLOR_MIX,
+    });
+    this.scenePointHoverSelection = applied ? { object, index } : null;
+  }
+
+  clearScenePointSelfHover() {
+    const previous = this.scenePointHoverSelection;
+    if (previous?.object) {
+      setPointSelfHoverAttributes(previous.object, previous.index, {
+        scale: 1,
+        colorMix: 0,
+      });
+    }
+    this.scenePointHoverSelection = null;
+  }
+
+  showScenePointHoverTooltip(entry, event) {
+    const tooltip = this.scenePointHoverTooltip;
+    if (!tooltip) {
+      return;
+    }
+    const containerRect = this.container.getBoundingClientRect?.() || {
+      left: 0,
+      top: 0,
+      width: this.container.clientWidth || 0,
+      height: this.container.clientHeight || 0,
+    };
+    const tooltipWidth = tooltip.offsetWidth || 180;
+    const tooltipHeight = tooltip.offsetHeight || 92;
+    const margin = 10;
+    const left = Math.min(
+      Math.max(event.clientX - containerRect.left + 12, margin),
+      Math.max(margin, containerRect.width - tooltipWidth - margin),
+    );
+    const top = Math.min(
+      Math.max(event.clientY - containerRect.top + 12, margin),
+      Math.max(margin, containerRect.height - tooltipHeight - margin),
+    );
+    tooltip.textContent = formatScenePointWorldCoordinate(entry);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.hidden = false;
+  }
+
+  hideScenePointHoverTooltip() {
+    if (this.scenePointHoverTooltip) {
+      this.scenePointHoverTooltip.hidden = true;
+    }
+    this.clearScenePointSelfHover();
   }
 
   setViewMode(viewMode) {
@@ -963,6 +1300,7 @@ export class Scene3DView {
       this.bindRowLines.material.color.setHex(0x1f8fb8);
       this.bindColumnLines.material.color.setHex(0xc9971f);
       this.bindGroupLines.material.color.setHex(0xd92f69);
+      this.applyPointSelfHoverMaterialColors();
       return;
     }
 
@@ -988,6 +1326,7 @@ export class Scene3DView {
     this.bindRowLines.material.color.setHex(0x35d7ff);
     this.bindColumnLines.material.color.setHex(0xffd15c);
     this.bindGroupLines.material.color.setHex(0xff4f8a);
+    this.applyPointSelfHoverMaterialColors();
   }
 
   applyJumpBindPointMaterialColor() {
@@ -997,6 +1336,18 @@ export class Scene3DView {
       return;
     }
     this.jumpBindPoints.material.color.setHex(this.theme === "light" ? 0xc2410c : 0xff5a1f);
+  }
+
+  applyPointSelfHoverMaterialColors() {
+    [
+      this.filteredPointCloud,
+      this.rawPointCloud,
+      this.tiePoints,
+      this.planningPoints,
+      this.bindPathPoints,
+      this.jumpBindPoints,
+      this.planningAreaCenters,
+    ].forEach((object) => setPointSelfHoverMaterialColor(object, this.theme));
   }
 
   getKnownTransformCount() {
@@ -1222,8 +1573,7 @@ export class Scene3DView {
     const localPositions = this.sourcePointCloudPositions[source];
     if (!localPositions?.length) {
       const target = source === "rawWorldCoord" ? this.rawPointCloud : this.filteredPointCloud;
-      target.geometry.setAttribute("position", new THREE.Float32BufferAttribute([], 3));
-      target.geometry.computeBoundingSphere();
+      setPointObjectPositions(target, []);
       return;
     }
     const worldPositions = [];
@@ -1240,11 +1590,11 @@ export class Scene3DView {
       worldPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
     }
     const target = source === "rawWorldCoord" ? this.rawPointCloud : this.filteredPointCloud;
-    target.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
-    target.geometry.computeBoundingSphere();
+    setPointObjectPositions(target, worldPositions);
   }
 
   refreshTiePointWorldPositions() {
+    this.clearScenePointSelfHover();
     const cameraPositions = this.sourceTiePointCameraPositions;
     const worldPositions = [];
     for (let index = 0; index < cameraPositions.length; index += 3) {
@@ -1260,13 +1610,13 @@ export class Scene3DView {
       worldPositions.push(mapPoint.x, mapPoint.y, mapPoint.z);
     }
 
-    this.tiePoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
-    this.tiePoints.geometry.computeBoundingSphere();
+    setPointObjectPositions(this.tiePoints, worldPositions);
     this.pointCounts.tiePoints = worldPositions.length / 3;
+    this.pointHoverEntries.tiePoints = buildHoverEntriesFromPositionArray(worldPositions, "绑扎点");
     if (this.planningPointsFollowTiePoints) {
-      this.planningPoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
-      this.planningPoints.geometry.computeBoundingSphere();
+      setPointObjectPositions(this.planningPoints, worldPositions);
       this.pointCounts.planningPoints = this.pointCounts.tiePoints;
+      this.pointHoverEntries.planningPoints = [...this.pointHoverEntries.tiePoints];
     }
     return worldPositions;
   }
@@ -1292,24 +1642,25 @@ export class Scene3DView {
     }
     const worldPositions = this.refreshTiePointWorldPositions();
     if (this.planningPointsFollowTiePoints) {
-      this.planningPoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(worldPositions, 3));
-      this.planningPoints.geometry.computeBoundingSphere();
+      setPointObjectPositions(this.planningPoints, worldPositions);
       this.pointCounts.planningPoints = this.pointCounts.tiePoints;
     }
     return this.pointCounts.tiePoints;
   }
 
   setPlanningMarkersMessage(message) {
+    this.clearScenePointSelfHover();
     const markers = Array.isArray(message?.markers) ? message.markers : [];
     const positions = buildMarkerPointPositions(markers);
     this.planningPointsFollowTiePoints = false;
-    this.planningPoints.geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    this.planningPoints.geometry.computeBoundingSphere();
+    setPointObjectPositions(this.planningPoints, positions);
     this.pointCounts.planningPoints = positions.length / 3;
+    this.pointHoverEntries.planningPoints = buildHoverEntriesFromPositionArray(positions, "索驱规划点");
     return this.pointCounts.planningPoints;
   }
 
   setPlanningAreaPayload(payload) {
+    this.clearScenePointSelfHover();
     this.planningAreaPayload = payload || null;
     const areas = Array.isArray(payload?.areas) ? payload.areas : [];
     const gridPoints = Array.isArray(payload?.grid_points) ? payload.grid_points : [];
@@ -1323,18 +1674,12 @@ export class Scene3DView {
       zOffsetMeters: BIND_GROUP_LINE_Z_OFFSET_METERS,
     });
 
-    this.bindPathPoints.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(bindPathPointPositions, 3),
-    );
-    this.bindPathPoints.geometry.computeBoundingSphere();
+    setPointObjectPositions(this.bindPathPoints, bindPathPointPositions);
     this.pointCounts.bindPathPoints = bindPathPointPositions.length / 3;
+    this.pointHoverEntries.bindPathPoints = buildBindPathPointHoverEntries(areas, gridPoints);
     this.updateJumpBindPointOverlay(areas, gridPoints);
-    this.planningAreaCenters.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(areaCenterPositions, 3),
-    );
-    this.planningAreaCenters.geometry.computeBoundingSphere();
+    setPointObjectPositions(this.planningAreaCenters, areaCenterPositions);
+    this.pointHoverEntries.planningAreaCenters = buildCabinPathPointHoverEntries(areas);
     this.planningAreaPath.geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(areaPathPositions, 3),
@@ -1378,17 +1723,19 @@ export class Scene3DView {
   }
 
   updateJumpBindPointOverlay(areas, gridPoints) {
+    this.clearScenePointSelfHover();
     const jumpBindPointPositions = buildJumpBindPointPositions(areas, {
       gridPoints,
       enabled: this.jumpBindVisualizationState.enabled,
       selectedParity: this.jumpBindVisualizationState.selectedParity,
     });
-    this.jumpBindPoints.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(jumpBindPointPositions, 3),
-    );
-    this.jumpBindPoints.geometry.computeBoundingSphere();
+    setPointObjectPositions(this.jumpBindPoints, jumpBindPointPositions);
     this.pointCounts.jumpBindPoints = jumpBindPointPositions.length / 3;
+    this.pointHoverEntries.jumpBindPoints = buildJumpBindPointHoverEntries(areas, {
+      gridPoints,
+      enabled: this.jumpBindVisualizationState.enabled,
+      selectedParity: this.jumpBindVisualizationState.selectedParity,
+    });
   }
 
   setPointCloudImageMessage(source, message) {

@@ -100,6 +100,28 @@ a {
   display: block;
 }
 
+.scene-point-hover-tooltip {
+  position: absolute;
+  z-index: 8;
+  min-width: 150px;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(141, 199, 255, 0.32);
+  background: rgba(7, 16, 24, 0.88);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.32);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-line;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+
+.scene-point-hover-tooltip[hidden] {
+  display: none;
+}
+
 .scene-overlay {
   position: fixed;
   inset: 0;
@@ -195,6 +217,56 @@ a {
 .bottom-cabin-position-axis {
   font-size: 12px;
   font-weight: 800;
+  letter-spacing: 0;
+}
+
+.bottom-area-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 142px;
+  padding: 7px 12px;
+  border: 1px solid rgba(10, 132, 255, 0.22);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(10, 132, 255, 0.16), rgba(87, 255, 157, 0.08)),
+    rgba(12, 15, 18, 0.62);
+  color: var(--text-primary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+
+.bottom-area-progress[data-state="waiting"] {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(12, 15, 18, 0.58);
+  color: var(--text-secondary);
+}
+
+.bottom-area-progress[data-state="ready"] {
+  border-color: rgba(246, 194, 91, 0.42);
+  background:
+    linear-gradient(135deg, rgba(246, 194, 91, 0.22), rgba(10, 132, 255, 0.08)),
+    rgba(36, 26, 10, 0.72);
+}
+
+.bottom-area-progress[data-state="done"] {
+  border-color: rgba(87, 255, 157, 0.42);
+  background:
+    linear-gradient(135deg, rgba(42, 226, 126, 0.28), rgba(10, 132, 255, 0.08)),
+    rgba(8, 28, 18, 0.76);
+}
+
+.bottom-area-progress-title {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.bottom-area-progress-value {
+  font-size: 12px;
+  font-weight: 900;
   letter-spacing: 0;
 }
 
@@ -3336,6 +3408,7 @@ a {
 [data-theme="light"] .toolbar-connection-badge,
 [data-theme="light"] .toolbar-voltage-badge,
 [data-theme="light"] .bottom-cabin-position,
+[data-theme="light"] .bottom-area-progress,
 [data-theme="light"] .bottom-linear-module-position,
 [data-theme="light"] .system-status-item,
 [data-theme="light"] .quick-control-btn,
@@ -3388,6 +3461,31 @@ a {
     rgba(255, 250, 235, 0.93);
 }
 
+[data-theme="light"] .bottom-area-progress {
+  background:
+    linear-gradient(135deg, rgba(10, 132, 255, 0.12), rgba(22, 154, 94, 0.08)),
+    rgba(248, 251, 255, 0.86);
+  box-shadow: 0 12px 24px rgba(93, 111, 138, 0.1);
+}
+
+[data-theme="light"] .bottom-area-progress[data-state="waiting"] {
+  background: rgba(248, 251, 255, 0.82);
+}
+
+[data-theme="light"] .bottom-area-progress[data-state="ready"] {
+  border-color: rgba(209, 141, 18, 0.28);
+  background:
+    linear-gradient(135deg, rgba(209, 141, 18, 0.2), rgba(10, 132, 255, 0.06)),
+    rgba(255, 250, 235, 0.92);
+}
+
+[data-theme="light"] .bottom-area-progress[data-state="done"] {
+  border-color: rgba(22, 154, 94, 0.28);
+  background:
+    linear-gradient(135deg, rgba(22, 154, 94, 0.22), rgba(10, 132, 255, 0.06)),
+    rgba(238, 255, 245, 0.9);
+}
+
 [data-theme="light"] .bottom-linear-module-position {
   background:
     linear-gradient(135deg, rgba(10, 132, 255, 0.1), rgba(209, 141, 18, 0.08)),
@@ -3408,6 +3506,12 @@ a {
 [data-theme="light"] .toolbar-pill:hover {
   background: rgba(18, 26, 38, 0.08);
   color: var(--text-primary);
+}
+
+[data-theme="light"] .scene-point-hover-tooltip {
+  border-color: rgba(47, 120, 175, 0.28);
+  background: rgba(248, 251, 255, 0.9);
+  box-shadow: 0 12px 26px rgba(54, 79, 112, 0.18);
 }
 
 [data-theme="light"] .toolbar-pill.active {
@@ -3726,6 +3830,11 @@ a {
     width: 100%;
     justify-content: center;
     overflow-x: auto;
+  }
+
+  .bottom-area-progress {
+    width: 100%;
+    justify-content: center;
   }
 
   .bottom-linear-module-position {

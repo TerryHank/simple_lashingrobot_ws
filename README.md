@@ -175,7 +175,7 @@ systemctl status tie-robot-driver-camera.service
 - `web_action_bridge_node`：把前端 Action 转成后端 `/cabin/*` 服务调用；后端未启动时会明确失败，不再出现 Action 无订阅者。
 - `system_log_mux`：汇总 ROS 标准日志到前端日志话题。
 
-驱动和 ROS 后端 systemd unit 启动前会等待 `tie-robot-rosbridge.service` 拥有的本机 ROS master 可用，避免单个驱动抢先启动自己的 roscore。
+驱动和 ROS 后端 systemd unit 启动前会等待 `tie-robot-rosbridge.service` 拥有的本机 ROS master 可用，避免单个驱动抢先启动自己的 roscore；它们不使用 `PartOf=tie-robot-rosbridge.service` 绑定生命周期，索驱、末端、视觉任一层掉线或重启时不应牵连其他层。
 
 三个驱动 service 分别对应：
 
@@ -209,7 +209,7 @@ systemctl status tie-robot-driver-suoqu.service tie-robot-driver-moduan.service 
 
 ### 演示模式
 
-旧 `20260403` 展示链不再通过转义层适配当前驱动。新前端 header 的“演示模式”按钮负责在两套运行态之间切换，演示态会改用轻量 rosbridge，避免当前工作目录 TF/API 栈继续占用旧前端链路：
+新前端 header 的“演示模式”按钮现在只作为本工程运行栈的静默 / 恢复开关使用。进入演示态时，它只停止当前工作目录的 ROS 后端、rosbridge 和三个 driver service，并只清理命令行可明确匹配当前工作区的残留进程；不再启动或停止旧展示工作区、旧前端、轻量 demo rosbridge 或任何 `/home/hyq-/lashingrobotROS`、`/home/hyq-/simple_lashingrobot_show/...` 下的内容。
 
 ```text
 普通模式：
@@ -219,29 +219,14 @@ systemctl status tie-robot-driver-suoqu.service tie-robot-driver-moduan.service 
 -> 当前工作目录 tie-robot-backend.service
 
 演示模式：
-旧前端 5173 / 新前端 8080 的按钮保持可见
--> 停止当前工作目录 tie-robot-rosbridge.service、backend、三个 driver service 和旧转义层服务
--> 启动 tie-robot-demo-rosbridge.service，只包含 rosbridge_websocket + rosapi
--> 启动旧工作目录 roslaunch chassis_ctrl show_full.launch
+新前端 8080 的按钮保持可见
+-> 停止当前工作目录 tie-robot-backend.service
+-> 停止当前工作目录三个 driver service
+-> 停止当前工作目录 tie-robot-rosbridge.service
+-> 演示模式状态变绿
 ```
 
-`tie-robot-demo-rosbridge.service` 使用 `demo_rosbridge_light.launch`，不包含当前工作目录的 `tf_stack.launch` / `api.launch`。它只对白名单话题开放旧前端需要的图像和状态，其中 Scepter 相机图像只放行 `/Scepter/*/image_raw/compressed`，绑扎点结果保留 `/pointAI/result_image`。
-
-安装演示模式按需服务：
-
-```bash
-sudo src/tie_robot_bringup/scripts/install_demo_mode_service.sh
-systemctl status tie-robot-demo-rosbridge.service tie-robot-demo-show-full.service
-```
-
-旧前端静态页面仍由独立服务管理：
-
-```bash
-sudo src/tie_robot_bringup/scripts/install_show_legacy_frontend_service.sh
-systemctl status tie-robot-show-legacy-frontend.service
-```
-
-不要同时启用旧工作区直连 rosbridge 守护 `show-legacy-rosbridge.service`，它会抢占 `9090` 和 `/rosbridge_websocket` 节点名。演示模式也不会启动 `tie-robot-show-legacy-shared-driver-stack.service`；如果该旧转义层服务存在，进入演示模式前会停止它。
+再次点击“演示模式”会按依赖顺序恢复当前工作目录的 `tie-robot-rosbridge.service`、三个 driver service 和 `tie-robot-backend.service`。演示模式不需要安装额外 systemd unit。
 
 如果端口 `8080` 被占用，静态服务会自动顺延到更高端口。
 

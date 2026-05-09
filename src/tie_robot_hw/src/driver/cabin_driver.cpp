@@ -13,7 +13,6 @@ namespace {
 constexpr float kIncrementalAxisEpsilonMm = 0.001f;
 constexpr int kMoveToPoseTransportAttemptCount = 2;
 constexpr auto kMoveToPoseReconnectRetryDelay = std::chrono::milliseconds(200);
-constexpr int kHeartbeatStateResponseBytes = 144;
 
 DriverError validateIncrementalMoveCommand(const CabinPoseCommand& command)
 {
@@ -300,55 +299,6 @@ bool CabinDriver::sendStop(DriverError* error)
         *error = driver_error;
     }
     return false;
-}
-
-bool CabinDriver::pollState(
-    float x_gesture_deg,
-    float y_gesture_deg,
-    CabinStateSnapshot* snapshot,
-    DriverError* error)
-{
-    if (snapshot == nullptr) {
-        if (error != nullptr) {
-            error->code = "state_snapshot_missing";
-            error->message = "索驱状态查询缺少状态输出对象";
-            error->retryable = false;
-        }
-        return false;
-    }
-
-    if (!start(error)) {
-        return false;
-    }
-
-    const std::vector<uint8_t> request = CabinProtocol::buildHeartbeatFrame(x_gesture_deg, y_gesture_deg);
-    std::vector<uint8_t> response;
-    if (!transport_->sendAndReceive(
-            request,
-            &response,
-            error,
-            kHeartbeatStateResponseBytes)) {
-        return false;
-    }
-
-    DriverError protocol_error = CabinProtocol::decodeHeartbeatState(response, snapshot);
-    if (!protocol_error.code.empty()) {
-        appendRequestContext(protocol_error, request);
-        if (error != nullptr) {
-            *error = protocol_error;
-        }
-        return false;
-    }
-
-    snapshot->connected = true;
-    {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        last_state_ = *snapshot;
-    }
-    if (error != nullptr) {
-        error->clear();
-    }
-    return true;
 }
 
 void CabinDriver::markExternalIoSuccess()

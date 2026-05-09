@@ -99,10 +99,20 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         self.assertIn("uint16 bind_group_point_count", srv)
+        self.assertIn("float32 bind_execution_cabin_min_z_mm", srv)
         self.assertIn("uint16 bind_group_point_count", action)
+        self.assertIn("float32 bind_execution_cabin_min_z_mm", action)
         self.assertIn("scan_srv.request.bind_group_point_count = goal->bind_group_point_count", action_bridge)
+        self.assertIn("scan_srv.request.bind_execution_cabin_min_z_mm = goal->bind_execution_cabin_min_z_mm", action_bridge)
         self.assertIn("req.bind_group_point_count", service_orchestration)
+        self.assertIn("req.bind_execution_cabin_min_z_mm", service_orchestration)
         self.assertIn("requested_group_point_count", suoqu_node)
+        self.assertIn("requested_bind_execution_cabin_min_z_mm", suoqu_node)
+        self.assertIn("normalize_bind_execution_cabin_min_z_mm", suoqu_node)
+        self.assertIn("is_adaptive_bind_grouping_requested", suoqu_node)
+        self.assertIn("config.adaptive_grouping_enabled = adaptive_grouping_enabled;", suoqu_node)
+        self.assertIn("adaptive_bind_grouping", suoqu_node)
+        self.assertIn("自适应", suoqu_node)
         self.assertIn("无法规划", suoqu_node)
 
     def test_scan_artifacts_and_execution_memory_carry_jump_bind_color_metadata(self):
@@ -289,10 +299,115 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         pure_start = suoqu_node.index("bool run_planned_path_refine_only_global_work(")
         pure_end = suoqu_node.index("\nbool run_bind_from_scan(", pure_start)
         pure_body = suoqu_node[pure_start:pure_end]
-        self.assertIn("sg_live_visual_client.call", pure_body)
+        self.assertIn("call_sg_live_visual_with_no_points_retry", pure_body)
+        self.assertIn("sg_live_visual_client.call", suoqu_node)
         self.assertIn("/moduan/sg", pure_body)
         self.assertIn("planned_path_refine_only", pure_body)
-        self.assertNotIn("load_precomputed_local_points_from_group_json", pure_body)
+        self.assertIn("jump_bind_enabled_snapshot", pure_body)
+        self.assertIn("checkerboard_jump_bind_enabled.load", pure_body)
+        self.assertIn("build_refined_execution_points_from_nearest_area_ledger_points", pure_body)
+        self.assertNotIn("build_refined_execution_points_from_area_quadrants", pure_body)
+        self.assertIn("transform_scepter_camera_points_to_gripper_points", pure_body)
+        self.assertIn("filter_precomputed_group_points_for_execution", pure_body)
+        self.assertIn("load_precomputed_local_points_from_group_json", pure_body)
+
+    def test_planned_path_refine_only_jump_bind_uses_nearest_area_ledger_correction(self):
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "nlohmann::json build_refined_execution_points_from_nearest_area_ledger_points(",
+            suoqu_node,
+        )
+        helper_start = suoqu_node.index(
+            "nlohmann::json build_refined_execution_points_from_nearest_area_ledger_points("
+        )
+        helper_end = suoqu_node.index("\nbool load_precomputed_local_points_from_group_json", helper_start)
+        helper_body = suoqu_node[helper_start:helper_end]
+
+        self.assertIn("PlannedAreaNearestPointReference", helper_body)
+        self.assertIn("point_distance_mm(live_world_point, planned_point.world_point)", helper_body)
+        self.assertIn("used_planned_global_indices", helper_body)
+        self.assertIn("used_live_indices", helper_body)
+        self.assertIn('execution_point_json["nearest_ledger_distance_mm"]', helper_body)
+        self.assertIn('execution_point_json["world_x"] = live_world_point.World_coord[0];', helper_body)
+        self.assertIn('execution_point_json["world_y"] = live_world_point.World_coord[1];', helper_body)
+        self.assertIn('execution_point_json["world_z"] = live_world_point.World_coord[2];', helper_body)
+        self.assertIn('execution_point_json["x"] = live_gripper_point.World_coord[0];', helper_body)
+        self.assertIn('execution_point_json["y"] = live_gripper_point.World_coord[1];', helper_body)
+        self.assertIn('execution_point_json["z"] = live_gripper_point.World_coord[2];', helper_body)
+        self.assertNotIn("classify_live_visual_point_into_checkerboard", helper_body)
+        self.assertNotIn("quadrant_key_for_world_point", helper_body)
+        self.assertNotIn("live_point_by_quadrant", helper_body)
+        self.assertNotIn("planned_point_by_quadrant", helper_body)
+
+        pure_start = suoqu_node.index("bool run_planned_path_refine_only_global_work(")
+        pure_end = suoqu_node.index("\nbool run_bind_from_scan(", pure_start)
+        pure_body = suoqu_node[pure_start:pure_end]
+        self.assertIn("kProcessImageModeExecutionRefine", pure_body)
+        self.assertIn("build_world_point_from_scan_response", pure_body)
+        self.assertIn("transform_scepter_camera_points_to_gripper_points", pure_body)
+        self.assertIn("jump_bind_enabled_snapshot", pure_body)
+        self.assertIn("selected_jump_bind_parity_snapshot", pure_body)
+
+    def test_planned_path_refine_only_jump_bind_does_not_require_area_quadrants(self):
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertNotIn("build_refined_execution_points_from_area_quadrants", suoqu_node)
+        self.assertNotIn("quadrant_key_for_world_point", suoqu_node)
+        self.assertNotIn("同区域四宫格", suoqu_node)
+        self.assertNotIn("当前账本区域边界外", suoqu_node)
+
+        helper_start = suoqu_node.index(
+            "nlohmann::json build_refined_execution_points_from_nearest_area_ledger_points("
+        )
+        helper_end = suoqu_node.index("\nbool load_precomputed_local_points_from_group_json", helper_start)
+        helper_body = suoqu_node[helper_start:helper_end]
+
+        self.assertIn("当前账本区域欧式最近点", helper_body)
+        self.assertIn("账本点", helper_body)
+        self.assertNotIn("kAreaQuadrantCount", helper_body)
+        self.assertNotIn("planned_area_margin_mm", helper_body)
+        self.assertNotIn("is_world_point_inside_expanded_area_bounds", helper_body)
+
+    def test_planned_path_refine_only_jump_bind_uses_current_area_ledger_points_only(self):
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "nlohmann::json build_refined_execution_points_from_nearest_area_ledger_points(",
+            suoqu_node,
+        )
+        helper_start = suoqu_node.index(
+            "nlohmann::json build_refined_execution_points_from_nearest_area_ledger_points("
+        )
+        helper_end = suoqu_node.index("\nbool load_precomputed_local_points_from_group_json", helper_start)
+        helper_body = suoqu_node[helper_start:helper_end]
+
+        self.assertIn('planned_area_json["groups"]', helper_body)
+        self.assertIn('point_json.value("global_idx", -1)', helper_body)
+        self.assertIn("planned_points.empty()", helper_body)
+        self.assertIn("当前账本区域没有可用于最近点匹配的账本点", helper_body)
+        self.assertIn("match_candidates", helper_body)
+        self.assertIn("used_planned_global_indices", helper_body)
+        self.assertNotIn("areas_json", helper_body)
+        self.assertNotIn("build_area_quadrant_bounds", helper_body)
+
+    def test_planned_path_refine_only_skips_current_area_when_execution_refine_two_by_two_not_ready(self):
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        pure_start = suoqu_node.index("bool run_planned_path_refine_only_global_work(")
+        pure_end = suoqu_node.index("\nbool run_bind_from_scan(", pure_start)
+        pure_body = suoqu_node[pure_start:pure_end]
+        jump_start = pure_body.index("nlohmann::json execution_group_json;")
+        jump_body = pure_body[jump_start:pure_body.index("std::string bind_action_message;", jump_start)]
+
+        self.assertIn("kProcessImageModeExecutionRefine", jump_body)
+        self.assertNotIn("while (ros::ok())", jump_body)
+        self.assertNotIn("跳绑微调2x2未就绪", jump_body)
+        self.assertNotIn("继续停留当前区域重试", jump_body)
+        self.assertNotIn("wait_for_planned_path_settle_duration", jump_body)
+        self.assertIn("skipped_area_count++", jump_body)
+        self.assertIn("跳过当前区域", jump_body)
+        self.assertIn("publish_area_progress", jump_body)
 
     def test_bind_path_direct_test_uses_bind_path_only_without_outlier_blocking(self):
         suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")

@@ -2,7 +2,7 @@ export const SYSTEM_CONTROL_ACTIONS = [
   {
     id: "toggleDemoMode",
     label: "演示模式",
-    description: "切换 5173 旧前端与 chassis_ctrl show_full.launch 演示模式",
+    description: "停止或恢复本工程 ROS 后端、rosbridge 和驱动守护",
     serviceKey: null,
     httpEndpoint: "/api/system/toggle_demo_mode",
     statusEndpoint: "/api/system/demo_mode_status",

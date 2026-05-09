@@ -512,7 +512,7 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         "zero_world": zero_world_count,
         "candidate_points": len(candidate_centers),
         "in_range_candidates": len(in_range_centers),
-        "selected_points": 0,
+        "selected_points": len(output_centers),
         "out_of_range_points": out_of_range_count,
         "output_points": point_array_msg.count,
         "tcp_range_mask_pixels": (
@@ -540,7 +540,7 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         raw_candidate_count=raw_candidate_count,
         in_range_candidate_count=len(in_range_centers),
         out_of_range_point_count=out_of_range_count,
-        selected_count=0,
+        selected_count=len(output_centers),
         output_count=point_array_msg.count,
         out_of_range_reason_counts=out_of_range_reason_counts,
         out_of_range_samples=out_of_range_samples,

@@ -93,6 +93,20 @@ const bindPathWithUnmatchedGridPoint = {
 };
 
 assert.deepEqual(
+  collectBindPathGridPoints(bindPathWithUnmatchedGridPoint.areas, bindPathWithUnmatchedGridPoint.grid_points)
+    .map((point) => point.globalIdx),
+  [1, 2],
+);
+
+assert.deepEqual(
+  buildBindPathPointPositions(bindPathWithUnmatchedGridPoint.areas, bindPathWithUnmatchedGridPoint.grid_points),
+  [
+    0, 0, 0.5,
+    0.15, 0, 0.5,
+  ],
+);
+
+assert.deepEqual(
   buildBindGridLineSegmentPositions(bindPathWithUnmatchedGridPoint.areas, {
     axis: "row",
     gridPoints: bindPathWithUnmatchedGridPoint.grid_points,
@@ -100,8 +114,6 @@ assert.deepEqual(
   [
     0, 0, 0.5,
     0.15, 0, 0.5,
-    0.15, 0, 0.5,
-    0.3, 0, 0.5,
   ],
 );
 

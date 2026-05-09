@@ -119,3 +119,81 @@ assert.deepEqual(alarmStates.at(-1), [
   "Z轴异常",
   "绑扎枪报警",
 ]);
+
+const originalDateNow = Date.now;
+try {
+  topicInstances.length = 0;
+  logs.length = 0;
+  statusChanges.length = 0;
+  batteryVoltages.length = 0;
+  alarmStates.length = 0;
+  lightStates.length = 0;
+
+  let fakeNow = 1000;
+  Date.now = () => fakeNow;
+  const staleController = new StatusMonitorController({
+    onBatteryVoltage: (voltage) => batteryVoltages.push(voltage),
+    onLightState: (enabled) => lightStates.push(enabled),
+    onLog: (message, level) => logs.push({ message, level }),
+    onStatusChip: (statusId, level, detail) => statusChanges.push({ statusId, level, detail }),
+    onAlarmState: (alarms) => alarmStates.push(alarms),
+  });
+  staleController.start({ isConnected: true });
+  logs.length = 0;
+  statusChanges.length = 0;
+  alarmStates.length = 0;
+
+  const staleDiagnosticsTopic = topicInstances.find((topic) => topic.name === TOPICS.process.diagnostics);
+  assert.ok(staleDiagnosticsTopic, "diagnostics topic should be subscribed for stale timing checks");
+
+  staleDiagnosticsTopic.emit({
+    status: [
+      {
+        hardware_id: "tie_robot/chassis_driver",
+        level: 0,
+        message: "索驱驱动已连接",
+        values: [],
+      },
+    ],
+  });
+  statusChanges.length = 0;
+
+  fakeNow += 5000;
+  staleDiagnosticsTopic.emit({
+    status: [
+      {
+        hardware_id: "tie_robot/visual_algorithm",
+        level: 0,
+        message: "视觉算法运行中",
+        values: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    statusChanges.filter((change) => change.statusId === "chassis").at(-1),
+    { statusId: "chassis", level: "success", detail: "索驱驱动已连接" },
+    "索驱诊断允许跨过一次5秒底层请求窗口，避免任务恢复期误报超时",
+  );
+
+  fakeNow = 14001;
+  staleDiagnosticsTopic.emit({
+    status: [
+      {
+        hardware_id: "tie_robot/visual_algorithm",
+        level: 0,
+        message: "视觉算法运行中",
+        values: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    statusChanges.filter((change) => change.statusId === "chassis").at(-1),
+    { statusId: "chassis", level: "warn", detail: "索驱状态超时" },
+    "索驱诊断长时间不上报时仍然要提示超时",
+  );
+  staleController.stop();
+} finally {
+  Date.now = originalDateNow;
+}

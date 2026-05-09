@@ -160,7 +160,6 @@ constexpr int kPseudoSlamOutlierLineMinPointCount = 3;
 constexpr int kPseudoSlamOutlierSecondaryPlaneMinPointCount = 6;
 constexpr float kPseudoSlamOutlierSecondaryPlaneNeighborToleranceMm = 100.0f;
 constexpr float kPseudoSlamCheckerboardAxisThresholdMm = 80.0f;
-constexpr float kLiveVisualMicroAdjustXYToleranceMm = 120.0f;
 constexpr float kCurrentAreaBindTestCabinSpeedMultiplier = 1.5f;
 constexpr float kCurrentAreaBindTestMinCabinSpeedMmPerSec = 450.0f;
 constexpr float kExecutionArrivalToleranceMm = 40.0f;
@@ -217,6 +216,10 @@ extern std::atomic<int> global_execution_mode;
 extern std::atomic<bool> cabin_driver_enabled;
 extern std::atomic<double> cabin_driver_last_state_stamp_sec;
 extern std::atomic<bool> moduan_work_flag;
+extern std::atomic<bool> moduan_state_received_flag;
+extern std::atomic<bool> moduan_state_connected_flag;
+extern std::atomic<double> moduan_state_last_stamp_sec;
+extern std::atomic<double> moduan_state_z_mm;
 
 void printCurrentTime();
 bool connectToServer();
@@ -500,6 +503,7 @@ bool run_pseudo_slam_scan(
     bool enable_capture_gate,
     std::string& message,
     int requested_bind_group_point_count = 4,
+    float requested_bind_execution_cabin_min_z_mm = kBindExecutionCabinMinZMm,
     const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override = PseudoSlamFixedScanPoseOverride{}
 );
 bool run_current_area_bind_from_scan_test(std::string& message);

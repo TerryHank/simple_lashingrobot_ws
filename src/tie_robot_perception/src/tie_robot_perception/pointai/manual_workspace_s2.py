@@ -433,23 +433,40 @@ def build_manual_workspace_s2_points_array(
             return int(left_to_right_index)
         return int(len(line_positions) - 1 - left_to_right_index)
 
-    def sort_point_record_from_upper_right(record):
+    def is_valid_sort_world_coord(coord):
+        if not isinstance(coord, (list, tuple, np.ndarray)) or len(coord) < 3:
+            return False
+        try:
+            return bool(np.all(np.isfinite([float(coord[0]), float(coord[1]), float(coord[2])])))
+        except (TypeError, ValueError):
+            return False
+
+    def build_sort_world_coord(camera_coord):
+        transform_to_map = getattr(self, "transform_camera_point_to_map_frame", None)
+        if callable(transform_to_map):
+            try:
+                map_coord = transform_to_map(camera_coord)
+            except Exception:
+                map_coord = None
+            if is_valid_sort_world_coord(map_coord):
+                return [float(map_coord[0]), float(map_coord[1]), float(map_coord[2])]
+        return [float(camera_coord[0]), float(camera_coord[1]), float(camera_coord[2])]
+
+    def sort_point_record_from_minimum_world_coordinate(record):
         point_msg = record["point_msg"]
-        pixel_x = int(point_msg.Pix_coord[0])
-        pixel_y = int(point_msg.Pix_coord[1])
-        if bool(point_msg.has_grid_index):
+        sort_world_coord = record.get("sort_world_coord")
+        if is_valid_sort_world_coord(sort_world_coord):
             return (
                 0,
-                int(point_msg.global_row),
-                int(point_msg.global_col),
-                pixel_y,
-                -pixel_x,
+                float(sort_world_coord[1]),
+                float(sort_world_coord[0]),
+                float(sort_world_coord[2]),
                 int(record["source_index"]),
             )
         return (
             1,
-            pixel_y,
-            -pixel_x,
+            int(point_msg.Pix_coord[1]),
+            int(point_msg.Pix_coord[0]),
             int(record["source_index"]),
         )
 
@@ -508,11 +525,12 @@ def build_manual_workspace_s2_points_array(
         point_records.append({
             "source_index": intersection_source_index,
             "point_msg": point_msg,
+            "sort_world_coord": build_sort_world_coord(camera_coord),
             "status": "selected",
             "status_detail": "S2",
         })
 
-    point_records = sorted(point_records, key=sort_point_record_from_upper_right)
+    point_records = sorted(point_records, key=sort_point_record_from_minimum_world_coordinate)
     for point_index, record in enumerate(point_records, start=1):
         point_msg = record["point_msg"]
         point_msg.idx = point_index

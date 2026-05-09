@@ -9,6 +9,7 @@ import {
 import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
 const WORKSPACE_QUAD_ACK_TIMEOUT_MS = 4000;
+const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
 
 function buildWorkspaceQuadPayloadKey(payload) {
   if (!Array.isArray(payload) || payload.length !== 8) {
@@ -22,10 +23,15 @@ function buildWorkspaceQuadPayloadKey(payload) {
   return pairs.sort().join("|");
 }
 
-function normalizeBindGroupPointCount(value) {
+function normalizeAdaptiveBindGrouping(value) {
+  return Boolean(value);
+}
+
+function normalizeBindExecutionCabinMinZ(value) {
   const numericValue = Number(value);
-  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : 4;
-  return Math.min(64, Math.max(1, roundedValue));
+  return Number.isFinite(numericValue) && numericValue >= 0
+    ? numericValue
+    : DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM;
 }
 
 function normalizeGlobalExecutionMode(value) {
@@ -41,13 +47,15 @@ export class TaskActionController {
     rosConnection,
     workspaceView,
     getExecutionMode = null,
-    getBindGroupPointCount = null,
+    getAdaptiveBindGrouping = null,
+    getBindExecutionCabinMinZ = null,
     callbacks = {},
   }) {
     this.rosConnection = rosConnection;
     this.workspaceView = workspaceView;
     this.getExecutionMode = getExecutionMode;
-    this.getBindGroupPointCount = getBindGroupPointCount;
+    this.getAdaptiveBindGrouping = getAdaptiveBindGrouping;
+    this.getBindExecutionCabinMinZ = getBindExecutionCabinMinZ;
     this.callbacks = callbacks;
     this.pendingWorkspaceQuadSubmission = null;
   }
@@ -115,7 +123,10 @@ export class TaskActionController {
       goalMessage: {
         enable_capture_gate: false,
         scan_strategy: 3,
-        bind_group_point_count: normalizeBindGroupPointCount(this.getBindGroupPointCount?.()),
+        bind_group_point_count:
+          normalizeAdaptiveBindGrouping(this.getAdaptiveBindGrouping?.()) ? 0 : 4,
+        bind_execution_cabin_min_z_mm:
+          normalizeBindExecutionCabinMinZ(this.getBindExecutionCabinMinZ?.()),
       },
       feedbackPrefix: "视觉识别建图进行中",
       successPrefix: "视觉识别建图完成",

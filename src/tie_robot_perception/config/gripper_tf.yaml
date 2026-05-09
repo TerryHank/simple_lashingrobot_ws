@@ -1,9 +1,9 @@
 parent_frame: Scepter_depth_frame
 child_frame: gripper_frame
 translation_mm:
-  x: 100.0
-  y: -280.0
-  z: 720.0
+  x: 90.0
+  y: -270.0
+  z: 705.0
 rotation_rpy:
   roll: 0.0
   pitch: 0.0

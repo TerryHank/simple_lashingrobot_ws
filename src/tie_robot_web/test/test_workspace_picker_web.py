@@ -22,13 +22,10 @@ TIE_ROBOT_BRINGUP_FRONTEND_AUTOSTART_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "script
 TIE_ROBOT_BRINGUP_BACKEND_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-backend.service.in"
 TIE_ROBOT_BRINGUP_BACKEND_SUDOERS = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-backend-control.sudoers.in"
 TIE_ROBOT_BRINGUP_BACKEND_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_backend_service.sh"
-TIE_ROBOT_BRINGUP_DEMO_MODE_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-demo-show-full.service.in"
-TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-demo-rosbridge.service.in"
 TIE_ROBOT_BRINGUP_DEMO_MODE_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_demo_mode_service.sh"
 TIE_ROBOT_BRINGUP_ROSBRIDGE_SERVICE = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-rosbridge.service.in"
 TIE_ROBOT_BRINGUP_ROSBRIDGE_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_rosbridge_service.sh"
 TIE_ROBOT_BRINGUP_ROSBRIDGE_STACK = TIE_ROBOT_BRINGUP_DIR / "launch" / "rosbridge_stack.launch"
-TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_LAUNCH = TIE_ROBOT_BRINGUP_DIR / "launch" / "demo_rosbridge_light.launch"
 TIE_ROBOT_BRINGUP_TF_STACK = TIE_ROBOT_BRINGUP_DIR / "launch" / "tf_stack.launch"
 TIE_ROBOT_BRINGUP_DRIVER_INSTALLER = TIE_ROBOT_BRINGUP_DIR / "scripts" / "install_driver_services.sh"
 TIE_ROBOT_BRINGUP_DRIVER_SUDOERS = TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-driver-control.sudoers.in"
@@ -1454,7 +1451,8 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("this.diagnosticCache = new Map();", status_controller)
         self.assertIn("this.diagnosticCache.set(hardwareId, {", status_controller)
         self.assertIn("const cached = this.diagnosticCache.get(monitor.diagnosticHardwareId);", status_controller)
-        self.assertIn("const stale = now - cached.receivedAt > DIAGNOSTIC_STALE_MS;", status_controller)
+        self.assertIn("const staleMs = monitor.diagnosticStaleMs ?? DEFAULT_DIAGNOSTIC_STALE_MS;", status_controller)
+        self.assertIn("const stale = now - cached.receivedAt > staleMs;", status_controller)
         self.assertIn('this.callbacks.onStatusChip?.("moduan"', status_controller)
         self.assertIn('this.callbacks.onStatusChip?.("visual"', status_controller)
         self.assertIn("状态胶囊当前只保留硬件状态", app_logic)
@@ -1465,11 +1463,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("onStatusChipAction(callback)", ui_controller)
         self.assertIn("setStatusChipState(statusId, level, detail)", ui_controller)
         self.assertIn('ros: level === "success" ? "restartRosStack" : "startRosStack"', ui_controller)
-        self.assertIn('chassis: level === "success" ? "stopCabinSubsystem" : "restartCabinSubsystem"', ui_controller)
+        self.assertIn('chassis: level === "success" ? "stopCabinSubsystem" : "startCabinSubsystem"', ui_controller)
         self.assertIn('moduan: level === "success" ? "stopModuanSubsystem" : "startModuanSubsystem"', ui_controller)
         self.assertIn('visual: level === "success" ? "stopVisualSubsystem" : "startVisualSubsystem"', ui_controller)
         self.assertIn('ros: level === "success" ? "重启ROS" : "启动ROS"', ui_controller)
-        self.assertIn('chassis: level === "success" ? "关闭" : "重启"', ui_controller)
+        self.assertIn('chassis: level === "success" ? "关闭" : "启动"', ui_controller)
         self.assertIn('visual: level === "success" ? "关闭" : "启动"', ui_controller)
         self.assertIn('chip.dataset.statusAction = nextAction;', ui_controller)
         self.assertIn('button.dataset.statusAction === actionId', ui_controller)
@@ -2011,7 +2009,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("window.location.hostname", graph_page)
         self.assertIn("gitnexusWebuiUrl", graph_page)
         self.assertIn("bridgeReposUrl", graph_page)
-        self.assertIn(":5173", graph_page)
+        self.assertIn(":5100", graph_page)
         self.assertIn(":4747", graph_page)
         self.assertIn("new URLSearchParams", graph_page)
         self.assertIn(".vp-doc .gitnexus-open-link", graph_page)
@@ -2231,14 +2229,8 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn("systemctl stop \"${BACKEND_SERVICE}\"", stop_algorithm_script)
         self.assertIn("roslaunch tie_robot_bringup algorithm_stack.launch", stop_algorithm_script)
 
-    def test_demo_mode_uses_old_show_full_without_translation_layer(self):
-        demo_service = TIE_ROBOT_BRINGUP_DEMO_MODE_SERVICE.read_text(encoding="utf-8")
-        demo_rosbridge_service = TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_SERVICE.read_text(encoding="utf-8")
-        demo_rosbridge_launch = TIE_ROBOT_BRINGUP_DEMO_ROSBRIDGE_LAUNCH.read_text(encoding="utf-8")
+    def test_demo_mode_only_quiets_current_workspace_services(self):
         demo_installer = TIE_ROBOT_BRINGUP_DEMO_MODE_INSTALLER.read_text(encoding="utf-8")
-        legacy_frontend_service = (
-            TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-show-legacy-frontend.service.in"
-        ).read_text(encoding="utf-8")
         frontend_installer = TIE_ROBOT_BRINGUP_FRONTEND_AUTOSTART_INSTALLER.read_text(
             encoding="utf-8"
         )
@@ -2255,66 +2247,45 @@ class WorkspacePickerWebTest(unittest.TestCase):
             FRONTEND_SRC_DIR / "app" / "TieRobotFrontApp.js"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("Description=Tie Robot legacy show_full demo mode", demo_service)
-        self.assertIn("WorkingDirectory=@LEGACY_WORKSPACE@", demo_service)
-        self.assertIn("ROS_MASTER_URI=http://127.0.0.1:11311", demo_service)
-        self.assertIn("tie-robot-demo-rosbridge.service", demo_service)
-        self.assertNotIn("tie-robot-rosbridge.service", demo_service)
-        self.assertIn("ScepterSDK/3rd-PartyPlugin/ROS", demo_service)
-        self.assertIn("roslaunch chassis_ctrl show_full.launch", demo_service)
-        self.assertIn("KillSignal=SIGINT", demo_service)
-        self.assertIn("TimeoutStopSec=15", demo_service)
-        self.assertNotIn("rosbridge_websocket.launch", demo_service)
-        self.assertNotIn("show_legacy_shared_driver_stack.launch", demo_service)
-        self.assertNotIn("show_legacy_driver_bridge", demo_service)
+        self.assertFalse((TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-demo-show-full.service.in").exists())
+        self.assertFalse((TIE_ROBOT_BRINGUP_DIR / "systemd" / "tie-robot-demo-rosbridge.service.in").exists())
+        self.assertFalse((TIE_ROBOT_BRINGUP_DIR / "launch" / "demo_rosbridge_light.launch").exists())
 
-        self.assertIn("Description=Tie Robot demo lightweight rosbridge", demo_rosbridge_service)
-        self.assertIn("roslaunch tie_robot_bringup demo_rosbridge_light.launch", demo_rosbridge_service)
-        self.assertIn('name="rosbridge_websocket"', demo_rosbridge_launch)
-        self.assertIn('name="rosapi"', demo_rosbridge_launch)
-        self.assertIn("/pointAI/result_image", demo_rosbridge_launch)
-        self.assertIn("/Scepter/ir/image_raw/compressed", demo_rosbridge_launch)
-        self.assertIn("/Scepter/depth/image_raw/compressed", demo_rosbridge_launch)
-        self.assertNotIn("/Scepter/ir/image_raw,", demo_rosbridge_launch)
-        self.assertNotIn("/Scepter/depth/image_raw,", demo_rosbridge_launch)
-        self.assertNotIn("tf_stack.launch", demo_rosbridge_launch)
-        self.assertNotIn("api.launch", demo_rosbridge_launch)
-        self.assertNotIn("robot_tf_broadcaster", demo_rosbridge_launch)
-        self.assertNotIn("web_action_bridge_node", demo_rosbridge_launch)
-
-        self.assertIn("tie-robot-demo-show-full.service", demo_installer)
-        self.assertIn("tie-robot-demo-rosbridge.service", demo_installer)
-        self.assertIn("systemctl disable tie-robot-demo-show-full.service", demo_installer)
-        self.assertIn("systemctl disable tie-robot-demo-rosbridge.service", demo_installer)
-        self.assertIn(
-            "systemctl disable --now tie-robot-show-legacy-shared-driver-stack.service",
-            demo_installer,
+        forbidden_texts = (
+            "/home/hyq-/lashingrobotROS",
+            "/home/hyq-/simple_lashingrobot_show",
+            "roslaunch chassis_ctrl api.launch",
+            "tie-robot-demo-show-full.service",
+            "tie-robot-demo-rosbridge.service",
+            "tie-robot-show-legacy-frontend.service",
+            "tie-robot-show-legacy-shared-driver-stack.service",
+            "LEGACY_SHOW_WORKSPACE",
+            "SCEPTER_ROS_ROOT",
+            "legacyFrontendUrl",
+            "onOpenUrl",
         )
-        self.assertNotIn("systemctl enable tie-robot-demo-show-full.service", demo_installer)
-        self.assertIn("Wants=network-online.target", legacy_frontend_service)
-        self.assertNotIn("tie-robot-rosbridge.service", legacy_frontend_service)
-        self.assertIn("install_show_legacy_frontend_service.sh", frontend_installer)
-        self.assertIn("install_demo_mode_service.sh", frontend_installer)
+        for text in forbidden_texts:
+            self.assertNotIn(text, demo_installer)
+            self.assertNotIn(text, frontend_installer)
+            self.assertNotIn(text, backend_sudoers)
+            self.assertNotIn(text, server_script)
+            self.assertNotIn(text, system_control_catalog)
+            self.assertNotIn(text, system_control_controller)
+            self.assertNotIn(text, app_logic)
 
-        self.assertIn("/usr/bin/systemctl start tie-robot-demo-show-full.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl stop tie-robot-demo-show-full.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl start tie-robot-demo-rosbridge.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl stop tie-robot-demo-rosbridge.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl start tie-robot-show-legacy-frontend.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl stop tie-robot-show-legacy-shared-driver-stack.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl reset-failed tie-robot-demo-show-full.service", backend_sudoers)
-        self.assertIn("/usr/bin/systemctl reset-failed tie-robot-demo-rosbridge.service", backend_sudoers)
-
-        self.assertIn('DEMO_MODE_SERVICE = "tie-robot-demo-show-full.service"', server_script)
-        self.assertIn('DEMO_ROSBRIDGE_SERVICE = "tie-robot-demo-rosbridge.service"', server_script)
-        self.assertIn('LEGACY_FRONTEND_SERVICE = "tie-robot-show-legacy-frontend.service"', server_script)
-        self.assertIn('LEGACY_SHARED_DRIVER_STACK_SERVICE = "tie-robot-show-legacy-shared-driver-stack.service"', server_script)
+        self.assertNotIn("install_show_legacy_frontend_service.sh", frontend_installer)
+        self.assertNotIn("install_demo_mode_service.sh", frontend_installer)
+        self.assertIn("DEMO_MODE_CURRENT_SERVICES = FULL_ROS_STACK_STOP_ORDER", server_script)
+        self.assertIn("DEMO_MODE_CLEANUP_PROCESS_PATTERNS = (", server_script)
+        self.assertIn("f\"{WORKSPACE_ROOT}/devel/lib/tie_robot_\"", server_script)
+        demo_cleanup_block = server_script.split("ROS_FAST_KILL_PROCESS_PATTERNS", 1)[0]
+        self.assertNotIn("/opt/ros/noetic/bin/rosmaster --core -p 11311", demo_cleanup_block)
+        self.assertNotIn("/opt/ros/noetic/lib/rosbridge_server/rosbridge_websocket", demo_cleanup_block)
         self.assertIn('"/api/system/demo_mode_status"', server_script)
         self.assertIn('"/api/system/toggle_demo_mode"', server_script)
-        self.assertIn("DEMO_MODE_STOP_ORDER = (", server_script)
-        self.assertIn("DEMO_MODE_RESTORE_START_ORDER = (", server_script)
+        self.assertIn("DEMO_MODE_RESTORE_START_ORDER = FULL_ROS_STACK_START_ORDER", server_script)
         self.assertIn("DEMO_MODE_CLEANUP_PROCESS_PATTERNS", server_script)
-        self.assertIn("_cleanup_demo_mode_ros_artifacts", server_script)
+        self.assertIn("_cleanup_current_workspace_ros_artifacts", server_script)
         self.assertIn("_run_demo_mode_enter", server_script)
         self.assertIn("_run_demo_mode_exit", server_script)
 
@@ -2322,8 +2293,6 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertIn('httpEndpoint: "/api/system/toggle_demo_mode"', system_control_catalog)
         self.assertIn('statusEndpoint: "/api/system/demo_mode_status"', system_control_catalog)
         self.assertIn("refreshDemoModeStatus", system_control_controller)
-        self.assertIn("legacyFrontendUrl", system_control_controller)
-        self.assertIn("onOpenUrl", system_control_controller)
         self.assertIn('data-status-id="demoMode"', ui_controller)
         self.assertIn("setDemoModeState(active", ui_controller)
         self.assertIn("startDemoModeStatusPolling", app_logic)
@@ -2354,7 +2323,7 @@ class WorkspacePickerWebTest(unittest.TestCase):
 
         handler._run_systemctl = fake_run_systemctl
         handler._query_systemd_status = fake_query_systemd_status
-        handler._cleanup_demo_mode_ros_artifacts = lambda: self.server_module.subprocess.CompletedProcess(
+        handler._cleanup_current_workspace_ros_artifacts = lambda: self.server_module.subprocess.CompletedProcess(
             ["cleanup-demo-mode-ros"],
             0,
             "清理完成",
@@ -2366,19 +2335,11 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertEqual(
             calls,
             [
-                ("start", (self.server_module.LEGACY_FRONTEND_SERVICE,), 30),
                 ("stop", (self.server_module.ROS_BACKEND_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
                 ("stop", (self.server_module.DRIVER_SYSTEMD_SERVICES["cabin"],), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
                 ("stop", (self.server_module.DRIVER_SYSTEMD_SERVICES["moduan"],), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
                 ("stop", (self.server_module.DRIVER_SYSTEMD_SERVICES["camera"],), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
                 ("stop", (self.server_module.ROSBRIDGE_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
-                ("stop", (self.server_module.LEGACY_SHARED_DRIVER_STACK_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
-                ("start", (self.server_module.DEMO_ROSBRIDGE_SERVICE,), 30),
-                ("start", (self.server_module.DEMO_MODE_SERVICE,), 30),
-                ("stop", (self.server_module.DEMO_MODE_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
-                ("stop", (self.server_module.DEMO_ROSBRIDGE_SERVICE,), self.server_module.DEMO_MODE_STOP_TIMEOUT_SEC),
-                ("reset-failed", (self.server_module.DEMO_MODE_SERVICE,), 30),
-                ("reset-failed", (self.server_module.DEMO_ROSBRIDGE_SERVICE,), 30),
                 ("start", (self.server_module.ROSBRIDGE_SERVICE,), 30),
                 ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["cabin"],), 30),
                 ("start", (self.server_module.DRIVER_SYSTEMD_SERVICES["moduan"],), 30),
@@ -2387,22 +2348,16 @@ class WorkspacePickerWebTest(unittest.TestCase):
             ],
         )
         self.assertEqual([item["action"] for item in enter_results], [
-            "start",
             "stop",
             "stop",
             "stop",
             "stop",
             "stop",
-            "stop",
-            "start",
-            "cleanup_demo_mode_ros",
-            "start",
+            "cleanup_current_workspace_ros",
         ])
-        self.assertEqual(exit_results[0]["services"], (self.server_module.DEMO_MODE_SERVICE,))
-        self.assertEqual(exit_results[1]["action"], "cleanup_demo_mode_ros")
-        self.assertEqual(exit_results[2]["services"], (self.server_module.DEMO_ROSBRIDGE_SERVICE,))
-        self.assertEqual(exit_results[3]["action"], "reset-failed")
-        self.assertEqual(exit_results[4]["services"], (self.server_module.DEMO_ROSBRIDGE_SERVICE,))
+        self.assertEqual(exit_results[0]["action"], "cleanup_current_workspace_ros")
+        self.assertEqual(exit_results[1]["services"], (self.server_module.ROSBRIDGE_SERVICE,))
+        self.assertEqual(exit_results[-1]["services"], (self.server_module.ROS_BACKEND_SERVICE,))
 
     def test_restart_ros_stack_stops_everything_before_restarting_dependencies(self):
         handler = object.__new__(self.server_module.NoCacheStaticHandler)

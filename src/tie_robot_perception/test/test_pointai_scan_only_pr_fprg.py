@@ -1092,14 +1092,14 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(
             grid_cells,
             [
-                (True, 0, 0),
                 (True, 0, 1),
-                (True, 1, 0),
+                (True, 0, 0),
                 (True, 1, 1),
+                (True, 1, 0),
             ],
         )
 
-    def test_manual_workspace_s2_orders_points_from_upper_right_tcp_origin(self):
+    def test_manual_workspace_s2_orders_points_from_minimum_map_world_coordinate(self):
         from tie_robot_perception.pointai import manual_workspace_s2
 
         class DummyProcessor:
@@ -1107,6 +1107,9 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
             def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
                 return [float(pixel_x), float(pixel_y), 1000.0], [pixel_x, pixel_y], False
+
+            def transform_camera_point_to_map_frame(self, camera_point):
+                return [100.0 - float(camera_point[0]), 100.0 - float(camera_point[1]), float(camera_point[2])]
 
             def sort_polygon_indices_clockwise(self, points):
                 return [0, 1, 2, 3]
@@ -1129,8 +1132,8 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             for point in points_array.PointCoordinatesArray
         ]
 
-        self.assertEqual(ordered_pixels, [[32, 18], [12, 18], [32, 42], [12, 42]])
-        self.assertEqual(ordered_indices, [(1, 0, 0), (2, 0, 1), (3, 1, 0), (4, 1, 1)])
+        self.assertEqual(ordered_pixels, [[32, 42], [12, 42], [32, 18], [12, 18]])
+        self.assertEqual(ordered_indices, [(1, 1, 0), (2, 1, 1), (3, 0, 0), (4, 0, 1)])
         self.assertEqual([display_point[0] for display_point in display_points], [1, 2, 3, 4])
         self.assertEqual([display_point[1] for display_point in display_points], ordered_pixels)
 
@@ -1138,31 +1141,249 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         from tie_robot_perception.pointai import matrix_selection
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
+        class DummyProcessor:
+            def get_execution_refine_tcp_roi_bounds(self):
+                return {
+                    "min_x": 0.0,
+                    "max_x": 380.0,
+                    "min_y": 0.0,
+                    "max_y": 330.0,
+                    "min_z": 0.0,
+                    "max_z": 160.0,
+                }
+
         centers = [
-            (30, [12, 18], [-25.0, 32.0, 837.0]),
-            (10, [12, 42], [121.0, -100.0, 838.0]),
-            (40, [32, 18], [126.0, 22.0, 836.0]),
-            (20, [32, 42], [-29.0, -92.0, 839.0]),
+            (30, [12, 18], [160.0, 140.0, 80.0]),
+            (10, [12, 42], [160.0, 260.0, 80.0]),
+            (40, [32, 18], [280.0, 140.0, 80.0]),
+            (20, [32, 42], [280.0, 260.0, 80.0]),
         ]
 
-        ordered_centers = matrix_selection.select_output_centers_for_mode(
-            object(),
-            PROCESS_IMAGE_MODE_EXECUTION_REFINE,
-            centers,
-            [],
-        )
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                DummyProcessor(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
 
         self.assertEqual(
             [(center[0], center[1]) for center in ordered_centers],
             [
+                (30, [12, 18]),
                 (10, [12, 42]),
                 (20, [32, 42]),
-                (30, [12, 18]),
                 (40, [32, 18]),
             ],
         )
 
-    def test_execution_refine_keeps_close_rebar_candidates_without_legacy_repulsion(self):
+    def test_execution_refine_selects_tcp_origin_nearest_two_by_two_matrix_only(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        class DummyProcessor:
+            def get_execution_refine_tcp_roi_bounds(self):
+                return {
+                    "min_x": 0.0,
+                    "max_x": 380.0,
+                    "min_y": 0.0,
+                    "max_y": 330.0,
+                    "min_z": 0.0,
+                    "max_z": 160.0,
+                }
+
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            centers = []
+            source_idx = 1
+            for tcp_x in (40.0, 160.0, 280.0, 360.0):
+                for tcp_y in (20.0, 140.0, 260.0, 320.0):
+                    centers.append(
+                        (
+                            source_idx,
+                            [int(tcp_x), int(tcp_y)],
+                            [tcp_x, tcp_y, 80.0],
+                        )
+                    )
+                    source_idx += 1
+
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                DummyProcessor(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(len(ordered_centers), 4)
+        self.assertEqual(
+            [(center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (40.0, 20.0),
+                (40.0, 140.0),
+                (160.0, 140.0),
+                (160.0, 20.0),
+            ],
+        )
+
+    def test_execution_refine_requires_complete_two_by_two_matrix(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        class DummyProcessor:
+            def get_execution_refine_tcp_roi_bounds(self):
+                return {
+                    "min_x": 0.0,
+                    "max_x": 380.0,
+                    "min_y": 0.0,
+                    "max_y": 330.0,
+                    "min_z": 0.0,
+                    "max_z": 160.0,
+                }
+
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            same_row_centers = [
+                (1, [120, 80], [160.0, 40.0, 80.0]),
+                (2, [132, 92], [160.0, 140.0, 80.0]),
+                (3, [144, 104], [160.0, 260.0, 80.0]),
+                (4, [156, 116], [160.0, 320.0, 80.0]),
+            ]
+
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                DummyProcessor(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                same_row_centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(ordered_centers, [])
+
+    def test_execution_refine_uses_nearest_complete_origin_two_by_two_when_nearest_points_are_incomplete(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        class DummyProcessor:
+            def get_execution_refine_tcp_roi_bounds(self):
+                return {
+                    "min_x": 0.0,
+                    "max_x": 380.0,
+                    "min_y": 0.0,
+                    "max_y": 330.0,
+                    "min_z": 0.0,
+                    "max_z": 160.0,
+                }
+
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            centers = [
+                (1, [35, 30], [35.0, 30.0, 80.0]),
+                (2, [45, 145], [45.0, 145.0, 80.0]),
+                (3, [155, 30], [155.0, 30.0, 80.0]),
+                (4, [220, 110], [220.0, 110.0, 80.0]),
+                (5, [220, 230], [220.0, 230.0, 80.0]),
+                (6, [340, 110], [340.0, 110.0, 80.0]),
+                (7, [340, 230], [340.0, 230.0, 80.0]),
+            ]
+
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                DummyProcessor(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(
+            [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (4, 220.0, 110.0),
+                (5, 220.0, 230.0),
+                (7, 340.0, 230.0),
+                (6, 340.0, 110.0),
+            ],
+        )
+
+    def test_execution_refine_prefers_tcp_origin_group_over_center_group(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        class DummyProcessor:
+            def get_execution_refine_tcp_roi_bounds(self):
+                return {
+                    "min_x": 0.0,
+                    "max_x": 380.0,
+                    "min_y": 0.0,
+                    "max_y": 330.0,
+                    "min_z": 0.0,
+                    "max_z": 160.0,
+                }
+
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            centers = [
+                (1, [40, 20], [40.0, 20.0, 80.0]),
+                (2, [40, 140], [40.0, 140.0, 80.0]),
+                (3, [160, 20], [160.0, 20.0, 80.0]),
+                (4, [160, 140], [160.0, 140.0, 80.0]),
+                (5, [180, 150], [180.0, 150.0, 80.0]),
+                (6, [180, 260], [180.0, 260.0, 80.0]),
+                (7, [300, 150], [300.0, 150.0, 80.0]),
+                (8, [300, 260], [300.0, 260.0, 80.0]),
+            ]
+
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                DummyProcessor(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(
+            [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (1, 40.0, 20.0),
+                (2, 40.0, 140.0),
+                (4, 160.0, 140.0),
+                (3, 160.0, 20.0),
+            ],
+        )
+
+    def test_execution_refine_no_longer_uses_legacy_close_point_repulsion(self):
         from tie_robot_perception.pointai import matrix_selection
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
@@ -1201,7 +1422,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             )
         )
 
-        self.assertCountEqual(ordered_centers, close_centers)
+        self.assertEqual(ordered_centers, [])
         for forbidden in (
             "filter_close_points_by_origin",
             "filter_candidate_centers_for_request_mode",

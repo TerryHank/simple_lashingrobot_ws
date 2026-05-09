@@ -28,7 +28,7 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("string phase", action)
         self.assertIn("bool success", action)
 
-    def test_cabin_motion_driver_rejects_moves_while_plc_execution_signal_is_active(self):
+    def test_cabin_motion_driver_rejects_only_real_moduan_motion_not_task_latch(self):
         runtime_header = (
             PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
         ).read_text(encoding="utf-8")
@@ -39,14 +39,32 @@ class MotionChainSignalGuardTest(unittest.TestCase):
 
         self.assertIn("extern std::atomic<bool> moduan_work_flag;", runtime_header)
         self.assertIn("std::atomic<bool> moduan_work_flag{false};", node)
-        self.assertIn("moduan_work_flag.store(debug_mes.data", node)
+        self.assertIn("std::atomic<bool> moduan_work_topic_flag{false};", node)
+        self.assertIn("std::atomic<bool> moduan_state_executing_flag{false};", node)
+        self.assertIn("void refresh_moduan_motion_guard_flag()", node)
+        self.assertIn("moduan_work_topic_flag.store(debug_mes.data", node)
+        self.assertIn("void moduan_state_Callback(const tie_robot_msgs::ModuanState& state_msg)", node)
+        self.assertIn("moduan_state_executing_flag.store(state_msg.executing", node)
+        self.assertIn('nh.subscribe("/moduan/state"', node)
+        refresh_start = node.index("void refresh_moduan_motion_guard_flag()")
+        refresh_end = node.index("\nvoid moduan_work_Callback", refresh_start)
+        refresh_body = node[refresh_start:refresh_end]
+        self.assertIn("moduan_state_executing_flag.load", refresh_body)
+        self.assertNotIn("moduan_work_topic_flag.load", refresh_body)
+        run_start = node.index("int RunSuoquNodeWithDefaultRole(")
+        run_body = node[run_start:]
+        guard_sub_index = run_body.index('moduan_work_sub = nh.subscribe("/moduan_work"')
+        driver_role_index = run_body.index("if (is_suoqu_driver_role())")
+        bind_executor_role_index = run_body.index("if (is_suoqu_bind_task_executor_role())")
+        self.assertLess(guard_sub_index, driver_role_index)
+        self.assertLess(guard_sub_index, bind_executor_role_index)
 
         move_start = transport.index("bool move_cabin_pose_via_driver(")
         move_end = transport.index("\nbool move_cabin_incremental_via_driver", move_start)
         move_body = transport[move_start:move_end]
 
-        self.assertIn("moduan_work_flag.load(", move_body)
-        guard_index = move_body.index("moduan_work_flag.load(")
+        self.assertIn("reject_cabin_move_if_moduan_not_safe", move_body)
+        guard_index = move_body.index("reject_cabin_move_if_moduan_not_safe")
         remote_call_index = transport.index(
             '"/cabin/driver/raw_move"',
             move_start + guard_index,
@@ -56,7 +74,64 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertLess(move_start + guard_index, helper_call_index)
         self.assertLess(helper_call_index, remote_call_index)
         self.assertLess(move_start + guard_index, driver_call_index)
-        self.assertIn("末端绑扎/线性模组正在运动", move_body[guard_index:])
+        helper_start = transport.index("bool reject_cabin_move_if_moduan_not_safe(")
+        helper_end = transport.index("\nstd::string compose_cabin_driver_error_message", helper_start)
+        helper_body = transport[helper_start:helper_end]
+        self.assertIn("moduan_work_flag.load(", helper_body)
+        self.assertIn("末端绑扎/线性模组正在运动", helper_body)
+
+    def test_cabin_motion_driver_requires_moduan_z_axis_at_zero(self):
+        runtime_header = (
+            PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
+        ).read_text(encoding="utf-8")
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        transport = (
+            PROCESS_DIR / "src" / "suoqu" / "cabin_transport.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("extern std::atomic<bool> moduan_state_received_flag;", runtime_header)
+        self.assertIn("extern std::atomic<bool> moduan_state_connected_flag;", runtime_header)
+        self.assertIn("extern std::atomic<double> moduan_state_last_stamp_sec;", runtime_header)
+        self.assertIn("extern std::atomic<double> moduan_state_z_mm;", runtime_header)
+        self.assertIn("std::atomic<bool> moduan_state_received_flag{false};", node)
+        self.assertIn("std::atomic<bool> moduan_state_connected_flag{false};", node)
+        self.assertIn("std::atomic<double> moduan_state_last_stamp_sec", node)
+        self.assertIn("std::atomic<double> moduan_state_z_mm", node)
+
+        callback_start = node.index("void moduan_state_Callback(")
+        callback_end = node.index("\n/*\n    函数功能：暂停中断", callback_start)
+        callback_body = node[callback_start:callback_end]
+        self.assertIn("moduan_state_z_mm.store(state_msg.z", callback_body)
+        self.assertIn("moduan_state_connected_flag.store(state_msg.connected", callback_body)
+        self.assertIn("moduan_state_last_stamp_sec.store(ros::Time::now().toSec()", callback_body)
+        self.assertIn("moduan_state_received_flag.store(true", callback_body)
+
+        self.assertIn("kModuanSafeZZeroToleranceMm", transport)
+        self.assertIn("constexpr double kModuanSafeZZeroToleranceMm = 10.0;", transport)
+        self.assertIn("kModuanStateFreshMaxAgeSec", transport)
+        self.assertIn("reject_cabin_move_if_moduan_not_safe", transport)
+
+        move_start = transport.index("bool move_cabin_pose_via_driver(")
+        move_end = transport.index("\nbool move_cabin_incremental_via_driver", move_start)
+        move_body = transport[move_start:move_end]
+        absolute_guard_index = move_body.index("reject_cabin_move_if_moduan_not_safe")
+        remote_call_index = move_body.index('"/cabin/driver/raw_move"')
+        driver_call_index = move_body.index("::g_cabin_driver->moveToPose")
+        self.assertLess(absolute_guard_index, remote_call_index)
+        self.assertLess(absolute_guard_index, driver_call_index)
+        self.assertIn("末端Z轴未回到0", transport)
+        self.assertIn("尚未收到末端状态", transport)
+        self.assertIn("末端状态已过期", transport)
+        self.assertIn("末端状态显示未连接", transport)
+
+        incremental_start = transport.index("bool move_cabin_incremental_via_driver(")
+        incremental_end = transport.index("\n}  // namespace suoqu", incremental_start)
+        incremental_body = transport[incremental_start:incremental_end]
+        incremental_guard_index = incremental_body.index("reject_cabin_move_if_moduan_not_safe")
+        remote_incremental_index = incremental_body.index('"/cabin/driver/incremental_move"')
+        driver_incremental_index = incremental_body.index("::g_cabin_driver->moveByOffset")
+        self.assertLess(incremental_guard_index, remote_incremental_index)
+        self.assertLess(incremental_guard_index, driver_incremental_index)
 
     def test_remote_raw_move_failure_detail_is_cached_for_frontend_action_result(self):
         transport = (
@@ -327,6 +402,79 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("path_origin_y", record_body)
         self.assertIn("move_path_origin_z", record_body)
 
+    def test_planned_path_refine_only_waits_and_retries_single_bind_after_arrival(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool wait_for_planned_path_pre_bind_settle(", node)
+        self.assertIn("bool call_sg_live_visual_with_no_points_retry(", node)
+        self.assertIn("constexpr int kPlannedPathLargeZPreBindSettleMs = 300;", node)
+        self.assertIn("constexpr int kPlannedPathNoPointsRetrySettleMs = 300;", node)
+
+        start = node.index("bool run_planned_path_refine_only_global_work(")
+        end = node.index("\nbool run_bind_from_scan(", start)
+        body = node[start:end]
+
+        arrival_index = body.index("if (!wait_cabin_axis_stable_arrival")
+        settle_index = body.index("wait_for_planned_path_pre_bind_settle", arrival_index)
+        jump_snapshot_index = body.index("const bool jump_bind_enabled_snapshot", arrival_index)
+        self.assertLess(settle_index, jump_snapshot_index)
+
+        self.assertNotIn("sg_live_visual_client.call(bind_srv)", body)
+        self.assertIn("call_sg_live_visual_with_no_points_retry", body)
+
+        helper_start = node.index("bool call_sg_live_visual_with_no_points_retry(")
+        helper_end = node.index("\nstd::vector<uint8_t> build_pseudo_slam_ir_roi_frame", helper_start)
+        helper_body = node[helper_start:helper_end]
+        self.assertIn("EXECUTION_REFINE_NO_POINTS", helper_body)
+        self.assertIn("kPlannedPathNoPointsRetrySettleMs", helper_body)
+        self.assertIn("sg_live_visual_client.call", helper_body)
+        self.assertGreaterEqual(helper_body.count("sg_live_visual_client.call"), 2)
+
+    def test_planned_path_refine_only_stops_after_unsafe_moduan_failure(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool is_unsafe_moduan_execution_failure(", node)
+        helper_start = node.index("bool is_unsafe_moduan_execution_failure(")
+        helper_end = node.index("\nbool wait_for_planned_path_settle_duration", helper_start)
+        helper_body = node[helper_start:helper_end]
+        self.assertIn("FINISHALL", helper_body)
+        self.assertIn("线性模组", helper_body)
+        self.assertIn("未确认完成", helper_body)
+
+        start = node.index("bool run_planned_path_refine_only_global_work(")
+        end = node.index("\nbool run_bind_from_scan(", start)
+        body = node[start:end]
+
+        single_failure_start = body.index("if (!bind_srv.response.success)")
+        single_failure_end = body.index("std::string post_bind_idle_guard_message", single_failure_start)
+        single_failure_body = body[single_failure_start:single_failure_end]
+        self.assertIn(
+            "is_unsafe_moduan_execution_failure(bind_srv.response.message)",
+            single_failure_body,
+        )
+        single_unsafe_index = single_failure_body.index(
+            "is_unsafe_moduan_execution_failure(bind_srv.response.message)"
+        )
+        single_return_index = single_failure_body.index("return false;", single_unsafe_index)
+        single_continue_index = single_failure_body.index("continue;", single_unsafe_index)
+        self.assertLess(single_return_index, single_continue_index)
+        self.assertIn("阻止后续索驱移动", single_failure_body)
+
+        jump_failure_start = body.index("if (!execute_moduan_bind_points_via_action")
+        jump_failure_end = body.index("std::string post_bind_idle_guard_message", jump_failure_start)
+        jump_failure_body = body[jump_failure_start:jump_failure_end]
+        self.assertIn(
+            "is_unsafe_moduan_execution_failure(bind_action_message)",
+            jump_failure_body,
+        )
+        jump_unsafe_index = jump_failure_body.index(
+            "is_unsafe_moduan_execution_failure(bind_action_message)"
+        )
+        jump_return_index = jump_failure_body.index("return false;", jump_unsafe_index)
+        jump_continue_index = jump_failure_body.index("continue;", jump_unsafe_index)
+        self.assertLess(jump_return_index, jump_continue_index)
+        self.assertIn("阻止后续索驱移动", jump_failure_body)
+
     def test_live_visual_checkerboard_matching_uses_inferred_grid_world_axes(self):
         runtime_header = (
             PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
@@ -352,25 +500,27 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("checkerboard_grid.col_world_axis", classify_body)
         self.assertIn("get_dynamic_bind_world_axis_value", classify_body)
 
-    def test_live_visual_micro_adjust_acceptance_uses_xy_only_and_keeps_refined_z(self):
+    def test_live_visual_micro_adjust_acceptance_has_no_xy_gate_and_keeps_refined_z(self):
         runtime_header = (
             PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
         ).read_text(encoding="utf-8")
         suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
-        self.assertIn("constexpr float kLiveVisualMicroAdjustXYToleranceMm = 120.0f;", runtime_header)
+        self.assertNotIn("kLiveVisualMicroAdjustXYToleranceMm", runtime_header)
         self.assertNotIn("kLiveVisualMicroAdjustZToleranceMm", runtime_header)
 
         start = suoqu_node.index("nlohmann::json build_live_visual_execution_points_from_planned_area(")
         end = suoqu_node.index("\nbool load_precomputed_local_points_from_group_json", start)
         helper_body = suoqu_node[start:end]
 
-        self.assertIn("kLiveVisualMicroAdjustXYToleranceMm", helper_body)
         self.assertIn("const double refine_score = refine_dx_mm + refine_dy_mm;", helper_body)
         self.assertIn('execution_point_json["world_z"] = live_world_z;', helper_body)
+        self.assertNotIn("kLiveVisualMicroAdjustXYToleranceMm", helper_body)
+        self.assertNotIn("xy阈值", helper_body)
         self.assertNotIn("refine_dz_mm", helper_body)
         self.assertNotIn("kLiveVisualMicroAdjustZToleranceMm", helper_body)
         self.assertNotIn("z阈值", helper_body)
+        self.assertNotIn("超出xy微调范围", helper_body)
         self.assertNotIn("超出xyz微调范围", helper_body)
 
     def test_frontend_pause_resume_uses_long_press_for_return_to_start(self):
@@ -650,7 +800,89 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertLess(reconnect_index, refresh_index)
         self.assertLess(refresh_index, resend_index)
 
-    def test_cabin_state_poll_routes_heartbeat_through_driver_transport(self):
+    def test_cabin_state_command_has_explicit_debug_name(self):
+        transport = (
+            PROCESS_DIR / "src" / "suoqu" / "cabin_transport.cpp"
+        ).read_text(encoding="utf-8")
+
+        command_name_start = transport.index("const char* tcp_protocol_command_name(")
+        command_name_end = transport.index("\nnamespace {", command_name_start)
+        command_name_body = transport[command_name_start:command_name_end]
+
+        self.assertIn('case 0x0001: return "索驱状态查询";', command_name_body)
+
+    def test_cabin_protocol_retry_drops_stale_transport_before_reconnect(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("int Frame_Generate_With_Retry(")
+        end = node.index("\nvoid solve_stop", start)
+        body = node[start:end]
+
+        reconnect_log_index = body.index("正在尝试与索驱上位机重新创建TCP连接")
+        reconnect_call_index = body.index("connectToServer()", reconnect_log_index)
+        stale_drop_index = body.index("drop_stale_cabin_transport_before_retry", reconnect_log_index)
+        stop_index = body.index("g_cabin_driver->stop();", stale_drop_index)
+        sync_index = body.index("sync_global_socket_fd_from_cabin_driver();", stale_drop_index)
+        socket_refresh_index = body.index("socket = sockfd;", stale_drop_index)
+
+        self.assertLess(stale_drop_index, reconnect_call_index)
+        self.assertLess(stop_index, reconnect_call_index)
+        self.assertLess(sync_index, reconnect_call_index)
+        self.assertLess(socket_refresh_index, reconnect_call_index)
+
+    def test_cabin_tcp_sends_do_not_raise_sigpipe_on_peer_close(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        transport = (HW_DIR / "src" / "driver" / "cabin_tcp_transport.cpp").read_text(encoding="utf-8")
+
+        frame_start = node.index("\nint Frame_Generate(uint8_t* Control_Word")
+        frame_end = node.index("\nint Frame_Generate_With_Retry", frame_start)
+        frame_body = node[frame_start:frame_end]
+        self.assertIn("MSG_NOSIGNAL", frame_body)
+        self.assertNotIn("send(socket, Control_Word + total_sent, Tlen - total_sent, 0)", frame_body)
+
+        send_start = transport.index("bool CabinTcpTransport::sendAndReceive(")
+        send_end = transport.index("\nvoid CabinTcpTransport::markExternalIoSuccess", send_start)
+        send_body = transport[send_start:send_end]
+        self.assertIn("MSG_NOSIGNAL", send_body)
+        self.assertNotIn("request.size() - total_sent,\n            0", send_body)
+
+    def test_cabin_protocol_retry_keeps_requesting_instead_of_emergency_exit(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("int Frame_Generate_With_Retry(")
+        end = node.index("\nvoid solve_stop", start)
+        body = node[start:end]
+
+        self.assertIn("while (ros::ok())", body)
+        self.assertIn("持续请求索驱", body)
+        self.assertIn("继续请求索驱", body)
+        self.assertNotIn("重新发送命令失败超过5次", body)
+        self.assertNotIn("重新连接失败超过5次", body)
+        self.assertNotIn("emergency_exit_with_flush(4)", body)
+
+    def test_legacy_frame_retry_only_waits_on_pure_motion_busy_status(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("int Frame_Generate_With_Retry(")
+        end = node.index("\nvoid solve_stop", start)
+        body = node[start:end]
+
+        self.assertNotIn("keep_retrying_on_status_reject", body)
+        self.assertIn("const uint16_t status_command_word =", body)
+        self.assertIn("pending_tcp_status_command_word.load(std::memory_order_relaxed)", body)
+        self.assertIn(
+            "if (is_transient_cabin_motion_status(status_command_word, status_word))",
+            body,
+        )
+
+        transient_index = body.index("if (is_transient_cabin_motion_status")
+        continue_index = body.index("continue;", transient_index)
+        hard_failure_index = body.index("return -2;", continue_index)
+        self.assertLess(transient_index, continue_index)
+        self.assertLess(continue_index, hard_failure_index)
+        self.assertIn("索驱上位机拒绝当前运动指令", body[continue_index:hard_failure_index])
+
+    def test_cabin_state_poll_uses_legacy_100ms_socket_loop(self):
         transport_header = (
             HW_DIR / "include" / "tie_robot_hw" / "driver" / "cabin_tcp_transport.hpp"
         ).read_text(encoding="utf-8")
@@ -666,20 +898,22 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
         self.assertIn("bool sendAndReceive(", transport_header)
-        self.assertIn("bool pollState(", driver_header)
-        self.assertIn("CabinProtocol::buildHeartbeatFrame", driver)
-        self.assertIn("CabinProtocol::decodeHeartbeatState", driver)
+        self.assertNotIn("bool pollState(", driver_header)
+        self.assertNotIn("CabinDriver::pollState(", driver)
         self.assertIn("decodeHeartbeatState(", protocol_header)
         self.assertIn("DriverError CabinProtocol::decodeHeartbeatState(", protocol)
+        self.assertNotIn("constexpr int kCabinStatePollIntervalMs = 20;", node)
 
         read_state_start = node.index("void read_cabin_state(")
         read_state_end = node.index("\nint RunSuoquNodeWithDefaultRole(", read_state_start)
         read_state_body = node[read_state_start:read_state_end]
-        poll_index = read_state_body.index("g_cabin_driver->pollState(")
-        sync_index = read_state_body.index("sync_global_socket_fd_from_cabin_driver();", poll_index)
-        self.assertLess(poll_index, sync_index)
-        self.assertNotIn("Frame_Generate_With_Retry(TCP_Normal_Connection, 14, CABIN_STATE_RESPONSE_BYTES)", read_state_body)
-        self.assertNotIn("g_cabin_driver->markExternalIoSuccess();", read_state_body)
+        self.assertIn("std::this_thread::sleep_for(std::chrono::milliseconds(100));", read_state_body)
+        frame_index = read_state_body.index(
+            "Frame_Generate_With_Retry(TCP_Normal_Connection, 14, CABIN_STATE_RESPONSE_BYTES)"
+        )
+        mark_ready_index = read_state_body.index("g_cabin_driver->markExternalIoSuccess();", frame_index)
+        self.assertLess(frame_index, mark_ready_index)
+        self.assertNotIn("g_cabin_driver->pollState(", read_state_body)
 
     def test_cabin_tcp_legacy_frame_reader_consumes_exact_protocol_response_length(self):
         node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -700,7 +934,7 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         read_state_start = node.index("void read_cabin_state(")
         read_state_end = node.index("\nint RunSuoquNodeWithDefaultRole(", read_state_start)
         read_state_body = node[read_state_start:read_state_end]
-        self.assertNotIn("Frame_Generate_With_Retry(TCP_Normal_Connection, 14, CABIN_STATE_RESPONSE_BYTES)", read_state_body)
+        self.assertIn("Frame_Generate_With_Retry(TCP_Normal_Connection, 14, CABIN_STATE_RESPONSE_BYTES)", read_state_body)
 
     def test_moduan_services_do_not_set_busy_before_plc_execution(self):
         callbacks = (
@@ -760,6 +994,56 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("FINISH_ALL_FLAG", finish_all_body)
         self.assertIn("PLC_Order_Write(FINISHALL, 0, plc);", finish_all_body)
 
+    def test_moduan_work_stays_busy_until_motion_is_confirmed_safe(self):
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+
+        class_start = executor.index("class ScopedPlcExecutionState")
+        class_end = executor.index("struct LinearModuleAxisSnapshot", class_start)
+        class_body = executor[class_start:class_end]
+        self.assertIn("void mark_safe_to_clear()", class_body)
+        destructor_start = class_body.index("~ScopedPlcExecutionState()")
+        destructor_body = class_body[destructor_start:class_body.index("\n    }\n", destructor_start) + 7]
+        self.assertNotIn("pub_moduan_work_state(false);", destructor_body)
+        self.assertIn("保持/moduan_work=true", destructor_body)
+
+        execute_start = executor.index("bool execute_bind_points(")
+        execute_body = executor[execute_start:]
+        finish_failure_index = execute_body.index("if (!wait_for_plc_finish_all(")
+        finish_failure_end = execute_body.index(
+            "        }\n        plc_execution_state.mark_safe_to_clear();",
+            finish_failure_index,
+        )
+        finish_failure_body = execute_body[
+            finish_failure_index:
+            finish_failure_end
+        ]
+        self.assertNotIn("mark_safe_to_clear", finish_failure_body)
+        release_index = execute_body.index("plc_execution_state.mark_safe_to_clear()", finish_failure_index)
+        bind_data_index = execute_body.index("bind_all_data.push_back", finish_failure_index)
+        self.assertLess(release_index, bind_data_index)
+
+        direct_move_start = executor.index("bool move_linear_module_to_target(")
+        direct_move_end = executor.index("\nvoid moveLinearModule", direct_move_start)
+        direct_move_body = executor[direct_move_start:direct_move_end]
+        scope_index = direct_move_body.index("ScopedPlcExecutionState linear_move_state;")
+        first_motion_index = direct_move_body.index("Set_Module_Coordinate(WX_COORDINATE")
+        direct_release_index = direct_move_body.index("linear_move_state.mark_safe_to_clear();")
+        success_message_index = direct_move_body.index('response_message = "线性模组原子移动完成";')
+        self.assertLess(scope_index, first_motion_index)
+        self.assertLess(direct_release_index, success_message_index)
+
+        origin_start = executor.index("bool move_linear_module_to_origin()")
+        origin_end = executor.index("\ndouble max_bind_height_excess_mm", origin_start)
+        origin_body = executor[origin_start:origin_end]
+        origin_scope_index = origin_body.index("ScopedPlcExecutionState return_zero_state;")
+        origin_first_motion_index = origin_body.index("Set_Module_Coordinate(WZ_COORDINATE")
+        origin_release_index = origin_body.index("return_zero_state.mark_safe_to_clear();")
+        origin_return_index = origin_body.index("return arrived_x && arrived_y;")
+        self.assertLess(origin_scope_index, origin_first_motion_index)
+        self.assertLess(origin_release_index, origin_return_index)
+
     def test_moduan_driver_publishes_standard_state_topic(self):
         callbacks = (
             CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
@@ -774,6 +1058,16 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("state_msg.executing", callbacks)
         self.assertIn("state_msg.finish_all", callbacks)
         self.assertIn("state->FINISH_ALL_FLAG", callbacks)
+        self.assertIn("constexpr double kModuanStateMovingSpeedEpsilon = 10.0;", callbacks)
+        state_start = callbacks.index("void publish_moduan_state_topic(")
+        state_end = callbacks.index("\nvoid pub_moduan_work_state", state_start)
+        state_body = callbacks[state_start:state_end]
+        self.assertIn("const bool axis_motion", state_body)
+        self.assertIn("state_msg.executing = axis_motion;", state_body)
+        self.assertNotIn("moduan_plc_execution_state.load", state_body)
+        self.assertIn("std::fabs(state->X_SPEED)", callbacks)
+        self.assertIn("std::fabs(state->Y_SPEED)", callbacks)
+        self.assertIn("std::fabs(state->Z_SPEED)", callbacks)
         self.assertIn("pub_moduan_state_topic.publish(state_msg);", callbacks)
 
     def test_moduan_execute_bind_points_action_is_advertised(self):
@@ -985,12 +1279,26 @@ class MotionChainSignalGuardTest(unittest.TestCase):
     def test_automatic_execution_retries_device_busy_without_retrying_limit_rejections(self):
         node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
+        command_parser_start = node.index("bool has_cabin_motion_command_word_text(")
+        command_parser_end = node.index("\nbool is_cabin_motion_busy_status_message", command_parser_start)
+        command_parser_body = node[command_parser_start:command_parser_end]
+        self.assertIn("request_command=0x0012", command_parser_body)
+        self.assertIn("(0x0012)", command_parser_body)
+
+        parser_start = node.index("bool is_cabin_motion_busy_status_message(")
+        parser_end = node.index("\nbool is_retryable_cabin_driver_recovery_error", parser_start)
+        parser_body = node[parser_start:parser_end]
+        self.assertIn("status_word=0x00000004", parser_body)
+        self.assertIn("状态字=0x00000004", parser_body)
+        self.assertIn("设备运动中", parser_body)
+
         helper_start = node.index("bool is_retryable_cabin_driver_recovery_error(")
         helper_end = node.index("\nbool move_cabin_pose_for_automatic_execution", helper_start)
         helper_body = node[helper_start:helper_end]
 
-        self.assertIn('error_message.find("设备运动中")', helper_body)
-        self.assertIn('lower_message.find("status_word=0x00000004")', helper_body)
+        self.assertIn("is_cabin_motion_busy_status_message(error_message)", helper_body)
+        self.assertNotIn('error_message.find("设备运动中")', helper_body)
+        self.assertNotIn('lower_message.find("status_word=0x00000004")', helper_body)
         self.assertNotIn('error_message.find("Z超正限位")', helper_body)
         self.assertNotIn('error_message.find("速度错误")', helper_body)
 
@@ -1019,6 +1327,43 @@ class MotionChainSignalGuardTest(unittest.TestCase):
             end = node.index(next_marker, start)
             body = node[start:end]
             self.assertIn("move_cabin_pose_for_automatic_execution", body, function_name)
+
+    def test_single_cabin_move_retries_and_reissues_across_driver_reconnect(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("bool cabin_single_move(")
+        end = node.index("\nbool cabin_driver_raw_move_service", start)
+        body = node[start:end]
+
+        self.assertIn("move_cabin_pose_for_automatic_execution", body)
+        self.assertIn("wait_cabin_axis_stable_arrival(AXIS_X", body)
+        self.assertIn("wait_cabin_axis_stable_arrival(AXIS_Y", body)
+        self.assertIn("wait_cabin_axis_stable_arrival(AXIS_Z", body)
+        self.assertNotIn("move_cabin_pose_via_driver(cabin_speed", body)
+        self.assertNotIn("wait_cabin_axis_arrival(", body)
+
+    def test_pseudo_slam_scan_moves_retry_and_reissue_across_driver_reconnect(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("bool run_pseudo_slam_scan(")
+        end = node.index("\nstd::vector<tie_robot_msgs::PointCoords> load_bind_points_from_group_json", start)
+        body = node[start:end]
+
+        for case_marker, next_marker in (
+            ("case PseudoSlamScanStrategy::kFixedManualWorkspace:", "case PseudoSlamScanStrategy::kSingleCenter:"),
+            ("case PseudoSlamScanStrategy::kSingleCenter:", "case PseudoSlamScanStrategy::kMultiPose:"),
+            ("case PseudoSlamScanStrategy::kMultiPose:", "if (!should_persist_pseudo_slam_bind_artifacts"),
+        ):
+            case_start = body.index(case_marker)
+            case_end = body.index(next_marker, case_start)
+            case_body = body[case_start:case_end]
+
+            self.assertIn("move_cabin_pose_for_automatic_execution", case_body, case_marker)
+            self.assertIn("wait_cabin_axis_stable_arrival(AXIS_X", case_body, case_marker)
+            self.assertIn("wait_cabin_axis_stable_arrival(AXIS_Y", case_body, case_marker)
+            self.assertIn("wait_cabin_axis_stable_arrival(AXIS_Z", case_body, case_marker)
+            self.assertNotIn("move_cabin_pose_via_driver(", case_body, case_marker)
+            self.assertNotIn("wait_cabin_axis_arrival(", case_body, case_marker)
 
 
 if __name__ == "__main__":

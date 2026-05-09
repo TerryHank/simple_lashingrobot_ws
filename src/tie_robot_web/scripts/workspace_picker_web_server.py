@@ -64,10 +64,6 @@ GRAPHICAL_COMMAND_ALIASES = (
     "rqt_reconfigure",
 )
 WORKSPACE_ROOT = Path("/home/hyq-/simple_lashingrobot_ws")
-LEGACY_SHOW_WORKSPACE = Path(
-    "/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws"
-)
-SCEPTER_ROS_ROOT = Path("/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS")
 PLANNING_BIND_PATH_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_process" / "data" / "pseudo_slam_bind_path.json"
 )
@@ -84,11 +80,6 @@ PING_COMMAND_TIMEOUT_SECONDS = 6
 SYSTEMCTL_BIN = shutil.which("systemctl") or "/usr/bin/systemctl"
 ROS_BACKEND_SERVICE = "tie-robot-backend.service"
 ROSBRIDGE_SERVICE = "tie-robot-rosbridge.service"
-DEMO_ROSBRIDGE_SERVICE = "tie-robot-demo-rosbridge.service"
-DEMO_MODE_SERVICE = "tie-robot-demo-show-full.service"
-LEGACY_FRONTEND_SERVICE = "tie-robot-show-legacy-frontend.service"
-LEGACY_SHARED_DRIVER_STACK_SERVICE = "tie-robot-show-legacy-shared-driver-stack.service"
-DEMO_MODE_FRONTEND_PORT = 5173
 DRIVER_SYSTEMD_SERVICES = {
     "cabin": "tie-robot-driver-suoqu.service",
     "moduan": "tie-robot-driver-moduan.service",
@@ -111,31 +102,13 @@ FULL_ROS_STACK_START_ORDER = (
 )
 FULL_ROS_STACK_STOP_TIMEOUT_SEC = 8
 DEMO_MODE_STOP_TIMEOUT_SEC = 20
-DEMO_MODE_STOP_ORDER = (
-    ROS_BACKEND_SERVICE,
-    DRIVER_SYSTEMD_SERVICES["cabin"],
-    DRIVER_SYSTEMD_SERVICES["moduan"],
-    DRIVER_SYSTEMD_SERVICES["camera"],
-    ROSBRIDGE_SERVICE,
-    LEGACY_SHARED_DRIVER_STACK_SERVICE,
-)
-DEMO_MODE_RESTORE_START_ORDER = (
-    ROSBRIDGE_SERVICE,
-    DRIVER_SYSTEMD_SERVICES["cabin"],
-    DRIVER_SYSTEMD_SERVICES["moduan"],
-    DRIVER_SYSTEMD_SERVICES["camera"],
-    ROS_BACKEND_SERVICE,
-)
-DEMO_MODE_OPTIONAL_STOP_SERVICES = (
-    LEGACY_SHARED_DRIVER_STACK_SERVICE,
-)
+DEMO_MODE_CURRENT_SERVICES = FULL_ROS_STACK_STOP_ORDER
+DEMO_MODE_RESTORE_START_ORDER = FULL_ROS_STACK_START_ORDER
 DEMO_MODE_CLEANUP_PROCESS_PATTERNS = (
-    f"{LEGACY_SHOW_WORKSPACE}/devel/lib/chassis_ctrl/",
-    f"{LEGACY_SHOW_WORKSPACE}/src/chassis_ctrl/scripts/pointAI.py",
-    f"{SCEPTER_ROS_ROOT}/devel/lib/ScepterROS/",
-    "roslaunch chassis_ctrl show_full.launch",
-    "roslaunch chassis_ctrl api.launch",
-    "roslaunch chassis_ctrl run.launch",
+    f"{WORKSPACE_ROOT}/devel/lib/tie_robot_",
+    f"{WORKSPACE_ROOT}/src/tie_robot_",
+    f"{WORKSPACE_ROOT}/src/tie_robot_bringup",
+    "roslaunch tie_robot_bringup",
 )
 ROS_FAST_KILL_TERM_GRACE_SEC = 0.8
 ROS_FAST_KILL_KILL_GRACE_SEC = 0.3
@@ -2131,8 +2104,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         })
 
     def handle_demo_mode_toggle(self, api_path):
-        demo_status = self._query_systemd_status(DEMO_MODE_SERVICE)
-        if self._systemd_status_is_active(demo_status):
+        if self._demo_mode_is_active():
             self.handle_demo_mode_exit(api_path)
             return
         self.handle_demo_mode_enter(api_path)
@@ -2143,7 +2115,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             api_path,
             "enter",
             completed_results,
-            "已进入演示模式：5173 旧前端、轻量 rosbridge 与 chassis_ctrl show_full.launch 已启动，当前后端、驱动、完整 rosbridge 和旧转义层已停止。",
+            "已进入演示模式：本工程 ROS 后端、rosbridge 和驱动守护已停止。",
         )
 
     def handle_demo_mode_exit(self, api_path):
@@ -2152,7 +2124,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             api_path,
             "exit",
             completed_results,
-            "已退出演示模式：show_full.launch 与轻量 rosbridge 已停止，本程序完整 rosbridge、驱动层和 ROS 后端已恢复。",
+            "已退出演示模式：本工程 rosbridge、驱动层和 ROS 后端已恢复。",
         )
 
     def _send_demo_mode_transition_response(self, api_path, action, completed_results, success_message):
@@ -2171,6 +2143,10 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             message = failure_texts[0] if failure_texts else "演示模式切换失败"
 
         status_payload = self._build_demo_mode_status_payload()
+        if success:
+            target_active = action == "enter"
+            status_payload["active"] = target_active
+            status_payload["demoModeActive"] = target_active
         self._log_demo_mode_control_result(api_path, action, completed_results, success)
         self.send_json({
             "success": success,
@@ -2189,34 +2165,34 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         }, status_code=200 if success else 503)
 
     def _build_demo_mode_status_payload(self):
-        demo_status = self._query_systemd_status(DEMO_MODE_SERVICE)
         related_services = {
             service_name: self._query_systemd_status(service_name)
-            for service_name in (
-                DEMO_MODE_SERVICE,
-                DEMO_ROSBRIDGE_SERVICE,
-                LEGACY_FRONTEND_SERVICE,
-                ROSBRIDGE_SERVICE,
-                ROS_BACKEND_SERVICE,
-                DRIVER_SYSTEMD_SERVICES["cabin"],
-                DRIVER_SYSTEMD_SERVICES["moduan"],
-                DRIVER_SYSTEMD_SERVICES["camera"],
-                LEGACY_SHARED_DRIVER_STACK_SERVICE,
-            )
+            for service_name in DEMO_MODE_CURRENT_SERVICES
         }
-        active = self._systemd_status_is_active(demo_status)
+        active = self._demo_mode_is_active(related_services)
         return {
             "active": active,
             "demoModeActive": active,
-            "service": DEMO_MODE_SERVICE,
-            "legacyFrontendUrl": self._build_legacy_frontend_url(),
-            "status": demo_status,
+            "service": None,
+            "status": {
+                "service": "current-workspace-demo-mode",
+                "activeState": "active" if active else "inactive",
+                "subState": "quiet" if active else "running",
+            },
             "services": related_services,
         }
 
-    def _build_legacy_frontend_url(self):
-        host = self._request_browser_host()
-        return f"http://{host}:{DEMO_MODE_FRONTEND_PORT}/"
+    def _demo_mode_is_active(self, service_statuses=None):
+        statuses = service_statuses
+        if statuses is None:
+            statuses = {
+                service_name: self._query_systemd_status(service_name)
+                for service_name in DEMO_MODE_CURRENT_SERVICES
+            }
+        return all(
+            not self._systemd_status_is_active(statuses.get(service_name, {}))
+            for service_name in DEMO_MODE_CURRENT_SERVICES
+        )
 
     def _request_browser_host(self):
         host_header = str(self.headers.get("Host") or "").strip()
@@ -2236,18 +2212,7 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
 
     def _run_demo_mode_enter(self):
         results = []
-        for service_name in (LEGACY_FRONTEND_SERVICE,):
-            start_result = self._run_systemctl("start", service_name)
-            results.append({
-                "phase": "prepare",
-                "action": "start",
-                "services": (service_name,),
-                "result": start_result,
-            })
-            if start_result.returncode != 0:
-                return results
-
-        for service_name in DEMO_MODE_STOP_ORDER:
+        for service_name in DEMO_MODE_CURRENT_SERVICES:
             stop_result = self._run_demo_mode_stop_service(service_name)
             results.append({
                 "phase": "stop-current",
@@ -2258,93 +2223,25 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             if stop_result.returncode != 0:
                 return results
 
-        start_demo_bridge_result = self._run_systemctl("start", DEMO_ROSBRIDGE_SERVICE)
+        cleanup_result = self._cleanup_current_workspace_ros_artifacts()
         results.append({
-            "phase": "start-demo-rosbridge",
-            "action": "start",
-            "services": (DEMO_ROSBRIDGE_SERVICE,),
-            "result": start_demo_bridge_result,
-        })
-        if start_demo_bridge_result.returncode != 0:
-            return results
-
-        cleanup_result = self._cleanup_demo_mode_ros_artifacts()
-        results.append({
-            "phase": "cleanup-demo",
-            "action": "cleanup_demo_mode_ros",
+            "phase": "cleanup-current",
+            "action": "cleanup_current_workspace_ros",
             "services": (),
             "result": cleanup_result,
-        })
-        if cleanup_result.returncode != 0:
-            return results
-
-        start_result = self._run_systemctl("start", DEMO_MODE_SERVICE)
-        results.append({
-            "phase": "start-demo",
-            "action": "start",
-            "services": (DEMO_MODE_SERVICE,),
-            "result": start_result,
         })
         return results
 
     def _run_demo_mode_exit(self):
         results = []
-        stop_result = self._run_systemctl(
-            "stop",
-            DEMO_MODE_SERVICE,
-            timeout=DEMO_MODE_STOP_TIMEOUT_SEC,
-        )
+        cleanup_result = self._cleanup_current_workspace_ros_artifacts()
         results.append({
-            "phase": "stop-demo",
-            "action": "stop",
-            "services": (DEMO_MODE_SERVICE,),
-            "result": stop_result,
-        })
-        if stop_result.returncode != 0:
-            return results
-
-        cleanup_result = self._cleanup_demo_mode_ros_artifacts()
-        results.append({
-            "phase": "cleanup-demo",
-            "action": "cleanup_demo_mode_ros",
+            "phase": "cleanup-current",
+            "action": "cleanup_current_workspace_ros",
             "services": (),
             "result": cleanup_result,
         })
         if cleanup_result.returncode != 0:
-            return results
-
-        stop_demo_bridge_result = self._run_systemctl(
-            "stop",
-            DEMO_ROSBRIDGE_SERVICE,
-            timeout=DEMO_MODE_STOP_TIMEOUT_SEC,
-        )
-        results.append({
-            "phase": "stop-demo-rosbridge",
-            "action": "stop",
-            "services": (DEMO_ROSBRIDGE_SERVICE,),
-            "result": stop_demo_bridge_result,
-        })
-        if stop_demo_bridge_result.returncode != 0:
-            return results
-
-        reset_result = self._run_demo_mode_reset_failed()
-        results.append({
-            "phase": "reset-demo",
-            "action": "reset-failed",
-            "services": (DEMO_MODE_SERVICE,),
-            "result": reset_result,
-        })
-        if reset_result.returncode != 0:
-            return results
-
-        reset_demo_bridge_result = self._run_demo_mode_reset_failed(DEMO_ROSBRIDGE_SERVICE)
-        results.append({
-            "phase": "reset-demo-rosbridge",
-            "action": "reset-failed",
-            "services": (DEMO_ROSBRIDGE_SERVICE,),
-            "result": reset_demo_bridge_result,
-        })
-        if reset_demo_bridge_result.returncode != 0:
             return results
 
         for service_name in DEMO_MODE_RESTORE_START_ORDER:
@@ -2360,39 +2257,13 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         return results
 
     def _run_demo_mode_stop_service(self, service_name):
-        if service_name in DEMO_MODE_OPTIONAL_STOP_SERVICES:
-            status_payload = self._query_systemd_status(service_name)
-            if str(status_payload.get("loadState") or "").lower() == "not-found":
-                return subprocess.CompletedProcess(
-                    ["systemctl", "stop", service_name],
-                    0,
-                    f"{service_name} 未安装，已跳过。",
-                    "",
-                )
         return self._run_systemctl(
             "stop",
             service_name,
             timeout=DEMO_MODE_STOP_TIMEOUT_SEC,
         )
 
-    def _run_demo_mode_reset_failed(self, service_name=DEMO_MODE_SERVICE):
-        reset_result = self._run_systemctl("reset-failed", service_name)
-        if reset_result.returncode == 0:
-            return reset_result
-        status_payload = self._query_systemd_status(service_name)
-        if (
-            not self._systemd_status_is_active(status_payload)
-            and str(status_payload.get("result") or "").lower() == "success"
-        ):
-            return subprocess.CompletedProcess(
-                ["systemctl", "reset-failed", service_name],
-                0,
-                reset_result.stdout,
-                reset_result.stderr,
-            )
-        return reset_result
-
-    def _cleanup_demo_mode_ros_artifacts(self):
+    def _cleanup_current_workspace_ros_artifacts(self):
         initial_processes = self._find_demo_mode_processes()
         failures = []
         if initial_processes:
@@ -2404,33 +2275,28 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
                 self._sleep(ROS_FAST_KILL_KILL_GRACE_SEC)
 
         stubborn_processes = self._find_demo_mode_processes()
-        cleanup_completed = self._run_rosnode_cleanup()
-        if failures or stubborn_processes or cleanup_completed.returncode != 0:
+        if failures or stubborn_processes:
             details = []
             details.extend(failures)
             if stubborn_processes:
                 details.append(
-                    "仍有演示模式残留进程: "
+                    "仍有本工程 ROS 残留进程: "
                     + ", ".join(f"{pid}:{command[:120]}" for pid, command in stubborn_processes)
                 )
-            if cleanup_completed.returncode != 0:
-                details.append(cleanup_completed.stderr.strip() or cleanup_completed.stdout.strip())
             return subprocess.CompletedProcess(
-                ["cleanup-demo-mode-ros"],
+                ["cleanup-current-workspace-ros"],
                 1,
-                cleanup_completed.stdout,
+                "",
                 "\n".join(text for text in details if text),
             )
 
         stdout_parts = []
         if initial_processes:
-            stdout_parts.append(f"已清理 {len(initial_processes)} 个演示模式残留进程。")
-        if cleanup_completed.stdout.strip():
-            stdout_parts.append(cleanup_completed.stdout.strip())
+            stdout_parts.append(f"已清理 {len(initial_processes)} 个本工程 ROS 残留进程。")
         return subprocess.CompletedProcess(
-            ["cleanup-demo-mode-ros"],
+            ["cleanup-current-workspace-ros"],
             0,
-            "\n".join(stdout_parts) or "演示模式 ROS 残留清理完成。",
+            "\n".join(stdout_parts) or "本工程 ROS 残留清理完成。",
             "",
         )
 

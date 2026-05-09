@@ -12,7 +12,7 @@ const _sfc_main = /* @__PURE__ */ Object.assign(__default__, {
       browserHost.value = window.location.hostname || "127.0.0.1";
     });
     const gitnexusHost = computed(() => browserHost.value || "127.0.0.1");
-    const webuiOrigin = computed(() => `http://${gitnexusHost.value}:5173`);
+    const webuiOrigin = computed(() => `http://${gitnexusHost.value}:5100`);
     const bridgeOrigin = computed(() => `http://${gitnexusHost.value}:4747`);
     const bridgeReposUrl = computed(() => `${bridgeOrigin.value}/api/repos`);
     const gitnexusWebuiUrl = computed(() => {

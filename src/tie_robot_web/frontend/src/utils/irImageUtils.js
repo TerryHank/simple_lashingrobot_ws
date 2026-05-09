@@ -8,8 +8,16 @@ export function clampImagePixel(point, imageWidth, imageHeight) {
 export function mapCanvasClickToImagePixel({ clientX, clientY, rect, imageWidth, imageHeight }) {
   const width = Math.max(rect?.width || 0, 1);
   const height = Math.max(rect?.height || 0, 1);
-  const relativeX = ((clientX - (rect?.left || 0)) / width) * imageWidth;
-  const relativeY = ((clientY - (rect?.top || 0)) / height) * imageHeight;
+  const safeImageWidth = Math.max(Number(imageWidth) || 0, 1);
+  const safeImageHeight = Math.max(Number(imageHeight) || 0, 1);
+  const imageAspect = safeImageWidth / safeImageHeight;
+  const rectAspect = width / height;
+  const renderedWidth = rectAspect > imageAspect ? height * imageAspect : width;
+  const renderedHeight = rectAspect > imageAspect ? height : width / imageAspect;
+  const offsetX = (width - renderedWidth) / 2;
+  const offsetY = (height - renderedHeight) / 2;
+  const relativeX = ((clientX - (rect?.left || 0) - offsetX) / Math.max(renderedWidth, 1)) * safeImageWidth;
+  const relativeY = ((clientY - (rect?.top || 0) - offsetY) / Math.max(renderedHeight, 1)) * safeImageHeight;
   return clampImagePixel({ x: relativeX, y: relativeY }, imageWidth, imageHeight);
 }
 

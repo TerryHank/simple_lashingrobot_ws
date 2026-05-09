@@ -483,11 +483,217 @@ def sort_centers_by_tcp_snake_rows(
     return ordered_centers
 
 
+def build_tcp_tool_xy_key(center_record):
+    sort_key = build_tcp_tool_sort_key(center_record)
+    return (
+        int(sort_key[0]),
+        float(sort_key[1]),
+        float(sort_key[2]),
+        int(sort_key[3]),
+    )
+
+
+def group_centers_by_tcp_axis(centers, coordinate_fn, axis_index=0, threshold=40.0):
+    if not centers:
+        return []
+
+    axis_tuple_index = 1 if axis_index == 0 else 2
+    other_tuple_index = 2 if axis_index == 0 else 1
+    sorted_centers = sorted(
+        centers,
+        key=lambda item: (
+            coordinate_fn(item)[0],
+            coordinate_fn(item)[axis_tuple_index],
+            coordinate_fn(item)[other_tuple_index],
+            coordinate_fn(item)[3],
+        ),
+    )
+
+    grouped_points = []
+    current_group = [sorted_centers[0]]
+    current_bucket = coordinate_fn(sorted_centers[0])[0]
+    current_mean = float(coordinate_fn(sorted_centers[0])[axis_tuple_index])
+    for item in sorted_centers[1:]:
+        sort_key = coordinate_fn(item)
+        bucket = sort_key[0]
+        axis_value = float(sort_key[axis_tuple_index])
+        if bucket == current_bucket and abs(axis_value - current_mean) <= threshold:
+            current_group.append(item)
+            current_mean = sum(
+                float(coordinate_fn(point)[axis_tuple_index])
+                for point in current_group
+            ) / len(current_group)
+            continue
+
+        grouped_points.append(current_group)
+        current_group = [item]
+        current_bucket = bucket
+        current_mean = axis_value
+
+    if current_group:
+        grouped_points.append(current_group)
+
+    return grouped_points
+
+
+def match_tcp_points_between_rows(upper_row, lower_row, coordinate_fn, column_threshold=45.0):
+    matched_pairs = []
+    used_lower_indices = set()
+
+    upper_sorted = sorted(
+        upper_row,
+        key=lambda item: (
+            coordinate_fn(item)[0],
+            coordinate_fn(item)[2],
+            coordinate_fn(item)[1],
+            coordinate_fn(item)[3],
+        ),
+    )
+    lower_sorted = sorted(
+        lower_row,
+        key=lambda item: (
+            coordinate_fn(item)[0],
+            coordinate_fn(item)[2],
+            coordinate_fn(item)[1],
+            coordinate_fn(item)[3],
+        ),
+    )
+
+    for upper_item in upper_sorted:
+        upper_bucket, _, upper_y, _ = coordinate_fn(upper_item)
+        best_lower_index = None
+        best_gap = None
+
+        for lower_index, lower_item in enumerate(lower_sorted):
+            if lower_index in used_lower_indices:
+                continue
+
+            lower_bucket, _, lower_y, _ = coordinate_fn(lower_item)
+            if lower_bucket != upper_bucket:
+                continue
+
+            gap = abs(upper_y - lower_y)
+            if gap > column_threshold:
+                continue
+
+            if best_gap is None or gap < best_gap:
+                best_gap = gap
+                best_lower_index = lower_index
+
+        if best_lower_index is None:
+            continue
+
+        used_lower_indices.add(best_lower_index)
+        matched_pairs.append((upper_item, lower_sorted[best_lower_index], best_gap))
+
+    matched_pairs.sort(
+        key=lambda pair: (
+            min(coordinate_fn(pair[0])[2], coordinate_fn(pair[1])[2]),
+            pair[2],
+            coordinate_fn(pair[0])[1],
+            coordinate_fn(pair[1])[1],
+            coordinate_fn(pair[0])[3],
+        )
+    )
+    return matched_pairs
+
+
+def score_tcp_origin_matrix_candidate(matrix_points, coordinate_fn, column_gaps):
+    coords = [coordinate_fn(point) for point in matrix_points]
+    buckets = [coord[0] for coord in coords]
+    squared_distances = [
+        coord[1] * coord[1] + coord[2] * coord[2]
+        for coord in coords
+    ]
+    x_values = sorted(coord[1] for coord in coords)
+    y_values = sorted(coord[2] for coord in coords)
+    source_indices = sorted(coord[3] for coord in coords)
+    return (
+        max(buckets),
+        sum(squared_distances),
+        max(squared_distances),
+        tuple(x_values),
+        tuple(y_values),
+        tuple(sorted(column_gaps)),
+        tuple(source_indices),
+    )
+
+
+def select_nearest_tcp_origin_matrix_points(
+    self,
+    centers,
+    max_points=4,
+    row_threshold=EXECUTION_REFINE_SNAKE_ROW_TOLERANCE_MM,
+    column_threshold=45.0,
+):
+    if len(centers) < max_points:
+        return []
+
+    coordinate_cache = {}
+
+    def coordinate_fn(center_record):
+        cache_key = id(center_record)
+        if cache_key not in coordinate_cache:
+            coordinate_cache[cache_key] = build_tcp_tool_xy_key(center_record)
+        return coordinate_cache[cache_key]
+
+    rows = group_centers_by_tcp_axis(
+        centers,
+        coordinate_fn,
+        axis_index=0,
+        threshold=row_threshold,
+    )
+    if len(rows) < 2:
+        return []
+
+    best_points = []
+    best_score = None
+    for upper_index in range(len(rows) - 1):
+        upper_row = rows[upper_index]
+        if len(upper_row) < 2:
+            continue
+
+        for lower_index in range(upper_index + 1, len(rows)):
+            lower_row = rows[lower_index]
+            if len(lower_row) < 2:
+                continue
+
+            matched_pairs = match_tcp_points_between_rows(
+                upper_row,
+                lower_row,
+                coordinate_fn,
+                column_threshold=column_threshold,
+            )
+            if len(matched_pairs) < 2:
+                continue
+
+            for first_pair_index in range(len(matched_pairs) - 1):
+                for second_pair_index in range(first_pair_index + 1, len(matched_pairs)):
+                    first_pair = matched_pairs[first_pair_index]
+                    second_pair = matched_pairs[second_pair_index]
+                    selected_points = [
+                        first_pair[0],
+                        second_pair[0],
+                        second_pair[1],
+                        first_pair[1],
+                    ]
+                    candidate_score = score_tcp_origin_matrix_candidate(
+                        selected_points,
+                        coordinate_fn,
+                        [first_pair[2], second_pair[2]],
+                    )
+                    if best_score is None or candidate_score < best_score:
+                        best_score = candidate_score
+                        best_points = selected_points
+
+    return best_points
+
+
 def select_output_centers_for_mode(self, request_mode, in_range_centers, selected_centers):
     if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
         return sort_centers_by_image_tcp_axes(in_range_centers)
     if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-        return sort_centers_by_tcp_snake_rows(in_range_centers)
+        return select_nearest_tcp_origin_matrix_points(self, in_range_centers)
     if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
         return self.sort_matrix_points(in_range_centers)
     return list(selected_centers)

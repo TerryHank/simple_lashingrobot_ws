@@ -23,6 +23,7 @@ import {
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
   GLOBAL_EXECUTION_MODES,
 } from "../config/visualRecognitionMode.js";
+import { formatAreaProgressDisplay } from "../utils/areaProgress.js";
 import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
 
 const DISPLAY_MODE_LABELS = {
@@ -53,6 +54,7 @@ const CONNECTION_ALARM_ACTION = { id: "resetAllAlarms", label: "报警复位" };
 const STATUS_CHIP_LONG_PRESS_RESTART_MS = 500;
 const STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS = 240;
 const BOTTOM_LINEAR_MODULE_ZERO_HINT = "长按0.5秒线性模组回零";
+const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
 
 const CABIN_POSITION_AXES = [
   { id: "x", label: "X" },
@@ -168,6 +170,11 @@ function formatCoordinateMm(value, fallback = "--mm") {
 
 function formatCoordinateInputValue(value) {
   return formatCoordinateInteger(value, "0");
+}
+
+function normalizeBindExecutionCabinMinZ(value, fallback = DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : fallback;
 }
 
 export class UIController {
@@ -475,10 +482,14 @@ export class UIController {
                           <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
                         </div>
                         <div class="field">
-                          <label for="visualDebugBindGroupPointCount">每组点数</label>
-                          <input id="visualDebugBindGroupPointCount" type="number" min="1" max="64" step="1" value="4" />
+                          <label for="visualDebugBindExecutionCabinMinZ">索驱规划 Z 下限 (mm)</label>
+                          <input id="visualDebugBindExecutionCabinMinZ" type="number" min="0" step="1" value="485" />
                         </div>
                       </div>
+                      <label class="checkbox-field visual-debug-adaptive-bind-grouping" for="visualDebugAdaptiveBindGrouping">
+                        <input id="visualDebugAdaptiveBindGrouping" type="checkbox" />
+                        <span>自适应每组绑扎点数</span>
+                      </label>
                       <label class="checkbox-field visual-debug-beam-filter" for="visualDebugBeamExclusionToggle">
                         <input id="visualDebugBeamExclusionToggle" type="checkbox" />
                         <span>梁筋 ±13 cm 过滤</span>
@@ -508,9 +519,6 @@ export class UIController {
                           <label for="visualDebugBindRangeZMax">绑扎 Z max (mm)</label>
                           <input id="visualDebugBindRangeZMax" type="number" step="1" value="160" />
                         </div>
-                      </div>
-                      <div class="button-row">
-                        <button id="visualDebugTrigger" class="primary-btn" type="button">触发视觉服务</button>
                       </div>
                       <div id="visualDebugTimingSummary" class="info-block mono">单帧=--ms 服务=--ms 释放=3帧 点数=--</div>
                     </div>
@@ -956,6 +964,16 @@ export class UIController {
             <span class="bottom-cabin-position-axis" data-bottom-cabin-axis="z">Z -- mm</span>
           </div>
           <div
+            id="bottomAreaProgress"
+            class="bottom-area-progress mono"
+            data-state="waiting"
+            title="等待区域进度上报"
+            aria-label="等待区域进度上报"
+          >
+            <span class="bottom-area-progress-title">区域进度</span>
+            <span class="bottom-area-progress-value">区域 --/--</span>
+          </div>
+          <div
             id="bottomLinearModulePosition"
             class="bottom-linear-module-position mono"
             data-state="waiting"
@@ -1002,6 +1020,7 @@ export class UIController {
     this.renderTopicInventory([]);
     this.setGripperTfCalibration(null);
     this.setTcpLinearRemoteState(null);
+    this.setAreaProgress(null);
     this.setBottomLinearModulePosition(null, null);
     this.setSettingsHomePage("topics");
     this.setSettingsPage("topics");
@@ -1061,7 +1080,8 @@ export class UIController {
     this.refs.settingsLayerLogList = this.rootElement.querySelector("#settingsLayerLogList");
     this.refs.visualDebugExecutionModeInputs = [...this.rootElement.querySelectorAll("input[name='visualDebugExecutionMode']")];
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
-    this.refs.visualDebugBindGroupPointCount = this.rootElement.querySelector("#visualDebugBindGroupPointCount");
+    this.refs.visualDebugBindExecutionCabinMinZ = this.rootElement.querySelector("#visualDebugBindExecutionCabinMinZ");
+    this.refs.visualDebugAdaptiveBindGrouping = this.rootElement.querySelector("#visualDebugAdaptiveBindGrouping");
     this.refs.visualDebugBeamExclusionToggle = this.rootElement.querySelector("#visualDebugBeamExclusionToggle");
     this.refs.visualDebugBindRangeXMin = this.rootElement.querySelector("#visualDebugBindRangeXMin");
     this.refs.visualDebugBindRangeXMax = this.rootElement.querySelector("#visualDebugBindRangeXMax");
@@ -1069,7 +1089,6 @@ export class UIController {
     this.refs.visualDebugBindRangeYMax = this.rootElement.querySelector("#visualDebugBindRangeYMax");
     this.refs.visualDebugBindRangeZMin = this.rootElement.querySelector("#visualDebugBindRangeZMin");
     this.refs.visualDebugBindRangeZMax = this.rootElement.querySelector("#visualDebugBindRangeZMax");
-    this.refs.visualDebugTrigger = this.rootElement.querySelector("#visualDebugTrigger");
     this.refs.visualDebugTimingSummary = this.rootElement.querySelector("#visualDebugTimingSummary");
     this.refs.visualDebugLogList = this.rootElement.querySelector("#visualDebugLogList");
     this.refs.clearLogs = this.rootElement.querySelector("#clearLogs");
@@ -1122,6 +1141,8 @@ export class UIController {
     this.refs.cabinRemoteAbsoluteMoveButton = this.rootElement.querySelector("#cabinRemoteAbsoluteMoveButton");
     this.refs.bottomCabinPosition = this.rootElement.querySelector("#bottomCabinPosition");
     this.refs.bottomCabinPositionAxes = [...this.rootElement.querySelectorAll("[data-bottom-cabin-axis]")];
+    this.refs.bottomAreaProgress = this.rootElement.querySelector("#bottomAreaProgress");
+    this.refs.bottomAreaProgressValue = this.rootElement.querySelector(".bottom-area-progress-value");
     this.refs.bottomLinearModulePosition = this.rootElement.querySelector("#bottomLinearModulePosition");
     this.refs.bottomLinearModuleAxes = [...this.rootElement.querySelectorAll("[data-bottom-linear-axis]")];
     this.refs.cabinRemoteCurrentPosition = this.rootElement.querySelector("#cabinRemoteCurrentPosition");
@@ -2314,18 +2335,17 @@ export class UIController {
       stableFrameCount: Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugStableFrameCount?.value || "3"))),
       requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
       executionMode: Number.isFinite(executionMode) ? executionMode : DEFAULT_GLOBAL_EXECUTION_MODE,
-      bindGroupPointCount: Math.min(
-        64,
-        Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugBindGroupPointCount?.value || "4"))),
-      ),
+      adaptiveBindGrouping: Boolean(this.refs.visualDebugAdaptiveBindGrouping?.checked),
       enableBeamExclusion: Boolean(this.refs.visualDebugBeamExclusionToggle?.checked),
+      bindExecutionCabinMinZMm: normalizeBindExecutionCabinMinZ(
+        this.refs.visualDebugBindExecutionCabinMinZ?.value,
+      ),
       linearModuleBindRangeMm: this.getVisualDebugBindRangeInputs(),
     };
   }
 
   setVisualDebugSettings(settings) {
     const stableFrameCount = Math.max(1, Math.round(Number(settings?.stableFrameCount) || 3));
-    const bindGroupPointCount = Math.min(64, Math.max(1, Math.round(Number(settings?.bindGroupPointCount) || 4)));
     const executionMode = Number.isFinite(Number(settings?.executionMode))
       ? Math.round(Number(settings.executionMode))
       : DEFAULT_GLOBAL_EXECUTION_MODE;
@@ -2342,14 +2362,20 @@ export class UIController {
     if (this.refs.visualDebugStableFrameCount) {
       this.refs.visualDebugStableFrameCount.value = String(stableFrameCount);
     }
-    if (this.refs.visualDebugBindGroupPointCount) {
-      this.refs.visualDebugBindGroupPointCount.value = String(bindGroupPointCount);
+    if (this.refs.visualDebugBindExecutionCabinMinZ) {
+      this.refs.visualDebugBindExecutionCabinMinZ.value = String(
+        normalizeBindExecutionCabinMinZ(settings?.bindExecutionCabinMinZMm),
+      );
+    }
+    if (this.refs.visualDebugAdaptiveBindGrouping) {
+      this.refs.visualDebugAdaptiveBindGrouping.checked = Boolean(settings?.adaptiveBindGrouping);
     }
     if (this.refs.visualDebugBeamExclusionToggle) {
       this.refs.visualDebugBeamExclusionToggle.checked = Boolean(settings?.enableBeamExclusion);
     }
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
+      bindExecutionCabinMinZMm: settings?.bindExecutionCabinMinZMm,
     });
     this.setVisualDebugBindRangeInputs(settings?.linearModuleBindRangeMm);
   }
@@ -2864,17 +2890,12 @@ export class UIController {
       });
   }
 
-  onVisualDebugTrigger(callback) {
-    this.refs.visualDebugTrigger?.addEventListener("click", () => {
-      callback(this.getVisualDebugSettings());
-    });
-  }
-
   onVisualDebugSettingsChange(callback) {
     [
       ...this.refs.visualDebugExecutionModeInputs,
       this.refs.visualDebugStableFrameCount,
-      this.refs.visualDebugBindGroupPointCount,
+      this.refs.visualDebugBindExecutionCabinMinZ,
+      this.refs.visualDebugAdaptiveBindGrouping,
       this.refs.visualDebugBeamExclusionToggle,
       ...VISUAL_DEBUG_BIND_RANGE_AXES.flatMap((axisConfig) => [
         this.refs[axisConfig.minRef],
@@ -3339,6 +3360,7 @@ export class UIController {
     singleFrameElapsedMs = null,
     serviceElapsedMs = null,
     releaseFrameCount = null,
+    bindExecutionCabinMinZMm = null,
     pointCount = null,
   } = {}) {
     if (!this.refs.visualDebugTimingSummary) {
@@ -3354,8 +3376,12 @@ export class UIController {
     const pointText = Number.isFinite(Number(pointCount))
       ? String(Number(pointCount))
       : "--";
+    const zMin = bindExecutionCabinMinZMm ?? this.getVisualDebugSettings().bindExecutionCabinMinZMm;
+    const zMinText = Number.isFinite(Number(zMin))
+      ? String(Math.round(Number(zMin)))
+      : "--";
     this.refs.visualDebugTimingSummary.textContent =
-      `单帧=${singleFrameText}ms 服务=${serviceText}ms 释放=${frameCount}帧 点数=${pointText}`;
+      `单帧=${singleFrameText}ms 服务=${serviceText}ms 释放=${frameCount}帧 Z下限=${zMinText}mm 点数=${pointText}`;
   }
 
   setTopicLayerState(state) {
@@ -3783,6 +3809,17 @@ export class UIController {
     this.refs.bottomCabinPosition.dataset.operationState = operationState?.state || "blocked";
     this.bottomCabinOperationDetail = operationState?.detail || "索驱不可操作";
     this.syncBottomCabinPositionA11y();
+  }
+
+  setAreaProgress(progress) {
+    if (!this.refs.bottomAreaProgress || !this.refs.bottomAreaProgressValue) {
+      return;
+    }
+    const display = formatAreaProgressDisplay(progress);
+    this.refs.bottomAreaProgress.dataset.state = display.state;
+    this.refs.bottomAreaProgressValue.textContent = display.label;
+    this.refs.bottomAreaProgress.title = display.title;
+    this.refs.bottomAreaProgress.setAttribute("aria-label", display.title);
   }
 
   syncBottomCabinPositionA11y() {

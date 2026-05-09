@@ -21,11 +21,6 @@ public:
     bool moveToPose(const CabinPoseCommand& command, DriverError* error);
     bool moveByOffset(const CabinPoseCommand& command, DriverError* error);
     bool sendStop(DriverError* error);
-    bool pollState(
-        float x_gesture_deg,
-        float y_gesture_deg,
-        CabinStateSnapshot* snapshot,
-        DriverError* error);
     void markExternalIoSuccess();
     CabinStateSnapshot readState() const;
     ConnectionState connectionState() const;

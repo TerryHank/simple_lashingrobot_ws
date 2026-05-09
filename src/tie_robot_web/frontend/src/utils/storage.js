@@ -24,16 +24,16 @@ export const NETWORK_PING_SETTINGS_KEY = "tie_robot_frontend_network_ping_settin
 export const RECOGNITION_POSE_KEY = "tie_robot_frontend_recognition_pose";
 export const VISUAL_DEBUG_SETTINGS_KEY = "tie_robot_frontend_visual_debug_settings";
 export const TOPIC_LAYER_STATE_KEY = "tie_robot_frontend_topic_layer_state";
+export const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
 
 function normalizePositiveNumber(value, fallback) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback;
 }
 
-function normalizeBindGroupPointCount(value, fallback = 4) {
+function normalizeNonNegativeNumber(value, fallback) {
   const numericValue = Number(value);
-  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : fallback;
-  return Math.min(64, Math.max(1, roundedValue));
+  return Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : fallback;
 }
 
 function normalizeGlobalExecutionMode(value, fallback = DEFAULT_GLOBAL_EXECUTION_MODE) {
@@ -334,8 +334,9 @@ export function loadVisualDebugSettings() {
     stableFrameCount: 3,
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: DEFAULT_GLOBAL_EXECUTION_MODE,
-    bindGroupPointCount: 4,
+    adaptiveBindGrouping: false,
     enableBeamExclusion: false,
+    bindExecutionCabinMinZMm: DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(),
   };
   try {
@@ -348,8 +349,12 @@ export function loadVisualDebugSettings() {
       stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(parsed?.stableFrameCount, defaults.stableFrameCount))),
       requestMode: defaults.requestMode,
       executionMode: normalizeGlobalExecutionMode(parsed?.executionMode, defaults.executionMode),
-      bindGroupPointCount: normalizeBindGroupPointCount(parsed?.bindGroupPointCount, defaults.bindGroupPointCount),
+      adaptiveBindGrouping: normalizeBoolean(parsed?.adaptiveBindGrouping, defaults.adaptiveBindGrouping),
       enableBeamExclusion: normalizeBoolean(parsed?.enableBeamExclusion, defaults.enableBeamExclusion),
+      bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
+        parsed?.bindExecutionCabinMinZMm,
+        defaults.bindExecutionCabinMinZMm,
+      ),
       linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(parsed?.linearModuleBindRangeMm, defaults.linearModuleBindRangeMm),
     };
   } catch {
@@ -362,8 +367,12 @@ export function saveVisualDebugSettings(value) {
     stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(value?.stableFrameCount, 3))),
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: normalizeGlobalExecutionMode(value?.executionMode),
-    bindGroupPointCount: normalizeBindGroupPointCount(value?.bindGroupPointCount),
+    adaptiveBindGrouping: normalizeBoolean(value?.adaptiveBindGrouping, false),
     enableBeamExclusion: normalizeBoolean(value?.enableBeamExclusion, false),
+    bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
+      value?.bindExecutionCabinMinZMm,
+      DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,
+    ),
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(value?.linearModuleBindRangeMm),
   };
   try {

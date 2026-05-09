@@ -75,6 +75,7 @@ struct DynamicBindPlannerConfig
     float matrix_column_threshold_mm = 45.0f;
     float snake_row_tolerance_mm = 90.0f;
     int seed_neighbor_count = 8;
+    bool adaptive_grouping_enabled = false;
     int requested_group_point_count = 4;
 };
 
@@ -85,6 +86,10 @@ float get_dynamic_bind_world_axis_value(
 DynamicBindGridAxisMapping infer_dynamic_bind_grid_axis_mapping(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
     const std::vector<DynamicBindGridIndex>& grid_indices);
+
+void sort_scan_world_points_from_world_minimum(
+    std::vector<tie_robot_msgs::PointCoords>& world_points,
+    float row_tolerance_mm = 90.0f);
 
 std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_scan_world(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,

@@ -101,10 +101,39 @@ public:
 
     ~ScopedPlcExecutionState()
     {
+        if (safe_to_clear_) {
+            clear_moduan_work_state();
+            return;
+        }
+        printCurrentTime();
+        ros_log_printf(
+            "Moduan_Warn: 末端运动未确认安全结束，保持/moduan_work=true，阻止后续索驱移动。\n"
+        );
+    }
+
+    void mark_safe_to_clear()
+    {
+        safe_to_clear_ = true;
+    }
+
+private:
+    bool safe_to_clear_ = false;
+
+    static void clear_moduan_work_state()
+    {
         moduan_plc_execution_state.store(false, std::memory_order_release);
         pub_moduan_work_state(false);
     }
 };
+
+bool is_bind_points_failure_before_motion_started(const std::string& message)
+{
+    return message.find("预生成绑扎点为空") != std::string::npos ||
+           message.find("线性模组驱动连接失败") != std::string::npos ||
+           message.find("线性模组清理FINISHALL失败") != std::string::npos ||
+           message.find("线性模组预计算点位写入失败") != std::string::npos ||
+           message.find("线性模组预计算点执行触发失败") != std::string::npos;
+}
 
 struct LinearModuleAxisSnapshot
 {
@@ -174,6 +203,17 @@ bool wait_linear_module_axis_arrival(int Axis, double target_coordinate)
                 "Moduan_Error: 等待线性模组%s轴到位时检测到错误标志=%d，目标位置 %.2f，当前位置 %.2f。\n",
                 snapshot.name,
                 snapshot.error_flag,
+                target_coordinate,
+                snapshot.position
+            );
+            return false;
+        }
+
+        if (moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Warn: 等待线性模组%s轴到位时收到长按停止并回起点请求，释放当前执行链，目标位置 %.2f，当前位置 %.2f。\n",
+                snapshot.name,
                 target_coordinate,
                 snapshot.position
             );
@@ -449,6 +489,7 @@ bool move_linear_module_to_target(double x, double y, double z, double angle, st
         return false;
     }
 
+    ScopedPlcExecutionState linear_move_state;
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         ROS_WARN("Cur Angle: %f\n", angle);
@@ -461,6 +502,7 @@ bool move_linear_module_to_target(double x, double y, double z, double angle, st
         Set_Module_Coordinate(WY_COORDINATE, &y, plc);
     }
     if (!trigger_linear_module_motion_execution("X/Y轴", response_message)) {
+        linear_move_state.mark_safe_to_clear();
         return false;
     }
 
@@ -474,12 +516,14 @@ bool move_linear_module_to_target(double x, double y, double z, double angle, st
         Set_Module_Coordinate(WZ_COORDINATE, &z, plc);
     }
     if (!trigger_linear_module_motion_execution("Z轴", response_message)) {
+        linear_move_state.mark_safe_to_clear();
         return false;
     }
     if (!wait_linear_module_axis_arrival(AXIS_Z, z)) {
         response_message = "线性模组Z轴未确认到位";
         return false;
     }
+    linear_move_state.mark_safe_to_clear();
     response_message = "线性模组原子移动完成";
     return true;
 }
@@ -502,6 +546,7 @@ int linear_module_move_origin_single(int Axis)
 
 bool move_linear_module_to_origin()
 {
+    ScopedPlcExecutionState return_zero_state;
     double zero_target = 0;
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
@@ -518,6 +563,9 @@ bool move_linear_module_to_origin()
     }
     const bool arrived_x = wait_linear_module_axis_arrival(AXIS_X, zero_target);
     const bool arrived_y = wait_linear_module_axis_arrival(AXIS_Y, zero_target);
+    if (arrived_x && arrived_y) {
+        return_zero_state.mark_safe_to_clear();
+    }
     return arrived_x && arrived_y;
 }
 
@@ -565,9 +613,14 @@ bool execute_bind_points(
         ScopedPlcExecutionState plc_execution_state;
         if (!ros::service::call("/moduan/driver/raw_execute_points", raw_execute_srv)) {
             response_message = "无法调用线性模组驱动层 raw execute 服务 /moduan/driver/raw_execute_points";
+            plc_execution_state.mark_safe_to_clear();
             return false;
         }
         response_message = raw_execute_srv.response.message;
+        if (raw_execute_srv.response.success ||
+            is_bind_points_failure_before_motion_started(response_message)) {
+            plc_execution_state.mark_safe_to_clear();
+        }
         return raw_execute_srv.response.success;
     }
 
@@ -642,12 +695,14 @@ bool execute_bind_points(
                 "线性模组预计算点执行触发失败",
                 driver_error
             );
+            plc_execution_state.mark_safe_to_clear();
             return false;
         }
         if (!wait_for_plc_finish_all(kFinishAllPollInterval, kFinishAllTimeout)) {
             response_message = "等待FINISHALL标志超时，当前子区域绑扎未确认完成";
             return false;
         }
+        plc_execution_state.mark_safe_to_clear();
     }
     bind_all_data.push_back(bind_data);
     response_message = "区域绑扎作业完成";

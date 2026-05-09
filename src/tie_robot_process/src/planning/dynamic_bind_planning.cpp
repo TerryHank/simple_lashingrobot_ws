@@ -130,33 +130,68 @@ struct GridRectangleShape
     int column_count = 1;
 };
 
-bool is_safe_long_axis_rectangle_shape(
-    const GridRectangleShape& shape,
-    bool prefer_long_span_on_rows)
-{
-    return shape.row_count >= 1 &&
-           shape.column_count >= 1 &&
-           (prefer_long_span_on_rows ? shape.row_count <= 3 : shape.row_count <= 2) &&
-           (prefer_long_span_on_rows ? shape.column_count <= 2 : shape.column_count <= 3);
-}
+bool is_group_reachable_from_centered_dynamic_pose(
+    const std::vector<GridPointRef>& refs,
+    float fallback_cabin_height,
+    const tf2::Transform& gripper_from_base_link,
+    const DynamicBindPlannerConfig& config);
 
-DynamicBindWorldAxis select_preferred_long_span_world_axis(const DynamicBindPlannerConfig& config)
+DynamicBindWorldAxis select_preferred_long_span_world_axis(
+    const tf2::Transform& gripper_from_base_link,
+    const DynamicBindPlannerConfig& config)
 {
-    return config.tcp_max_x_mm >= config.tcp_max_y_mm
+    const tf2::Vector3 local_long_axis = config.tcp_max_x_mm >= config.tcp_max_y_mm
+        ? tf2::Vector3(1.0, 0.0, 0.0)
+        : tf2::Vector3(0.0, 1.0, 0.0);
+    const tf2::Vector3 world_long_axis =
+        gripper_from_base_link.inverse().getBasis() * local_long_axis;
+    return std::fabs(world_long_axis.x()) >= std::fabs(world_long_axis.y())
         ? DynamicBindWorldAxis::kX
         : DynamicBindWorldAxis::kY;
 }
 
 bool should_prefer_long_span_on_grid_rows(
     const DynamicBindGridAxisMapping& axis_mapping,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config)
 {
-    return axis_mapping.row_axis == select_preferred_long_span_world_axis(config);
+    return axis_mapping.row_axis ==
+        select_preferred_long_span_world_axis(gripper_from_base_link, config);
 }
 
 int normalize_requested_group_point_count(const DynamicBindPlannerConfig& config)
 {
-    return std::max(1, config.requested_group_point_count);
+    return std::max(2, config.requested_group_point_count);
+}
+
+int minimum_group_point_count(const DynamicBindPlannerConfig& config)
+{
+    (void)config;
+    return 2;
+}
+
+int rectangle_shape_orientation_priority(
+    const GridRectangleShape& shape,
+    bool prefer_long_span_on_rows)
+{
+    if (shape.row_count == shape.column_count) {
+        return 0;
+    }
+    const bool long_span_on_rows = shape.row_count > shape.column_count;
+    return long_span_on_rows == prefer_long_span_on_rows ? 0 : 1;
+}
+
+bool rectangle_shape_matches_long_span_preference(
+    const GridRectangleShape& shape,
+    bool prefer_long_span_on_rows)
+{
+    if (shape.row_count <= 0 || shape.column_count <= 0) {
+        return false;
+    }
+    if (shape.row_count == shape.column_count) {
+        return true;
+    }
+    return rectangle_shape_orientation_priority(shape, prefer_long_span_on_rows) == 0;
 }
 
 std::vector<GridRectangleShape> build_requested_group_rectangle_shapes(
@@ -171,18 +206,24 @@ std::vector<GridRectangleShape> build_requested_group_rectangle_shapes(
         }
         const int column_count = requested_count / row_count;
         GridRectangleShape shape{row_count, column_count};
-        if (requested_count != 4 &&
-            !is_safe_long_axis_rectangle_shape(shape, prefer_long_span_on_rows)) {
+        if (!rectangle_shape_matches_long_span_preference(shape, prefer_long_span_on_rows)) {
             continue;
         }
         shapes.push_back(shape);
     }
 
-    std::sort(shapes.begin(), shapes.end(), [](const GridRectangleShape& lhs, const GridRectangleShape& rhs) {
+    std::sort(shapes.begin(), shapes.end(), [&](const GridRectangleShape& lhs, const GridRectangleShape& rhs) {
         const int lhs_squareness = std::abs(lhs.row_count - lhs.column_count);
         const int rhs_squareness = std::abs(rhs.row_count - rhs.column_count);
         if (lhs_squareness != rhs_squareness) {
             return lhs_squareness < rhs_squareness;
+        }
+        const int lhs_orientation_priority =
+            rectangle_shape_orientation_priority(lhs, prefer_long_span_on_rows);
+        const int rhs_orientation_priority =
+            rectangle_shape_orientation_priority(rhs, prefer_long_span_on_rows);
+        if (lhs_orientation_priority != rhs_orientation_priority) {
+            return lhs_orientation_priority < rhs_orientation_priority;
         }
         if (lhs.row_count != rhs.row_count) {
             return lhs.row_count < rhs.row_count;
@@ -192,30 +233,37 @@ std::vector<GridRectangleShape> build_requested_group_rectangle_shapes(
     return shapes;
 }
 
-bool supports_smaller_group_fallback(int requested_group_point_count)
+bool supports_smaller_group_fallback(const DynamicBindPlannerConfig& config)
 {
+    const int requested_group_point_count = normalize_requested_group_point_count(config);
+    if (config.adaptive_grouping_enabled) {
+        return requested_group_point_count > minimum_group_point_count(config);
+    }
     return requested_group_point_count != 4 && requested_group_point_count > 1;
 }
 
 std::vector<GridRectangleShape> build_smaller_group_rectangle_shapes(
     int requested_group_point_count,
+    int minimum_point_count,
     bool prefer_long_span_on_rows)
 {
     std::vector<GridRectangleShape> shapes;
-    for (int point_count = requested_group_point_count - 1; point_count >= 1; --point_count) {
+    for (int point_count = requested_group_point_count - 1;
+         point_count >= minimum_point_count;
+         --point_count) {
         for (int row_count = 1; row_count <= point_count; ++row_count) {
             if (point_count % row_count != 0) {
                 continue;
             }
             GridRectangleShape shape{row_count, point_count / row_count};
-            if (!is_safe_long_axis_rectangle_shape(shape, prefer_long_span_on_rows)) {
+            if (!rectangle_shape_matches_long_span_preference(shape, prefer_long_span_on_rows)) {
                 continue;
             }
             shapes.push_back(shape);
         }
     }
 
-    std::sort(shapes.begin(), shapes.end(), [](const GridRectangleShape& lhs, const GridRectangleShape& rhs) {
+    std::sort(shapes.begin(), shapes.end(), [&](const GridRectangleShape& lhs, const GridRectangleShape& rhs) {
         const int lhs_area = lhs.row_count * lhs.column_count;
         const int rhs_area = rhs.row_count * rhs.column_count;
         if (lhs_area != rhs_area) {
@@ -226,11 +274,48 @@ std::vector<GridRectangleShape> build_smaller_group_rectangle_shapes(
         if (lhs_squareness != rhs_squareness) {
             return lhs_squareness < rhs_squareness;
         }
+        const int lhs_orientation_priority =
+            rectangle_shape_orientation_priority(lhs, prefer_long_span_on_rows);
+        const int rhs_orientation_priority =
+            rectangle_shape_orientation_priority(rhs, prefer_long_span_on_rows);
+        if (lhs_orientation_priority != rhs_orientation_priority) {
+            return lhs_orientation_priority < rhs_orientation_priority;
+        }
         if (lhs.row_count != rhs.row_count) {
             return lhs.row_count < rhs.row_count;
         }
         return lhs.column_count < rhs.column_count;
     });
+    return shapes;
+}
+
+std::vector<GridRectangleShape> build_adaptive_group_rectangle_shapes(
+    const DynamicBindPlannerConfig& config,
+    bool prefer_long_span_on_rows)
+{
+    auto append_unique_shape = [](std::vector<GridRectangleShape>& shapes, GridRectangleShape shape) {
+        const auto existing_it = std::find_if(
+            shapes.begin(),
+            shapes.end(),
+            [&](const GridRectangleShape& existing_shape) {
+                return existing_shape.row_count == shape.row_count &&
+                       existing_shape.column_count == shape.column_count;
+            });
+        if (existing_it == shapes.end()) {
+            shapes.push_back(shape);
+        }
+    };
+
+    std::vector<GridRectangleShape> shapes =
+        build_requested_group_rectangle_shapes(config, prefer_long_span_on_rows);
+    const std::vector<GridRectangleShape> smaller_shapes =
+        build_smaller_group_rectangle_shapes(
+            normalize_requested_group_point_count(config),
+            minimum_group_point_count(config),
+            prefer_long_span_on_rows);
+    shapes.insert(shapes.end(), smaller_shapes.begin(), smaller_shapes.end());
+    append_unique_shape(shapes, GridRectangleShape{1, 2});
+    append_unique_shape(shapes, GridRectangleShape{2, 1});
     return shapes;
 }
 
@@ -776,6 +861,71 @@ std::vector<GridPointRef> select_best_pair_refs(
     return best_refs;
 }
 
+std::vector<GridPointRef> collect_grid_rectangle_refs(
+    const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
+    int grid_row_count,
+    int grid_column_count,
+    int row_index,
+    int column_index,
+    const GridRectangleShape& shape,
+    const DynamicBindPlannerConfig& config,
+    double& geometry_score,
+    const std::unordered_set<long long>* unavailable_cell_keys = nullptr)
+{
+    if (shape.row_count <= 0 ||
+        shape.column_count <= 0 ||
+        row_index < 0 ||
+        column_index < 0 ||
+        row_index + shape.row_count > grid_row_count ||
+        column_index + shape.column_count > grid_column_count) {
+        return {};
+    }
+
+    std::vector<const std::vector<GridPointRef>*> cell_refs;
+    cell_refs.reserve(static_cast<size_t>(shape.row_count * shape.column_count));
+    for (int local_row = 0; local_row < shape.row_count; ++local_row) {
+        for (int local_column = 0; local_column < shape.column_count; ++local_column) {
+            const int target_row = row_index + local_row;
+            const int target_column = column_index + local_column;
+            const long long cell_key = encode_grid_cell_key(target_row, target_column);
+            if (unavailable_cell_keys != nullptr &&
+                unavailable_cell_keys->count(cell_key) > 0U) {
+                return {};
+            }
+            const auto cell_it = point_refs_by_grid_cell.find(cell_key);
+            if (cell_it == point_refs_by_grid_cell.end() || cell_it->second.empty()) {
+                return {};
+            }
+            cell_refs.push_back(&cell_it->second);
+        }
+    }
+
+    if (shape.row_count == 2 && shape.column_count == 2) {
+        return select_best_square_refs(
+            *cell_refs[0],
+            *cell_refs[1],
+            *cell_refs[2],
+            *cell_refs[3],
+            config,
+            geometry_score);
+    }
+    if (cell_refs.size() == 2U) {
+        return select_best_pair_refs(
+            *cell_refs[0],
+            *cell_refs[1],
+            config,
+            geometry_score);
+    }
+
+    std::vector<GridPointRef> refs;
+    refs.reserve(cell_refs.size());
+    for (const auto* refs_in_cell : cell_refs) {
+        refs.push_back(refs_in_cell->front());
+    }
+    geometry_score = 0.0;
+    return refs;
+}
+
 std::vector<GridSquareCandidate> select_grid_group_candidates_by_fixed_two_by_two_tiling(
     const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
     int row_count,
@@ -876,12 +1026,19 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_recta
     const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
     int row_count,
     int column_count,
+    float fallback_cabin_height,
+    const tf2::Transform& gripper_from_base_link,
     const DynamicBindPlannerConfig& config,
     bool prefer_long_span_on_rows)
 {
-    std::vector<GridSquareCandidate> selected_candidates;
     if (row_count <= 0 || column_count <= 0) {
-        return selected_candidates;
+        return {};
+    }
+    int available_cell_count = 0;
+    for (const auto& entry : point_refs_by_grid_cell) {
+        if (!entry.second.empty()) {
+            available_cell_count++;
+        }
     }
 
     auto find_cell_refs = [&](int row_index, int column_index) -> const std::vector<GridPointRef>* {
@@ -894,7 +1051,11 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_recta
 
     const std::vector<GridRectangleShape> shapes =
         build_requested_group_rectangle_shapes(config, prefer_long_span_on_rows);
+    const int requested_group_point_count = normalize_requested_group_point_count(config);
     for (const auto& shape : shapes) {
+        std::vector<GridSquareCandidate> selected_candidates;
+        bool blocked_before_first_candidate = false;
+        bool reached_unreachable_after_prefix = false;
         if (shape.row_count <= 0 ||
             shape.column_count <= 0 ||
             shape.row_count > row_count ||
@@ -922,6 +1083,20 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_recta
                     static_cast<int>(refs.size()) != shape.row_count * shape.column_count) {
                     continue;
                 }
+                const std::vector<GridPointRef> ordered_refs =
+                    order_grid_refs_by_world_y_then_x(refs);
+                if (!is_group_reachable_from_centered_dynamic_pose(
+                        ordered_refs,
+                        fallback_cabin_height,
+                        gripper_from_base_link,
+                        config)) {
+                    if (selected_candidates.empty()) {
+                        blocked_before_first_candidate = true;
+                    } else {
+                        reached_unreachable_after_prefix = true;
+                    }
+                    break;
+                }
 
                 selected_candidates.push_back(GridSquareCandidate{
                     row_index,
@@ -935,7 +1110,150 @@ std::vector<GridSquareCandidate> select_grid_group_candidates_by_requested_recta
                     std::move(refs),
                 });
             }
+            if (blocked_before_first_candidate) {
+                break;
+            }
+            if (reached_unreachable_after_prefix) {
+                break;
+            }
         }
+        if (blocked_before_first_candidate) {
+            continue;
+        }
+        int selected_cell_count = 0;
+        for (const auto& candidate : selected_candidates) {
+            selected_cell_count += static_cast<int>(candidate.refs.size());
+        }
+        if (requested_group_point_count > minimum_group_point_count(config) &&
+            available_cell_count - selected_cell_count == 1) {
+            continue;
+        }
+        if (reached_unreachable_after_prefix && !selected_candidates.empty()) {
+            return selected_candidates;
+        }
+        if (!selected_candidates.empty()) {
+            return selected_candidates;
+        }
+    }
+
+    return {};
+}
+
+std::vector<GridSquareCandidate> select_grid_group_candidates_adaptively(
+    const std::unordered_map<long long, std::vector<GridPointRef>>& point_refs_by_grid_cell,
+    int row_count,
+    int column_count,
+    float fallback_cabin_height,
+    const tf2::Transform& gripper_from_base_link,
+    const DynamicBindPlannerConfig& config,
+    bool prefer_long_span_on_rows)
+{
+    if (row_count <= 0 || column_count <= 0) {
+        return {};
+    }
+
+    std::vector<GridCellCoord> ordered_available_cells;
+    ordered_available_cells.reserve(point_refs_by_grid_cell.size());
+    for (int row_index = 0; row_index < row_count; ++row_index) {
+        for (int column_index = 0; column_index < column_count; ++column_index) {
+            const auto cell_it = point_refs_by_grid_cell.find(
+                encode_grid_cell_key(row_index, column_index));
+            if (cell_it == point_refs_by_grid_cell.end() || cell_it->second.empty()) {
+                continue;
+            }
+            ordered_available_cells.push_back(GridCellCoord{row_index, column_index});
+        }
+    }
+    if (ordered_available_cells.empty()) {
+        return {};
+    }
+
+    const std::vector<GridRectangleShape> candidate_shapes =
+        build_adaptive_group_rectangle_shapes(config, prefer_long_span_on_rows);
+    std::unordered_set<long long> unavailable_cell_keys;
+    int remaining_available_cell_count = static_cast<int>(ordered_available_cells.size());
+    std::vector<GridSquareCandidate> selected_candidates;
+
+    for (const auto& cell : ordered_available_cells) {
+        const long long cell_key = encode_grid_cell_key(cell.row_index, cell.column_index);
+        if (unavailable_cell_keys.count(cell_key) > 0U) {
+            continue;
+        }
+
+        GridSquareCandidate selected_candidate;
+        bool has_selected_candidate = false;
+        GridSquareCandidate single_tail_fallback_candidate;
+        bool has_single_tail_fallback_candidate = false;
+
+        for (const auto& shape : candidate_shapes) {
+            double geometry_score = 0.0;
+            std::vector<GridPointRef> refs = collect_grid_rectangle_refs(
+                point_refs_by_grid_cell,
+                row_count,
+                column_count,
+                cell.row_index,
+                cell.column_index,
+                shape,
+                config,
+                geometry_score,
+                &unavailable_cell_keys);
+            if (refs.empty()) {
+                continue;
+            }
+
+            const std::vector<GridPointRef> ordered_refs =
+                order_grid_refs_by_world_y_then_x(refs);
+            if (!is_group_reachable_from_centered_dynamic_pose(
+                    ordered_refs,
+                    fallback_cabin_height,
+                    gripper_from_base_link,
+                    config)) {
+                continue;
+            }
+
+            GridSquareCandidate candidate;
+            candidate.row_index = cell.row_index;
+            candidate.column_index = cell.column_index;
+            candidate.traversal_order = build_grid_rectangle_group_snake_traversal_order(
+                cell.row_index,
+                cell.column_index,
+                column_count,
+                shape);
+            candidate.geometry_score = geometry_score;
+            candidate.refs = std::move(refs);
+
+            const int tail_cell_count =
+                remaining_available_cell_count - static_cast<int>(candidate.refs.size());
+            if (tail_cell_count == 1) {
+                if (!has_single_tail_fallback_candidate) {
+                    single_tail_fallback_candidate = std::move(candidate);
+                    has_single_tail_fallback_candidate = true;
+                }
+                continue;
+            }
+
+            selected_candidate = std::move(candidate);
+            has_selected_candidate = true;
+            break;
+        }
+
+        if (!has_selected_candidate && has_single_tail_fallback_candidate) {
+            selected_candidate = std::move(single_tail_fallback_candidate);
+            has_selected_candidate = true;
+        }
+
+        if (!has_selected_candidate) {
+            unavailable_cell_keys.insert(cell_key);
+            remaining_available_cell_count -= 1;
+            continue;
+        }
+
+        const int selected_cell_count = static_cast<int>(selected_candidate.refs.size());
+        for (const auto& ref : selected_candidate.refs) {
+            unavailable_cell_keys.insert(encode_grid_cell_key(ref.row_index, ref.column_index));
+        }
+        remaining_available_cell_count -= selected_cell_count;
+        selected_candidates.push_back(std::move(selected_candidate));
     }
 
     return selected_candidates;
@@ -1447,6 +1765,72 @@ DynamicBindGridAxisMapping infer_dynamic_bind_grid_axis_mapping(
     return mapping;
 }
 
+void sort_scan_world_points_from_world_minimum(
+    std::vector<tie_robot_msgs::PointCoords>& world_points,
+    float row_tolerance_mm)
+{
+    if (world_points.empty()) {
+        return;
+    }
+
+    const auto compare_by_world_y_then_x =
+        [](const tie_robot_msgs::PointCoords& lhs, const tie_robot_msgs::PointCoords& rhs) {
+            if (std::fabs(lhs.World_coord[1] - rhs.World_coord[1]) > 1e-6f) {
+                return lhs.World_coord[1] < rhs.World_coord[1];
+            }
+            if (std::fabs(lhs.World_coord[0] - rhs.World_coord[0]) > 1e-6f) {
+                return lhs.World_coord[0] < rhs.World_coord[0];
+            }
+            if (std::fabs(lhs.World_coord[2] - rhs.World_coord[2]) > 1e-6f) {
+                return lhs.World_coord[2] < rhs.World_coord[2];
+            }
+            return lhs.idx < rhs.idx;
+        };
+
+    std::sort(world_points.begin(), world_points.end(), compare_by_world_y_then_x);
+
+    std::vector<std::vector<tie_robot_msgs::PointCoords>> world_rows;
+    std::vector<double> row_mean_y_values;
+    const double safe_row_tolerance = std::max(0.0f, row_tolerance_mm);
+    for (const auto& world_point : world_points) {
+        const double world_y = static_cast<double>(world_point.World_coord[1]);
+        if (world_rows.empty() ||
+            std::fabs(world_y - row_mean_y_values.back()) > safe_row_tolerance) {
+            world_rows.push_back({world_point});
+            row_mean_y_values.push_back(world_y);
+            continue;
+        }
+
+        auto& row_points = world_rows.back();
+        row_points.push_back(world_point);
+        row_mean_y_values.back() =
+            (row_mean_y_values.back() * static_cast<double>(row_points.size() - 1U) +
+             world_y) /
+            static_cast<double>(row_points.size());
+    }
+
+    world_points.clear();
+    int next_global_index = 1;
+    for (auto& row_points : world_rows) {
+        std::sort(row_points.begin(), row_points.end(), [](const auto& lhs, const auto& rhs) {
+            if (std::fabs(lhs.World_coord[0] - rhs.World_coord[0]) > 1e-6f) {
+                return lhs.World_coord[0] < rhs.World_coord[0];
+            }
+            if (std::fabs(lhs.World_coord[1] - rhs.World_coord[1]) > 1e-6f) {
+                return lhs.World_coord[1] < rhs.World_coord[1];
+            }
+            if (std::fabs(lhs.World_coord[2] - rhs.World_coord[2]) > 1e-6f) {
+                return lhs.World_coord[2] < rhs.World_coord[2];
+            }
+            return lhs.idx < rhs.idx;
+        });
+        for (auto& world_point : row_points) {
+            world_point.idx = next_global_index++;
+            world_points.push_back(world_point);
+        }
+    }
+}
+
 std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_scan_world(
     const std::vector<tie_robot_msgs::PointCoords>& planning_world_points,
     const CabinPoint& path_origin,
@@ -1531,7 +1915,10 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
             infer_dynamic_bind_grid_axis_mapping(planning_world_points, grid_indices);
     }
     const bool prefer_long_span_on_rows =
-        should_prefer_long_span_on_grid_rows(planner_axis_mapping, config);
+        should_prefer_long_span_on_grid_rows(
+            planner_axis_mapping,
+            gripper_from_base_link,
+            config);
 
     std::unordered_map<long long, std::vector<GridPointRef>> point_refs_by_grid_cell;
     for (size_t point_index = 0; point_index < planning_world_points.size(); ++point_index) {
@@ -1602,12 +1989,15 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
         if (group_refs.empty()) {
             return false;
         }
+        if (group_refs.size() < static_cast<size_t>(minimum_group_point_count(config))) {
+            return false;
+        }
         const bool default_edge_pair =
             requested_group_point_count == 4 &&
             group_refs.size() == 2U &&
             are_adjacent_grid_refs(group_refs[0], group_refs[1]);
         const bool smaller_group_fallback =
-            supports_smaller_group_fallback(requested_group_point_count) &&
+            supports_smaller_group_fallback(config) &&
             static_cast<int>(group_refs.size()) < requested_group_point_count;
         if (static_cast<int>(group_refs.size()) != requested_group_point_count &&
             !default_edge_pair &&
@@ -1669,11 +2059,22 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
     };
 
     std::vector<GridSquareCandidate> selected_square_candidates =
-        requested_group_point_count != 4
+        config.adaptive_grouping_enabled
+            ? select_grid_group_candidates_adaptively(
+                  point_refs_by_grid_cell,
+                  static_cast<int>(row_keys.size()),
+                  static_cast<int>(column_keys.size()),
+                  cabin_height,
+                  gripper_from_base_link,
+                  config,
+                  prefer_long_span_on_rows)
+        : requested_group_point_count != 4
             ? select_grid_group_candidates_by_requested_rectangle_tiling(
                   point_refs_by_grid_cell,
                   static_cast<int>(row_keys.size()),
                   static_cast<int>(column_keys.size()),
+                  cabin_height,
+                  gripper_from_base_link,
                   config,
                   prefer_long_span_on_rows)
             : has_provided_grid
@@ -1688,83 +2089,29 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
                   static_cast<int>(column_keys.size()),
                   config);
 
-    if (supports_smaller_group_fallback(requested_group_point_count)) {
+    if (!config.adaptive_grouping_enabled &&
+        supports_smaller_group_fallback(config)) {
         const int grid_row_count = static_cast<int>(row_keys.size());
         const int grid_column_count = static_cast<int>(column_keys.size());
         const std::vector<GridRectangleShape> fallback_shapes =
             build_smaller_group_rectangle_shapes(
                 requested_group_point_count,
+                minimum_group_point_count(config),
                 prefer_long_span_on_rows);
-
-        auto find_cell_refs = [&](int row_index, int column_index) -> const std::vector<GridPointRef>* {
-            const auto cell_key = encode_grid_cell_key(row_index, column_index);
-            const auto cell_it = point_refs_by_grid_cell.find(cell_key);
-            if (cell_it == point_refs_by_grid_cell.end() ||
-                cell_it->second.empty()) {
-                return nullptr;
-            }
-            return &cell_it->second;
-        };
-
-        auto collect_rectangle_refs = [&](
-            int row_index,
-            int column_index,
-            const GridRectangleShape& shape,
-            double& geometry_score) -> std::vector<GridPointRef> {
-            if (row_index + shape.row_count > grid_row_count ||
-                column_index + shape.column_count > grid_column_count) {
-                return {};
-            }
-
-            std::vector<const std::vector<GridPointRef>*> cell_refs;
-            cell_refs.reserve(static_cast<size_t>(shape.row_count * shape.column_count));
-            for (int local_row = 0; local_row < shape.row_count; ++local_row) {
-                for (int local_column = 0; local_column < shape.column_count; ++local_column) {
-                    const auto* refs = find_cell_refs(
-                        row_index + local_row,
-                        column_index + local_column);
-                    if (refs == nullptr) {
-                        return {};
-                    }
-                    cell_refs.push_back(refs);
-                }
-            }
-
-            if (shape.row_count == 2 && shape.column_count == 2) {
-                return select_best_square_refs(
-                    *cell_refs[0],
-                    *cell_refs[1],
-                    *cell_refs[2],
-                    *cell_refs[3],
-                    config,
-                    geometry_score);
-            }
-            if (cell_refs.size() == 2U) {
-                return select_best_pair_refs(
-                    *cell_refs[0],
-                    *cell_refs[1],
-                    config,
-                    geometry_score);
-            }
-
-            std::vector<GridPointRef> refs;
-            refs.reserve(cell_refs.size());
-            for (const auto* refs_in_cell : cell_refs) {
-                refs.push_back(refs_in_cell->front());
-            }
-            geometry_score = 0.0;
-            return refs;
-        };
 
         std::vector<GridSquareCandidate> fallback_candidates;
         for (int row_index = 0; row_index < grid_row_count; ++row_index) {
             for (int column_index = 0; column_index < grid_column_count; ++column_index) {
                 for (const auto& shape : fallback_shapes) {
                     double geometry_score = 0.0;
-                    std::vector<GridPointRef> refs = collect_rectangle_refs(
+                    std::vector<GridPointRef> refs = collect_grid_rectangle_refs(
+                        point_refs_by_grid_cell,
+                        grid_row_count,
+                        grid_column_count,
                         row_index,
                         column_index,
                         shape,
+                        config,
                         geometry_score);
                     if (refs.empty()) {
                         continue;

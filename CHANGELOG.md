@@ -3,7 +3,42 @@
 本文档记录 `simple_lashingrobot_ws` 的项目级变更约定和近期关键调整。  
 开始修改代码前，先读最新日期的记录，再进入具体包目录。
 
+## 2026-05-09
+
+### 演示模式收回本工程静默开关
+
+- 用户最新口径：新前端 header 的“演示模式”点击后只关闭当前 `simple_lashingrobot_ws` 工程相关进程和后台服务，然后按钮状态变绿；不再启动、停止或清理 `/home/hyq-/lashingrobotROS` 或 `/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws` 里的任何内容。
+- 演示模式进入动作收口为停止本工程 `tie-robot-backend.service`、三个 driver service 与 `tie-robot-rosbridge.service`，并且只按当前工作区路径清理残留 ROS 进程；不再启动旧前端、旧 `chassis_ctrl api.launch`、`tie-robot-demo-rosbridge.service` 或 `tie-robot-demo-show-full.service`。
+- 演示模式退出动作仍按当前工程依赖顺序恢复 `tie-robot-rosbridge.service`、三个 driver service 和 `tie-robot-backend.service`。
+
+## 2026-05-08
+
+### 跳绑微调按当前区域最近账本点
+
+- 用户最新口径覆盖 2026-05-07 的区域四宫格对账方案，并撤回“当前区域 2x2 未就绪就原地轮询”的语义：`planned_path_refine_only` 跳绑开启后，视觉侧若未返回可执行微调点，后端记录原因并跳过当前区域，不停留当前区域反复请求。
+- 视觉返回可执行点时，后端不再按账本区域边界、中心线四宫格或 4 宫格完整性拒绝稳定视觉结果。
+- 后端现在把每个视觉点转换到 `map` 与 `gripper_frame` 后，只在当前 `pseudo_slam_bind_path.json` 区域的 `groups[].points[]` 里按三维欧式距离找最近账本点；执行点继承该账本点的 `jump_bind`、`checkerboard_color`、全局行列等元数据，坐标使用实时视觉得到的世界坐标和 TCP 局部坐标。
+- 跳绑过滤仍在最近账本点匹配之后执行：选择黑/白棋时按最近账本点的元数据过滤下发，因此稳定 2x2 不会再因为四宫格对账失败而反复重试视觉。
+
 ## 2026-05-07
+
+### 子系统隔离与索驱持续重连
+
+- 现场最新口径：索驱归索驱、线性模组/末端归线性模组/末端、视觉归视觉；任一子系统掉线、超时或重启时，不应通过 systemd 生命周期把其他层一起停止或重启。
+- `tie-robot-backend.service`、`tie-robot-driver-suoqu.service`、`tie-robot-driver-moduan.service`、`tie-robot-driver-camera.service` 启动前仍通过 `Wants/After=tie-robot-rosbridge.service` 和 `wait_for_ros_master.py` 等待本机 ROS master 可用，但不再使用 `PartOf=tie-robot-rosbridge.service` 跟随 rosbridge 停止/重启。
+- 索驱底层 `Frame_Generate_With_Retry` 不再因“重新发送命令失败超过5次”或“重新连接失败超过5次”紧急退出；通信发送/读取失败时保持节点运行并持续重连索驱，重连成功后继续重发原指令。协议明确非瞬态拒绝仍返回失败，避免限位、速度错误等硬拒绝被无限重发。
+
+### 路径规划+微调跳绑
+
+- `planned_path_refine_only` 路径规划+微调模式支持跳绑热开关：跳绑关闭时保留原 `/moduan/sg` 纯单点微调链路；跳绑开启时每个区域到位后直接调用 `/pointAI/process_image` 的执行微调。旧版曾要求当前帧没有 2x2 时停留当前区域继续轮询；2026-05-08 该轮询语义已撤回，当前做法是记录原因并跳过当前区域。
+- 跳绑开启时的微调纠正不落盘修改 `pseudo_slam_bind_path.json`：实际执行坐标继续使用当前识别点由 `Scepter_depth_frame -> gripper_frame` 转换得到的局部坐标，账本负责当前区域边界、四宫格、黑白棋和全局行列元数据。后端只接收落在当前账本区域扩展边界内的视觉点，并用账本区域中心线划分四宫格；账本或边界内视觉不足完整 4 宫格时不下发局部漏绑点，避免相邻区域视觉点混入当前区域。
+- 后端跳绑启停状态改为 `std::atomic<bool>`，和黑/白棋 parity 一样按区域执行前读取快照，保证运行中开关/切换对后续区域热生效。
+- `planned_path_refine_only` 首区大 Z 下降后的视觉稳定等待和 `EXECUTION_REFINE_NO_POINTS` 重试等待均从 `1200ms` 缩短为 `300ms`，保留到位后短等待与首次无点重试，但减少首区节拍延迟。
+
+### 长按停止并回起点 FINISHALL 等待修复
+
+- 修复 split-node 模式下 `/moduan/driver/raw_execute_points` 与 `/moduan/return_zero_ordered` 并发竞争：驱动层 raw execute 服务现在和有序回零服务共用 `lashing_mutex`，避免长按停止刚置位后，有序回零先清掉 `moduan_return_zero_ordered_requested`，导致旧执行链继续卡在 `等待FINISHALL标志中，FINISH_ALL_FLAG=0`。
+- 新增控制链回归测试，约束 raw execute 必须先取得 `lashing_mutex` 再进入 `execute_bind_points(...)`；同时放宽暂停等待测试的脆弱单行字符串断言，改为检查多行 `while` 中的真实暂停条件。
 
 ### 控制面板任务区收口与人工切区
 
@@ -15,6 +50,8 @@
 
 - 清理执行视觉链路遗留的“近点排斥/去重”算法：`MODE_EXECUTION_REFINE` 的 Hough 候选点不再因为世界 XY 距离小于旧 `100mm` 阈值而成对丢弃；多根钢筋靠得近时，只要有有效 3D 坐标且落在 TCP 执行范围内，就继续进入排序和下发。
 - 执行底图诊断同步移除 `DUP` 标记，日志也不再输出“去重移除”；现场漏点只剩 `H` 原始交点、`ZERO` 无有效 3D 坐标、`OUT` 超出 TCP 范围和 `SEL/编号` 最终输出这几类有效门控。
+- 执行微调输出进一步收口为完整 `2x2`：在 TCP 执行范围内按行列匹配完整矩阵，从能组成 `2x2` 的候选组里选择整体离 TCP 零点最近的一组，并按 `(1,1)->(1,2)->(2,2)->(2,1)` 的 TCP 局部蛇形顺序编号下发；若缺行或缺列则不向执行层下发零散点。
+- live_visual 账本+微调链路移除旧 X/Y 接纳门限：视觉微调点不再因为相对扫描参考点超过固定毫米阈值而被丢弃；是否执行收口到“触发单点绑扎”视觉动作和上述执行微调 `2x2` 输出条件。
 
 ### 扫描 DP 底图梁筋候选可视化
 
@@ -23,6 +60,8 @@
 - 梁筋候选识别补充「黑色竖沟 + 双侧窄亮边」形态：现场截图中梁筋中间常表现为贯穿全高的暗沟，而不是整条宽亮带；检测逻辑会把两侧连续亮边与中间低覆盖暗沟合并成一条 beam_candidate 竖带，避免漏掉这种梁筋。
 - 梁筋候选进一步增加高度门控：竖带这一列必须在 `background_depth - filled_depth` 高度响应上高于邻近普通钢筋才会标为梁筋；红色半透明带按高度峰值列收窄，避免把只是更宽、更亮但不更高的普通钢筋误判为梁筋。
 - 梁筋候选再增加网格线族上下文门控：候选竖带必须位于相邻普通竖向钢筋列之间，并接近这两列的中点；如果候选中心落在正常竖筋 line-family 上，会被视为普通钢筋抬高或局部变粗而剔除，降低误识别红带。
+- 梁筋高度门控的“周围钢筋”改为邻近上下文比较：不再跨多列取远处更高竖筋压低局部梁筋候选，现场帧中红带由 `x=149..156` 一条恢复为 `x=149..156` 与 `x=331..339` 两条；同时保留普通加粗竖筋拒绝和黑色竖沟梁筋贴在线族上时的豁免。
+- 梁筋候选新增“结构连续但高度扁平”兜底：当现场另一根梁筋高度响应只有约 `0.48~0.54`、但竖向响应更宽且连续时，仍按 `wide_continuous_column` 标为梁筋候选；如果 line-family 已把它吞成普通竖筋列，lattice gate 会结合相邻间距轻微畸变恢复该梁筋，避免把梁筋当普通钢筋导致列间距异常。
 
 ### 跳绑长按启停与黑白棋选择
 
@@ -51,8 +90,9 @@
 
 ### 视觉调试设置填完即用
 
-- “视觉调试”卡里的释放帧数、每组点数、梁筋过滤开关和绑扎范围输入统一改为填完即用：输入变化会立即保存设置、刷新 3D / IR 绑扎范围，并同步发布 `/web/pointAI/set_stable_frame_count`、`/web/pointAI/set_execution_refine_tcp_roi` 与 `/web/pointAI/set_scan_beam_exclusion`，不再需要点击“应用帧数”。
-- “触发视觉服务”按钮继续保留，只负责主动发起一次视觉识别 / 扫描动作；它不承担设置确认语义。
+- “视觉调试”卡里的释放帧数、索驱规划 Z 下限、自适应分组、梁筋过滤开关和绑扎范围输入统一改为填完即用：输入变化会立即保存设置、刷新 3D / IR 绑扎范围，并同步发布 `/web/pointAI/set_stable_frame_count`、`/web/pointAI/set_execution_refine_tcp_roi` 与 `/web/pointAI/set_scan_beam_exclusion`，不再需要点击确认。
+- 设置页删除“触发视觉服务”按钮；视觉调试页只负责参数热更新和持久化，主动视觉触发入口收口到控制面板扫描/执行按钮。
+- `planned_path_refine_only` 跳绑微调失败原因进一步区分：如果 pointAI 已经返回可执行视觉点，但账本最近点匹配或跳绑过滤没通过，后端日志会直接说明失败原因；2026-05-08 已撤回失败后原地轮询语义，当前失败会跳过当前区域。
 
 ### 单点绑扎区域内蛇形点序
 
@@ -151,8 +191,8 @@
 
 ### 新前端演示模式直跑旧 show_full
 
-- 用户最新口径改为不再使用旧展示转义层：旧 `20260403` 展示链进入演示时直接由旧工作目录 `roslaunch chassis_ctrl show_full.launch` 接管，`show_legacy_driver_bridge` / `tie-robot-show-legacy-shared-driver-stack.service` 不再作为演示链路的一部分。
-- 新前端 header 的“演示模式”状态按钮进入演示时会确保 5173 旧前端在线，停止当前 `tie-robot-rosbridge.service`、`tie-robot-backend.service`、三个 driver service 和旧转义层服务，再启动轻量 `tie-robot-demo-rosbridge.service` 与旧工作目录 `tie-robot-demo-show-full.service`；进入后按钮变绿并打开 `http://<当前主机>:5173/`。
+- 用户最新口径改为不再使用旧展示转义层：旧 `20260403` 展示链进入演示时直接由旧工作目录 `roslaunch chassis_ctrl api.launch` 接管，`show_legacy_driver_bridge` / `tie-robot-show-legacy-shared-driver-stack.service` 不再作为演示链路的一部分。
+- 新前端 header 的“演示模式”状态按钮进入演示时会确保 5173 旧前端在线，停止当前 `tie-robot-rosbridge.service`、`tie-robot-backend.service`、三个 driver service 和旧转义层服务，再启动轻量 `tie-robot-demo-rosbridge.service` 与旧工作目录 `tie-robot-demo-show-full.service`；进入后按钮变绿并打开 `http://<当前主机>:5100/`。
 - `tie-robot-demo-rosbridge.service` 只运行 `rosbridge_websocket + rosapi`，不包含当前工作目录 `tf_stack.launch` / `api.launch`，避免演示态继续拉起 `robot_tf_broadcaster`、`web_action_bridge_node` 等当前 TF/API 节点。
 - 演示态 rosbridge 增加 topic whitelist：保留 `/pointAI/result_image` 给旧 `pointAI.py` 的绑扎点画面，Scepter 相机图像只放行 `/Scepter/*/image_raw/compressed` 和 camera_info，阻断旧前端继续订阅大流量 raw 图像。
 - 再次点击“演示模式”会停止 `tie-robot-demo-show-full.service` 与 `tie-robot-demo-rosbridge.service`，随后启动当前工作目录完整 `tie-robot-rosbridge.service`、三个 driver service 和 `tie-robot-backend.service`，恢复本程序普通运行态。
@@ -194,11 +234,11 @@
 - 三维视图默认切到“自由视角”，保持现有 Orbit 拖拽交互；“相机视角”锁定在 `Scepter_depth_frame` 原点，并沿相机自身 `z+` 方向看；“俯视视角”锁定世界原点上方，并沿全局坐标 `z-` 方向看。
 - 原“跟随相机”语义收口为“跟随原点”：自由视角下保留当前拖拽角度并随当前视角原点平移，锁定视角下持续回到对应原点与朝向。
 
-### rosbridge 重启后依赖服务跟随重启
+### rosbridge 重启后依赖服务重新注册口径
 
 - 现场视觉断链根因是 `tie-robot-rosbridge.service` 重启并重新拥有 ROS master 后，旧的相机、后端和末端进程仍在运行但没有重新注册到当前 master，导致 `/Scepter/ir/image_raw`、`/Scepter/depth/image_raw` 无发布者，`/pointAINode` 等节点 XML-RPC 地址拒绝连接。
-- `tie-robot-backend.service` 和三个 driver service 增加 `PartOf=tie-robot-rosbridge.service`，后续 rosbridge 重启时依赖当前 ROS master 的服务会跟随重启，避免留下“进程活着但 ROS 图断链”的半断状态。
-- 本机已重新安装 systemd unit，并重启 backend、camera、moduan 让节点重新注册；恢复后 `/Scepter/ir/image_raw` 约 5Hz，`/coordinate_point` 有 `/pointAINode` 发布者。
+- 旧方案曾让 `tie-robot-backend.service` 和三个 driver service 通过 `PartOf=tie-robot-rosbridge.service` 跟随 rosbridge 重启；该方案已被上方“子系统隔离与索驱持续重连”取代，避免 rosbridge 或视觉链路动作牵连索驱、末端。
+- 如果 rosbridge/ROS master 确实重启，按当前口径应由前端或人工只重启需要重新注册的子系统；不要用 systemd `PartOf` 做自动连坐重启。
 
 ### ROS 全栈快速重启清理残留进程
 

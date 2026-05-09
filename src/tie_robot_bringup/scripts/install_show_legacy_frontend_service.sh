@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_LEGACY_DIST="/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/src/APP/dist"
+DEFAULT_LEGACY_DIST="/home/hyq-/lashingrobotROS/src/APP/dist"
 LEGACY_DIST="${1:-${DEFAULT_LEGACY_DIST}}"
 SERVICE_USER="${SUDO_USER:-${USER}}"
 SERVICE_NAME="tie-robot-show-legacy-frontend.service"
@@ -31,5 +31,5 @@ sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl restart "${SERVICE_NAME}"
 
 echo "${SERVICE_NAME} 已安装并设置为开机启动。"
-echo "访问地址: http://0.0.0.0:5173/"
+echo "访问地址: http://0.0.0.0:5100/"
 echo "查看状态: systemctl status ${SERVICE_NAME}"

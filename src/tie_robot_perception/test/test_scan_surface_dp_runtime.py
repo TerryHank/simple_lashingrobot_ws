@@ -208,6 +208,26 @@ def _build_synthetic_beam_dark_gutter_response(raised_beam=True):
     return response, binary_candidate, valid_mask, height_response
 
 
+def _build_synthetic_flat_height_wide_beam_response():
+    width = 420
+    height = 260
+    vertical_lines = [32.0 + (28.0 * index) for index in range(13)]
+    horizontal_lines = [28.0, 56.0, 84.0, 112.0, 140.0, 168.0, 196.0, 224.0, 252.0]
+    response = np.zeros((height, width), dtype=np.float32)
+    _draw_axis_line(response, "x", vertical_lines, sigma_px=1.1, amplitude=1.0)
+    _draw_axis_line(response, "y", horizontal_lines, sigma_px=1.1, amplitude=0.85)
+    _draw_axis_line(response, "x", [228.0], sigma_px=3.8, amplitude=1.9)
+    response = np.clip(response, 0.0, 1.0).astype(np.float32)
+    valid_mask = np.ones((height, width), dtype=bool)
+    binary_candidate = response > 0.34
+    intermittent_rows = (np.arange(height) % 8) < 3
+    binary_candidate[:, 224:233] = False
+    binary_candidate[intermittent_rows, 224:233] = response[intermittent_rows, 224:233] > 0.34
+    height_response = (0.42 * binary_candidate.astype(np.float32)).astype(np.float32)
+    height_response[:, 224:233] = 0.50
+    return response, binary_candidate, valid_mask, height_response
+
+
 class ScanSurfaceDpRuntimeTest(unittest.TestCase):
     def test_surface_dp_outputs_curve_intersections_on_synthetic_grid(self):
         from tie_robot_perception.pointai import scan_surface_dp
@@ -246,15 +266,15 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertNotIn("run_manual_workspace_s2_depth_only_pipeline", pipeline_source)
         self.assertIn('"legacy_depth_only_fallback"] = False', pipeline_source)
 
-    def test_surface_dp_rejects_legacy_support_when_physical_prior_unresolved(self):
+    def test_surface_dp_rejects_line_support_when_physical_spacing_unresolved(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         width = 500
         height = 500
-        legacy_lines = [50.0 + (32.0 * index) for index in range(8)]
+        out_of_spacing_lines = [50.0 + (40.0 * index) for index in range(8)]
         legacy_response = np.zeros((height, width), dtype=np.float32)
-        _draw_axis_line(legacy_response, "x", legacy_lines)
-        _draw_axis_line(legacy_response, "y", legacy_lines)
+        _draw_axis_line(legacy_response, "x", out_of_spacing_lines)
+        _draw_axis_line(legacy_response, "y", out_of_spacing_lines)
         legacy_response = np.clip(legacy_response, 0.0, 1.0)
         valid_mask = np.ones((height, width), dtype=bool)
         modalities = {
@@ -325,6 +345,25 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(result["line_counts"], [16, 16])
         self.assertEqual(len(result["rectified_intersections"]), 256)
         self.assertEqual(result["diagnostics"]["physical_prior_modes"], ["full_workspace", "full_workspace"])
+
+    def test_surface_dp_accepts_spacing_valid_grid_without_full_workspace_line_count_limit(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        vertical_lines = [42.0 + (28.0 * index) for index in range(13)]
+        horizontal_lines = [40.0 + (28.0 * index) for index in range(13)]
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=420,
+                height=420,
+                vertical_lines=vertical_lines,
+                horizontal_lines=horizontal_lines,
+            ),
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [13, 13])
+        self.assertEqual(len(result["rectified_intersections"]), 169)
 
     def test_surface_dp_falls_back_to_visible_local_prior_for_small_views(self):
         from tie_robot_perception.pointai import scan_surface_dp
@@ -500,61 +539,163 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertEqual(beam_bands, [])
 
-    def test_surface_dp_filters_line_rhos_that_overlap_beam_candidate_mask(self):
+    def test_surface_dp_detects_flat_height_wide_beam_from_structural_continuity(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
-        beam_mask = np.zeros((200, 260), dtype=bool)
-        beam_mask[:, 172:181] = True
+        response, binary_candidate, valid_mask, height_response = _build_synthetic_flat_height_wide_beam_response()
+
+        beam_bands = scan_surface_dp.detect_beam_candidate_bands(
+            response,
+            binary_candidate,
+            valid_mask,
+            height_response=height_response,
+        )
+
+        self.assertTrue(
+            any(
+                band.get("axis") == "x"
+                and int(band["start"]) <= 228 <= int(band["end"])
+                and band.get("beam_signature") == "wide_continuous_column"
+                for band in beam_bands
+            ),
+            beam_bands,
+        )
+
+    def test_surface_dp_lattice_gate_keeps_dark_gutter_beam_when_line_family_lands_on_it(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
         line_families = [
             {
                 "axis_orientation": "vertical",
                 "line_angle_deg": 90.0,
-                "normal": [1.0, 0.0],
-                "line_rhos": [152.0, 176.0, 204.0],
+                "line_rhos": [50.0, 78.0, 106.0, 134.0, 162.0, 176.0, 190.0, 218.0, 246.0, 274.0],
             },
             {
                 "axis_orientation": "horizontal",
                 "line_angle_deg": 0.0,
-                "normal": [0.0, 1.0],
-                "line_rhos": [48.0, 76.0, 104.0],
+                "line_rhos": [48.0, 76.0, 104.0, 132.0],
             },
         ]
+        beam_band = {
+            "axis": "x",
+            "start": 173,
+            "end": 179,
+            "width": 7,
+            "original_start": 154,
+            "original_end": 198,
+            "original_width": 45,
+            "height_delta": 0.18,
+            "beam_signature": "dark_gutter_edge_pair",
+            "height_gate": "raised_column",
+            "type": "beam_candidate",
+        }
 
-        filtered_families = scan_surface_dp._filter_line_families_by_beam_overlap(
+        accepted_bands, rejected_count = scan_surface_dp._filter_beam_candidate_bands_by_lattice_context(
+            [beam_band],
             line_families,
-            beam_mask,
+            image_width=320,
         )
 
-        self.assertEqual(filtered_families[0]["line_rhos"], [152.0, 204.0])
-        self.assertEqual(filtered_families[1]["line_rhos"], [48.0, 76.0, 104.0])
+        self.assertEqual(rejected_count, 0)
+        self.assertEqual(len(accepted_bands), 1)
+        self.assertEqual(accepted_bands[0]["lattice_gate"], "dark_gutter_over_vertical_rebar_line")
 
-    def test_surface_dp_keeps_curve_tracing_outside_beam_candidate_mask_without_margin_filter(self):
+    def test_surface_dp_lattice_gate_rejects_wide_raised_regular_line_without_dark_gutter(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
-        result = scan_surface_dp.build_scan_surface_dp_result(
-            _build_synthetic_rectified_grid_with_beam_band(),
-            threshold_percentile=78.0,
+        line_families = [
+            {
+                "axis_orientation": "vertical",
+                "line_angle_deg": 90.0,
+                "line_rhos": [50.0, 78.0, 106.0, 134.0, 162.0, 176.0, 190.0, 218.0, 246.0, 274.0],
+            }
+        ]
+        raised_regular_line = {
+            "axis": "x",
+            "start": 173,
+            "end": 179,
+            "width": 7,
+            "original_start": 154,
+            "original_end": 198,
+            "original_width": 45,
+            "height_delta": 0.18,
+            "height_gate": "raised_column",
+            "type": "beam_candidate",
+        }
+
+        accepted_bands, rejected_count = scan_surface_dp._filter_beam_candidate_bands_by_lattice_context(
+            [raised_regular_line],
+            line_families,
+            image_width=320,
         )
 
-        self.assertTrue(result["success"], result.get("message"))
-        beam_mask = np.asarray(result["beam_candidate_mask"], dtype=bool)
-        traced_points_inside_beam_mask = 0
-        traced_points_sampled = 0
-        for family in result.get("curved_families", []):
-            for curved_line in family.get("curved_lines", []):
-                for point in curved_line.get("polyline_points", []):
-                    x_index = int(round(float(point[0])))
-                    y_index = int(round(float(point[1])))
-                    if x_index < 0 or y_index < 0:
-                        continue
-                    if y_index >= beam_mask.shape[0] or x_index >= beam_mask.shape[1]:
-                        continue
-                    traced_points_sampled += 1
-                    if beam_mask[y_index, x_index]:
-                        traced_points_inside_beam_mask += 1
+        self.assertEqual(accepted_bands, [])
+        self.assertEqual(rejected_count, 1)
 
-        self.assertGreater(traced_points_sampled, 0)
-        self.assertEqual(traced_points_inside_beam_mask, 0)
+    def test_surface_dp_lattice_gate_accepts_structural_beam_when_line_family_swallows_it(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        line_families = [
+            {
+                "axis_orientation": "vertical",
+                "line_angle_deg": 90.0,
+                "line_rhos": [297.0, 331.0, 357.0, 383.0, 411.0, 441.0, 474.0],
+            },
+            {
+                "axis_orientation": "horizontal",
+                "line_angle_deg": 0.0,
+                "line_rhos": [48.0, 76.0, 104.0, 132.0],
+            },
+        ]
+        swallowed_beam = {
+            "axis": "x",
+            "start": 333,
+            "end": 341,
+            "width": 9,
+            "original_start": 333,
+            "original_end": 341,
+            "original_width": 9,
+            "height_delta": 0.02,
+            "structural_delta": 0.19,
+            "peak": 1.46,
+            "coverage": 0.358,
+            "beam_signature": "wide_continuous_column",
+            "height_gate": "structure_continuity_height_flat",
+            "type": "beam_candidate",
+        }
+
+        accepted_bands, rejected_count = scan_surface_dp._filter_beam_candidate_bands_by_lattice_context(
+            [swallowed_beam],
+            line_families,
+            image_width=490,
+        )
+
+        self.assertEqual(rejected_count, 0)
+        self.assertEqual(len(accepted_bands), 1)
+        self.assertEqual(accepted_bands[0]["lattice_gate"], "structural_beam_over_vertical_rebar_line")
+
+    def test_surface_dp_height_gate_compares_against_nearby_rebar_context(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        image_width = 491
+        height_profile = np.full((image_width,), 0.36, dtype=np.float32)
+        for center in (319, 350):
+            height_profile[center - 2:center + 3] = 0.54
+        for far_column in (379, 407):
+            height_profile[far_column - 2:far_column + 3] = 0.76
+        height_profile[331:340] = 0.66
+
+        refined_band = scan_surface_dp._refine_beam_band_by_height(
+            331,
+            339,
+            height_profile,
+            image_width,
+        )
+
+        self.assertIsNotNone(refined_band)
+        self.assertLessEqual(int(refined_band["start"]), 335)
+        self.assertGreaterEqual(int(refined_band["end"]), 335)
+        self.assertGreater(float(refined_band["height_delta"]), 0.055)
 
     def test_surface_dp_keeps_final_points_outside_beam_candidate_thirteen_centimeter_margin(self):
         from tie_robot_perception.pointai import scan_surface_dp

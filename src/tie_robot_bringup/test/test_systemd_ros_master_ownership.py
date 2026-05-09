@@ -14,7 +14,7 @@ def read_template(name):
 
 
 class SystemdRosMasterOwnershipTest(unittest.TestCase):
-    def test_driver_services_wait_for_rosbridge_owned_master(self):
+    def test_driver_services_wait_for_rosbridge_owned_master_without_lifecycle_coupling(self):
         for service_name in (
             "tie-robot-driver-suoqu.service.in",
             "tie-robot-driver-moduan.service.in",
@@ -25,17 +25,17 @@ class SystemdRosMasterOwnershipTest(unittest.TestCase):
 
                 self.assertIn("Wants=network-online.target tie-robot-rosbridge.service", template)
                 self.assertIn("After=network-online.target tie-robot-rosbridge.service", template)
-                self.assertIn("PartOf=tie-robot-rosbridge.service", template)
+                self.assertNotIn("PartOf=tie-robot-rosbridge.service", template)
                 self.assertIn("Environment=ROS_MASTER_URI=http://127.0.0.1:11311", template)
                 self.assertIn("wait_for_ros_master.py", template)
                 self.assertIn("--timeout-sec 30", template)
 
-    def test_backend_service_waits_for_rosbridge_owned_master(self):
+    def test_backend_service_waits_for_rosbridge_owned_master_without_lifecycle_coupling(self):
         template = read_template("tie-robot-backend.service.in")
 
         self.assertIn("Wants=network-online.target tie-robot-rosbridge.service", template)
         self.assertIn("After=network-online.target tie-robot-rosbridge.service", template)
-        self.assertIn("PartOf=tie-robot-rosbridge.service", template)
+        self.assertNotIn("PartOf=tie-robot-rosbridge.service", template)
         self.assertIn("Environment=ROS_MASTER_URI=http://127.0.0.1:11311", template)
         self.assertIn("wait_for_ros_master.py", template)
         self.assertIn("--timeout-sec 30", template)

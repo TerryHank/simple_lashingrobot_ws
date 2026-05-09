@@ -247,7 +247,7 @@ bool CabinTcpTransport::sendAndReceive(
             socket_fd_,
             request.data() + total_sent,
             request.size() - total_sent,
-            0
+            MSG_NOSIGNAL
         );
         if (sent <= 0) {
             connection_state_.store(ConnectionState::kReconnecting);

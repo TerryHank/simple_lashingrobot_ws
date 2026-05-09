@@ -4,6 +4,7 @@
 #include "suoqu_runtime_internal.hpp"
 
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <future>
 #include <iomanip>
@@ -52,6 +53,7 @@ bool is_motion_move_command_frame(const uint8_t* control_word, int tlen)
 const char* tcp_protocol_command_name(uint16_t command_word)
 {
     switch (command_word) {
+        case 0x0001: return "索驱状态查询";
         case 0x0002: return "电机使能控制";
         case 0x0003: return "电机复位控制";
         case 0x0004: return "运动到关节零点启动";
@@ -422,6 +424,84 @@ void log_cabin_warn_ros(const std::string& detail)
     }
 }
 
+constexpr double kModuanSafeZZeroToleranceMm = 10.0;
+constexpr double kModuanStateFreshMaxAgeSec = 1.0;
+
+std::string compose_moduan_z_axis_guard_detail(const char* motion_description)
+{
+    const std::string motion_name =
+        motion_description == nullptr ? "索驱运动指令" : motion_description;
+    if (!::moduan_state_received_flag.load(std::memory_order_acquire)) {
+        return "尚未收到末端状态/moduan/state，拒绝下发" + motion_name +
+               "；索驱移动只允许在线性模组末端Z轴为0时执行";
+    }
+
+    const double last_state_stamp_sec =
+        ::moduan_state_last_stamp_sec.load(std::memory_order_acquire);
+    const double now_sec = ros::Time::now().toSec();
+    if (last_state_stamp_sec <= 0.0 ||
+        now_sec < last_state_stamp_sec ||
+        (now_sec - last_state_stamp_sec) > kModuanStateFreshMaxAgeSec) {
+        std::ostringstream detail_stream;
+        detail_stream << std::fixed << std::setprecision(3)
+                      << "末端状态已过期，最近一次/moduan/state距今"
+                      << (last_state_stamp_sec > 0.0 && now_sec >= last_state_stamp_sec
+                              ? now_sec - last_state_stamp_sec
+                              : -1.0)
+                      << "秒，拒绝下发" << motion_name
+                      << "；索驱移动只允许在线性模组末端Z轴为0时执行";
+        return detail_stream.str();
+    }
+
+    if (!::moduan_state_connected_flag.load(std::memory_order_acquire)) {
+        return "末端状态显示未连接，拒绝下发" + motion_name +
+               "；索驱移动只允许在线性模组末端Z轴为0时执行";
+    }
+
+    const double z_mm = ::moduan_state_z_mm.load(std::memory_order_acquire);
+    if (!std::isfinite(z_mm)) {
+        return "末端Z轴状态无效，拒绝下发" + motion_name +
+               "；索驱移动只允许在线性模组末端Z轴为0时执行";
+    }
+    if (std::fabs(z_mm) > kModuanSafeZZeroToleranceMm) {
+        std::ostringstream detail_stream;
+        detail_stream << std::fixed << std::setprecision(3)
+                      << "末端Z轴未回到0，当前Z=" << z_mm
+                      << "mm，允许误差=" << kModuanSafeZZeroToleranceMm
+                      << "mm，拒绝下发" << motion_name;
+        return detail_stream.str();
+    }
+
+    return "";
+}
+
+bool reject_cabin_move_if_moduan_not_safe(
+    const char* motion_description,
+    std::string* error_message)
+{
+    std::string detail;
+    if (::moduan_work_flag.load(std::memory_order_acquire)) {
+        const std::string motion_name =
+            motion_description == nullptr ? "索驱运动指令" : motion_description;
+        detail = "末端绑扎/线性模组正在运动，拒绝下发" + motion_name;
+    } else {
+        detail = compose_moduan_z_axis_guard_detail(motion_description);
+    }
+
+    if (detail.empty()) {
+        return false;
+    }
+
+    update_last_cabin_transport_error_detail(detail);
+    printCurrentTime();
+    ros_log_printf("Cabin_Warn: %s。\n", detail.c_str());
+    log_cabin_warn_ros(detail);
+    if (error_message != nullptr) {
+        *error_message = detail;
+    }
+    return true;
+}
+
 std::string compose_cabin_driver_error_message(
     const std::string& prefix,
     const tie_robot_hw::driver::DriverError& driver_error)
@@ -510,14 +590,7 @@ bool move_cabin_pose_via_driver(
     float z_mm,
     std::string* error_message)
 {
-    if (::moduan_work_flag.load(std::memory_order_acquire)) {
-        const std::string detail = "末端绑扎/线性模组正在运动，拒绝下发索驱位姿运动指令";
-        update_last_cabin_transport_error_detail(detail);
-        printCurrentTime();
-        ros_log_printf("Cabin_Warn: %s。\n", detail.c_str());
-        if (error_message != nullptr) {
-            *error_message = detail;
-        }
+    if (reject_cabin_move_if_moduan_not_safe("索驱位姿运动指令", error_message)) {
         return false;
     }
 
@@ -618,14 +691,7 @@ bool move_cabin_incremental_via_driver(
     float z_delta_mm,
     std::string* error_message)
 {
-    if (::moduan_work_flag.load(std::memory_order_acquire)) {
-        const std::string detail = "末端绑扎/线性模组正在运动，拒绝下发索驱TCP相对位置运动指令";
-        update_last_cabin_transport_error_detail(detail);
-        printCurrentTime();
-        ros_log_printf("Cabin_Warn: %s。\n", detail.c_str());
-        if (error_message != nullptr) {
-            *error_message = detail;
-        }
+    if (reject_cabin_move_if_moduan_not_safe("索驱TCP相对位置运动指令", error_message)) {
         return false;
     }
 

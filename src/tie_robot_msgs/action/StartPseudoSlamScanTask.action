@@ -9,6 +9,7 @@ float32 fixed_scan_pose_x_mm
 float32 fixed_scan_pose_y_mm
 float32 fixed_scan_pose_z_mm
 uint16 bind_group_point_count
+float32 bind_execution_cabin_min_z_mm
 ---
 bool success
 string message

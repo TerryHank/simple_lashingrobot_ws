@@ -104,6 +104,7 @@ bool startPseudoSlamScanWithOptions(
             req.enable_capture_gate,
             res.message,
             req.bind_group_point_count,
+            req.bind_execution_cabin_min_z_mm,
             fixed_scan_pose_override
         );
     } catch (const std::exception& ex) {

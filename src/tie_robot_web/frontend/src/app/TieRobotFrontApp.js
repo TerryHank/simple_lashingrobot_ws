@@ -62,10 +62,6 @@ import { Scene3DView } from "../views/Scene3DView.js";
 import { WorkspaceCanvasView } from "../views/WorkspaceCanvasView.js";
 import { TOPICS } from "../config/topicRegistry.js";
 import { getImageHoverCoordinateFrameLabel } from "../config/topicLayerCatalog.js";
-import {
-  FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
-  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
-} from "../config/visualRecognitionMode.js";
 
 const DIRECT_CABIN_MOVE_TARGET = Object.freeze({
   x: 490,
@@ -95,10 +91,6 @@ const SETTINGS_LAYER_LOG_GROUPS = [
   { id: "driver", label: "驱动层", nodes: DRIVER_LAYER_LOG_NODES },
   { id: "algorithm", label: "算法层", nodes: ALGORITHM_LAYER_LOG_NODES },
 ];
-
-const VISUAL_DEBUG_REQUEST_MODE_LABELS = {
-  [FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE]: FRONTEND_VISUAL_RECOGNITION_FULL_LABEL,
-};
 
 const VISUAL_FRAME_SYNC_TASK_ACTIONS = new Set([
   "runSavedS2",
@@ -255,8 +247,7 @@ export class TieRobotFrontApp {
         this.syncLogSubscription({ suppressLog: true });
         this.syncGlobalCabinMoveSpeed({ suppressLog: true });
         this.syncGlobalLinearModuleSpeed({ suppressLog: true });
-        this.applyVisualDebugStableFrameCount({ suppressLog: true });
-        this.applyVisualDebugBeamExclusionSettings(this.visualDebugSettings, { suppressLog: true });
+        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, { suppressLog: true });
         this.refreshRobotHomeCalibration({ suppressLog: true });
         this.schedulePlanningAreaRefresh();
         this.refreshActionState();
@@ -443,7 +434,8 @@ export class TieRobotFrontApp {
       rosConnection: this.rosConnectionController,
       workspaceView: this.workspaceView,
       getExecutionMode: () => this.visualDebugSettings?.executionMode,
-      getBindGroupPointCount: () => this.visualDebugSettings?.bindGroupPointCount,
+      getAdaptiveBindGrouping: () => this.visualDebugSettings?.adaptiveBindGrouping,
+      getBindExecutionCabinMinZ: () => this.visualDebugSettings?.bindExecutionCabinMinZMm,
       callbacks: {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
@@ -466,7 +458,6 @@ export class TieRobotFrontApp {
         onLog: (message, level) => this.addLog(message, level),
         onPendingChange: (actionId, pending) => this.ui.setSystemActionPending(actionId, pending),
         onDemoModeStatus: (payload) => this.handleDemoModeStatus(payload),
-        onOpenUrl: (url) => this.openExternalUrl(url),
       },
     });
     this.terminalController = new TerminalController({
@@ -547,6 +538,7 @@ export class TieRobotFrontApp {
   handleAreaProgressMessage(message) {
     this.latestAreaProgress = message || null;
     this.areaNavigationController?.handleAreaProgressMessage(message);
+    this.ui.setAreaProgress(message || null);
   }
 
   handleAreaNavigationTask(taskAction) {
@@ -653,8 +645,7 @@ export class TieRobotFrontApp {
         this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
       }
       if (VISUAL_FRAME_SYNC_TASK_ACTIONS.has(taskAction)) {
-        this.applyVisualDebugStableFrameCount({ suppressLog: true });
-        this.applyVisualDebugBeamExclusionSettings(this.visualDebugSettings, { suppressLog: true });
+        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, { suppressLog: true });
       }
       this.taskActionController.handle(taskAction);
       this.refreshActionState();
@@ -762,13 +753,7 @@ export class TieRobotFrontApp {
       );
     });
     this.ui.onVisualDebugSettingsChange((settings) => {
-      this.visualDebugSettings = settings;
-      saveVisualDebugSettings(settings);
-      this.applyVisualDebugStableFrameCount({ suppressLog: true });
-      this.applyVisualDebugBeamExclusionSettings(settings, { suppressLog: true });
-    });
-    this.ui.onVisualDebugTrigger((settings) => {
-      this.handleVisualDebugTrigger(settings);
+      this.applyVisualDebugRuntimeSettings(settings, { suppressLog: true });
     });
     this.ui.onLegacyCommand((commandId) => {
       this.legacyCommandController.handle(commandId, this.ui.getParameterValues());
@@ -980,6 +965,31 @@ export class TieRobotFrontApp {
     this.ui.renderVisualDebugLogs(this.visualDebugLogs);
   }
 
+  applyVisualDebugRuntimeSettings(settings = this.ui.getVisualDebugSettings(), { suppressLog = false } = {}) {
+    const nextSettings = settings || this.ui.getVisualDebugSettings();
+    this.visualDebugSettings = nextSettings;
+    saveVisualDebugSettings(nextSettings);
+    const boundary = this.applyVisualDebugBindRangeSettings(nextSettings);
+    const frameResult = this.rosConnectionController.publishStableFrameCount(nextSettings.stableFrameCount);
+    this.ui.setVisualDebugTimingSummary({
+      releaseFrameCount: nextSettings.stableFrameCount,
+      bindExecutionCabinMinZMm: nextSettings.bindExecutionCabinMinZMm,
+    });
+    if (frameResult?.success) {
+      const message = frameResult.message || `视觉服务最终放行帧数已设置为 ${nextSettings.stableFrameCount} 帧。`;
+      if (!suppressLog) {
+        this.addLog(message, "success");
+        this.addVisualDebugLog(message, "success");
+      }
+    } else if (!suppressLog) {
+      const message = frameResult?.message || "视觉服务放行帧数设置失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
+    const beamResult = this.applyVisualDebugBeamExclusionSettings(nextSettings, { suppressLog });
+    return { boundary, frameResult, beamResult };
+  }
+
   applyVisualDebugStableFrameCount({ suppressLog = false } = {}) {
     const settings = this.ui.getVisualDebugSettings();
     this.visualDebugSettings = settings;
@@ -988,6 +998,7 @@ export class TieRobotFrontApp {
     const result = this.rosConnectionController.publishStableFrameCount(settings.stableFrameCount);
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: settings.stableFrameCount,
+      bindExecutionCabinMinZMm: settings.bindExecutionCabinMinZMm,
     });
     if (result?.success) {
       const message = result.message || `视觉服务最终放行帧数已设置为 ${settings.stableFrameCount} 帧。`;
@@ -1027,55 +1038,6 @@ export class TieRobotFrontApp {
       this.addVisualDebugLog(message, "warn");
     }
     return result;
-  }
-
-  async handleVisualDebugTrigger(settings = this.ui.getVisualDebugSettings()) {
-    const scanOnlySettings = {
-      ...settings,
-      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
-    };
-    this.visualDebugSettings = scanOnlySettings;
-    saveVisualDebugSettings(scanOnlySettings);
-    this.applyVisualDebugBindRangeSettings(scanOnlySettings);
-    if (!this.rosConnectionController.isReady()) {
-      const message = "ROS 未连接，无法触发视觉调试服务。";
-      this.addLog(message, "error");
-      this.addVisualDebugLog(message, "error");
-      this.ui.setControlFeedback(message);
-      return;
-    }
-    this.applyVisualDebugStableFrameCount({ suppressLog: true });
-    this.applyVisualDebugBeamExclusionSettings(scanOnlySettings, { suppressLog: true });
-    this.handleWorkspaceS2Triggered();
-
-    const modeLabel = VISUAL_DEBUG_REQUEST_MODE_LABELS[scanOnlySettings.requestMode] || `mode=${scanOnlySettings.requestMode}`;
-    const startMessage = `视觉调试服务请求开始：模式=${modeLabel}，释放=${scanOnlySettings.stableFrameCount}帧。`;
-    this.addLog(startMessage, "info");
-    this.addVisualDebugLog(startMessage, "info");
-
-    const result = await this.rosConnectionController.callProcessImageService({
-      requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
-    });
-    const singleFrameText = Number.isFinite(Number(result.singleFrameElapsedMs))
-      ? `${Number(result.singleFrameElapsedMs).toFixed(1)}ms`
-      : "--ms";
-    const serviceText = Number.isFinite(Number(result.serviceElapsedMs))
-      ? `${Number(result.serviceElapsedMs).toFixed(1)}ms`
-      : "--ms";
-    const level = result.success ? "success" : "error";
-    const message =
-      `视觉调试服务返回：单帧=${singleFrameText}，服务请求=${serviceText}，点数=${result.count || 0}，结果=${result.message || "无消息"}`;
-
-    this.ui.setVisualDebugTimingSummary({
-      singleFrameElapsedMs: result.singleFrameElapsedMs,
-      serviceElapsedMs: result.serviceElapsedMs,
-      releaseFrameCount: scanOnlySettings.stableFrameCount,
-      pointCount: result.count,
-    });
-    this.addLog(message, level);
-    this.addVisualDebugLog(message, level);
-    this.ui.setControlFeedback(result.message || (result.success ? "视觉服务请求完成。" : "视觉服务请求失败。"));
-    this.refreshActionState();
   }
 
   async handleNetworkPingTest(targetId) {
@@ -1871,13 +1833,6 @@ export class TieRobotFrontApp {
     this.demoModeStatusPollTimer = window.setInterval(() => {
       this.refreshDemoModeStatus({ suppressLog: true });
     }, 5000);
-  }
-
-  openExternalUrl(url) {
-    if (!url) {
-      return;
-    }
-    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   handleGraphicalAppFrameMessage(event) {
