@@ -213,8 +213,42 @@ export function collectBindPathGridPoints(areas, gridPoints = []) {
   return points;
 }
 
+export function collectUnplannedBindPathGridPoints(areas, gridPoints = []) {
+  if (!Array.isArray(gridPoints) || gridPoints.length <= 0) {
+    return [];
+  }
+  const groupedGlobalIndices = collectGroupedGlobalIndices(areas);
+  const points = [];
+  const seenKeys = new Set();
+  let fallbackIndex = 0;
+
+  gridPoints.forEach((rawPoint) => {
+    const point = normalizeBindGridPoint(rawPoint, fallbackIndex);
+    fallbackIndex += 1;
+    if (!point) {
+      return;
+    }
+    if (point.globalIdx > 0 && groupedGlobalIndices.has(point.globalIdx)) {
+      return;
+    }
+
+    const key = makePointKey(point, point.fallbackIndex);
+    if (seenKeys.has(key)) {
+      return;
+    }
+    seenKeys.add(key);
+    points.push(point);
+  });
+
+  return points;
+}
+
 export function buildBindPathPointPositions(areas, gridPoints = []) {
   return collectBindPathGridPoints(areas, gridPoints).flatMap((point) => [point.x, point.y, point.z]);
+}
+
+export function buildUnplannedBindPathPointPositions(areas, gridPoints = []) {
+  return collectUnplannedBindPathGridPoints(areas, gridPoints).flatMap((point) => [point.x, point.y, point.z]);
 }
 
 function normalizeSelectedCheckerboardParity(value) {
@@ -263,6 +297,11 @@ function normalizeAreaIndex(area, fallbackIndex) {
 export function buildBindPathPointHoverEntries(areas, gridPoints = []) {
   return collectBindPathGridPoints(areas, gridPoints)
     .map((point) => buildScenePointHoverEntry(point, "绑扎点"));
+}
+
+export function buildUnplannedBindPathPointHoverEntries(areas, gridPoints = []) {
+  return collectUnplannedBindPathGridPoints(areas, gridPoints)
+    .map((point) => buildScenePointHoverEntry(point, "未入组扫描点"));
 }
 
 export function buildJumpBindPointHoverEntries(

@@ -22,7 +22,14 @@ import {
   DEFAULT_GLOBAL_EXECUTION_MODE,
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
   GLOBAL_EXECUTION_MODES,
+  DEFAULT_SCAN_RESPONSE_SOURCE,
+  SCAN_RESPONSE_SOURCE_OPTIONS,
+  normalizeScanResponseSource,
 } from "../config/visualRecognitionMode.js";
+import {
+  CAMERA_SDK_PARAMETER_DEFINITIONS,
+  normalizeCameraSdkSettings,
+} from "../config/cameraSdkDynamicReconfigure.js";
 import { formatAreaProgressDisplay } from "../utils/areaProgress.js";
 import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
 
@@ -105,6 +112,45 @@ const VISUAL_DEBUG_EXECUTION_MODE_CONTROLS = [
   },
 ];
 
+function renderCameraSdkParameterControl(definition) {
+  const elementId = `cameraSdkParam${definition.name}`;
+  if (definition.type === "bool") {
+    return `
+      <label class="checkbox-field camera-sdk-checkbox" for="${elementId}">
+        <input id="${elementId}" type="checkbox" data-camera-sdk-param="${definition.name}" data-camera-sdk-type="bool" ${definition.defaultValue ? "checked" : ""} />
+        <span>${definition.label}</span>
+      </label>
+    `;
+  }
+  if (definition.type === "enum") {
+    return `
+      <div class="field">
+        <label for="${elementId}">${definition.label}</label>
+        <select id="${elementId}" data-camera-sdk-param="${definition.name}" data-camera-sdk-type="enum">
+          ${definition.options.map((option) => `
+            <option value="${option.value}" ${option.value === definition.defaultValue ? "selected" : ""}>${option.label}</option>
+          `).join("")}
+        </select>
+      </div>
+    `;
+  }
+  return `
+    <div class="field">
+      <label for="${elementId}">${definition.label}</label>
+      <input
+        id="${elementId}"
+        type="number"
+        min="${definition.min}"
+        max="${definition.max}"
+        step="1"
+        value="${definition.defaultValue}"
+        data-camera-sdk-param="${definition.name}"
+        data-camera-sdk-type="int"
+      />
+    </div>
+  `;
+}
+
 const NETWORK_PING_TARGETS = [
   {
     id: "cabin",
@@ -132,6 +178,7 @@ const SETTINGS_PAGE_OPTIONS = [
   { id: "topics", label: "话题总览" },
   { id: "logs", label: "节点日志" },
   { id: "visualDebug", label: "视觉调试" },
+  { id: "cameraSdkDebug", label: "相机底层 SDK 调试" },
   { id: "gb28181Local", label: "国标接入" },
   { id: "networkPing", label: "网络配置" },
   { id: "workspace", label: "工作区选点" },
@@ -478,6 +525,14 @@ export class UIController {
                       </div>
                       <div class="field-grid compact-grid">
                         <div class="field">
+                          <label for="visualDebugScanResponseSource">扫描底图</label>
+                          <select id="visualDebugScanResponseSource">
+                            ${SCAN_RESPONSE_SOURCE_OPTIONS.map((option) => `
+                              <option value="${option.id}" ${option.id === DEFAULT_SCAN_RESPONSE_SOURCE ? "selected" : ""}>${option.label}</option>
+                            `).join("")}
+                          </select>
+                        </div>
+                        <div class="field">
                           <label for="visualDebugStableFrameCount">释放帧数</label>
                           <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
                         </div>
@@ -521,6 +576,19 @@ export class UIController {
                         </div>
                       </div>
                       <div id="visualDebugTimingSummary" class="info-block mono">单帧=--ms 服务=--ms 释放=3帧 点数=--</div>
+                    </div>
+
+                  </div>
+                </section>
+
+                <section class="settings-page" data-settings-page="cameraSdkDebug" hidden>
+                  <div class="settings-grid camera-sdk-debug-grid">
+                    <div class="settings-section camera-sdk-debug-card">
+                      <div class="section-title">相机底层 SDK 调试</div>
+                      <div class="field-grid compact-grid camera-sdk-param-grid">
+                        ${CAMERA_SDK_PARAMETER_DEFINITIONS.map(renderCameraSdkParameterControl).join("")}
+                      </div>
+                      <div id="cameraSdkStatus" class="info-block mono">热修改服务：/scepter_manager/set_parameters</div>
                     </div>
                   </div>
                 </section>
@@ -1079,6 +1147,7 @@ export class UIController {
     this.refs.logList = this.rootElement.querySelector("#logList");
     this.refs.settingsLayerLogList = this.rootElement.querySelector("#settingsLayerLogList");
     this.refs.visualDebugExecutionModeInputs = [...this.rootElement.querySelectorAll("input[name='visualDebugExecutionMode']")];
+    this.refs.visualDebugScanResponseSource = this.rootElement.querySelector("#visualDebugScanResponseSource");
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
     this.refs.visualDebugBindExecutionCabinMinZ = this.rootElement.querySelector("#visualDebugBindExecutionCabinMinZ");
     this.refs.visualDebugAdaptiveBindGrouping = this.rootElement.querySelector("#visualDebugAdaptiveBindGrouping");
@@ -1091,6 +1160,8 @@ export class UIController {
     this.refs.visualDebugBindRangeZMax = this.rootElement.querySelector("#visualDebugBindRangeZMax");
     this.refs.visualDebugTimingSummary = this.rootElement.querySelector("#visualDebugTimingSummary");
     this.refs.visualDebugLogList = this.rootElement.querySelector("#visualDebugLogList");
+    this.refs.cameraSdkInputs = [...this.rootElement.querySelectorAll("[data-camera-sdk-param]")];
+    this.refs.cameraSdkStatus = this.rootElement.querySelector("#cameraSdkStatus");
     this.refs.clearLogs = this.rootElement.querySelector("#clearLogs");
     this.refs.settingsPageSelect = this.rootElement.querySelector("#settingsPageSelect");
     this.refs.settingsPages = [...this.rootElement.querySelectorAll("[data-settings-page]")];
@@ -2335,6 +2406,7 @@ export class UIController {
       stableFrameCount: Math.max(1, Math.round(Number.parseFloat(this.refs.visualDebugStableFrameCount?.value || "3"))),
       requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
       executionMode: Number.isFinite(executionMode) ? executionMode : DEFAULT_GLOBAL_EXECUTION_MODE,
+      scanResponseSource: normalizeScanResponseSource(this.refs.visualDebugScanResponseSource?.value),
       adaptiveBindGrouping: Boolean(this.refs.visualDebugAdaptiveBindGrouping?.checked),
       enableBeamExclusion: Boolean(this.refs.visualDebugBeamExclusionToggle?.checked),
       bindExecutionCabinMinZMm: normalizeBindExecutionCabinMinZ(
@@ -2362,6 +2434,9 @@ export class UIController {
     if (this.refs.visualDebugStableFrameCount) {
       this.refs.visualDebugStableFrameCount.value = String(stableFrameCount);
     }
+    if (this.refs.visualDebugScanResponseSource) {
+      this.refs.visualDebugScanResponseSource.value = normalizeScanResponseSource(settings?.scanResponseSource);
+    }
     if (this.refs.visualDebugBindExecutionCabinMinZ) {
       this.refs.visualDebugBindExecutionCabinMinZ.value = String(
         normalizeBindExecutionCabinMinZ(settings?.bindExecutionCabinMinZMm),
@@ -2378,6 +2453,45 @@ export class UIController {
       bindExecutionCabinMinZMm: settings?.bindExecutionCabinMinZMm,
     });
     this.setVisualDebugBindRangeInputs(settings?.linearModuleBindRangeMm);
+  }
+
+  getCameraSdkSettings() {
+    const rawSettings = {};
+    this.refs.cameraSdkInputs?.forEach((input) => {
+      const name = input.dataset.cameraSdkParam;
+      if (!name) {
+        return;
+      }
+      if (input.dataset.cameraSdkType === "bool") {
+        rawSettings[name] = Boolean(input.checked);
+      } else {
+        rawSettings[name] = Number.parseInt(input.value, 10);
+      }
+    });
+    return normalizeCameraSdkSettings(rawSettings);
+  }
+
+  setCameraSdkSettings(settings) {
+    const normalizedSettings = normalizeCameraSdkSettings(settings);
+    this.refs.cameraSdkInputs?.forEach((input) => {
+      const name = input.dataset.cameraSdkParam;
+      if (!name || !(name in normalizedSettings)) {
+        return;
+      }
+      if (input.dataset.cameraSdkType === "bool") {
+        input.checked = Boolean(normalizedSettings[name]);
+      } else {
+        input.value = String(normalizedSettings[name]);
+      }
+    });
+  }
+
+  setCameraSdkStatus(message, level = "info") {
+    if (!this.refs.cameraSdkStatus) {
+      return;
+    }
+    this.refs.cameraSdkStatus.textContent = message || "";
+    this.refs.cameraSdkStatus.dataset.level = level;
   }
 
   getVisualDebugBindRangeInputs() {
@@ -2893,6 +3007,7 @@ export class UIController {
   onVisualDebugSettingsChange(callback) {
     [
       ...this.refs.visualDebugExecutionModeInputs,
+      this.refs.visualDebugScanResponseSource,
       this.refs.visualDebugStableFrameCount,
       this.refs.visualDebugBindExecutionCabinMinZ,
       this.refs.visualDebugAdaptiveBindGrouping,
@@ -2906,6 +3021,14 @@ export class UIController {
       .forEach((element) => {
         element.addEventListener("input", () => callback(this.getVisualDebugSettings()));
         element.addEventListener("change", () => callback(this.getVisualDebugSettings()));
+      });
+  }
+
+  onCameraSdkSettingsChange(callback) {
+    this.refs.cameraSdkInputs
+      ?.filter(Boolean)
+      .forEach((element) => {
+        element.addEventListener("change", () => callback(this.getCameraSdkSettings()));
       });
   }
 

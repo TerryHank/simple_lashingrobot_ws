@@ -47,12 +47,48 @@ from .constants import *
 def load_runtime_config(self):
     try:
         self.height_threshold = float(rospy.get_param("~height_threshold", self.height_threshold))
+        self.scan_linear_compensation_enabled = bool(
+            rospy.get_param("~scan_linear_compensation_enabled", self.scan_linear_compensation_enabled)
+        )
+        self.scan_linear_compensation_reference_z_mm = float(
+            rospy.get_param(
+                "~scan_linear_compensation_reference_z_mm",
+                self.scan_linear_compensation_reference_z_mm,
+            )
+        )
+        self.scan_linear_compensation_x_per_mm = float(
+            rospy.get_param("~scan_linear_compensation_x_per_mm", self.scan_linear_compensation_x_per_mm)
+        )
+        self.scan_linear_compensation_y_per_mm = float(
+            rospy.get_param("~scan_linear_compensation_y_per_mm", self.scan_linear_compensation_y_per_mm)
+        )
+        self.scan_linear_compensation_min_z_mm = float(
+            rospy.get_param("~scan_linear_compensation_min_z_mm", self.scan_linear_compensation_min_z_mm)
+        )
+        self.scan_linear_compensation_max_abs_scale_delta = float(
+            rospy.get_param(
+                "~scan_linear_compensation_max_abs_scale_delta",
+                self.scan_linear_compensation_max_abs_scale_delta,
+            )
+        )
     except Exception as exc:
-        rospy.logwarn("pointAI: 读取~height_threshold参数失败，仅使用默认高度阈值: %s", exc)
+        rospy.logwarn("pointAI: 读取运行参数失败，仅使用默认视觉参数: %s", exc)
 
 
 def save_runtime_config(self):
     rospy.set_param("~height_threshold", float(self.height_threshold))
+    rospy.set_param("~scan_linear_compensation_enabled", bool(self.scan_linear_compensation_enabled))
+    rospy.set_param(
+        "~scan_linear_compensation_reference_z_mm",
+        float(self.scan_linear_compensation_reference_z_mm),
+    )
+    rospy.set_param("~scan_linear_compensation_x_per_mm", float(self.scan_linear_compensation_x_per_mm))
+    rospy.set_param("~scan_linear_compensation_y_per_mm", float(self.scan_linear_compensation_y_per_mm))
+    rospy.set_param("~scan_linear_compensation_min_z_mm", float(self.scan_linear_compensation_min_z_mm))
+    rospy.set_param(
+        "~scan_linear_compensation_max_abs_scale_delta",
+        float(self.scan_linear_compensation_max_abs_scale_delta),
+    )
 
 
 def fixed_z_value_callback(self, msg):
@@ -81,6 +117,25 @@ def set_scan_beam_exclusion_callback(self, msg):
         "pointAI: 扫描梁筋±13cm过滤已%s。",
         "启用" if self.scan_beam_exclusion_enabled else "关闭",
     )
+
+
+def set_scan_response_source_callback(self, msg):
+    requested_source = str(getattr(msg, "data", "") or "").strip()
+    allowed_sources = {
+        "fused_instance_response",
+        "frangi_like",
+        "hessian_ridge",
+        "depth_gradient",
+        "infrared_response",
+        "combined_response",
+        "depth_response",
+    }
+    if requested_source not in allowed_sources:
+        rospy.logwarn("pointAI: 扫描底图%s无效，回退为depth_gradient。", requested_source)
+        requested_source = "depth_gradient"
+    self.scan_response_source = requested_source
+    rospy.set_param("~scan_response_source", str(self.scan_response_source))
+    rospy.loginfo("pointAI: 扫描底图已设置为: %s", self.scan_response_source)
 
 
 def _normalize_execution_refine_tcp_roi_axis(min_value, max_value):

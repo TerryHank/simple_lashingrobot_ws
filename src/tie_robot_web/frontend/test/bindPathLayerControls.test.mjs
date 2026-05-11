@@ -35,6 +35,7 @@ assert.match(uiControllerText, /showCabinPath:\s*this\.refs\.showCabinPathToggle
 assert.match(uiControllerText, /showLinearModuleBindRange:\s*this\.refs\.showLinearModuleBindRangeToggle\.checked/);
 
 assert.match(scene3dViewText, /this\.bindPathPoints = buildPointsObject/);
+assert.match(scene3dViewText, /this\.unplannedBindPathPoints = buildPointsObject/);
 assert.match(scene3dViewText, /this\.bindRowLines = new THREE\.LineSegments/);
 assert.match(scene3dViewText, /this\.bindColumnLines = new THREE\.LineSegments/);
 assert.match(scene3dViewText, /this\.bindGroupLines = new THREE\.LineSegments/);
@@ -43,3 +44,4 @@ assert.match(scene3dViewText, /this\.planningAreaPath\.visible = showCabinPath/)
 assert.match(scene3dViewText, /this\.bindGroupLines\.visible = showBindGroups/);
 assert.match(scene3dViewText, /this\.planningPoints\.visible = showBindPoints && !hasBindPathPointOverlay/);
 assert.match(scene3dViewText, /this\.bindPathPoints\.visible = showBindPoints && hasBindPathPointOverlay/);
+assert.match(scene3dViewText, /this\.unplannedBindPathPoints\.visible = showBindPoints && hasUnplannedBindPathPointOverlay/);

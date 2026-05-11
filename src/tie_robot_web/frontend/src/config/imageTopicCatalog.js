@@ -36,12 +36,7 @@ export const IMAGE_TOPIC_OPTIONS = [
   },
   {
     id: TOPICS.algorithm.scanSurfaceDpBaseImage,
-    label: getRegistryLabel(TOPICS.algorithm.scanSurfaceDpBaseImage, "扫描底图 fused response"),
-    overlayCompatible: false,
-  },
-  {
-    id: TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage,
-    label: getRegistryLabel(TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage, "扫描DP收束底图"),
+    label: getRegistryLabel(TOPICS.algorithm.scanSurfaceDpBaseImage, "扫描识别底图"),
     overlayCompatible: false,
   },
   {

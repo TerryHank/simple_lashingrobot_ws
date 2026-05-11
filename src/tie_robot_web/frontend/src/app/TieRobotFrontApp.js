@@ -23,6 +23,7 @@ import { PanelManager } from "../ui/PanelManager.js";
 import { UIController } from "../ui/UIController.js";
 import {
   loadCabinRemoteSettings,
+  loadCameraSdkSettings,
   loadDisplayPreferences,
   loadNetworkPingSettings,
   loadRecognitionPose,
@@ -34,6 +35,7 @@ import {
   loadVisualDebugSettings,
   loadViewerLayout,
   saveCabinRemoteSettings,
+  saveCameraSdkSettings,
   saveDisplayPreferences,
   saveNetworkPingSettings,
   saveRecognitionPose,
@@ -138,6 +140,7 @@ export class TieRobotFrontApp {
     this.networkPingSettings = loadNetworkPingSettings();
     this.recognitionPose = loadRecognitionPose(DIRECT_CABIN_MOVE_TARGET);
     this.visualDebugSettings = loadVisualDebugSettings();
+    this.cameraSdkSettings = loadCameraSdkSettings();
     this.topicLayerState = loadTopicLayerStatePreference();
     this.settingsHomePage = loadSettingsHomePagePreference();
     this.activeSettingsPage = this.settingsHomePage;
@@ -198,6 +201,7 @@ export class TieRobotFrontApp {
     this.workspaceView.setSavedWorkspaceGuideVisible(this.activeSettingsPage === "workspace");
     this.ui.setDisplaySettings(this.displaySettings);
     this.ui.setVisualDebugSettings(this.visualDebugSettings);
+    this.ui.setCameraSdkSettings(this.cameraSdkSettings);
     this.ui.renderPointList([]);
     this.ui.renderSettingsLayerLogs(this.buildSettingsLayerLogViewModel());
     this.ui.renderVisualDebugLogs(this.visualDebugLogs);
@@ -248,6 +252,7 @@ export class TieRobotFrontApp {
         this.syncGlobalCabinMoveSpeed({ suppressLog: true });
         this.syncGlobalLinearModuleSpeed({ suppressLog: true });
         this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, { suppressLog: true });
+        this.applyCameraSdkSettings(this.cameraSdkSettings, { suppressLog: true });
         this.refreshRobotHomeCalibration({ suppressLog: true });
         this.schedulePlanningAreaRefresh();
         this.refreshActionState();
@@ -755,6 +760,9 @@ export class TieRobotFrontApp {
     this.ui.onVisualDebugSettingsChange((settings) => {
       this.applyVisualDebugRuntimeSettings(settings, { suppressLog: true });
     });
+    this.ui.onCameraSdkSettingsChange((settings) => {
+      this.applyCameraSdkSettings(settings, { suppressLog: true });
+    });
     this.ui.onLegacyCommand((commandId) => {
       this.legacyCommandController.handle(commandId, this.ui.getParameterValues());
     });
@@ -971,6 +979,7 @@ export class TieRobotFrontApp {
     saveVisualDebugSettings(nextSettings);
     const boundary = this.applyVisualDebugBindRangeSettings(nextSettings);
     const frameResult = this.rosConnectionController.publishStableFrameCount(nextSettings.stableFrameCount);
+    const sourceResult = this.rosConnectionController.publishScanResponseSource(nextSettings.scanResponseSource);
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: nextSettings.stableFrameCount,
       bindExecutionCabinMinZMm: nextSettings.bindExecutionCabinMinZMm,
@@ -987,7 +996,26 @@ export class TieRobotFrontApp {
       this.addVisualDebugLog(message, "warn");
     }
     const beamResult = this.applyVisualDebugBeamExclusionSettings(nextSettings, { suppressLog });
-    return { boundary, frameResult, beamResult };
+    if (!sourceResult?.success && !suppressLog) {
+      const message = sourceResult?.message || "扫描底图设置同步失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
+    return { boundary, frameResult, sourceResult, beamResult };
+  }
+
+  async applyCameraSdkSettings(settings = this.ui.getCameraSdkSettings(), { suppressLog = false } = {}) {
+    const nextSettings = settings || this.ui.getCameraSdkSettings();
+    this.cameraSdkSettings = nextSettings;
+    saveCameraSdkSettings(nextSettings);
+    const result = await this.rosConnectionController.callScepterCameraReconfigure(nextSettings);
+    const level = result?.success ? "success" : "warn";
+    const message = result?.message || "相机 SDK 参数热更新失败。";
+    this.ui.setCameraSdkStatus(message, level);
+    if (!suppressLog) {
+      this.addLog(message, level);
+    }
+    return result;
   }
 
   applyVisualDebugStableFrameCount({ suppressLog = false } = {}) {

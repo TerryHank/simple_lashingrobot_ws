@@ -32,3 +32,21 @@ export const GLOBAL_EXECUTION_MODE_OPTIONS = Object.freeze([
 export const FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE = PROCESS_IMAGE_REQUEST_MODES.SCAN_ONLY;
 export const FRONTEND_VISUAL_RECOGNITION_MODE_LABEL = "Surface-DP物理先验";
 export const FRONTEND_VISUAL_RECOGNITION_FULL_LABEL = "Surface-DP物理先验扫描输出";
+
+export const SCAN_RESPONSE_SOURCE_OPTIONS = Object.freeze([
+  { id: "fused_instance_response", label: "融合实例响应" },
+  { id: "frangi_like", label: "Frangi-like 脊线" },
+  { id: "hessian_ridge", label: "Hessian ridge 脊线" },
+  { id: "depth_gradient", label: "深度梯度边缘" },
+  { id: "infrared_response", label: "红外响应" },
+  { id: "combined_response", label: "组合响应" },
+  { id: "depth_response", label: "深度响应" },
+]);
+
+export const DEFAULT_SCAN_RESPONSE_SOURCE = "depth_gradient";
+
+export function normalizeScanResponseSource(value, fallback = DEFAULT_SCAN_RESPONSE_SOURCE) {
+  return SCAN_RESPONSE_SOURCE_OPTIONS.some((option) => option.id === value)
+    ? value
+    : fallback;
+}

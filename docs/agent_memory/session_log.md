@@ -2,6 +2,197 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-11 21:51 - 扫描模式失败当前帧立即返回
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：PointAI 扫描模式 MODE_SCAN_ONLY 在单次 /pointAI/process_image 请求内仍尊重用户设置的 stable_frame_count 释放帧数；但若当前帧 Surface-DP 没有返回有效点，不再循环等待下一帧，而是立即返回当前帧失败原因。Surface-DP 横纵线族不足错误文案改为中文“所选扫描底图横纵线族不足”，避免 completed surface 旧术语误导现场。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py; src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_all_visual_trigger_modes_wait_for_release_frame_count src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_scan_only_no_points_returns_current_frame_failure_without_waiting_next_frame src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_scan_surface_dp_insufficient_line_family_message_is_chinese_selected_source src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_process_image_wait_loop_routes_scan_to_surface_dp_and_execution_to_hough -v；PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -v；python3 -m py_compile updated files；git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 21:35 - 相机SDK调试页独立中文化
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：设置页把“相机底层 SDK 调试”从视觉调试页拆成独立设置页选项 cameraSdkDebug；面板内参数显示全部中文化，dynamic_reconfigure 仍使用 Scepter ROS cfg 原始英文参数名向 /scepter_manager/set_parameters 下发，避免破坏相机 SDK 接口。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/cameraSdkDynamicReconfigure.js; src/tie_robot_web/frontend/src/ui/UIController.js; src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs；for test_file in src/tie_robot_web/frontend/test/*.mjs; do node "" || exit 1; done；cd src/tie_robot_web/frontend && npm run build；git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 21:19 - 3D显示未入组扫描点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：3D Scene 规划点图层新增未入组扫描点显示。/api/planning/bind-path 返回的全量 grid_points 仍保留；黄色 bindPathPoints 只表示进入 pseudo_slam_bind_path.json 有效分组的可执行点，新增玫红色 unplannedBindPathPoints 表示扫描检测到但未进入任何规划组的点，悬停标签为“未入组扫描点”。行/列线、2x2成组线、跳绑高亮仍只使用已分组点，避免误导执行语义。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/bindPathGeometry.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs`
+- `src/tie_robot_web/frontend/test/scenePointHoverTooltip.test.mjs`
+- `src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs`
+- `src/tie_robot_web/web`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs && node src/tie_robot_web/frontend/test/scenePointHoverTooltip.test.mjs && node src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs`
+- `for test in src/tie_robot_web/frontend/test/*.mjs; do node "$test" || exit 1; done`
+- `npm run build`（在 `src/tie_robot_web/frontend`）
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 21:17 - 扫描层单源底图与相机SDK热调
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：扫描层 Surface-DP 从固定 depth_gradient_only 改为 single_selected_response，可在前端 设置/视觉调试 的 扫描底图 下拉栏选择 fused_instance_response、frangi_like、hessian_ridge、depth_gradient、infrared_response、combined_response、depth_response；运行时只生成被选中的底图并做一次物理线族检测，不再使用 completed_candidates 第二轮。PointAI 订阅 /web/pointAI/set_scan_response_source 并持久化 ~scan_response_source。设置页新增相机底层 SDK 调试面板，按 Sceptertof_roscpp.cfg 参数通过 /scepter_manager/set_parameters dynamic_reconfigure/Reconfigure 热修改，并把参数保存到前端 localStorage 重连回放。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py; src/tie_robot_web/frontend/src/ui/UIController.js; src/tie_robot_web/frontend/src/controllers/RosConnectionController.js; src/tie_robot_web/frontend/src/config/cameraSdkDynamicReconfigure.js; src/tie_robot_web/help/guide/surface-dp-depth-gradient.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -v; for test_file in src/tie_robot_web/frontend/test/*.mjs; do node "" || exit 1; done; python3 -m py_compile pointai files and current_scan_all_sources_report.py; npm run build in frontend; npm run build in help`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 21:07 - 扫描图像层收口为单图层
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：扫描视觉图像层只保留 /perception/lashing/scan_surface_dp_base_image，并在前端显示为“扫描识别底图”；移除 scan_surface_dp_completed_surface_image ROS publisher、前端 topic registry/image catalog 入口和当前静态页面选项。后端 publish_scan_surface_dp_base_images 只发布 runtime_response/depth_gradient 单图，继续叠加 DP 交点和梁筋候选诊断。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- `src/tie_robot_web/frontend/src/config/imageTopicCatalog.js`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/imageTopicCatalog.test.mjs; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_visual_recognition_uses_scan_action_and_result_image_topic src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_image_panel_supports_project_image_topics_and_overlay_switching src.tie_robot_perception.test.test_scan_surface_dp_runtime.ScanSurfaceDpRuntimeTest.test_surface_dp_debug_base_images_overlay_rectified_intersections src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_scan_and_execution_base_images_are_published_for_frontend_image_layer; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 20:58 - 扫描层接入可配置线性误差补偿
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：PointAI 扫描建图链路在 manual_workspace_s2 输出 PointCoords.World_coord 前新增可配置线性相机坐标补偿。默认 scan_linear_compensation_enabled=false 且 x/y 系数为 0，不改变现有扫描输出；启用后按 z 与 reference_z 的差值对相机坐标 x/y 做比例修正：x*=1-kx*(z-z0)，y*=1+ky*(z-z0)，并通过 min_z 与 max_abs_scale_delta 做门控/限幅。补偿只先接入固定识别位姿扫描账本点，不改底层 raw_world_coord 点云和执行微调 Hough 原始取点。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/state.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+- `src/tie_robot_bringup/launch/algorithm_stack.launch`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg; py_compile pointai modules passed. test_scan_surface_dp_runtime 现有未完成 response_source 热更新期望仍失败，非本次线性补偿引入。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 20:22 - 扫描层视觉收口为深度梯度单源
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：扫描层 Surface-DP 运行态统一为 depth_gradient_only，只生成一次 depth_gradient 并在该响应图上找物理线族和做 DP 曲线追踪；深度暗线、红外、组合、Hessian、Frangi、融合实例和旧补全面模态保留为隐藏离线对照源，不再由 build_scan_surface_dp_result 主链生成或调用。current_scan_all_sources_report 改为真实主链跑一次，隐藏源由工具离线生成。帮助站新增 Surface-DP 深度梯度主链中文页面和各源效果图。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py;src/tie_robot_perception/tools/current_scan_all_sources_report.py;src/tie_robot_web/help/guide/surface-dp-depth-gradient.md;src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 运行态只认 depth_gradient，其他响应源不删除但隐藏，文档和离线报告可继续解释和对照。
+
+### 标签
+
+- `vision`
+- `surface-dp`
+- `depth-gradient`
+- `help`
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime -v => Ran 28 tests OK; python3 -m py_compile src/tie_robot_perception/tools/current_scan_all_sources_report.py => OK; git diff --check => OK; npm run build in src/tie_robot_web/help => build complete`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-09 17:25 - 3D执行点只显示已分组点
 
 <!-- AGENT-MEMORY: entry -->

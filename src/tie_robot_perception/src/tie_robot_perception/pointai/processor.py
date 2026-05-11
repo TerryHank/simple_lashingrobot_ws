@@ -16,6 +16,7 @@ def bind_image_processor_methods(cls):
     cls.fixed_z_value_callback = runtime_config.fixed_z_value_callback
     cls.set_stable_frame_count_callback = runtime_config.set_stable_frame_count_callback
     cls.set_scan_beam_exclusion_callback = runtime_config.set_scan_beam_exclusion_callback
+    cls.set_scan_response_source_callback = runtime_config.set_scan_response_source_callback
     cls.set_execution_refine_tcp_roi_bounds = runtime_config.set_execution_refine_tcp_roi_bounds
     cls.set_execution_refine_tcp_roi_callback = runtime_config.set_execution_refine_tcp_roi_callback
     cls.linear_module_state_callback = runtime_config.linear_module_state_callback
@@ -66,6 +67,7 @@ def bind_image_processor_methods(cls):
     cls.is_point_in_matrix_selection_range = workspace_masks.is_point_in_matrix_selection_range
     cls.is_point_in_display_bind_range = workspace_masks.is_point_in_display_bind_range
     cls.prepare_manual_workspace_s2_inputs = manual_workspace_s2.prepare_manual_workspace_s2_inputs
+    cls.apply_scan_linear_camera_compensation = manual_workspace_s2.apply_scan_linear_camera_compensation
     cls.build_manual_workspace_s2_points_array = manual_workspace_s2.build_manual_workspace_s2_points_array
     cls.publish_scan_surface_dp_base_images = manual_workspace_s2.publish_scan_surface_dp_base_images
     cls.run_manual_workspace_surface_dp_pipeline = manual_workspace_s2.run_manual_workspace_surface_dp_pipeline

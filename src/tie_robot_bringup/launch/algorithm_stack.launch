@@ -7,6 +7,12 @@
           respawn_delay="2.0">
         <env name="ROSCONSOLE_FORMAT" value="[${severity}] ${message}" />
         <param name="height_threshold" value="7.0" />
+        <param name="scan_linear_compensation_enabled" value="false" />
+        <param name="scan_linear_compensation_reference_z_mm" value="1000.0" />
+        <param name="scan_linear_compensation_x_per_mm" value="0.0" />
+        <param name="scan_linear_compensation_y_per_mm" value="0.0" />
+        <param name="scan_linear_compensation_min_z_mm" value="1200.0" />
+        <param name="scan_linear_compensation_max_abs_scale_delta" value="0.25" />
     </node>
 
     <node name="bind_map_builder"

@@ -10,11 +10,10 @@ const optionIds = IMAGE_TOPIC_OPTIONS.map((option) => option.id);
 
 assert.ok(optionIds.includes(TOPICS.camera.irImage));
 assert.ok(optionIds.includes(TOPICS.algorithm.scanSurfaceDpBaseImage));
-assert.ok(optionIds.includes(TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage));
 assert.ok(optionIds.includes(TOPICS.algorithm.executionRefineBaseImage));
 assert.equal(optionIds.includes(TOPICS.algorithm.resultImageRaw), false);
+assert.equal("scanSurfaceDpCompletedSurfaceImage" in TOPICS.algorithm, false);
 
 assert.equal(isOverlayCompatibleImageTopic(TOPICS.camera.irImage), true);
 assert.equal(isOverlayCompatibleImageTopic(TOPICS.algorithm.scanSurfaceDpBaseImage), false);
-assert.equal(isOverlayCompatibleImageTopic(TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage), false);
 assert.equal(isOverlayCompatibleImageTopic(TOPICS.algorithm.executionRefineBaseImage), false);

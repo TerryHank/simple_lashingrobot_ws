@@ -84,6 +84,17 @@ def initialize_processor_state(self):
     self.bind_check_max_height_mm = float(rospy.get_param("~bind_check_max_height_mm", 95.0))
     self.scan_beam_exclusion_enabled = bool(rospy.get_param("~scan_beam_exclusion_enabled", False))
     self.scan_beam_exclusion_margin_mm = float(rospy.get_param("~scan_beam_exclusion_margin_mm", 130.0))
+    self.scan_response_source = str(rospy.get_param("~scan_response_source", "depth_gradient") or "depth_gradient")
+    self.scan_linear_compensation_enabled = bool(rospy.get_param("~scan_linear_compensation_enabled", False))
+    self.scan_linear_compensation_reference_z_mm = float(
+        rospy.get_param("~scan_linear_compensation_reference_z_mm", 1000.0)
+    )
+    self.scan_linear_compensation_x_per_mm = float(rospy.get_param("~scan_linear_compensation_x_per_mm", 0.0))
+    self.scan_linear_compensation_y_per_mm = float(rospy.get_param("~scan_linear_compensation_y_per_mm", 0.0))
+    self.scan_linear_compensation_min_z_mm = float(rospy.get_param("~scan_linear_compensation_min_z_mm", 1200.0))
+    self.scan_linear_compensation_max_abs_scale_delta = float(
+        rospy.get_param("~scan_linear_compensation_max_abs_scale_delta", 0.25)
+    )
     self.travel_range_max_x_mm = float(rospy.get_param("~travel_range_max_x_mm", 380.0))
     self.travel_range_max_y_mm = float(rospy.get_param("~travel_range_max_y_mm", 330.0))
     self.travel_range_max_z_mm = float(rospy.get_param("~travel_range_max_z_mm", 160.0))

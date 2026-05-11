@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-09 17:25:37，当前 HEAD：`da94e23`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-11 21:51:43，当前 HEAD：`3ba3e6d`。
 
 ## Bootstrap Files
 
@@ -42,12 +42,12 @@
 
 ## Recent Session Memory
 
-- `2026-05-09 17:25 - 3D执行点只显示已分组点`：2026-05-09：前端 /api/planning/bind-path 会把 pseudo_slam_points.json 的全量 grid_points 附到 bind_path 上，但 3D Scene 的执行/规划点、行列线、跳绑高亮应只使用 pseudo_slam_bind_path.json 中有效分组（至少2点）引用到的 global_idx；未进入分组的扫描网格点不能显示成黄色单点，避免误以为产生了单点执行组。当前账本验证：176个grid_points中112个进入2/4点分组，64个未分组点会被隐藏。
-- `2026-05-09 16:40 - 扫描物理先验取消钢筋数量限制`：2026-05-09：扫描层 Surface-DP 物理先验只保留钢筋间距约束（FULL_SCAN_REBAR_SPACING_MM_RANGE=120-160mm），不再使用 full workspace 15-18 条或固定 16 条偏好作为钢筋数量限制。线族数量上限改为当前视野按最小合法间距可容纳的数量，并按实际峰值与间距一致性选择；13x13 等合法间距网格应通过。梁筋候选、梁筋过滤开关和 lattice gate 语义本次不改。
-- `2026-05-09 15:56 - PointAI扫描编号按map最小坐标起排`：2026-05-09：PointAI manual_workspace_s2 扫描点返回和结果图显示编号不再按右上角/TCP图像口径排序；每个点优先用 Scepter_depth_frame->map 转换后的坐标排序，按世界 Y 行、世界 X 正向编号，取不到 TF 时回退到原相机坐标。Surface-DP global_row/global_col 元数据继续保留原拓扑语义。
-- `2026-05-09 15:52 - 扫描点按世界最小点重新编号`：2026-05-09：扫描代表点在写入 pseudo_slam_points.json、发布 pseudo_slam markers 和进入动态绑扎规划前，会先按 map/world 坐标排序并重新赋 idx/global_idx。排序先按世界 Y 聚行，再在每行按世界 X 正向排列；因此世界坐标最小角点成为 1 号点，不再沿用 PointAI 图像行列或视觉返回顺序。
-- `2026-05-09 15:46 - 3D点悬停高亮反馈`：2026-05-09：新前端 3D Scene 的点悬停反馈已改为“点自身高亮”，不再叠加额外覆盖点。鼠标悬停绑扎点、路径规划点、跳绑覆盖点或索驱规划区域中心时，Scene3DView 通过同一 raycaster 命中管线设置该 THREE.Points 几何里的 pointHoverScale / pointHoverColorMix 顶点属性，由 PointsMaterial shader 让被命中的原始点自己变大变亮；移出或未命中时把该点属性恢复。
-- `2026-05-09 15:26 - 演示模式只管本工程服务`：2026-05-09：用户明确要求新前端 header 的“演示模式”只关闭当前 /home/hyq-/simple_lashingrobot_ws 工程相关进程和后台服务，进入后按钮变绿；不得再启动、停止、清理或跳转 /home/hyq-/lashingrobotROS 或 /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws 的任何内容。当前实现把演示模式收口为停止本工程 tie-robot-backend.service、tie-robot-rosbridge.service 与三个 driver service，只按当前工作区路径清理残留 ROS 进程；退出时按当前工程依赖顺序恢复 rosbridge、三个 driver 和 backend。旧 demo rosbridge/show_full unit 与 launch 模板已删除，frontend autostart 不再安装旧前端或 demo 模式服务。
+- `2026-05-11 21:51 - 扫描模式失败当前帧立即返回`：2026-05-11：PointAI 扫描模式 MODE_SCAN_ONLY 在单次 /pointAI/process_image 请求内仍尊重用户设置的 stable_frame_count 释放帧数；但若当前帧 Surface-DP 没有返回有效点，不再循环等待下一帧，而是立即返回当前帧失败原因。Surface-DP 横纵线族不足错误文案改为中文“所选扫描底图横纵线族不足”，避免 completed surface 旧术语误导现场。
+- `2026-05-11 21:35 - 相机SDK调试页独立中文化`：2026-05-11：设置页把“相机底层 SDK 调试”从视觉调试页拆成独立设置页选项 cameraSdkDebug；面板内参数显示全部中文化，dynamic_reconfigure 仍使用 Scepter ROS cfg 原始英文参数名向 /scepter_manager/set_parameters 下发，避免破坏相机 SDK 接口。
+- `2026-05-11 21:19 - 3D显示未入组扫描点`：2026-05-11：3D Scene 规划点图层新增未入组扫描点显示。/api/planning/bind-path 返回的全量 grid_points 仍保留；黄色 bindPathPoints 只表示进入 pseudo_slam_bind_path.json 有效分组的可执行点，新增玫红色 unplannedBindPathPoints 表示扫描检测到但未进入任何规划组的点，悬停标签为“未入组扫描点”。行/列线、2x2成组线、跳绑高亮仍只使用已分组点，避免误导执行语义。
+- `2026-05-11 21:17 - 扫描层单源底图与相机SDK热调`：2026-05-11：扫描层 Surface-DP 从固定 depth_gradient_only 改为 single_selected_response，可在前端 设置/视觉调试 的 扫描底图 下拉栏选择 fused_instance_response、frangi_like、hessian_ridge、depth_gradient、infrared_response、combined_response、depth_response；运行时只生成被选中的底图并做一次物理线族检测，不再使用 completed_candidates 第二轮。PointAI 订阅 /web/pointAI/set_scan_response_source 并持久化 ~scan_response_source。设置页新增相机底层 SDK 调试面板，按 Sceptertof_roscpp.cfg 参数通过 /scepter_manager/set_parameters dynamic_reconfigure/Reconfigure 热修改，并把参数保存到前端 localStorage 重连回放。
+- `2026-05-11 21:07 - 扫描图像层收口为单图层`：2026-05-11：扫描视觉图像层只保留 /perception/lashing/scan_surface_dp_base_image，并在前端显示为“扫描识别底图”；移除 scan_surface_dp_completed_surface_image ROS publisher、前端 topic registry/image catalog 入口和当前静态页面选项。后端 publish_scan_surface_dp_base_images 只发布 runtime_response/depth_gradient 单图，继续叠加 DP 交点和梁筋候选诊断。
+- `2026-05-11 20:58 - 扫描层接入可配置线性误差补偿`：2026-05-11：PointAI 扫描建图链路在 manual_workspace_s2 输出 PointCoords.World_coord 前新增可配置线性相机坐标补偿。默认 scan_linear_compensation_enabled=false 且 x/y 系数为 0，不改变现有扫描输出；启用后按 z 与 reference_z 的差值对相机坐标 x/y 做比例修正：x*=1-kx*(z-z0)，y*=1+ky*(z-z0)，并通过 min_z 与 max_abs_scale_delta 做门控/限幅。补偿只先接入固定识别位姿扫描账本点，不改底层 raw_world_coord 点云和执行微调 Hough 原始取点。
 
 ## Handoff Documents
 

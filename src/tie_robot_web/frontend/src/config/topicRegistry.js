@@ -1,5 +1,7 @@
 export const MESSAGE_TYPES = Object.freeze({
   diagnosticArray: "diagnostic_msgs/DiagnosticArray",
+  dynamicReconfigureConfig: "dynamic_reconfigure/Config",
+  dynamicReconfigureConfigDescription: "dynamic_reconfigure/ConfigDescription",
   float32: "std_msgs/Float32",
   float32MultiArray: "std_msgs/Float32MultiArray",
   int32: "std_msgs/Int32",
@@ -14,6 +16,7 @@ export const MESSAGE_TYPES = Object.freeze({
   areaProgress: "tie_robot_msgs/AreaProgress",
   tfMessage: "tf2_msgs/TFMessage",
   bool: "std_msgs/Bool",
+  string: "std_msgs/String",
 });
 
 export const SERVICE_TYPES = Object.freeze({
@@ -23,6 +26,9 @@ export const SERVICE_TYPES = Object.freeze({
   }),
   algorithm: Object.freeze({
     processImage: "tie_robot_msgs/ProcessImage",
+  }),
+  camera: Object.freeze({
+    dynamicReconfigure: "dynamic_reconfigure/Reconfigure",
   }),
   moduan: Object.freeze({
     linearModuleMove: "tie_robot_msgs/linear_module_move",
@@ -49,6 +55,8 @@ export const TOPICS = Object.freeze({
     depthImage: "/Scepter/depth/image_raw",
     filteredWorldCoord: "/Scepter/worldCoord/world_coord",
     rawWorldCoord: "/Scepter/worldCoord/raw_world_coord",
+    scepterParameterDescriptions: "/scepter_manager/parameter_descriptions",
+    scepterParameterUpdates: "/scepter_manager/parameter_updates",
   }),
   algorithm: Object.freeze({
     coordinatePoint: "/perception/lashing/points_camera",
@@ -56,11 +64,11 @@ export const TOPICS = Object.freeze({
     manualWorkspaceS2Points: "/perception/lashing/points_camera",
     manualWorkspaceS2ResultRaw: "/perception/lashing/result_image",
     scanSurfaceDpBaseImage: "/perception/lashing/scan_surface_dp_base_image",
-    scanSurfaceDpCompletedSurfaceImage: "/perception/lashing/scan_surface_dp_completed_surface_image",
     executionRefineBaseImage: "/perception/lashing/execution_refine_base_image",
     resultImageRaw: "/pointAI/result_image_raw",
     setStableFrameCount: "/web/pointAI/set_stable_frame_count",
     setScanBeamExclusion: "/web/pointAI/set_scan_beam_exclusion",
+    setScanResponseSource: "/web/pointAI/set_scan_response_source",
     setExecutionRefineTcpRoi: "/web/pointAI/set_execution_refine_tcp_roi",
     setHeightThreshold: "/web/pointAI/set_height_threshold",
     setWorkspaceQuad: "/web/pointAI/set_workspace_quad",
@@ -103,6 +111,9 @@ export const SERVICES = Object.freeze({
   algorithm: Object.freeze({
     processImage: "/pointAI/process_image",
     recognizeOnce: "/perception/lashing/recognize_once",
+  }),
+  camera: Object.freeze({
+    scepterSetParameters: "/scepter_manager/set_parameters",
   }),
   cabin: Object.freeze({
     driverRestart: "/cabin/driver/restart",
@@ -208,6 +219,28 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     usage: "三维点云图层原始数据",
   },
   {
+    key: "camera.scepterParameterUpdates",
+    name: TOPICS.camera.scepterParameterUpdates,
+    label: "相机 SDK 参数更新",
+    messageType: MESSAGE_TYPES.dynamicReconfigureConfig,
+    sourceLayer: "driver",
+    sourceLabel: "相机驱动",
+    ownerNode: "scepter_manager",
+    direction: "subscribe",
+    usage: "dynamic_reconfigure 当前相机参数回显",
+  },
+  {
+    key: "camera.scepterParameterDescriptions",
+    name: TOPICS.camera.scepterParameterDescriptions,
+    label: "相机 SDK 参数描述",
+    messageType: MESSAGE_TYPES.dynamicReconfigureConfigDescription,
+    sourceLayer: "driver",
+    sourceLabel: "相机驱动",
+    ownerNode: "scepter_manager",
+    direction: "subscribe",
+    usage: "dynamic_reconfigure 参数范围和枚举描述",
+  },
+  {
     key: "algorithm.resultImageRaw",
     name: TOPICS.algorithm.resultImageRaw,
     label: "执行/识别结果叠加图",
@@ -221,24 +254,13 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
   {
     key: "algorithm.scanSurfaceDpBaseImage",
     name: TOPICS.algorithm.scanSurfaceDpBaseImage,
-    label: "扫描底图 fused response",
+    label: "扫描识别底图",
     messageType: MESSAGE_TYPES.image,
     sourceLayer: "algorithm",
     sourceLabel: "扫描视觉层",
     ownerNode: "pointAINode",
     direction: "subscribe",
-    usage: "Surface-DP 候选生成使用的融合响应底图",
-  },
-  {
-    key: "algorithm.scanSurfaceDpCompletedSurfaceImage",
-    name: TOPICS.algorithm.scanSurfaceDpCompletedSurfaceImage,
-    label: "扫描DP收束底图",
-    messageType: MESSAGE_TYPES.image,
-    sourceLayer: "algorithm",
-    sourceLabel: "扫描视觉层",
-    ownerNode: "pointAINode",
-    direction: "subscribe",
-    usage: "Surface-DP 曲线收束使用的补全面响应底图",
+    usage: "Surface-DP 当前选中扫描底图，叠加 DP 交点与梁筋候选诊断",
   },
   {
     key: "algorithm.executionRefineBaseImage",
@@ -316,6 +338,17 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     ownerNode: "pointAINode",
     direction: "publish",
     usage: "视觉调试页热更新 process_image 最终放行帧数",
+  },
+  {
+    key: "algorithm.setScanResponseSource",
+    name: TOPICS.algorithm.setScanResponseSource,
+    label: "设置扫描底图",
+    messageType: MESSAGE_TYPES.string,
+    sourceLayer: "algorithm",
+    sourceLabel: "算法层",
+    ownerNode: "pointAINode",
+    direction: "publish",
+    usage: "视觉调试页选择 Surface-DP 主检测响应源",
   },
   {
     key: "algorithm.setHeightThreshold",

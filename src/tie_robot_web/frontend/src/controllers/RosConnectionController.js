@@ -3,6 +3,10 @@ import { resolveRosbridgeUrl } from "../utils/rosbridge.js";
 import { DEFAULT_IMAGE_TOPIC } from "../config/imageTopicCatalog.js";
 import { DEFAULT_LOG_TOPIC, getLogTopicOption } from "../config/logTopicCatalog.js";
 import {
+  CAMERA_SDK_PARAMETER_DEFINITIONS,
+  normalizeCameraSdkSettings,
+} from "../config/cameraSdkDynamicReconfigure.js";
+import {
   ACTION_TYPES,
   ACTIONS,
   MESSAGE_TYPES,
@@ -13,7 +17,10 @@ import {
   getTopicRegistryEntry,
   getTopicRegistryEntryByKey,
 } from "../config/topicRegistry.js";
-import { FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE } from "../config/visualRecognitionMode.js";
+import {
+  FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+  normalizeScanResponseSource,
+} from "../config/visualRecognitionMode.js";
 import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
 
 const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
@@ -97,6 +104,7 @@ export class RosConnectionController {
       this.resources.moduanSpeedPublisher.advertise();
       this.resources.stableFrameCountPublisher.advertise();
       this.resources.scanBeamExclusionPublisher.advertise();
+      this.resources.scanResponseSourcePublisher.advertise();
       this.resources.executionRefineTcpRoiPublisher.advertise();
       this.resources.linearModuleInterruptStopPublisher.advertise();
       this.bindSubscriptions();
@@ -227,10 +235,20 @@ export class RosConnectionController {
         name: TOPICS.algorithm.setScanBeamExclusion,
         messageType: MESSAGE_TYPES.bool,
       }),
+      scanResponseSourcePublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setScanResponseSource,
+        messageType: MESSAGE_TYPES.string,
+      }),
       executionRefineTcpRoiPublisher: new ROSLIB.Topic({
         ros,
         name: TOPICS.algorithm.setExecutionRefineTcpRoi,
         messageType: MESSAGE_TYPES.float32MultiArray,
+      }),
+      scepterCameraReconfigureService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.camera.scepterSetParameters,
+        serviceType: SERVICE_TYPES.camera.dynamicReconfigure,
       }),
       processImageService: new ROSLIB.Service({
         ros,
@@ -764,6 +782,19 @@ export class RosConnectionController {
     };
   }
 
+  publishScanResponseSource(source) {
+    if (!this.ros?.isConnected || !this.resources?.scanResponseSourcePublisher) {
+      return { success: false, message: "ROS 未连接，无法设置扫描底图。" };
+    }
+    const normalizedSource = normalizeScanResponseSource(source);
+    this.resources.scanResponseSourcePublisher.publish(new ROSLIB.Message({ data: normalizedSource }));
+    return {
+      success: true,
+      source: normalizedSource,
+      message: `扫描底图已切换为 ${normalizedSource}。`,
+    };
+  }
+
   publishExecutionRefineTcpRoi(range) {
     if (!this.ros?.isConnected || !this.resources?.executionRefineTcpRoiPublisher) {
       return { success: false, message: "ROS 未连接，无法设置线性模组绑扎范围。" };
@@ -826,6 +857,58 @@ export class RosConnectionController {
     });
   }
 
+  callScepterCameraReconfigure(settings = {}) {
+    if (!this.ros?.isConnected || !this.resources?.scepterCameraReconfigureService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法热更新相机 SDK 参数。" });
+    }
+    const providedNames = new Set(
+      Object.keys(settings || {}).filter((name) => settings?.[name] !== undefined),
+    );
+    const normalizedSettings = normalizeCameraSdkSettings(settings);
+    const bools = [];
+    const ints = [];
+    CAMERA_SDK_PARAMETER_DEFINITIONS.forEach((definition) => {
+      if (!providedNames.has(definition.name)) {
+        return;
+      }
+      const value = normalizedSettings[definition.name];
+      if (definition.type === "bool") {
+        bools.push({ name: definition.name, value: Boolean(value) });
+      } else {
+        ints.push({ name: definition.name, value: Number(value) });
+      }
+    });
+    const request = new ROSLIB.ServiceRequest({
+      config: {
+        bools,
+        ints,
+        strs: [],
+        doubles: [],
+        groups: [],
+      },
+    });
+    return new Promise((resolve) => {
+      this.resources.scepterCameraReconfigureService.callService(
+        request,
+        (response) => {
+          resolve({
+            success: true,
+            message: "相机 SDK 参数已通过 dynamic_reconfigure 热更新。",
+            config: response?.config || null,
+            settings: normalizedSettings,
+          });
+        },
+        (error) => {
+          resolve({
+            success: false,
+            message: error?.message || String(error) || "相机 SDK 参数热更新失败。",
+            settings: normalizedSettings,
+          });
+        },
+      );
+    });
+  }
+
   buildTopic(name, messageType, options = {}) {
     return new ROSLIB.Topic({
       ros: this.ros,
@@ -859,6 +942,8 @@ export class RosConnectionController {
       this.buildTopicFromRegistry("control.linearModuleState"),
       this.buildTopicFromRegistry("camera.irCameraInfo"),
       this.buildTopicFromRegistry("process.areaProgress"),
+      this.buildTopicFromRegistry("camera.scepterParameterUpdates"),
+      this.buildTopicFromRegistry("camera.scepterParameterDescriptions"),
     ];
 
     subscriptions[0].subscribe((message) => this.callbacks.onSavedWorkspacePayload?.(Array.from(message.data || [])));
@@ -874,6 +959,8 @@ export class RosConnectionController {
     subscriptions[10].subscribe((message) => this.callbacks.onLinearModuleState?.(message));
     subscriptions[11].subscribe((message) => this.callbacks.onIrCameraInfo?.(message));
     subscriptions[12].subscribe((message) => this.callbacks.onAreaProgress?.(message));
+    subscriptions[13].subscribe((message) => this.callbacks.onScepterCameraParameterUpdate?.(message));
+    subscriptions[14].subscribe((message) => this.callbacks.onScepterCameraParameterDescription?.(message));
     this.fixedTopicSubscribers = subscriptions;
   }
 

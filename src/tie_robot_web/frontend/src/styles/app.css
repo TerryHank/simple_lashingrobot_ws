@@ -1392,6 +1392,16 @@ a {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.camera-sdk-param-grid {
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 10px;
+}
+
+.camera-sdk-checkbox {
+  min-height: 40px;
+  align-self: end;
+}
+
 .visual-debug-log-card {
   min-height: 0;
 }

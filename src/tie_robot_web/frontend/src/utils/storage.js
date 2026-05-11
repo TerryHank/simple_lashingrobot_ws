@@ -2,7 +2,10 @@ import {
   DEFAULT_GLOBAL_EXECUTION_MODE,
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
   GLOBAL_EXECUTION_MODE_OPTIONS,
+  DEFAULT_SCAN_RESPONSE_SOURCE,
+  normalizeScanResponseSource,
 } from "../config/visualRecognitionMode.js";
+import { normalizeCameraSdkSettings } from "../config/cameraSdkDynamicReconfigure.js";
 import { normalizeTcpWorkspaceBoundaryMm } from "./tcpWorkspaceOverlay.js";
 import {
   DEFAULT_TOPIC_LAYER_STATE,
@@ -23,6 +26,7 @@ export const TCP_LINEAR_REMOTE_SETTINGS_KEY = "tie_robot_frontend_tcp_linear_rem
 export const NETWORK_PING_SETTINGS_KEY = "tie_robot_frontend_network_ping_settings";
 export const RECOGNITION_POSE_KEY = "tie_robot_frontend_recognition_pose";
 export const VISUAL_DEBUG_SETTINGS_KEY = "tie_robot_frontend_visual_debug_settings";
+export const CAMERA_SDK_SETTINGS_KEY = "tie_robot_frontend_camera_sdk_settings";
 export const TOPIC_LAYER_STATE_KEY = "tie_robot_frontend_topic_layer_state";
 export const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
 
@@ -334,6 +338,7 @@ export function loadVisualDebugSettings() {
     stableFrameCount: 3,
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: DEFAULT_GLOBAL_EXECUTION_MODE,
+    scanResponseSource: DEFAULT_SCAN_RESPONSE_SOURCE,
     adaptiveBindGrouping: false,
     enableBeamExclusion: false,
     bindExecutionCabinMinZMm: DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,
@@ -349,6 +354,7 @@ export function loadVisualDebugSettings() {
       stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(parsed?.stableFrameCount, defaults.stableFrameCount))),
       requestMode: defaults.requestMode,
       executionMode: normalizeGlobalExecutionMode(parsed?.executionMode, defaults.executionMode),
+      scanResponseSource: normalizeScanResponseSource(parsed?.scanResponseSource, defaults.scanResponseSource),
       adaptiveBindGrouping: normalizeBoolean(parsed?.adaptiveBindGrouping, defaults.adaptiveBindGrouping),
       enableBeamExclusion: normalizeBoolean(parsed?.enableBeamExclusion, defaults.enableBeamExclusion),
       bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
@@ -367,6 +373,7 @@ export function saveVisualDebugSettings(value) {
     stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(value?.stableFrameCount, 3))),
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: normalizeGlobalExecutionMode(value?.executionMode),
+    scanResponseSource: normalizeScanResponseSource(value?.scanResponseSource, DEFAULT_SCAN_RESPONSE_SOURCE),
     adaptiveBindGrouping: normalizeBoolean(value?.adaptiveBindGrouping, false),
     enableBeamExclusion: normalizeBoolean(value?.enableBeamExclusion, false),
     bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
@@ -377,6 +384,27 @@ export function saveVisualDebugSettings(value) {
   };
   try {
     localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export function loadCameraSdkSettings() {
+  try {
+    const raw = localStorage.getItem(CAMERA_SDK_SETTINGS_KEY);
+    if (!raw) {
+      return normalizeCameraSdkSettings();
+    }
+    return normalizeCameraSdkSettings(JSON.parse(raw));
+  } catch {
+    return normalizeCameraSdkSettings();
+  }
+}
+
+export function saveCameraSdkSettings(value) {
+  const payload = normalizeCameraSdkSettings(value);
+  try {
+    localStorage.setItem(CAMERA_SDK_SETTINGS_KEY, JSON.stringify(payload));
   } catch {
     // ignore storage failures
   }

@@ -481,12 +481,22 @@ def wait_for_stable_point_coords(self, request_mode):
         if not self.has_detected_points(point_coords):
             stable_snapshots = []
             latest_point_coords = None
+            if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+                message = main_visual_result.get("message", "unknown error")
+                rospy.logwarn("pointAI扫描当前帧未返回有效点: %s", message)
+                return {
+                    "success": False,
+                    "message": message,
+                    "point_coords": point_coords,
+                    "out_of_height_count": 0,
+                    "out_of_height_point_indices": [],
+                    "out_of_height_z_values": [],
+                    "single_frame_elapsed_ms": single_frame_elapsed_ms,
+                }
             rospy.logwarn_throttle(
                 2.0,
                 (
-                    "pointAI等待Surface-DP物理先验扫描有效点: %s"
-                    if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
-                    else "pointAI等待Surface-DP主视觉有效点: %s"
+                    "pointAI等待Surface-DP主视觉有效点: %s"
                 ),
                 main_visual_result.get("message", "unknown error"),
             )

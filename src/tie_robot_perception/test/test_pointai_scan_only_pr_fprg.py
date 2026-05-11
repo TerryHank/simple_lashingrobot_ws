@@ -335,6 +335,39 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertNotIn("self.run_manual_workspace_s2()", recognize_text)
         self.assertIn("run_visual_detection_with_release_frames", direct_trigger_text)
 
+    def test_scan_only_no_points_returns_current_frame_failure_without_waiting_next_frame(self):
+        service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        start_index = service_text.index("def wait_for_stable_point_coords(self, request_mode):")
+        end_index = service_text.index("def handle_process_image(self, req):", start_index)
+        wait_loop_text = service_text[start_index:end_index]
+        scan_pipeline_index = wait_loop_text.index("main_visual_result = self.run_manual_workspace_s2_pipeline(publish=True)")
+        no_points_start = wait_loop_text.index("if not self.has_detected_points(point_coords):", scan_pipeline_index)
+        no_points_end = wait_loop_text.index("latest_point_coords = point_coords", no_points_start)
+        no_points_text = wait_loop_text[no_points_start:no_points_end]
+
+        self.assertIn("if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:", no_points_text)
+        self.assertIn('"success": False', no_points_text)
+        self.assertIn('main_visual_result.get("message", "unknown error")', no_points_text)
+        self.assertNotIn("pointAI等待Surface-DP物理先验扫描有效点", no_points_text)
+        scan_branch_start = no_points_text.index("if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:")
+        scan_branch_end = no_points_text.index("rospy.logwarn_throttle", scan_branch_start)
+        scan_branch_text = no_points_text[scan_branch_start:scan_branch_end]
+        self.assertNotIn("rate.sleep()", scan_branch_text)
+        self.assertNotIn("continue", scan_branch_text)
+
+    def test_scan_surface_dp_insufficient_line_family_message_is_chinese_selected_source(self):
+        surface_dp_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "scan_surface_dp.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("所选扫描底图横纵线族不足", surface_dp_text)
+        self.assertNotIn("completed surface line families are insufficient", surface_dp_text)
+
     def test_project_logs_record_scan_only_pr_fprg_rule(self):
         changelog_text = CHANGELOG_PATH.read_text(encoding="utf-8")
         knowledge_text = PR_FPRG_KNOWLEDGE_PATH.read_text(encoding="utf-8")
@@ -1057,6 +1090,63 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(
             list(points_array.PointCoordinatesArray[0].World_coord),
             [123.0, -456.0, 1789.0],
+        )
+
+    def test_manual_workspace_s2_applies_configured_linear_scan_compensation(self):
+        from tie_robot_perception.pointai import manual_workspace_s2
+
+        class DummyProcessor:
+            scan_linear_compensation_enabled = True
+            scan_linear_compensation_reference_z_mm = 1000.0
+            scan_linear_compensation_x_per_mm = 0.00001
+            scan_linear_compensation_y_per_mm = 0.00002
+            scan_linear_compensation_min_z_mm = 1200.0
+            scan_linear_compensation_max_abs_scale_delta = 0.5
+
+            def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
+                return [500.0, -250.0, 3000.0], [pixel_x, pixel_y], False
+
+        corrected = manual_workspace_s2.apply_scan_linear_camera_compensation(
+            DummyProcessor(),
+            [500.0, -250.0, 3000.0],
+        )
+
+        self.assertEqual(corrected[2], 3000.0)
+        self.assertAlmostEqual(corrected[0], 490.0)
+        self.assertAlmostEqual(corrected[1], -260.0)
+        self.assertEqual(
+            manual_workspace_s2.apply_scan_linear_camera_compensation(
+                DummyProcessor(),
+                [0.0, 0.0, 3000.0],
+            ),
+            [0.0, 0.0, 3000.0],
+        )
+        self.assertEqual(
+            manual_workspace_s2.apply_scan_linear_camera_compensation(
+                DummyProcessor(),
+                [0.0, -250.0, 3000.0],
+            ),
+            [0.0, -260.0, 3000.0],
+        )
+        self.assertEqual(
+            manual_workspace_s2.apply_scan_linear_camera_compensation(
+                DummyProcessor(),
+                [500.0, -250.0, 1000.0],
+            ),
+            [500.0, -250.0, 1000.0],
+        )
+
+        points_array, display_points = manual_workspace_s2.build_manual_workspace_s2_points_array(
+            DummyProcessor(),
+            [[12, 34]],
+            np.ones((80, 80), dtype=np.uint8),
+        )
+
+        self.assertEqual(points_array.count, 1)
+        self.assertEqual(display_points[0][2], [490.0, -260.0, 3000.0])
+        self.assertEqual(
+            list(points_array.PointCoordinatesArray[0].World_coord),
+            [490.0, -260.0, 3000.0],
         )
 
     def test_manual_workspace_s2_carries_surface_dp_grid_indices(self):
@@ -3014,7 +3104,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         execution_refine_hough_text = EXECUTION_REFINE_HOUGH_PATH.read_text(encoding="utf-8")
 
         self.assertIn("'/perception/lashing/scan_surface_dp_base_image'", ros_interfaces_text)
-        self.assertIn("'/perception/lashing/scan_surface_dp_completed_surface_image'", ros_interfaces_text)
+        self.assertNotIn("scan_surface_dp_completed_surface_image", ros_interfaces_text)
         self.assertIn("'/perception/lashing/execution_refine_base_image'", ros_interfaces_text)
         self.assertIn(
             "cls.publish_scan_surface_dp_base_images = manual_workspace_s2.publish_scan_surface_dp_base_images",

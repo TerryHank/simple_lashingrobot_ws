@@ -5,7 +5,9 @@ import {
   buildBindGroupLineSegmentPositions,
   buildBindPathPointPositions,
   buildJumpBindPointPositions,
+  buildUnplannedBindPathPointPositions,
   collectBindPathGridPoints,
+  collectUnplannedBindPathGridPoints,
 } from "../src/utils/bindPathGeometry.js";
 
 const bindPath = {
@@ -99,10 +101,32 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  collectUnplannedBindPathGridPoints(bindPathWithUnmatchedGridPoint.areas, bindPathWithUnmatchedGridPoint.grid_points)
+    .map((point) => ({
+      globalIdx: point.globalIdx,
+      row: point.row,
+      col: point.col,
+      x: point.x,
+      y: point.y,
+      z: point.z,
+    })),
+  [
+    { globalIdx: 3, row: 0, col: 2, x: 0.3, y: 0, z: 0.5 },
+  ],
+);
+
+assert.deepEqual(
   buildBindPathPointPositions(bindPathWithUnmatchedGridPoint.areas, bindPathWithUnmatchedGridPoint.grid_points),
   [
     0, 0, 0.5,
     0.15, 0, 0.5,
+  ],
+);
+
+assert.deepEqual(
+  buildUnplannedBindPathPointPositions(bindPathWithUnmatchedGridPoint.areas, bindPathWithUnmatchedGridPoint.grid_points),
+  [
+    0.3, 0, 0.5,
   ],
 );
 

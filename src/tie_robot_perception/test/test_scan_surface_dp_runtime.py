@@ -32,6 +32,13 @@ WORKSPACE_S2_PATH = (
     / "perception"
     / "workspace_s2.py"
 )
+CURRENT_SCAN_ALL_SOURCES_REPORT_PATH = (
+    REPO_ROOT
+    / "src"
+    / "tie_robot_perception"
+    / "tools"
+    / "current_scan_all_sources_report.py"
+)
 FRONTEND_VISUAL_MODE_PATH = (
     REPO_ROOT
     / "src"
@@ -243,7 +250,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result["rectified_intersections"]), 16)
         self.assertGreaterEqual(result["mean_completed_surface_score"], 0.65)
 
-    def test_instance_graph_junctions_are_diagnostic_not_primary_output(self):
+    def test_instance_graph_junctions_are_diagnostic_only_under_depth_gradient_runtime(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -252,12 +259,10 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         )
 
         diagnostics = result["diagnostics"]
-        self.assertGreater(diagnostics["instance_graph_junction_count"], 0)
         self.assertEqual(result["primary_point_source"], "dp_curve_intersections")
-        self.assertNotEqual(
-            len(result["rectified_intersections"]),
-            diagnostics["instance_graph_junction_count"],
-        )
+        self.assertEqual(diagnostics["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(diagnostics["scan_runtime_response_source"], "depth_gradient")
+        self.assertIn("instance_graph_junction_count", diagnostics)
 
     def test_manual_workspace_s2_pipeline_does_not_auto_fallback_to_depth_only(self):
         pipeline_source = _function_source(MANUAL_WORKSPACE_S2_PATH, "run_manual_workspace_s2_pipeline")
@@ -346,6 +351,204 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result["rectified_intersections"]), 256)
         self.assertEqual(result["diagnostics"]["physical_prior_modes"], ["full_workspace", "full_workspace"])
 
+    def test_surface_dp_runtime_uses_only_single_depth_gradient_modality(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        def unexpected_modality_call(*_args, **_kwargs):
+            raise AssertionError("hidden modality must not run in scan runtime")
+
+        original_build_depth_response = scan_surface_dp.build_depth_response
+        original_build_infrared_response = scan_surface_dp.build_infrared_response
+        original_build_combined_response = scan_surface_dp.build_combined_response
+        original_hessian_ridge_response = scan_surface_dp.hessian_ridge_response
+        original_multiscale_frangi_like_response = scan_surface_dp.multiscale_frangi_like_response
+        try:
+            scan_surface_dp.build_depth_response = unexpected_modality_call
+            scan_surface_dp.build_infrared_response = unexpected_modality_call
+            scan_surface_dp.build_combined_response = unexpected_modality_call
+            scan_surface_dp.hessian_ridge_response = unexpected_modality_call
+            scan_surface_dp.multiscale_frangi_like_response = unexpected_modality_call
+            result = scan_surface_dp.build_scan_surface_dp_result(
+                _build_synthetic_rectified_grid_with_lines(
+                    width=496,
+                    height=517,
+                    vertical_lines=[50.0 + (28.0 * index) for index in range(16)],
+                    horizontal_lines=[48.0 + (28.0 * index) for index in range(16)],
+                ),
+                threshold_percentile=78.0,
+            )
+        finally:
+            scan_surface_dp.build_depth_response = original_build_depth_response
+            scan_surface_dp.build_infrared_response = original_build_infrared_response
+            scan_surface_dp.build_combined_response = original_build_combined_response
+            scan_surface_dp.hessian_ridge_response = original_hessian_ridge_response
+            scan_surface_dp.multiscale_frangi_like_response = original_multiscale_frangi_like_response
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_gradient")
+        self.assertEqual(result["diagnostics"]["completed_physical_source"], "depth_gradient")
+        self.assertEqual(result["line_counts"], [16, 16])
+
+    def test_surface_dp_runtime_uses_selected_response_source_only(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        source_calls = []
+
+        def make_response(source_name, axes):
+            def build_response(result):
+                source_calls.append(source_name)
+                height, width = result["rectified_valid"].shape
+                response = np.zeros((height, width), dtype=np.float32)
+                vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+                horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
+                if "x" in axes:
+                    _draw_axis_line(response, "x", vertical_lines)
+                if "y" in axes:
+                    _draw_axis_line(response, "y", horizontal_lines)
+                return np.clip(response, 0.0, 1.0)
+
+            return build_response
+
+        originals = {
+            "build_depth_gradient_response": scan_surface_dp.build_depth_gradient_response,
+            "build_depth_response": scan_surface_dp.build_depth_response,
+            "build_infrared_response": scan_surface_dp.build_infrared_response,
+            "build_combined_response": scan_surface_dp.build_combined_response,
+            "hessian_ridge_response": scan_surface_dp.hessian_ridge_response,
+            "multiscale_frangi_like_response": scan_surface_dp.multiscale_frangi_like_response,
+        }
+        try:
+            scan_surface_dp.build_depth_gradient_response = make_response("depth_gradient", ["y"])
+            scan_surface_dp.build_depth_response = make_response("depth_response", ["x", "y"])
+            scan_surface_dp.build_infrared_response = make_response("infrared_response", ["y"])
+            scan_surface_dp.build_combined_response = make_response("combined_response", ["y"])
+            scan_surface_dp.hessian_ridge_response = lambda *_args, **_kwargs: make_response("hessian_ridge", ["y"])(
+                _build_synthetic_rectified_grid_with_lines(
+                    width=496,
+                    height=517,
+                    vertical_lines=[50.0 + (28.0 * index) for index in range(16)],
+                    horizontal_lines=[48.0 + (28.0 * index) for index in range(16)],
+                )
+            )
+            scan_surface_dp.multiscale_frangi_like_response = lambda *_args, **_kwargs: make_response("frangi_like", ["y"])(
+                _build_synthetic_rectified_grid_with_lines(
+                    width=496,
+                    height=517,
+                    vertical_lines=[50.0 + (28.0 * index) for index in range(16)],
+                    horizontal_lines=[48.0 + (28.0 * index) for index in range(16)],
+                )
+            )
+            result = scan_surface_dp.build_scan_surface_dp_result(
+                _build_synthetic_rectified_grid_with_lines(
+                    width=496,
+                    height=517,
+                    vertical_lines=[50.0 + (28.0 * index) for index in range(16)],
+                    horizontal_lines=[48.0 + (28.0 * index) for index in range(16)],
+                ),
+                threshold_percentile=78.0,
+                response_source="depth_response",
+            )
+        finally:
+            for name, original in originals.items():
+                setattr(scan_surface_dp, name, original)
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(source_calls, ["depth_response"])
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_response")
+        self.assertEqual(result["diagnostics"]["completed_physical_source"], "depth_response")
+        self.assertEqual(result["line_counts"], [16, 16])
+
+    def test_surface_dp_invalid_response_source_falls_back_to_depth_gradient(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=496,
+                height=517,
+                vertical_lines=[50.0 + (28.0 * index) for index in range(16)],
+                horizontal_lines=[48.0 + (28.0 * index) for index in range(16)],
+            ),
+            threshold_percentile=78.0,
+            response_source="not_a_source",
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_gradient")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source_requested"], "not_a_source")
+
+    def test_pointai_scan_response_source_runtime_config_is_hot_persisted(self):
+        runtime_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "runtime_config.py"
+        ).read_text(encoding="utf-8")
+        ros_interfaces_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "ros_interfaces.py"
+        ).read_text(encoding="utf-8")
+        processor_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        manual_workspace_text = MANUAL_WORKSPACE_S2_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("/web/pointAI/set_scan_response_source", ros_interfaces_text)
+        self.assertIn("std_msgs.msg import Bool, Float32, Float32MultiArray, Int32, String", ros_interfaces_text)
+        self.assertIn("def set_scan_response_source_callback(self, msg):", runtime_text)
+        self.assertIn('rospy.set_param("~scan_response_source"', runtime_text)
+        self.assertIn("cls.set_scan_response_source_callback", processor_text)
+        self.assertIn("response_source=getattr(self, \"scan_response_source\", \"depth_gradient\")", manual_workspace_text)
+
+        calls = []
+        namespace = {
+            "rospy": type(
+                "FakeRospy",
+                (),
+                {
+                    "set_param": staticmethod(lambda name, value: calls.append((name, value))),
+                    "loginfo": staticmethod(lambda *_args, **_kwargs: None),
+                    "logwarn": staticmethod(lambda *_args, **_kwargs: None),
+                },
+            )(),
+        }
+        exec(
+            _function_source(
+                PERCEPTION_SRC / "tie_robot_perception" / "pointai" / "runtime_config.py",
+                "set_scan_response_source_callback",
+            ),
+            namespace,
+        )
+        fake_self = type("FakePointAI", (), {"scan_response_source": "depth_gradient"})()
+        valid_msg = type("FakeMsg", (), {"data": "frangi_like"})()
+        invalid_msg = type("FakeMsg", (), {"data": "bad_source"})()
+        namespace["set_scan_response_source_callback"](fake_self, valid_msg)
+        self.assertEqual(fake_self.scan_response_source, "frangi_like")
+        self.assertIn(("~scan_response_source", "frangi_like"), calls)
+        namespace["set_scan_response_source_callback"](fake_self, invalid_msg)
+        self.assertEqual(fake_self.scan_response_source, "depth_gradient")
+
+    def test_current_scan_report_builds_hidden_sources_offline(self):
+        report_source = CURRENT_SCAN_ALL_SOURCES_REPORT_PATH.read_text(encoding="utf-8")
+        build_evaluation_source = _function_source(CURRENT_SCAN_ALL_SOURCES_REPORT_PATH, "build_evaluation")
+
+        self.assertNotIn("scan_surface_dp._build_modalities", build_evaluation_source)
+        self.assertIn("build_offline_response_maps", build_evaluation_source)
+        self.assertIn("build_depth_response", report_source)
+        self.assertIn("build_infrared_response", report_source)
+        self.assertIn("build_combined_response", report_source)
+        self.assertIn("hessian_ridge_response", report_source)
+        self.assertIn("multiscale_frangi_like_response", report_source)
+        self.assertIn("hidden_offline_response_maps", report_source)
+        self.assertIn('BASE_SOURCE_ORDER = [\n    "depth_gradient"', report_source)
+        self.assertIn('COMPLETED_SOURCE_ORDER = [\n    "depth_gradient"', report_source)
+
     def test_surface_dp_accepts_spacing_valid_grid_without_full_workspace_line_count_limit(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
@@ -383,30 +586,31 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result["rectified_intersections"]), 6)
         self.assertEqual(result["diagnostics"]["physical_prior_modes"], ["visible_local", "visible_local"])
 
-    def test_surface_dp_uses_ridge_modalities_when_fused_response_misses_one_axis(self):
+    def test_surface_dp_uses_depth_gradient_as_the_only_line_source(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         width = 496
         height = 517
         vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
         horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
-        fused_response = np.zeros((height, width), dtype=np.float32)
-        ridge_response = np.zeros((height, width), dtype=np.float32)
-        _draw_axis_line(fused_response, "y", horizontal_lines)
-        _draw_axis_line(ridge_response, "x", vertical_lines)
-        _draw_axis_line(ridge_response, "y", horizontal_lines)
-        fused_response = np.clip(fused_response, 0.0, 1.0)
-        ridge_response = np.clip(ridge_response, 0.0, 1.0)
+        depth_gradient = np.zeros((height, width), dtype=np.float32)
+        hidden_response = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(depth_gradient, "x", vertical_lines)
+        _draw_axis_line(depth_gradient, "y", horizontal_lines)
+        _draw_axis_line(hidden_response, "y", horizontal_lines)
+        depth_gradient = np.clip(depth_gradient, 0.0, 1.0)
+        hidden_response = np.clip(hidden_response, 0.0, 1.0)
         valid_mask = np.ones((height, width), dtype=bool)
         modalities = {
-            "fused_instance_response": fused_response,
-            "combined_response": fused_response,
-            "depth_response": fused_response,
-            "infrared_response": ridge_response,
-            "depth_gradient": ridge_response,
-            "hessian_ridge": ridge_response,
-            "frangi_like": ridge_response,
-            "binary_candidate": ridge_response > 0.20,
+            "depth_gradient": depth_gradient,
+            "runtime_response": depth_gradient,
+            "fused_instance_response": hidden_response,
+            "combined_response": hidden_response,
+            "depth_response": hidden_response,
+            "infrared_response": hidden_response,
+            "hessian_ridge": hidden_response,
+            "frangi_like": hidden_response,
+            "binary_candidate": depth_gradient > 0.20,
         }
 
         surface = scan_surface_dp._build_completed_surface(
@@ -423,6 +627,8 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
             max_period=30,
         )
 
+        self.assertEqual(surface["base_physical_source"], "depth_gradient")
+        self.assertEqual(surface["completed_physical_source"], "depth_gradient")
         self.assertEqual(
             [len(family.get("line_rhos", [])) for family in surface["completed_line_families"]],
             [16, 16],
@@ -491,7 +697,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(source, "balanced_later")
         self.assertEqual([len(family.get("line_rhos", [])) for family in families], [16, 16])
 
-    def test_surface_dp_reports_wide_beam_candidate_bands_without_filtering_points(self):
+    def test_surface_dp_depth_gradient_runtime_keeps_beam_detection_diagnostic(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -502,17 +708,11 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertTrue(result["success"], result.get("message"))
         self.assertEqual(result["line_counts"], [16, 16])
         self.assertEqual(len(result["rectified_intersections"]), 256)
-        self.assertGreaterEqual(result["diagnostics"]["beam_candidate_count"], 1)
-        beam_bands = result["beam_candidate_bands"]
-        beam_band = next(
-            band
-            for band in beam_bands
-            if band.get("axis") == "x" and int(band["start"]) <= 176 <= int(band["end"])
-        )
-        self.assertLessEqual(int(beam_band["width"]), 24)
-        self.assertGreater(float(beam_band["height_delta"]), 0.05)
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_gradient")
+        self.assertEqual(result["diagnostics"]["beam_candidate_count"], 0)
 
-    def test_surface_dp_rejects_beam_like_band_unless_column_is_higher_than_surrounding_rebar(self):
+    def test_surface_dp_depth_gradient_runtime_does_not_use_old_height_modality_for_beams(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -522,9 +722,11 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertTrue(result["success"], result.get("message"))
         self.assertEqual(result["line_counts"], [16, 16])
-        self.assertEqual(result["diagnostics"]["beam_candidate_count"], 0)
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_gradient")
+        self.assertGreaterEqual(result["diagnostics"]["beam_candidate_count"], 0)
 
-    def test_surface_dp_accepts_thin_raised_beam_column_after_height_gate(self):
+    def test_surface_dp_depth_gradient_runtime_keeps_thin_beam_points_unfiltered_by_default(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -537,17 +739,12 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         )
 
         self.assertTrue(result["success"], result.get("message"))
-        self.assertGreaterEqual(result["diagnostics"]["beam_candidate_count"], 1)
-        self.assertTrue(
-            any(
-                int(band["start"]) <= 176 <= int(band["end"])
-                and int(band["width"]) <= 8
-                for band in result["beam_candidate_bands"]
-            ),
-            result["beam_candidate_bands"],
-        )
+        self.assertEqual(result["line_counts"], [16, 16])
+        self.assertEqual(len(result["rectified_intersections"]), 256)
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_gradient")
 
-    def test_surface_dp_rejects_raised_regular_grid_column_as_beam_candidate(self):
+    def test_surface_dp_depth_gradient_runtime_keeps_raised_regular_column_as_diagnostic_candidate(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -557,7 +754,10 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertTrue(result["success"], result.get("message"))
         self.assertEqual(result["line_counts"], [16, 16])
-        self.assertEqual(result["diagnostics"]["beam_candidate_count"], 0)
+        self.assertEqual(len(result["rectified_intersections"]), 256)
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_policy"], "single_selected_response")
+        self.assertEqual(result["diagnostics"]["scan_runtime_response_source"], "depth_gradient")
+        self.assertGreaterEqual(result["diagnostics"]["beam_candidate_count"], 0)
 
     def test_surface_dp_detects_dark_gutter_beam_between_two_narrow_bright_edges(self):
         from tie_robot_perception.pointai import scan_surface_dp
@@ -756,7 +956,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertGreaterEqual(int(refined_band["end"]), 335)
         self.assertGreater(float(refined_band["height_delta"]), 0.055)
 
-    def test_surface_dp_keeps_final_points_outside_beam_candidate_thirteen_centimeter_margin(self):
+    def test_surface_dp_beam_exclusion_is_noop_without_depth_gradient_beam_candidate(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -767,10 +967,10 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertTrue(result["success"], result.get("message"))
         self.assertEqual(result["line_counts"], [16, 16])
-        self.assertLess(len(result["rectified_intersections"]), 256)
+        self.assertEqual(len(result["rectified_intersections"]), 256)
         self.assertEqual(result["diagnostics"]["beam_exclusion_enabled"], True)
         self.assertEqual(result["diagnostics"]["beam_exclusion_margin_mm"], 130.0)
-        self.assertGreater(result["diagnostics"]["beam_candidate_13cm_pixels"], 0)
+        self.assertEqual(result["diagnostics"]["beam_candidate_13cm_pixels"], 0)
         beam_margin_mask = np.asarray(result["beam_candidate_13cm_mask"], dtype=bool)
         final_points_inside_beam_mask = 0
         for point in result.get("rectified_intersections", []):
@@ -822,7 +1022,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertIn("draw_scan_surface_dp_debug_beam_bands", manual_workspace_text)
         self.assertIn('overlay_points=surface_result.get("rectified_intersections", [])', publish_source)
         self.assertIn('overlay_beam_bands=surface_result.get("beam_candidate_bands", [])', publish_source)
-        self.assertIn('"scan_surface_dp_completed_surface_image_pub"', publish_source)
+        self.assertNotIn("scan_surface_dp_completed_surface_image_pub", publish_source)
         self.assertIn('encoding = "bgr8" if rendered_image.ndim == 3 else "mono8"', debug_source)
 
 

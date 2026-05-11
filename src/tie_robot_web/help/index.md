@@ -15,6 +15,7 @@
 - [查看 ROS Graph](./guide/ros-graph)
 - [查看运行主链](./guide/runtime-flows)
 - [查看视觉原理](./guide/visual-principles)
+- [查看 Surface-DP 单源底图主链](./guide/surface-dp-depth-gradient)
 - [查看 PR-FPRG 逐步识别流程](./guide/pr-fprg-workflow)
 - [查看 ROS 动态 API 网关接入](./guide/dynamic-api-gateway)
 - [查看 GB28181 视频接入](./guide/gb28181-video-gateway)

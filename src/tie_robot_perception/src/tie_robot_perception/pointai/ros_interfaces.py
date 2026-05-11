@@ -2,7 +2,7 @@
 import rospy
 import tf2_ros
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
+from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32, String
 from std_srvs.srv import Trigger
 
 from tie_robot_msgs.msg import PointsArray, linear_module_upload
@@ -23,6 +23,7 @@ def register_ros_interfaces(self):
     rospy.Subscriber('/web/pointAI/run_workspace_s2', Bool, self.manual_workspace_s2_callback)
     rospy.Subscriber('/web/pointAI/set_stable_frame_count', Int32, self.set_stable_frame_count_callback)
     rospy.Subscriber('/web/pointAI/set_scan_beam_exclusion', Bool, self.set_scan_beam_exclusion_callback)
+    rospy.Subscriber('/web/pointAI/set_scan_response_source', String, self.set_scan_response_source_callback)
     rospy.Subscriber('/web/pointAI/set_execution_refine_tcp_roi', Float32MultiArray, self.set_execution_refine_tcp_roi_callback)
     rospy.Subscriber('/web/pointAI/move_to_workspace_center_scan_pose', Bool, self.workspace_center_scan_pose_callback)
     rospy.Subscriber('/web/pointAI/set_height_threshold', Float32, self.fixed_z_value_callback)
@@ -43,12 +44,6 @@ def register_ros_interfaces(self):
     self.image_pub = rospy.Publisher('/pointAI/result_image', CompressedImage, queue_size=10)
     self.scan_surface_dp_base_image_pub = rospy.Publisher(
         '/perception/lashing/scan_surface_dp_base_image',
-        Image,
-        queue_size=1,
-        latch=True,
-    )
-    self.scan_surface_dp_completed_surface_image_pub = rospy.Publisher(
-        '/perception/lashing/scan_surface_dp_completed_surface_image',
         Image,
         queue_size=1,
         latch=True,

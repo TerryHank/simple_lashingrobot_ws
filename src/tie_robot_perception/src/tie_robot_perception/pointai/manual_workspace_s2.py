@@ -212,6 +212,35 @@ def log_manual_workspace_s2_camera_distance(
     )
 
 
+def apply_scan_linear_camera_compensation(self, camera_coord):
+    try:
+        camera_x = float(camera_coord[0])
+        camera_y = float(camera_coord[1])
+        camera_z = float(camera_coord[2])
+    except (TypeError, ValueError, IndexError):
+        return camera_coord
+    if not getattr(self, "scan_linear_compensation_enabled", False):
+        return [camera_x, camera_y, camera_z]
+    if not np.all(np.isfinite([camera_x, camera_y, camera_z])) or camera_z == 0.0:
+        return [camera_x, camera_y, camera_z]
+    min_z_mm = float(getattr(self, "scan_linear_compensation_min_z_mm", 0.0))
+    if camera_z < min_z_mm:
+        return [camera_x, camera_y, camera_z]
+
+    reference_z_mm = float(getattr(self, "scan_linear_compensation_reference_z_mm", 1000.0))
+    x_per_mm = float(getattr(self, "scan_linear_compensation_x_per_mm", 0.0))
+    y_per_mm = float(getattr(self, "scan_linear_compensation_y_per_mm", 0.0))
+    max_abs_scale_delta = abs(float(getattr(self, "scan_linear_compensation_max_abs_scale_delta", 0.25)))
+    z_delta_mm = camera_z - reference_z_mm
+    x_scale_delta = float(np.clip(x_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta))
+    y_scale_delta = float(np.clip(y_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta))
+    return [
+        camera_x * (1.0 - x_scale_delta),
+        camera_y * (1.0 + y_scale_delta),
+        camera_z,
+    ]
+
+
 def normalize_scan_surface_dp_debug_image(image):
     image_array = np.asarray(image)
     if image_array.ndim != 2 or image_array.size == 0:
@@ -370,28 +399,18 @@ def publish_scan_surface_dp_debug_image(
 def publish_scan_surface_dp_base_images(self, surface_result):
     stamp = rospy.Time.now()
     modalities = surface_result.get("modalities") or {}
-    completed_response = surface_result.get("completed_surface_response")
-    if completed_response is None:
-        completed_response = (surface_result.get("surface") or {}).get("completed_surface_response")
-    beam_candidate_bands = surface_result.get("beam_candidate_bands", [])
+    runtime_response = modalities.get("runtime_response")
+    if runtime_response is None:
+        runtime_response = modalities.get("depth_gradient")
 
     publish_scan_surface_dp_debug_image(
         self,
         "scan_surface_dp_base_image_pub",
-        modalities.get("fused_instance_response"),
+        runtime_response,
         "surface_dp_rectified_workspace",
         stamp,
         overlay_points=surface_result.get("rectified_intersections", []),
         overlay_beam_bands=surface_result.get("beam_candidate_bands", []),
-    )
-    publish_scan_surface_dp_debug_image(
-        self,
-        "scan_surface_dp_completed_surface_image_pub",
-        completed_response,
-        "surface_dp_rectified_workspace",
-        stamp,
-        overlay_points=surface_result.get("rectified_intersections", []),
-        overlay_beam_bands=beam_candidate_bands,
     )
 
 
@@ -483,15 +502,16 @@ def build_manual_workspace_s2_points_array(
         ):
             continue
 
-        camera_coord, _, _ = self.get_valid_world_coord_near_pixel(pixel_x, pixel_y)
-        if not is_valid_manual_workspace_s2_camera_coord(camera_coord):
+        raw_camera_coord, _, _ = self.get_valid_world_coord_near_pixel(pixel_x, pixel_y)
+        if not is_valid_manual_workspace_s2_camera_coord(raw_camera_coord):
             continue
+        camera_coord = apply_scan_linear_camera_compensation(self, raw_camera_coord)
         log_manual_workspace_s2_camera_distance(
             self,
             len(point_records) + 1,
             pixel_x,
             pixel_y,
-            camera_coord,
+            raw_camera_coord,
         )
 
         point_msg = PointCoords()
@@ -574,6 +594,7 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
         rectified_result,
         enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False)),
         beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 130.0)),
+        response_source=getattr(self, "scan_response_source", "depth_gradient"),
     )
     if not surface_result.get("success", False):
         return {

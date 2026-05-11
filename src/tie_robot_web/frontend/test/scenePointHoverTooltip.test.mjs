@@ -8,6 +8,7 @@ import { Scene3DView } from "../src/views/Scene3DView.js";
 import {
   buildBindPathPointHoverEntries,
   buildCabinPathPointHoverEntries,
+  buildUnplannedBindPathPointHoverEntries,
   formatScenePointWorldCoordinate,
 } from "../src/utils/bindPathGeometry.js";
 
@@ -59,6 +60,17 @@ assert.equal(
 assert.equal(
   formatScenePointWorldCoordinate(buildCabinPathPointHoverEntries(bindPath.areas)[0]),
   "索驱规划点 区域7\n世界 X 1200.0 mm\n世界 Y 2300.0 mm\n世界 Z 560.0 mm",
+);
+
+assert.equal(
+  formatScenePointWorldCoordinate(buildUnplannedBindPathPointHoverEntries(
+    bindPath.areas,
+    [
+      { global_idx: 11, global_row: 2, global_col: 3, world_x: 100, world_y: 200, world_z: 510 },
+      { global_idx: 13, global_row: 2, global_col: 5, world_x: 410, world_y: 205, world_z: 514 },
+    ],
+  )[0]),
+  "未入组扫描点 #13\n世界 X 410.0 mm\n世界 Y 205.0 mm\n世界 Z 514.0 mm",
 );
 
 const hoverSceneView = Object.create(Scene3DView.prototype);

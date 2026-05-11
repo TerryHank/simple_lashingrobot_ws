@@ -1,7 +1,7 @@
 """Runtime scan-layer Surface-DP rebar intersection detector.
 
 This module is intentionally ROS-free.  It keeps the experimental
-combined/fused response pipeline usable from the pointAI runtime without
+Surface-DP response pipeline usable from the pointAI runtime without
 importing report-only scripts from ``tools/``.
 """
 
@@ -27,6 +27,23 @@ FULL_WORKSPACE_MODE_MIN_VISIBLE_LINE_COUNT = 15
 FULL_WORKSPACE_MIN_AXIS_COUNT_BALANCE_RATIO = 0.65
 FULL_WORKSPACE_BALANCE_MIN_STRONG_AXIS_COUNT = 8
 DEFAULT_RESOLUTION_MM_PER_PX = 5.0
+SCAN_RUNTIME_RESPONSE_POLICY = "single_selected_response"
+SCAN_RUNTIME_RESPONSE_SOURCE = "depth_gradient"
+SCAN_RESPONSE_SOURCE_LABELS = {
+    "fused_instance_response": "融合实例响应",
+    "frangi_like": "Frangi-like 脊线",
+    "hessian_ridge": "Hessian ridge 脊线",
+    "depth_gradient": "深度梯度边缘",
+    "infrared_response": "红外响应",
+    "combined_response": "组合响应",
+    "depth_response": "深度响应",
+}
+SCAN_RESPONSE_SOURCE_IDS = tuple(SCAN_RESPONSE_SOURCE_LABELS.keys())
+
+
+def normalize_scan_response_source(response_source):
+    response_source = str(response_source or SCAN_RUNTIME_RESPONSE_SOURCE).strip()
+    return response_source if response_source in SCAN_RESPONSE_SOURCE_LABELS else SCAN_RUNTIME_RESPONSE_SOURCE
 
 
 def _valid_mask_from_result(result):
@@ -1003,48 +1020,62 @@ def _full_workspace_expected(valid_mask, rectified_geometry):
     )
 
 
-def _build_modalities(result, threshold_percentile):
+def _build_runtime_response(result, response_source):
     valid_mask = _valid_mask_from_result(result)
-    depth_response = build_depth_response(result)
-    infrared_response = build_infrared_response(result)
-    combined_response = build_combined_response(result)
-    depth_gradient = build_depth_gradient_response(result)
-    hessian_ridge = hessian_ridge_response(combined_response, valid_mask, sigma=1.6)
-    frangi_like = multiscale_frangi_like_response(combined_response, valid_mask)
-    fused_instance_response = _normalize_response(
-        (0.50 * combined_response)
-        + (0.22 * depth_response)
-        + (0.16 * frangi_like)
-        + (0.08 * depth_gradient)
-        + (0.04 * hessian_ridge),
-        valid_mask,
-    )
+    response_source = normalize_scan_response_source(response_source)
+    if response_source == "depth_response":
+        response_map = build_depth_response(result)
+    elif response_source == "infrared_response":
+        response_map = build_infrared_response(result)
+    elif response_source == "combined_response":
+        response_map = build_combined_response(result)
+    elif response_source == "hessian_ridge":
+        response_map = hessian_ridge_response(build_combined_response(result), valid_mask, sigma=1.6)
+    elif response_source == "frangi_like":
+        response_map = multiscale_frangi_like_response(build_combined_response(result), valid_mask)
+    elif response_source == "fused_instance_response":
+        combined_response = build_combined_response(result)
+        depth_response = build_depth_response(result)
+        depth_gradient = build_depth_gradient_response(result)
+        hessian_ridge = hessian_ridge_response(combined_response, valid_mask, sigma=1.6)
+        frangi_like = multiscale_frangi_like_response(combined_response, valid_mask)
+        response_map = _normalize_response(
+            (0.50 * combined_response)
+            + (0.22 * depth_response)
+            + (0.16 * frangi_like)
+            + (0.08 * depth_gradient)
+            + (0.04 * hessian_ridge),
+            valid_mask,
+        )
+    else:
+        response_map = build_depth_gradient_response(result)
+        response_source = "depth_gradient"
+    return response_source, np.asarray(response_map, dtype=np.float32)
+
+
+def _build_modalities(result, threshold_percentile, response_source=None):
+    valid_mask = _valid_mask_from_result(result)
+    selected_source, runtime_response = _build_runtime_response(result, response_source)
     binary_candidate, binary_threshold = threshold_response(
-        fused_instance_response,
+        runtime_response,
         valid_mask,
         percentile=threshold_percentile,
     )
     skeleton = skeletonize_binary(binary_candidate)
     endpoint_count, junction_count = count_skeleton_nodes(skeleton)
     beam_candidate_bands = detect_beam_candidate_bands(
-        fused_instance_response,
+        runtime_response,
         binary_candidate,
         valid_mask,
-        height_response=depth_response,
     )
     beam_candidate_mask = build_beam_candidate_mask(
-        fused_instance_response.shape,
+        runtime_response.shape,
         beam_candidate_bands,
         valid_mask,
     )
     return {
-        "depth_response": depth_response,
-        "infrared_response": infrared_response,
-        "combined_response": combined_response,
-        "depth_gradient": depth_gradient,
-        "hessian_ridge": hessian_ridge,
-        "frangi_like": frangi_like,
-        "fused_instance_response": fused_instance_response,
+        selected_source: runtime_response,
+        "runtime_response": runtime_response,
         "binary_candidate": binary_candidate,
         "binary_threshold": float(binary_threshold),
         "skeleton": skeleton,
@@ -1053,77 +1084,51 @@ def _build_modalities(result, threshold_percentile):
         "beam_candidate_bands": beam_candidate_bands,
         "beam_candidate_mask": beam_candidate_mask,
         "beam_candidate_pixels": int(np.count_nonzero(beam_candidate_mask)),
+        "response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+        "runtime_response_source": selected_source,
     }
 
 
 def _build_completed_surface(result, modalities, min_period, max_period):
     valid_mask = _valid_mask_from_result(result)
     rectified_geometry = result.get("rectified_geometry") or {}
-    physical_candidates = [
-        ("fused_instance_response", modalities.get("fused_instance_response")),
-        ("frangi_like", modalities.get("frangi_like")),
-        ("hessian_ridge", modalities.get("hessian_ridge")),
-        ("depth_gradient", modalities.get("depth_gradient")),
-        ("infrared_response", modalities.get("infrared_response")),
-        ("combined_response", modalities.get("combined_response")),
-        ("depth_response", modalities.get("depth_response")),
-    ]
-    base_line_families, base_physical_source = _build_best_physical_axis_aligned_line_families(
-        physical_candidates,
+    response_source = normalize_scan_response_source(modalities.get("runtime_response_source"))
+    runtime_response = modalities.get("runtime_response")
+    line_families, physical_source = _build_best_physical_axis_aligned_line_families(
+        [(response_source, runtime_response)],
         valid_mask,
         rectified_geometry,
         peak_min_ratio=0.18,
     )
-    if len(base_line_families) < 2:
-        base_line_families = []
-        base_physical_source = "physical_prior_unresolved"
+    if len(line_families) < 2:
+        line_families = []
+        physical_source = "physical_prior_unresolved"
+    if (
+        line_families
+        and _full_workspace_expected(valid_mask, rectified_geometry)
+        and any(family.get("physical_prior_mode") != "full_workspace" for family in line_families[:2])
+    ):
+        line_families = []
+        physical_source = "physical_prior_unresolved"
     line_support_mask = draw_line_family_mask(
         modalities["binary_candidate"].shape,
-        base_line_families,
+        line_families,
         thickness_px=5,
     )
     completed_surface_mask = (modalities["binary_candidate"] | line_support_mask) & valid_mask
-    completed_surface_response = _normalize_response(
-        (0.56 * modalities["fused_instance_response"])
-        + (0.26 * modalities["frangi_like"])
-        + (0.18 * line_support_mask.astype(np.float32)),
-        valid_mask,
-    )
-    completed_candidates = [
-        ("completed_surface_response", completed_surface_response),
-        ("frangi_like", modalities.get("frangi_like")),
-        ("hessian_ridge", modalities.get("hessian_ridge")),
-        ("depth_gradient", modalities.get("depth_gradient")),
-        ("infrared_response", modalities.get("infrared_response")),
-        ("fused_instance_response", modalities.get("fused_instance_response")),
-        ("combined_response", modalities.get("combined_response")),
-        ("depth_response", modalities.get("depth_response")),
-    ]
-    completed_line_families, completed_physical_source = _build_best_physical_axis_aligned_line_families(
-        completed_candidates,
-        valid_mask,
-        rectified_geometry,
-        peak_min_ratio=0.16,
-    )
-    if len(completed_line_families) < 2:
-        completed_line_families = []
-        completed_physical_source = "physical_prior_unresolved"
-    if (
-        _full_workspace_expected(valid_mask, rectified_geometry)
-        and any(family.get("physical_prior_mode") != "full_workspace" for family in completed_line_families[:2])
-    ):
-        completed_line_families = []
-        completed_physical_source = "physical_prior_unresolved"
+    completed_surface_response = np.asarray(runtime_response, dtype=np.float32)
     return {
-        "base_line_families": base_line_families[:2],
-        "completed_line_families": completed_line_families[:2],
+        "base_line_families": line_families[:2],
+        "completed_line_families": line_families[:2],
         "line_support_mask": line_support_mask,
         "completed_surface_mask": completed_surface_mask,
         "completed_surface_response": completed_surface_response,
         "physical_spacing_px_range": _physical_spacing_px_range(rectified_geometry),
         "physical_resolution_mm_per_px": _resolution_mm_per_px(rectified_geometry),
-        "base_physical_source": base_physical_source,
-        "completed_physical_source": completed_physical_source,
+        "base_physical_source": physical_source,
+        "completed_physical_source": physical_source,
+        "response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+        "runtime_response_source": response_source,
     }
 
 
@@ -1290,26 +1295,40 @@ def build_scan_surface_dp_result(
     max_period=30,
     enable_beam_exclusion=False,
     beam_exclusion_margin_mm=130.0,
+    response_source=None,
 ):
     valid_mask = _valid_mask_from_result(result)
+    requested_response_source = str(response_source or SCAN_RUNTIME_RESPONSE_SOURCE).strip()
+    selected_response_source = normalize_scan_response_source(requested_response_source)
     rectified_geometry = result.get("rectified_geometry") or {}
     rectified_width = int(rectified_geometry.get("rectified_width", valid_mask.shape[1]))
     rectified_height = int(rectified_geometry.get("rectified_height", valid_mask.shape[0]))
     if rectified_width <= 0 or rectified_height <= 0 or np.count_nonzero(valid_mask) < 100:
-        return {"success": False, "message": "rectified workspace is too small"}
+        return {
+            "success": False,
+            "message": "rectified workspace is too small",
+            "diagnostics": {
+                "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+                "scan_runtime_response_source": selected_response_source,
+                "scan_runtime_response_source_requested": requested_response_source,
+            },
+        }
 
-    modalities = _build_modalities(result, threshold_percentile)
+    modalities = _build_modalities(result, threshold_percentile, selected_response_source)
     surface = _build_completed_surface(result, modalities, min_period, max_period)
     line_families = surface["completed_line_families"]
     if len(line_families) < 2:
         return {
             "success": False,
-            "message": "completed surface line families are insufficient",
+            "message": "所选扫描底图横纵线族不足",
             "diagnostics": {
                 "instance_graph_endpoint_count": modalities["instance_graph_endpoint_count"],
                 "instance_graph_junction_count": modalities["instance_graph_junction_count"],
                 "beam_candidate_count": len(modalities.get("beam_candidate_bands", [])),
                 "beam_candidate_pixels": int(modalities.get("beam_candidate_pixels", 0)),
+                "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+                "scan_runtime_response_source": selected_response_source,
+                "scan_runtime_response_source_requested": requested_response_source,
             },
         }
     beam_candidate_bands, beam_candidate_lattice_rejected_count = _filter_beam_candidate_bands_by_lattice_context(
@@ -1319,7 +1338,7 @@ def build_scan_surface_dp_result(
     )
     modalities["beam_candidate_bands"] = beam_candidate_bands
     modalities["beam_candidate_mask"] = build_beam_candidate_mask(
-        modalities["fused_instance_response"].shape,
+        modalities["runtime_response"].shape,
         beam_candidate_bands,
         valid_mask,
     )
@@ -1375,6 +1394,9 @@ def build_scan_surface_dp_result(
                 "beam_candidate_lattice_rejected_count": int(
                     modalities.get("beam_candidate_lattice_rejected_count", 0)
                 ),
+                "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+                "scan_runtime_response_source": selected_response_source,
+                "scan_runtime_response_source_requested": requested_response_source,
             },
         }
 
@@ -1403,6 +1425,9 @@ def build_scan_surface_dp_result(
                     "beam_exclusion_margin_mm": float(beam_exclusion_margin_mm),
                     "beam_filtered_point_count": int(beam_filtered_point_count),
                     "beam_candidate_13cm_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
+                    "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+                    "scan_runtime_response_source": selected_response_source,
+                    "scan_runtime_response_source_requested": requested_response_source,
                 },
             }
 
@@ -1464,5 +1489,8 @@ def build_scan_surface_dp_result(
             "physical_resolution_mm_per_px": float(surface["physical_resolution_mm_per_px"]),
             "base_physical_source": surface.get("base_physical_source"),
             "completed_physical_source": surface.get("completed_physical_source"),
+            "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
+            "scan_runtime_response_source": selected_response_source,
+            "scan_runtime_response_source_requested": requested_response_source,
         },
     }
