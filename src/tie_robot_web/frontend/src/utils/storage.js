@@ -101,6 +101,26 @@ function normalizeCabinPose(value, fallback = null) {
   return fallback ? normalizeCabinPose(fallback, null) : null;
 }
 
+function normalizeWorkspaceQuadPayload(value) {
+  if (!Array.isArray(value) || value.length !== 8) {
+    return null;
+  }
+  const payload = value.map((item) => Math.round(Number(item)));
+  return payload.every((item) => Number.isFinite(item)) ? payload : null;
+}
+
+function normalizeRecognitionPoseWorkspace(value = null) {
+  const selectedPayload = normalizeWorkspaceQuadPayload(value?.selectedPayload);
+  const savedPayload = normalizeWorkspaceQuadPayload(value?.savedPayload);
+  if (!selectedPayload && !savedPayload) {
+    return null;
+  }
+  return {
+    selectedPayload: selectedPayload || savedPayload,
+    savedPayload: savedPayload || null,
+  };
+}
+
 function normalizeRecognitionPoseItem(value, index = 0, fallbackPose = null) {
   const pose = normalizeCabinPose(value, fallbackPose);
   if (!pose) {
@@ -113,7 +133,8 @@ function normalizeRecognitionPoseItem(value, index = 0, fallbackPose = null) {
   const label = typeof value?.label === "string" && value.label.trim()
     ? value.label.trim()
     : `识别位姿 ${index + 1}`;
-  return { id, label, ...pose };
+  const workspace = normalizeRecognitionPoseWorkspace(value?.workspace);
+  return workspace ? { id, label, ...pose, workspace } : { id, label, ...pose };
 }
 
 function normalizeRecognitionPoseLibrary(value, defaultPose = null) {

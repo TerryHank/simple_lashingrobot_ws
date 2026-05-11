@@ -59,7 +59,7 @@ import {
   resolveCabinRemoteOperationState,
 } from "../utils/cabinRemoteOperationState.js";
 import { formatCabinRemoteProtocolFeedback } from "../utils/cabinRemoteProtocolFeedback.js";
-import { sampleFloat32XYZImagePixel } from "../utils/irImageUtils.js";
+import { buildWorkspaceQuadPayload, sampleFloat32XYZImagePixel } from "../utils/irImageUtils.js";
 import { inferLegacyLogLevel, sanitizeRosLogText } from "../utils/logText.js";
 import { Scene3DView } from "../views/Scene3DView.js";
 import { WorkspaceCanvasView } from "../views/WorkspaceCanvasView.js";
@@ -193,6 +193,7 @@ export class TieRobotFrontApp {
       overlayCanvas: canvasRefs.overlayCanvas,
       onSelectionChanged: (points) => {
         this.ui.renderPointList(points);
+        this.saveCurrentRecognitionPoseWorkspace({ selectedPoints: points });
         this.refreshActionState();
       },
       onMessage: (message) => this.addLog(message, "info"),
@@ -202,6 +203,7 @@ export class TieRobotFrontApp {
     this.workspaceView.setDisplaySettings(this.displaySettings);
     this.workspaceView.setWorkspacePickingEnabled(this.activeSettingsPage === "workspace");
     this.workspaceView.setSavedWorkspaceGuideVisible(this.activeSettingsPage === "workspace");
+    this.applySelectedRecognitionPoseWorkspace({ suppressSelectionNotify: true });
     this.ui.setDisplaySettings(this.displaySettings);
     this.ui.setVisualDebugSettings(this.visualDebugSettings);
     this.ui.setCameraSdkSettings(this.cameraSdkSettings);
@@ -330,6 +332,7 @@ export class TieRobotFrontApp {
       },
       onSavedWorkspacePayload: (payload) => {
         this.workspaceView.setSavedWorkspacePayload(payload);
+        this.saveCurrentRecognitionPoseWorkspace({ selectedPayload: payload, savedPayload: payload });
         const confirmed = this.taskActionController.handleSavedWorkspacePayload(payload);
         if (confirmed) {
           this.workspaceView.setSelectedWorkspacePayload(payload);

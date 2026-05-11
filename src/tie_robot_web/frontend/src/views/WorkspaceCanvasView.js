@@ -216,9 +216,24 @@ export class WorkspaceCanvasView {
     this.drawOverlay();
   }
 
+  clearSavedWorkspace() {
+    this.savedWorkspacePoints = [];
+    this.savedWorkspaceSourceSize = null;
+    this.draw();
+    this.drawOverlay();
+  }
+
   setSelectedWorkspacePayload(payload) {
     this.selectedPoints = parseWorkspaceQuadPayload(payload);
     this.notifySelectionChanged();
+    this.draw();
+  }
+
+  clearSelectedWorkspace({ notify = true } = {}) {
+    this.selectedPoints = [];
+    if (notify) {
+      this.notifySelectionChanged();
+    }
     this.draw();
   }
 
@@ -247,6 +262,10 @@ export class WorkspaceCanvasView {
 
   buildWorkspacePayload() {
     return buildWorkspaceQuadPayload(this.selectedPoints);
+  }
+
+  buildSavedWorkspacePayload() {
+    return buildWorkspaceQuadPayload(this.savedWorkspacePoints);
   }
 
   notifySelectionChanged() {
