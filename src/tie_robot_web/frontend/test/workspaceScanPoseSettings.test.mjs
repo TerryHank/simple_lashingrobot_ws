@@ -31,13 +31,46 @@ localStorage.clear();
 saveRecognitionPoseLibrary({
   selectedId: "pose-2",
   poses: [
-    { id: "pose-1", label: "识别位姿 1", x: 100, y: 200, z: 300 },
-    { id: "pose-2", label: "识别位姿 2", x: 400, y: 500, z: 600 },
+    {
+      id: "pose-1",
+      label: "识别位姿 1",
+      x: 100,
+      y: 200,
+      z: 300,
+      workspace: {
+        selectedPayload: [10, 20, 110, 20, 110, 120, 10, 120],
+        savedPayload: [10, 20, 110, 20, 110, 120, 10, 120],
+      },
+    },
+    {
+      id: "pose-2",
+      label: "识别位姿 2",
+      x: 400,
+      y: 500,
+      z: 600,
+      workspace: {
+        selectedPayload: [210, 220, 310, 220, 310, 320, 210, 320],
+        savedPayload: [215, 225, 315, 225, 315, 325, 215, 325],
+      },
+    },
   ],
 });
 assert.deepEqual(loadRecognitionPoseLibrary().poses.map((pose) => pose.label), ["识别位姿 1", "识别位姿 2"]);
 assert.equal(loadRecognitionPoseLibrary().selectedId, "pose-2");
 assert.deepEqual(loadRecognitionPose(), { x: 400, y: 500, z: 600 });
+assert.deepEqual(
+  loadRecognitionPoseLibrary().poses.map((pose) => pose.workspace),
+  [
+    {
+      selectedPayload: [10, 20, 110, 20, 110, 120, 10, 120],
+      savedPayload: [10, 20, 110, 20, 110, 120, 10, 120],
+    },
+    {
+      selectedPayload: [210, 220, 310, 220, 310, 320, 210, 320],
+      savedPayload: [215, 225, 315, 225, 315, 325, 215, 325],
+    },
+  ],
+);
 
 localStorage.clear();
 saveRecognitionPose({ x: 11, y: 22, z: 33 });
@@ -115,3 +148,5 @@ assert.match(appText, /getSelectedRecognitionPose\(\)/);
 assert.match(appText, /findIndex\(\(pose\) => pose\.id === selectedPose\?\.id\)/);
 assert.match(appText, /selectedId: pose\.id/);
 assert.match(appText, /deleteRecognitionPose:\s*this\.recognitionPoseLibrary\.poses\.length > 1/);
+assert.match(appText, /applySelectedRecognitionPoseWorkspace/);
+assert.match(appText, /saveCurrentRecognitionPoseWorkspace/);
