@@ -2,6 +2,85 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-11 22:53 - 扫描梁筋过滤默认改为15cm
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：用户现场确认同列缺点符合扫描梁筋过滤路径，当前扫描 Surface-DP 在启用 scan_beam_exclusion 时从梁筋候选 band 扩张物理 mask 后过滤最终交点。运行态默认 scan_beam_exclusion_margin_mm 已从 130.0 mm 改为 150.0 mm；诊断键同步为 beam_candidate_15cm_mask / beam_candidate_15cm_pixels，前端视觉调试开关和 ROS 日志文案显示「梁筋 ±15 cm 过滤」。旧 PR-FPRG 研究工具中的 13cm 命名属于历史实验口径，未作为当前运行态入口修改。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/state.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime.ScanSurfaceDpRuntimeTest; PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_workspace_s2_expands_beam_mask_by_fifteen_centimeters_for_graph_exclusion src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_manual_workspace_s2_current_chain_rejects_depth_only_fallback src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_manual_workspace_s2_module_omits_later_stability_and_phase_lock_experiments src.tie_robot_perception.test.test_current_visual_recognition_flow_report; node test/visualDebugSettings.test.mjs; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 22:51 - Surface-DP统一物理网格评分
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：扫描层 Surface-DP 不再用横纵线数接近 1:1 的 full_workspace 平衡硬门槛过滤线族；改为统一物理网格评分，用候选线数比例与当前 rectified 有效视野物理长宽比的一致性、弱规则线召回和支持度共同接纳/拒绝。长方形全局网格如 34x21 可通过，正方形视野里的 16x2 假阳仍拒绝；小视野、正方形、长方形共用同一判据，不按视野大小分档。当前工程状态已先保存并推送 tag slam/v44。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -> Ran 34 tests in 39.269s OK; git diff --check -- src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 22:50 - 扫描线族弱响应门限放宽
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：Surface-DP 扫描层在所选单一底图上放宽物理线族弱峰兜底门限：单轴选峰 fallback 从 0.08 放到 0.06，整图物理线族重试增加 0.08/0.06 档；线族评分略降低平均响应权重，提高线数完整度和画幅覆盖权重，便于现场检测弱但规律的横纵线族。仍保留必须同时存在横向线族和纵向线族、且数量比例符合画幅物理宽高的约束，不把单轴结果硬凑成交点。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -v；python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py；git diff --check -- src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-11 21:51 - 扫描模式失败当前帧立即返回
 
 <!-- AGENT-MEMORY: entry -->

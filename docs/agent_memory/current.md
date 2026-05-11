@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-11 21:51:43，当前 HEAD：`3ba3e6d`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-11 22:53:17，当前 HEAD：`9eb95dd`。
 
 ## Bootstrap Files
 
@@ -42,12 +42,12 @@
 
 ## Recent Session Memory
 
+- `2026-05-11 22:53 - 扫描梁筋过滤默认改为15cm`：2026-05-11：用户现场确认同列缺点符合扫描梁筋过滤路径，当前扫描 Surface-DP 在启用 scan_beam_exclusion 时从梁筋候选 band 扩张物理 mask 后过滤最终交点。运行态默认 scan_beam_exclusion_margin_mm 已从 130.0 mm 改为 150.0 mm；诊断键同步为 beam_candidate_15cm_mask / beam_candidate_15cm_pixels，前端视觉调试开关和 ROS 日志文案显示「梁筋 ±15 cm 过滤」。旧 PR-FPRG 研究工具中的 13cm 命名属于历史实验口径，未作为当前运行态入口修改。
+- `2026-05-11 22:51 - Surface-DP统一物理网格评分`：2026-05-11：扫描层 Surface-DP 不再用横纵线数接近 1:1 的 full_workspace 平衡硬门槛过滤线族；改为统一物理网格评分，用候选线数比例与当前 rectified 有效视野物理长宽比的一致性、弱规则线召回和支持度共同接纳/拒绝。长方形全局网格如 34x21 可通过，正方形视野里的 16x2 假阳仍拒绝；小视野、正方形、长方形共用同一判据，不按视野大小分档。当前工程状态已先保存并推送 tag slam/v44。
+- `2026-05-11 22:50 - 扫描线族弱响应门限放宽`：2026-05-11：Surface-DP 扫描层在所选单一底图上放宽物理线族弱峰兜底门限：单轴选峰 fallback 从 0.08 放到 0.06，整图物理线族重试增加 0.08/0.06 档；线族评分略降低平均响应权重，提高线数完整度和画幅覆盖权重，便于现场检测弱但规律的横纵线族。仍保留必须同时存在横向线族和纵向线族、且数量比例符合画幅物理宽高的约束，不把单轴结果硬凑成交点。
 - `2026-05-11 21:51 - 扫描模式失败当前帧立即返回`：2026-05-11：PointAI 扫描模式 MODE_SCAN_ONLY 在单次 /pointAI/process_image 请求内仍尊重用户设置的 stable_frame_count 释放帧数；但若当前帧 Surface-DP 没有返回有效点，不再循环等待下一帧，而是立即返回当前帧失败原因。Surface-DP 横纵线族不足错误文案改为中文“所选扫描底图横纵线族不足”，避免 completed surface 旧术语误导现场。
 - `2026-05-11 21:35 - 相机SDK调试页独立中文化`：2026-05-11：设置页把“相机底层 SDK 调试”从视觉调试页拆成独立设置页选项 cameraSdkDebug；面板内参数显示全部中文化，dynamic_reconfigure 仍使用 Scepter ROS cfg 原始英文参数名向 /scepter_manager/set_parameters 下发，避免破坏相机 SDK 接口。
 - `2026-05-11 21:19 - 3D显示未入组扫描点`：2026-05-11：3D Scene 规划点图层新增未入组扫描点显示。/api/planning/bind-path 返回的全量 grid_points 仍保留；黄色 bindPathPoints 只表示进入 pseudo_slam_bind_path.json 有效分组的可执行点，新增玫红色 unplannedBindPathPoints 表示扫描检测到但未进入任何规划组的点，悬停标签为“未入组扫描点”。行/列线、2x2成组线、跳绑高亮仍只使用已分组点，避免误导执行语义。
-- `2026-05-11 21:17 - 扫描层单源底图与相机SDK热调`：2026-05-11：扫描层 Surface-DP 从固定 depth_gradient_only 改为 single_selected_response，可在前端 设置/视觉调试 的 扫描底图 下拉栏选择 fused_instance_response、frangi_like、hessian_ridge、depth_gradient、infrared_response、combined_response、depth_response；运行时只生成被选中的底图并做一次物理线族检测，不再使用 completed_candidates 第二轮。PointAI 订阅 /web/pointAI/set_scan_response_source 并持久化 ~scan_response_source。设置页新增相机底层 SDK 调试面板，按 Sceptertof_roscpp.cfg 参数通过 /scepter_manager/set_parameters dynamic_reconfigure/Reconfigure 热修改，并把参数保存到前端 localStorage 重连回放。
-- `2026-05-11 21:07 - 扫描图像层收口为单图层`：2026-05-11：扫描视觉图像层只保留 /perception/lashing/scan_surface_dp_base_image，并在前端显示为“扫描识别底图”；移除 scan_surface_dp_completed_surface_image ROS publisher、前端 topic registry/image catalog 入口和当前静态页面选项。后端 publish_scan_surface_dp_base_images 只发布 runtime_response/depth_gradient 单图，继续叠加 DP 交点和梁筋候选诊断。
-- `2026-05-11 20:58 - 扫描层接入可配置线性误差补偿`：2026-05-11：PointAI 扫描建图链路在 manual_workspace_s2 输出 PointCoords.World_coord 前新增可配置线性相机坐标补偿。默认 scan_linear_compensation_enabled=false 且 x/y 系数为 0，不改变现有扫描输出；启用后按 z 与 reference_z 的差值对相机坐标 x/y 做比例修正：x*=1-kx*(z-z0)，y*=1+ky*(z-z0)，并通过 min_z 与 max_abs_scale_delta 做门控/限幅。补偿只先接入固定识别位姿扫描账本点，不改底层 raw_world_coord 点云和执行微调 Hough 原始取点。
 
 ## Handoff Documents
 

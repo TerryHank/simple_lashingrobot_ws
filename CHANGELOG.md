@@ -3,6 +3,15 @@
 本文档记录 `simple_lashingrobot_ws` 的项目级变更约定和近期关键调整。  
 开始修改代码前，先读最新日期的记录，再进入具体包目录。
 
+## 2026-05-11
+
+### Surface-DP 统一物理网格评分
+
+- 当前工程状态已先保存并推送远端 tag `slam/v44`，作为本轮扫描线族语义修改前的恢复点。
+- Surface-DP 扫描线族不再使用横纵线数接近 `1:1` 的强平衡门槛；小视野、正方形和长方形钢筋面统一走同一套物理网格评分。
+- 新评分用候选横纵线数比例与当前 rectified 有效视野物理长宽比的一致性、线距物理先验、弱规则线召回和响应支持共同判断网格可信度；`34x21` 这类长方形全局网格可通过，正方形视野中的 `16x2` 线族假阳仍会被拒绝。
+- 运行态诊断新增 `physical_lattice_score`、`physical_lattice_count_aspect`、`physical_lattice_visible_aspect`、`physical_lattice_count_aspect_error` 和 tolerance 字段；旧 `full_workspace / visible_local` 分档标签收口为 `unified_physical_lattice`，避免后续按视野大小重新分支。
+
 ## 2026-05-09
 
 ### 演示模式收回本工程静默开关
