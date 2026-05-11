@@ -432,6 +432,65 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
             ["full_workspace", "full_workspace"],
         )
 
+    def test_surface_dp_rejects_unbalanced_full_workspace_line_counts(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        sparse_horizontal_lines = [48.0, 76.0]
+        response = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(response, "x", vertical_lines)
+        _draw_axis_line(response, "y", sparse_horizontal_lines)
+        response = np.clip(response, 0.0, 1.0)
+
+        families, source = scan_surface_dp._build_best_physical_axis_aligned_line_families(
+            [("unbalanced_response", response)],
+            np.ones((height, width), dtype=bool),
+            {
+                "rectified_width": width,
+                "rectified_height": height,
+                "resolution_mm_per_px": 5.0,
+            },
+            peak_min_ratio=0.16,
+        )
+
+        self.assertEqual(families, [])
+        self.assertIsNone(source)
+
+    def test_surface_dp_skips_unbalanced_first_candidate_and_uses_balanced_later_candidate(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
+        unbalanced_response = np.zeros((height, width), dtype=np.float32)
+        balanced_response = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(unbalanced_response, "x", vertical_lines)
+        _draw_axis_line(unbalanced_response, "y", horizontal_lines[:2])
+        _draw_axis_line(balanced_response, "x", vertical_lines)
+        _draw_axis_line(balanced_response, "y", horizontal_lines)
+        unbalanced_response = np.clip(unbalanced_response, 0.0, 1.0)
+        balanced_response = np.clip(balanced_response, 0.0, 1.0)
+
+        families, source = scan_surface_dp._build_best_physical_axis_aligned_line_families(
+            [
+                ("unbalanced_first", unbalanced_response),
+                ("balanced_later", balanced_response),
+            ],
+            np.ones((height, width), dtype=bool),
+            {
+                "rectified_width": width,
+                "rectified_height": height,
+                "resolution_mm_per_px": 5.0,
+            },
+            peak_min_ratio=0.16,
+        )
+
+        self.assertEqual(source, "balanced_later")
+        self.assertEqual([len(family.get("line_rhos", [])) for family in families], [16, 16])
+
     def test_surface_dp_reports_wide_beam_candidate_bands_without_filtering_points(self):
         from tie_robot_perception.pointai import scan_surface_dp
 

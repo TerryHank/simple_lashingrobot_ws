@@ -24,6 +24,8 @@ from tie_robot_perception.perception.workspace_s2 import (
 FULL_SCAN_REBAR_SPACING_MM_RANGE = (120.0, 160.0)
 MIN_PHYSICAL_LATTICE_LINE_COUNT = 2
 FULL_WORKSPACE_MODE_MIN_VISIBLE_LINE_COUNT = 15
+FULL_WORKSPACE_MIN_AXIS_COUNT_BALANCE_RATIO = 0.65
+FULL_WORKSPACE_BALANCE_MIN_STRONG_AXIS_COUNT = 8
 DEFAULT_RESOLUTION_MM_PER_PX = 5.0
 
 
@@ -947,6 +949,14 @@ def _score_physical_line_families(line_families):
         return -float("inf")
     counts = [len(family.get("line_rhos", [])) for family in line_families[:2]]
     if min(counts) < 2:
+        return -float("inf")
+    modes = [str(family.get("physical_prior_mode", "")) for family in line_families[:2]]
+    if (
+        all(mode == "full_workspace" for mode in modes)
+        and max(counts) >= int(FULL_WORKSPACE_BALANCE_MIN_STRONG_AXIS_COUNT)
+        and (float(min(counts)) / max(float(max(counts)), 1.0))
+        < float(FULL_WORKSPACE_MIN_AXIS_COUNT_BALANCE_RATIO)
+    ):
         return -float("inf")
     support_scores = [
         float((family.get("physical_prior") or {}).get("mean_support", 0.0))
