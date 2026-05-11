@@ -31,7 +31,8 @@ sudo visudo -cf "${TMP_SUDOERS}"
 sudo install -m 0644 "${TMP_SERVICE}" "${SERVICE_TARGET}"
 sudo install -m 0440 "${TMP_SUDOERS}" "${SUDOERS_TARGET}"
 sudo systemctl daemon-reload
+sudo systemctl enable tie-robot-backend.service
 
-echo "tie-robot-backend.service 已安装。"
+echo "tie-robot-backend.service 已安装并设置为开机启动。"
 echo "前端用户 ${SERVICE_USER} 已获得受限 systemctl ROS 全栈重启权限。"
 echo "查看状态: systemctl status tie-robot-backend.service"

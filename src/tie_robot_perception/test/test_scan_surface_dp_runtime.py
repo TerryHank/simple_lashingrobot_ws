@@ -432,6 +432,65 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
             ["full_workspace", "full_workspace"],
         )
 
+    def test_surface_dp_rejects_partial_full_workspace_line_family(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        partial_horizontal_lines = [48.0, 76.0]
+        partial_response = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(partial_response, "x", vertical_lines)
+        _draw_axis_line(partial_response, "y", partial_horizontal_lines)
+        partial_response = np.clip(partial_response, 0.0, 1.0)
+
+        families, source = scan_surface_dp._build_best_physical_axis_aligned_line_families(
+            [("fused_partial", partial_response)],
+            np.ones((height, width), dtype=bool),
+            {
+                "rectified_width": width,
+                "rectified_height": height,
+                "resolution_mm_per_px": 5.0,
+            },
+            peak_min_ratio=0.16,
+        )
+
+        self.assertEqual(families, [])
+        self.assertIsNone(source)
+
+    def test_surface_dp_scores_all_modalities_instead_of_first_partial_candidate(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
+        partial_response = np.zeros((height, width), dtype=np.float32)
+        full_response = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(partial_response, "x", vertical_lines)
+        _draw_axis_line(partial_response, "y", horizontal_lines[:2])
+        _draw_axis_line(full_response, "x", vertical_lines)
+        _draw_axis_line(full_response, "y", horizontal_lines)
+        partial_response = np.clip(partial_response, 0.0, 1.0)
+        full_response = np.clip(full_response, 0.0, 1.0)
+
+        families, source = scan_surface_dp._build_best_physical_axis_aligned_line_families(
+            [
+                ("fused_partial", partial_response),
+                ("frangi_full", full_response),
+            ],
+            np.ones((height, width), dtype=bool),
+            {
+                "rectified_width": width,
+                "rectified_height": height,
+                "resolution_mm_per_px": 5.0,
+            },
+            peak_min_ratio=0.16,
+        )
+
+        self.assertEqual(source, "frangi_full")
+        self.assertEqual([len(family.get("line_rhos", [])) for family in families], [16, 16])
+
     def test_surface_dp_reports_wide_beam_candidate_bands_without_filtering_points(self):
         from tie_robot_perception.pointai import scan_surface_dp
 

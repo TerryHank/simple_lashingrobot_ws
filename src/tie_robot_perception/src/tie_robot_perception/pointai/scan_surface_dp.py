@@ -24,6 +24,9 @@ from tie_robot_perception.perception.workspace_s2 import (
 FULL_SCAN_REBAR_SPACING_MM_RANGE = (120.0, 160.0)
 MIN_PHYSICAL_LATTICE_LINE_COUNT = 2
 FULL_WORKSPACE_MODE_MIN_VISIBLE_LINE_COUNT = 15
+FULL_WORKSPACE_MIN_LINE_COUNT_FRACTION = 0.50
+FULL_WORKSPACE_MIN_AXIS_COVERAGE_RATIO = 0.50
+MIN_PHYSICAL_AXIS_PROFILE_CONTRAST = 1e-4
 DEFAULT_RESOLUTION_MM_PER_PX = 5.0
 
 
@@ -730,6 +733,13 @@ def _select_physical_lattice_positions(
     profile = np.asarray(profile, dtype=np.float32).reshape(-1)
     if profile.size == 0:
         return [], {}
+    finite_profile = profile[np.isfinite(profile)]
+    if finite_profile.size == 0:
+        return [], {}
+    profile_contrast = float(np.percentile(finite_profile, 95.0) - np.percentile(finite_profile, 5.0))
+    profile_range = float(np.max(finite_profile) - np.min(finite_profile))
+    if max(profile_contrast, profile_range) <= float(MIN_PHYSICAL_AXIS_PROFILE_CONTRAST):
+        return [], {}
 
     min_spacing_px, max_spacing_px = spacing_px_range
     min_count, max_count = [int(value) for value in line_count_range]
@@ -770,14 +780,11 @@ def _select_physical_lattice_positions(
     for spacing in np.linspace(min_spacing_px, max_spacing_px, 18):
         spacing_candidates.add(round(float(spacing), 3))
 
-    preferred_count = max_count
-    preferred_count = int(np.clip(preferred_count, min_count, max_count))
     best_positions = []
     best_metadata = {}
     best_score = None
 
     for count in range(min_count, max_count + 1):
-        count_preference = 1.0 - (abs(float(count) - float(preferred_count)) / max(float(max_count - min_count + 1), 1.0))
         for spacing in sorted(spacing_candidates):
             spacing = float(spacing)
             if spacing <= 1e-6:
@@ -826,10 +833,11 @@ def _select_physical_lattice_positions(
                         if len(selected_positions) > 1
                         else 0.0
                     )
+                    count_fraction = float(count) / max(float(max_count), 1.0)
                     candidate_score = (
                         (mean_support * 4.0)
-                        + (count_preference * 1.4)
-                        + (span_coverage * 0.45)
+                        + (span_coverage * 0.85)
+                        + (count_fraction * 0.20)
                         - (spacing_cv * 3.0)
                         - (mean_error_ratio * 2.0)
                     )
@@ -838,8 +846,16 @@ def _select_physical_lattice_positions(
                         or candidate_score > best_score
                         or (
                             abs(candidate_score - best_score) <= 1e-6
-                            and (abs(count - preferred_count), selected_positions)
-                            < (abs(len(best_positions) - preferred_count), best_positions)
+                            and (
+                                -float(span_coverage),
+                                -float(mean_support),
+                                selected_positions,
+                            )
+                            < (
+                                -float(best_metadata.get("span_coverage", 0.0)),
+                                -float(best_metadata.get("mean_support", 0.0)),
+                                best_positions,
+                            )
                         )
                     ):
                         best_score = candidate_score
@@ -851,6 +867,7 @@ def _select_physical_lattice_positions(
                             "candidate_count": int(len(candidate_positions)),
                             "mean_support": float(mean_support),
                             "mean_error_ratio": float(mean_error_ratio),
+                            "span_coverage": float(span_coverage),
                         }
 
     return best_positions, best_metadata
@@ -942,20 +959,76 @@ def _build_physical_axis_aligned_line_families(
     return families
 
 
+def _line_family_span_coverage(family):
+    line_rhos = []
+    for rho in (family or {}).get("line_rhos", []):
+        try:
+            rho_value = float(rho)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(rho_value):
+            line_rhos.append(rho_value)
+    if len(line_rhos) < 2:
+        return 0.0
+    profile = np.asarray((family or {}).get("profile", []), dtype=np.float32).reshape(-1)
+    axis_length = int(profile.size)
+    if axis_length <= 1:
+        return 0.0
+    return float((max(line_rhos) - min(line_rhos)) / max(float(axis_length - 1), 1.0))
+
+
+def _line_family_count_fraction(family):
+    line_count = len((family or {}).get("line_rhos", []))
+    try:
+        max_visible_count = int(((family or {}).get("estimate") or {}).get("max_visible_count", line_count))
+    except (TypeError, ValueError):
+        max_visible_count = line_count
+    if max_visible_count <= 0:
+        return 0.0
+    return float(min(float(line_count) / float(max_visible_count), 1.0))
+
+
+def _full_workspace_family_has_enough_coverage(family):
+    if str((family or {}).get("physical_prior_mode", "")) != "full_workspace":
+        return True
+    line_count = len((family or {}).get("line_rhos", []))
+    try:
+        max_visible_count = int(((family or {}).get("estimate") or {}).get("max_visible_count", line_count))
+    except (TypeError, ValueError):
+        max_visible_count = line_count
+    min_required_count = max(
+        int(MIN_PHYSICAL_LATTICE_LINE_COUNT),
+        int(np.ceil(float(max_visible_count) * float(FULL_WORKSPACE_MIN_LINE_COUNT_FRACTION))),
+    )
+    if line_count < min_required_count:
+        return False
+    return _line_family_span_coverage(family) >= float(FULL_WORKSPACE_MIN_AXIS_COVERAGE_RATIO)
+
+
 def _score_physical_line_families(line_families):
     if len(line_families or []) < 2:
         return -float("inf")
     counts = [len(family.get("line_rhos", [])) for family in line_families[:2]]
     if min(counts) < 2:
         return -float("inf")
+    if any(not _full_workspace_family_has_enough_coverage(family) for family in line_families[:2]):
+        return -float("inf")
     support_scores = [
         float((family.get("physical_prior") or {}).get("mean_support", 0.0))
         for family in line_families[:2]
     ]
-    preferred_count = 16.0
-    count_score = sum(1.0 - min(abs(float(count) - preferred_count) / preferred_count, 1.0) for count in counts)
-    balance_penalty = abs(float(counts[0]) - float(counts[1])) * 0.08
-    return float((sum(support_scores) * 3.0) + count_score - balance_penalty)
+    span_scores = [_line_family_span_coverage(family) for family in line_families[:2]]
+    count_fraction_scores = [_line_family_count_fraction(family) for family in line_families[:2]]
+    balance_penalty = (
+        abs(float(counts[0]) - float(counts[1])) /
+        max(float(max(counts)), 1.0)
+    ) * 0.60
+    return float(
+        (sum(support_scores) * 3.0)
+        + (sum(span_scores) * 1.2)
+        + (sum(count_fraction_scores) * 0.8)
+        - balance_penalty
+    )
 
 
 def _build_best_physical_axis_aligned_line_families(
@@ -964,22 +1037,48 @@ def _build_best_physical_axis_aligned_line_families(
     rectified_geometry,
     peak_min_ratio=0.18,
 ):
-    for source_name, response_map in response_candidates:
-        if response_map is None:
-            continue
-        for ratio in (peak_min_ratio, max(0.12, peak_min_ratio * 0.78), 0.10):
+    best_line_families = []
+    best_source = None
+    best_score = -float("inf")
+    peak_ratios = []
+    for ratio in (peak_min_ratio, max(0.12, peak_min_ratio * 0.78), 0.10):
+        ratio = float(ratio)
+        if not any(abs(ratio - existing_ratio) <= 1e-6 for existing_ratio in peak_ratios):
+            peak_ratios.append(ratio)
+    for ratio in peak_ratios:
+        ratio_best_line_families = []
+        ratio_best_source = None
+        ratio_best_score = -float("inf")
+        seen_response_ids = set()
+        for source_name, response_map in response_candidates:
+            if response_map is None:
+                continue
+            response_id = id(response_map)
+            if response_id in seen_response_ids:
+                continue
+            seen_response_ids.add(response_id)
             line_families = _build_physical_axis_aligned_line_families(
                 response_map,
                 valid_mask,
                 rectified_geometry,
                 peak_min_ratio=ratio,
             )
-            if _score_physical_line_families(line_families) > -float("inf"):
-                physical_source = str(source_name)
-                for family in line_families[:2]:
-                    family["physical_prior_source"] = physical_source
-                return line_families[:2], physical_source
-    return [], None
+            score = _score_physical_line_families(line_families)
+            if score > ratio_best_score:
+                ratio_best_score = score
+                ratio_best_line_families = line_families[:2]
+                ratio_best_source = str(source_name)
+        if ratio_best_score > -float("inf"):
+            best_score = ratio_best_score
+            best_line_families = ratio_best_line_families
+            best_source = ratio_best_source
+            break
+    if best_score <= -float("inf") or len(best_line_families) < 2:
+        return [], None
+    for family in best_line_families:
+        family["physical_prior_source"] = best_source
+        family["physical_prior_score"] = float(best_score)
+    return best_line_families, best_source
 
 
 def _full_workspace_expected(valid_mask, rectified_geometry):

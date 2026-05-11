@@ -13,6 +13,10 @@ def read_template(name):
     return (SYSTEMD_DIR / name).read_text(encoding="utf-8")
 
 
+def read_script(name):
+    return (WORKSPACE_ROOT / "src" / "tie_robot_bringup" / "scripts" / name).read_text(encoding="utf-8")
+
+
 class SystemdRosMasterOwnershipTest(unittest.TestCase):
     def test_driver_services_wait_for_rosbridge_owned_master_without_lifecycle_coupling(self):
         for service_name in (
@@ -39,6 +43,14 @@ class SystemdRosMasterOwnershipTest(unittest.TestCase):
         self.assertIn("Environment=ROS_MASTER_URI=http://127.0.0.1:11311", template)
         self.assertIn("wait_for_ros_master.py", template)
         self.assertIn("--timeout-sec 30", template)
+
+    def test_backend_service_is_an_enabled_always_restart_supervised_stack(self):
+        template = read_template("tie-robot-backend.service.in")
+        installer = read_script("install_backend_service.sh")
+
+        self.assertIn("Restart=always", template)
+        self.assertIn("RestartSec=3", template)
+        self.assertIn("systemctl enable tie-robot-backend.service", installer)
 
     def test_rosbridge_service_is_the_only_master_owner(self):
         template = read_template("tie-robot-rosbridge.service.in")

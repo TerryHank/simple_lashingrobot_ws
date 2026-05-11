@@ -2,6 +2,31 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-09 18:55 - Surface-DP 移除固定 16 根偏好
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- scan_surface_dp 的物理先验从固定 preferred_count=16 改为候选响应源全量评分、full workspace 覆盖门槛和 120-160mm 间距先验；full workspace 轴至少需达到可见数量 50% 且跨度覆盖 50%，同时用 raw profile 对比度过滤纯平轴，避免只有横线的响应被边界归一化误判出纵向伪峰。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime; git diff --check -- src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-09 17:25 - 3D执行点只显示已分组点
 
 <!-- AGENT-MEMORY: entry -->
