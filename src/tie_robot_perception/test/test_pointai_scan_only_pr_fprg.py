@@ -273,7 +273,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             wait_loop_text,
         )
         self.assertIn(
-            "pointAI process_image timed out while waiting for execution refine plane-segmentation + Hough vision",
+            "pointAI视觉服务等待执行微调平面分割+Hough超时",
             wait_loop_text,
         )
         self.assertNotIn(
@@ -347,7 +347,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertIn("if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:", no_points_text)
         self.assertIn('"success": False', no_points_text)
-        self.assertIn('main_visual_result.get("message", "unknown error")', no_points_text)
+        self.assertIn('main_visual_result.get("message", "未知错误")', no_points_text)
         self.assertNotIn("pointAI等待Surface-DP物理先验扫描有效点", no_points_text)
         scan_branch_start = no_points_text.index("if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:")
         scan_branch_end = no_points_text.index("rospy.logwarn_throttle", scan_branch_start)
@@ -1549,12 +1549,12 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertTrue(captured_logs)
         log_template = captured_logs[0][0]
         log_args = captured_logs[0][1:]
-        self.assertIn("pointAI tie point camera distance", log_template)
-        self.assertIn("source_frame=Scepter_depth_frame", log_template)
+        self.assertIn("pointAI绑扎点相机距离", log_template)
+        self.assertIn("源坐标系=Scepter_depth_frame", log_template)
         self.assertNotIn("target_frame=map", log_template)
-        self.assertIn("camera_depth_z_mm=%.1f", log_template)
-        self.assertIn("camera_distance_mm=%.1f", log_template)
-        self.assertIn("camera_xyz_mm=(%.1f,%.1f,%.1f)", log_template)
+        self.assertIn("相机深度Z=%.1fmm", log_template)
+        self.assertIn("相机距离=%.1fmm", log_template)
+        self.assertIn("相机坐标mm=(%.1f,%.1f,%.1f)", log_template)
         self.assertEqual(log_args[0], 1)
         self.assertAlmostEqual(log_args[5], 1200.0, places=3)
         self.assertAlmostEqual(log_args[6], 1200.0, places=3)
@@ -2247,7 +2247,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         self.assertEqual(filtered_points, [(50.0, 30.0), (90.0, 30.0), (50.0, 70.0)])
 
-    def test_workspace_s2_expands_beam_mask_by_thirteen_centimeters_for_graph_exclusion(self):
+    def test_workspace_s2_expands_beam_mask_by_fifteen_centimeters_for_graph_exclusion(self):
         from tie_robot_perception.perception import workspace_s2
 
         beam_mask = np.zeros((80, 120), dtype=bool)
@@ -2261,24 +2261,24 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         graph_exclusion_mask = workspace_s2.expand_workspace_s2_exclusion_mask_by_metric_margin(
             beam_mask,
             rectified_geometry,
-            margin_mm=130.0,
+            margin_mm=150.0,
         )
         filtered_points = workspace_s2.filter_workspace_s2_rectified_points_outside_mask(
             [
-                (23.0, 40.0),
-                (24.0, 40.0),
-                (81.0, 40.0),
-                (82.0, 40.0),
+                (19.0, 40.0),
+                (20.0, 40.0),
+                (85.0, 40.0),
+                (86.0, 40.0),
             ],
             graph_exclusion_mask,
         )
 
-        self.assertFalse(beam_mask[40, 24])
-        self.assertTrue(graph_exclusion_mask[40, 24])
-        self.assertTrue(graph_exclusion_mask[40, 81])
-        self.assertFalse(graph_exclusion_mask[40, 23])
-        self.assertFalse(graph_exclusion_mask[40, 82])
-        self.assertEqual(filtered_points, [(23.0, 40.0), (82.0, 40.0)])
+        self.assertFalse(beam_mask[40, 20])
+        self.assertTrue(graph_exclusion_mask[40, 20])
+        self.assertTrue(graph_exclusion_mask[40, 85])
+        self.assertFalse(graph_exclusion_mask[40, 19])
+        self.assertFalse(graph_exclusion_mask[40, 86])
+        self.assertEqual(filtered_points, [(19.0, 40.0), (86.0, 40.0)])
 
     def test_workspace_s2_filters_line_rhos_that_run_inside_vertical_beam_mask(self):
         from tie_robot_perception.perception import workspace_s2
@@ -2597,12 +2597,37 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("horizontal_lines = self.build_workspace_s2_line_positions(", fallback_body)
         self.assertIn("rectified_intersections = [", fallback_body)
         self.assertIn("self.build_workspace_s2_projective_line_segments(", fallback_body)
-        self.assertIn("v_period=%d, h_period=%d, points=%d", fallback_body)
+        self.assertIn("纵向周期=%d，横向周期=%d，点数=%d", fallback_body)
         self.assertNotIn("collect_stable_manual_workspace_s2_inputs", pipeline_body)
         self.assertNotIn("apply_manual_workspace_s2_phase_lock", pipeline_body)
         self.assertIn('enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False))', surface_body)
-        self.assertIn('beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 130.0))', surface_body)
+        self.assertIn('beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 150.0))', surface_body)
         self.assertNotIn("expand_workspace_s2_exclusion_mask_by_metric_margin", pipeline_body)
+
+    def test_pointai_scan_beam_exclusion_margin_is_hot_configurable(self):
+        ros_interfaces_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "ros_interfaces.py"
+        ).read_text(encoding="utf-8")
+        runtime_text = POINTAI_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("/web/pointAI/set_scan_beam_exclusion_margin_mm", ros_interfaces_text)
+        self.assertIn("Float32, self.set_scan_beam_exclusion_margin_callback", ros_interfaces_text)
+        self.assertIn("def set_scan_beam_exclusion_margin_callback(self, msg):", runtime_text)
+        self.assertIn('rospy.set_param("~scan_beam_exclusion_margin_mm"', runtime_text)
+        self.assertIn("cls.set_scan_beam_exclusion_margin_callback", processor_text)
 
     def test_manual_workspace_s2_module_omits_later_stability_and_phase_lock_experiments(self):
         manual_workspace_s2_text = (
@@ -2978,6 +3003,25 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("def set_execution_refine_tcp_roi_callback(self, msg):", runtime_config_text)
         self.assertIn('rospy.set_param("~execution_refine_tcp_roi_min_x_mm"', runtime_config_text)
 
+    def test_scan_linear_compensation_is_hot_configurable_from_frontend(self):
+        ros_interfaces_text = POINTAI_ROS_INTERFACES_PATH.read_text(encoding="utf-8")
+        runtime_config_text = POINTAI_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("'/web/pointAI/set_scan_linear_compensation'", ros_interfaces_text)
+        self.assertIn("Float32MultiArray, self.set_scan_linear_compensation_callback", ros_interfaces_text)
+        self.assertIn("def set_scan_linear_compensation_callback(self, msg):", runtime_config_text)
+        self.assertIn('rospy.set_param("~scan_linear_compensation_x_per_mm"', runtime_config_text)
+        self.assertIn("scan_linear_compensation_max_abs_scale_delta", runtime_config_text)
+        self.assertIn("cls.set_scan_linear_compensation_callback", processor_text)
+
     def test_colab_training_package_includes_full_non_rgb_modality_set(self):
         colab_script = WORKSPACE_ROOT.parent / "notebooks" / "pr_fprg_multimodal_segmentation_colab.py"
         script_text = colab_script.read_text(encoding="utf-8")
@@ -3019,7 +3063,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("start_time = time.perf_counter()", manual_workspace_s2_text)
         self.assertIn("elapsed_ms = (time.perf_counter() - start_time) * 1000.0", manual_workspace_s2_text)
         self.assertIn("single_frame_elapsed_ms", manual_workspace_s2_text)
-        self.assertIn("elapsed_ms=%.1f", manual_workspace_s2_text)
+        self.assertIn("耗时=%.1fms", manual_workspace_s2_text)
 
     def test_pr_fprg_scheme_ablation_report_marks_scheme1_as_realtime_target(self):
         report_text = PR_FPRG_SCHEME_ABLATION_REPORT_PATH.read_text(encoding="utf-8")

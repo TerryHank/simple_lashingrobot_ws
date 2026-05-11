@@ -60,6 +60,7 @@ bool load_bind_execution_memory_json(
             }
 
             BindExecutionPointRecord point_record;
+            point_record.recognition_pose_index = point_json.value("recognition_pose_index", 1);
             point_record.global_row = point_json.at("global_row").get<int>();
             point_record.global_col = point_json.at("global_col").get<int>();
             point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);
@@ -97,6 +98,7 @@ bool write_bind_execution_memory_json(const BindExecutionMemory& memory, std::st
     for (const auto& point_record : memory.executed_points) {
         memory_json["executed_points"].push_back(
             {
+                {"recognition_pose_index", point_record.recognition_pose_index},
                 {"global_row", point_record.global_row},
                 {"global_col", point_record.global_col},
                 {"checkerboard_parity", point_record.checkerboard_parity},
@@ -243,6 +245,7 @@ bool reset_bind_execution_memory_from_current_scan_artifacts(
 
 bool is_point_already_executed(
     const BindExecutionMemory& memory,
+    int recognition_pose_index,
     int global_row,
     int global_col
 )
@@ -254,8 +257,10 @@ bool is_point_already_executed(
     return std::any_of(
         memory.executed_points.begin(),
         memory.executed_points.end(),
-        [global_row, global_col](const BindExecutionPointRecord& point_record) {
-            return point_record.global_row == global_row && point_record.global_col == global_col;
+        [recognition_pose_index, global_row, global_col](const BindExecutionPointRecord& point_record) {
+            return point_record.recognition_pose_index == recognition_pose_index &&
+                   point_record.global_row == global_row &&
+                   point_record.global_col == global_col;
         }
     );
 }
@@ -269,14 +274,16 @@ void record_successful_execution_point(
 {
     const int global_row = point_json.value("global_row", -1);
     const int global_col = point_json.value("global_col", -1);
+    const int recognition_pose_index = point_json.value("recognition_pose_index", 1);
     if (global_row < 0 || global_col < 0) {
         return;
     }
-    if (is_point_already_executed(memory, global_row, global_col)) {
+    if (is_point_already_executed(memory, recognition_pose_index, global_row, global_col)) {
         return;
     }
 
     BindExecutionPointRecord point_record;
+    point_record.recognition_pose_index = recognition_pose_index;
     point_record.global_row = global_row;
     point_record.global_col = global_col;
     point_record.checkerboard_parity = point_json.value("checkerboard_parity", -1);

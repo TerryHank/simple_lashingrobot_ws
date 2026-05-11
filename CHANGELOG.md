@@ -5,6 +5,12 @@
 
 ## 2026-05-11
 
+### 前端扫描入口二次收口
+
+- 用户最新口径：设置页不再展示独立的“工作区选点”和“扫描动作”卡片；“确认工作区域”跟在“移动到选中位姿”右侧，仍在设置 / 工作区的扫描位姿卡片内。
+- “触发扫描视觉”重新放回控制面板“扫描区”，且扫描区只保留这个主动视觉触发入口；移动到位姿、记录识别位姿和确认工作区域不再作为控制面板任务按钮。
+- 工作区点选列表与“撤销最后一点 / 清空重选”保留在扫描位姿卡片内，避免现场误点后无法修正。
+
 ### Surface-DP 统一物理网格评分
 
 - 当前工程状态已先保存并推送远端 tag `slam/v44`，作为本轮扫描线族语义修改前的恢复点。
@@ -65,7 +71,7 @@
 ### 扫描 DP 底图梁筋候选可视化
 
 - Surface-DP 运行态新增 `beam_candidate` 梁筋候选诊断：基于收束底图中的宽、连续、高响应竖向 band 识别梁筋候选，并输出 `beam_candidate_bands`、`beam_candidate_count` 和像素统计。
-- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可选择启用「梁筋 ±13 cm 过滤」，默认关闭，启用后只过滤落入梁筋候选扩张范围的最终绑扎点，不删除普通钢筋线族。
+- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可启用梁筋过滤并填写过滤半径，默认半径 150 mm，启用后按梁筋候选扩张范围过滤最终绑扎列，不删除普通钢筋线族。
 - 梁筋候选识别补充「黑色竖沟 + 双侧窄亮边」形态：现场截图中梁筋中间常表现为贯穿全高的暗沟，而不是整条宽亮带；检测逻辑会把两侧连续亮边与中间低覆盖暗沟合并成一条 beam_candidate 竖带，避免漏掉这种梁筋。
 - 梁筋候选进一步增加高度门控：竖带这一列必须在 `background_depth - filled_depth` 高度响应上高于邻近普通钢筋才会标为梁筋；红色半透明带按高度峰值列收窄，避免把只是更宽、更亮但不更高的普通钢筋误判为梁筋。
 - 梁筋候选再增加网格线族上下文门控：候选竖带必须位于相邻普通竖向钢筋列之间，并接近这两列的中点；如果候选中心落在正常竖筋 line-family 上，会被视为普通钢筋抬高或局部变粗而剔除，降低误识别红带。
@@ -99,7 +105,7 @@
 
 ### 视觉调试设置填完即用
 
-- “视觉调试”卡里的释放帧数、索驱规划 Z 下限、自适应分组、梁筋过滤开关和绑扎范围输入统一改为填完即用：输入变化会立即保存设置、刷新 3D / IR 绑扎范围，并同步发布 `/web/pointAI/set_stable_frame_count`、`/web/pointAI/set_execution_refine_tcp_roi` 与 `/web/pointAI/set_scan_beam_exclusion`，不再需要点击确认。
+- “视觉调试”卡里的释放帧数、索驱规划 Z 下限、自适应分组、梁筋过滤开关、梁筋过滤半径和绑扎范围输入统一改为填完即用：输入变化会立即保存设置、刷新 3D / IR 绑扎范围，并同步发布 `/web/pointAI/set_stable_frame_count`、`/web/pointAI/set_execution_refine_tcp_roi`、`/web/pointAI/set_scan_beam_exclusion` 与 `/web/pointAI/set_scan_beam_exclusion_margin_mm`，不再需要点击确认。
 - 设置页删除“触发视觉服务”按钮；视觉调试页只负责参数热更新和持久化，主动视觉触发入口收口到控制面板扫描/执行按钮。
 - `planned_path_refine_only` 跳绑微调失败原因进一步区分：如果 pointAI 已经返回可执行视觉点，但账本最近点匹配或跳绑过滤没通过，后端日志会直接说明失败原因；2026-05-08 已撤回失败后原地轮询语义，当前失败会跳过当前区域。
 
@@ -180,7 +186,7 @@
 - 用户明确口径：视觉请求和触发链路保持当前 `/pointAI/process_image request_mode=3`，只把扫描视觉算法本体恢复到 2026-04-22 那版 `manual workspace S2`。
 - 扫描 S2 主链回到 depth-only 版本：手动工作区透视展开后，基于深度背景差分构造响应图，分别对 rectified 图的纵向、横向 profile 做周期和相位估计，再用 `build_workspace_s2_projective_line_segments` 与 inverse mapping 投回原图。
 - 扫描 S2 与 `38baa98` 的算法差异继续收口：运行态会完整评分 `background_depth - filled_depth` 与 `filled_depth - background_depth` 两个 depth 响应变体，并按纵横周期估计总分选择最佳变体；透视展开几何优先使用当前 `map` 口径的 `corner_world_map_frame`，缺失时才回退兼容当前已有的 `corner_world_camera_frame`。
-- 当前扫描算法不再使用行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、稳定采样择优或 phase lock；梁筋 ±13 cm 过滤仅作为视觉调试开关控制的最终点级排除，不恢复旧实验链路，也不删除整条钢筋线族。
+- 当前扫描算法不恢复旧实验链路中的行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、稳定采样择优或 phase lock；当前运行态 Surface-DP 梁筋过滤由视觉调试开关和半径输入控制，默认半径 150 mm，启用后只按梁筋候选扩张 mask 过滤最终绑扎列，不删除普通钢筋线族。
 - `MODE_EXECUTION_REFINE` 仍按 2026-04-30 口径走平面分割 + Hough 局部视觉；本次不修改前端按钮、Web action、`/pointAI/process_image` 服务入口或执行层 Hough 分流。
 
 ### 当前视觉识别流程效果页

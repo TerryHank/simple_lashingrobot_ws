@@ -94,6 +94,15 @@ const VISUAL_DEBUG_BIND_RANGE_AXES = [
   { axis: "z", label: "Z", minRef: "visualDebugBindRangeZMin", maxRef: "visualDebugBindRangeZMax" },
 ];
 
+const DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS = Object.freeze({
+  enabled: false,
+  referenceZMm: 1000,
+  xPercentPerMeter: 0,
+  yPercentPerMeter: 0,
+  minZMm: 1200,
+  maxScaleDelta: 0.25,
+});
+
 const VISUAL_DEBUG_EXECUTION_MODE_CONTROLS = [
   {
     mode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
@@ -540,6 +549,10 @@ export class UIController {
                           <label for="visualDebugBindExecutionCabinMinZ">索驱规划 Z 下限 (mm)</label>
                           <input id="visualDebugBindExecutionCabinMinZ" type="number" min="0" step="1" value="485" />
                         </div>
+                        <div class="field">
+                          <label for="visualDebugBeamExclusionMargin">梁筋过滤半径 (mm)</label>
+                          <input id="visualDebugBeamExclusionMargin" type="number" min="1" step="1" value="150" />
+                        </div>
                       </div>
                       <label class="checkbox-field visual-debug-adaptive-bind-grouping" for="visualDebugAdaptiveBindGrouping">
                         <input id="visualDebugAdaptiveBindGrouping" type="checkbox" />
@@ -547,8 +560,34 @@ export class UIController {
                       </label>
                       <label class="checkbox-field visual-debug-beam-filter" for="visualDebugBeamExclusionToggle">
                         <input id="visualDebugBeamExclusionToggle" type="checkbox" />
-                        <span>梁筋 ±13 cm 过滤</span>
+                        <span>启用梁筋过滤</span>
                       </label>
+                      <label class="checkbox-field visual-debug-scan-linear-compensation" for="visualDebugScanLinearCompensationToggle">
+                        <input id="visualDebugScanLinearCompensationToggle" type="checkbox" />
+                        <span>扫描线性补偿</span>
+                      </label>
+                      <div class="field-grid compact-grid visual-debug-scan-linear-grid">
+                        <div class="field">
+                          <label for="visualDebugScanLinearCompensationX">X补偿 (%/m)</label>
+                          <input id="visualDebugScanLinearCompensationX" type="number" step="0.1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugScanLinearCompensationY">Y补偿 (%/m)</label>
+                          <input id="visualDebugScanLinearCompensationY" type="number" step="0.1" value="0" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugScanLinearCompensationReferenceZ">基准 Z (mm)</label>
+                          <input id="visualDebugScanLinearCompensationReferenceZ" type="number" min="1" step="1" value="1000" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugScanLinearCompensationMinZ">生效 Z (mm)</label>
+                          <input id="visualDebugScanLinearCompensationMinZ" type="number" min="0" step="1" value="1200" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugScanLinearCompensationMaxDelta">最大比例限幅</label>
+                          <input id="visualDebugScanLinearCompensationMaxDelta" type="number" min="0" step="0.01" value="0.25" />
+                        </div>
+                      </div>
                       <div class="field-grid compact-grid visual-debug-bind-range-grid">
                         <div class="field">
                           <label for="visualDebugBindRangeXMin">绑扎 X min (mm)</label>
@@ -692,8 +731,24 @@ export class UIController {
 
                 <section class="settings-page is-active" data-settings-page="workspace">
                   <div class="settings-grid">
-                    <div class="settings-section">
-                      <div class="section-title">工作区选点</div>
+                    <div class="settings-section workspace-scan-card">
+                      <div class="section-title">扫描位姿</div>
+                      <div class="field-grid single-column">
+                        <div class="field">
+                          <label for="recognitionPoseSelect">识别位姿序号</label>
+                          <select id="recognitionPoseSelect">
+                            <option value="pose-1">识别位姿 1</option>
+                          </select>
+                        </div>
+                        <div id="recognitionPoseSummary" class="info-block mono">识别位姿 1：等待记录。</div>
+                      </div>
+                      <div class="button-row workspace-scan-pose-actions">
+                        <button class="secondary-btn" type="button" data-workspace-scan-action="addRecognitionPose">新增位姿</button>
+                        <button class="secondary-btn" type="button" data-workspace-scan-action="deleteRecognitionPose" disabled>删除位姿</button>
+                        <button class="secondary-btn" type="button" data-workspace-scan-action="setRecognitionPose" disabled>记录当前位姿</button>
+                        <button class="secondary-btn" type="button" data-workspace-scan-action="moveToPosition" disabled>移动到选中位姿</button>
+                        <button class="secondary-btn" type="button" data-workspace-scan-action="submitQuad" disabled>确认工作区域</button>
+                      </div>
                       <div class="workspace-metadata">
                         <ol id="selectedPoints" class="point-list"></ol>
                         <div class="button-row">
@@ -1139,6 +1194,9 @@ export class UIController {
     this.refs.topicInventorySummary = this.rootElement.querySelector("#topicInventorySummary");
     this.refs.topicInventoryList = this.rootElement.querySelector("#topicInventoryList");
     this.refs.selectedPoints = this.rootElement.querySelector("#selectedPoints");
+    this.refs.recognitionPoseSelect = this.rootElement.querySelector("#recognitionPoseSelect");
+    this.refs.recognitionPoseSummary = this.rootElement.querySelector("#recognitionPoseSummary");
+    this.refs.workspaceScanButtons = [...this.rootElement.querySelectorAll("[data-workspace-scan-action]")];
     this.refs.displayMode = this.rootElement.querySelector("#displayMode");
     this.refs.gammaRange = this.rootElement.querySelector("#gammaRange");
     this.refs.overlayOpacityRange = this.rootElement.querySelector("#overlayOpacityRange");
@@ -1150,8 +1208,15 @@ export class UIController {
     this.refs.visualDebugScanResponseSource = this.rootElement.querySelector("#visualDebugScanResponseSource");
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
     this.refs.visualDebugBindExecutionCabinMinZ = this.rootElement.querySelector("#visualDebugBindExecutionCabinMinZ");
+    this.refs.visualDebugBeamExclusionMargin = this.rootElement.querySelector("#visualDebugBeamExclusionMargin");
     this.refs.visualDebugAdaptiveBindGrouping = this.rootElement.querySelector("#visualDebugAdaptiveBindGrouping");
     this.refs.visualDebugBeamExclusionToggle = this.rootElement.querySelector("#visualDebugBeamExclusionToggle");
+    this.refs.visualDebugScanLinearCompensationToggle = this.rootElement.querySelector("#visualDebugScanLinearCompensationToggle");
+    this.refs.visualDebugScanLinearCompensationX = this.rootElement.querySelector("#visualDebugScanLinearCompensationX");
+    this.refs.visualDebugScanLinearCompensationY = this.rootElement.querySelector("#visualDebugScanLinearCompensationY");
+    this.refs.visualDebugScanLinearCompensationReferenceZ = this.rootElement.querySelector("#visualDebugScanLinearCompensationReferenceZ");
+    this.refs.visualDebugScanLinearCompensationMinZ = this.rootElement.querySelector("#visualDebugScanLinearCompensationMinZ");
+    this.refs.visualDebugScanLinearCompensationMaxDelta = this.rootElement.querySelector("#visualDebugScanLinearCompensationMaxDelta");
     this.refs.visualDebugBindRangeXMin = this.rootElement.querySelector("#visualDebugBindRangeXMin");
     this.refs.visualDebugBindRangeXMax = this.rootElement.querySelector("#visualDebugBindRangeXMax");
     this.refs.visualDebugBindRangeYMin = this.rootElement.querySelector("#visualDebugBindRangeYMin");
@@ -2409,9 +2474,14 @@ export class UIController {
       scanResponseSource: normalizeScanResponseSource(this.refs.visualDebugScanResponseSource?.value),
       adaptiveBindGrouping: Boolean(this.refs.visualDebugAdaptiveBindGrouping?.checked),
       enableBeamExclusion: Boolean(this.refs.visualDebugBeamExclusionToggle?.checked),
+      beamExclusionMarginMm: Math.max(
+        1,
+        Number.parseFloat(this.refs.visualDebugBeamExclusionMargin?.value || "150") || 150,
+      ),
       bindExecutionCabinMinZMm: normalizeBindExecutionCabinMinZ(
         this.refs.visualDebugBindExecutionCabinMinZ?.value,
       ),
+      scanLinearCompensation: this.getVisualDebugScanLinearCompensationInputs(),
       linearModuleBindRangeMm: this.getVisualDebugBindRangeInputs(),
     };
   }
@@ -2442,17 +2512,84 @@ export class UIController {
         normalizeBindExecutionCabinMinZ(settings?.bindExecutionCabinMinZMm),
       );
     }
+    if (this.refs.visualDebugBeamExclusionMargin) {
+      const marginValue = Number(settings?.beamExclusionMarginMm);
+      this.refs.visualDebugBeamExclusionMargin.value = String(
+        Number.isFinite(marginValue) && marginValue > 0 ? marginValue : 150,
+      );
+    }
     if (this.refs.visualDebugAdaptiveBindGrouping) {
       this.refs.visualDebugAdaptiveBindGrouping.checked = Boolean(settings?.adaptiveBindGrouping);
     }
     if (this.refs.visualDebugBeamExclusionToggle) {
       this.refs.visualDebugBeamExclusionToggle.checked = Boolean(settings?.enableBeamExclusion);
     }
+    this.setVisualDebugScanLinearCompensationInputs(settings?.scanLinearCompensation);
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
       bindExecutionCabinMinZMm: settings?.bindExecutionCabinMinZMm,
     });
     this.setVisualDebugBindRangeInputs(settings?.linearModuleBindRangeMm);
+  }
+
+  getVisualDebugScanLinearCompensationInputs() {
+    const defaults = DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS;
+    const referenceZMm = Number.parseFloat(this.refs.visualDebugScanLinearCompensationReferenceZ?.value || "");
+    const xPercentPerMeter = Number.parseFloat(this.refs.visualDebugScanLinearCompensationX?.value || "");
+    const yPercentPerMeter = Number.parseFloat(this.refs.visualDebugScanLinearCompensationY?.value || "");
+    const minZMm = Number.parseFloat(this.refs.visualDebugScanLinearCompensationMinZ?.value || "");
+    const maxScaleDelta = Number.parseFloat(this.refs.visualDebugScanLinearCompensationMaxDelta?.value || "");
+    return {
+      enabled: Boolean(this.refs.visualDebugScanLinearCompensationToggle?.checked),
+      referenceZMm: Number.isFinite(referenceZMm) && referenceZMm > 0 ? referenceZMm : defaults.referenceZMm,
+      xPercentPerMeter: Number.isFinite(xPercentPerMeter) ? xPercentPerMeter : defaults.xPercentPerMeter,
+      yPercentPerMeter: Number.isFinite(yPercentPerMeter) ? yPercentPerMeter : defaults.yPercentPerMeter,
+      minZMm: Number.isFinite(minZMm) && minZMm >= 0 ? minZMm : defaults.minZMm,
+      maxScaleDelta: Number.isFinite(maxScaleDelta) && maxScaleDelta >= 0 ? maxScaleDelta : defaults.maxScaleDelta,
+    };
+  }
+
+  setVisualDebugScanLinearCompensationInputs(settings = {}) {
+    const defaults = DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS;
+    const normalized = {
+      enabled: Boolean(settings?.enabled),
+      referenceZMm: Number.isFinite(Number(settings?.referenceZMm))
+        && Number(settings.referenceZMm) > 0
+        ? Number(settings.referenceZMm)
+        : defaults.referenceZMm,
+      xPercentPerMeter: Number.isFinite(Number(settings?.xPercentPerMeter))
+        ? Number(settings.xPercentPerMeter)
+        : defaults.xPercentPerMeter,
+      yPercentPerMeter: Number.isFinite(Number(settings?.yPercentPerMeter))
+        ? Number(settings.yPercentPerMeter)
+        : defaults.yPercentPerMeter,
+      minZMm: Number.isFinite(Number(settings?.minZMm))
+        && Number(settings.minZMm) >= 0
+        ? Number(settings.minZMm)
+        : defaults.minZMm,
+      maxScaleDelta: Number.isFinite(Number(settings?.maxScaleDelta))
+        && Number(settings.maxScaleDelta) >= 0
+        ? Number(settings.maxScaleDelta)
+        : defaults.maxScaleDelta,
+    };
+    if (this.refs.visualDebugScanLinearCompensationToggle) {
+      this.refs.visualDebugScanLinearCompensationToggle.checked = normalized.enabled;
+    }
+    if (this.refs.visualDebugScanLinearCompensationReferenceZ) {
+      this.refs.visualDebugScanLinearCompensationReferenceZ.value = String(normalized.referenceZMm);
+    }
+    if (this.refs.visualDebugScanLinearCompensationX) {
+      this.refs.visualDebugScanLinearCompensationX.value = String(normalized.xPercentPerMeter);
+    }
+    if (this.refs.visualDebugScanLinearCompensationY) {
+      this.refs.visualDebugScanLinearCompensationY.value = String(normalized.yPercentPerMeter);
+    }
+    if (this.refs.visualDebugScanLinearCompensationMinZ) {
+      this.refs.visualDebugScanLinearCompensationMinZ.value = String(normalized.minZMm);
+    }
+    if (this.refs.visualDebugScanLinearCompensationMaxDelta) {
+      this.refs.visualDebugScanLinearCompensationMaxDelta.value = String(normalized.maxScaleDelta);
+    }
   }
 
   getCameraSdkSettings() {
@@ -2889,6 +3026,24 @@ export class UIController {
     });
   }
 
+  onWorkspaceScanAction(callback) {
+    this.refs.workspaceScanButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.disabled) {
+          return;
+        }
+        callback(button.dataset.workspaceScanAction, {
+          selectedPoseId: this.refs.recognitionPoseSelect?.value || "",
+        });
+      });
+    });
+    this.refs.recognitionPoseSelect?.addEventListener("change", () => {
+      callback("selectRecognitionPose", {
+        selectedPoseId: this.refs.recognitionPoseSelect?.value || "",
+      });
+    });
+  }
+
   onCabinRemoteAction(callback) {
     this.refs.cabinRemoteButtons.forEach((button) => {
       button.addEventListener("click", () => {
@@ -3010,8 +3165,15 @@ export class UIController {
       this.refs.visualDebugScanResponseSource,
       this.refs.visualDebugStableFrameCount,
       this.refs.visualDebugBindExecutionCabinMinZ,
+      this.refs.visualDebugBeamExclusionMargin,
       this.refs.visualDebugAdaptiveBindGrouping,
       this.refs.visualDebugBeamExclusionToggle,
+      this.refs.visualDebugScanLinearCompensationToggle,
+      this.refs.visualDebugScanLinearCompensationX,
+      this.refs.visualDebugScanLinearCompensationY,
+      this.refs.visualDebugScanLinearCompensationReferenceZ,
+      this.refs.visualDebugScanLinearCompensationMinZ,
+      this.refs.visualDebugScanLinearCompensationMaxDelta,
       ...VISUAL_DEBUG_BIND_RANGE_AXES.flatMap((axisConfig) => [
         this.refs[axisConfig.minRef],
         this.refs[axisConfig.maxRef],
@@ -3423,6 +3585,37 @@ export class UIController {
     });
   }
 
+  setWorkspaceScanButtonsEnabled(enabledMap) {
+    this.refs.workspaceScanButtons.forEach((button) => {
+      const key = button.dataset.workspaceScanAction;
+      button.disabled = enabledMap[key] === false;
+    });
+  }
+
+  setRecognitionPoseLibrary(library = {}) {
+    const poses = Array.isArray(library.poses) ? library.poses : [];
+    if (this.refs.recognitionPoseSelect) {
+      this.refs.recognitionPoseSelect.innerHTML = poses.map((pose, index) => `
+        <option value="${escapeHtml(pose.id)}">${escapeHtml(pose.label || `识别位姿 ${index + 1}`)}</option>
+      `).join("");
+      const selectedId = poses.some((pose) => pose.id === library.selectedId)
+        ? library.selectedId
+        : poses[0]?.id || "";
+      this.refs.recognitionPoseSelect.value = selectedId;
+    }
+
+    const selectedPose = poses.find((pose) => pose.id === library.selectedId) || poses[0];
+    if (this.refs.recognitionPoseSummary) {
+      if (!selectedPose) {
+        this.refs.recognitionPoseSummary.textContent = "暂无识别位姿，请点击新增位姿后记录当前位置。";
+        return;
+      }
+      this.refs.recognitionPoseSummary.textContent =
+        `${selectedPose.label || "识别位姿"}：x=${Math.round(Number(selectedPose.x))}, ` +
+        `y=${Math.round(Number(selectedPose.y))}, z=${Math.round(Number(selectedPose.z))}`;
+    }
+  }
+
   setCabinRemoteButtonsEnabled(enabled) {
     const moveEnabled = typeof enabled === "object"
       ? Boolean(enabled?.move)
@@ -3797,6 +3990,9 @@ export class UIController {
   }
 
   renderPointList(points) {
+    if (!this.refs.selectedPoints) {
+      return;
+    }
     if (!points.length) {
       this.refs.selectedPoints.innerHTML = `<li class="point-item">还没有点，直接在 IR 图上点 4 个角点。</li>`;
       return;
@@ -3842,10 +4038,17 @@ export class UIController {
     chip.classList.toggle("is-long-press-complete", longPressComplete);
     chip.title = detail || "";
     const actionLabel = chip.querySelector(".system-status-action-label");
+    const statusLabelNode = chip.querySelector(".system-status-label");
+    const statusBaseLabelMap = {
+      ros: "ROS连接",
+      chassis: "索驱",
+      moduan: "末端",
+      visual: "视觉",
+    };
     const nextActionMap = {
       ros: level === "success" ? "restartRosStack" : "startRosStack",
-      chassis: level === "success" ? "stopCabinSubsystem" : "startCabinSubsystem",
-      moduan: level === "success" ? "stopModuanSubsystem" : "startModuanSubsystem",
+      chassis: level === "success" ? "stopCabinSubsystem" : level === "error" ? "restartCabinSubsystem" : "startCabinSubsystem",
+      moduan: level === "success" ? "stopModuanSubsystem" : level === "error" ? "restartModuanSubsystem" : "startModuanSubsystem",
       visual: level === "success" ? "stopVisualSubsystem" : "startVisualSubsystem",
     };
     const longPressActionMap = {
@@ -3855,8 +4058,8 @@ export class UIController {
     };
     const nextActionLabelMap = {
       ros: level === "success" ? "重启ROS" : "启动ROS",
-      chassis: level === "success" ? "关闭" : "启动",
-      moduan: level === "success" ? "关闭" : "启动",
+      chassis: level === "success" ? "关闭" : level === "error" ? "重启" : "启动",
+      moduan: level === "success" ? "关闭" : level === "error" ? "重启" : "启动",
       visual: level === "success" ? "关闭" : "启动",
     };
     const nextAction = nextActionMap[statusId] || "";
@@ -3864,10 +4067,14 @@ export class UIController {
     const nextActionLabel = nextActionLabelMap[statusId] || "";
     chip.dataset.statusAction = nextAction;
     chip.dataset.statusLongAction = longPressAction;
-    const statusLabel = chip.querySelector(".system-status-label")?.textContent || statusId;
+    const baseStatusLabel = statusBaseLabelMap[statusId] || statusLabelNode?.textContent || statusId;
+    const visibleStatusLabel = level === "error" && statusId !== "visual" ? `${baseStatusLabel}报警` : baseStatusLabel;
+    if (statusLabelNode) {
+      statusLabelNode.textContent = visibleStatusLabel;
+    }
     chip.setAttribute("aria-label", longPressAction
-      ? `${statusLabel}：短按${nextActionLabel}，长按重启`
-      : `${statusLabel}：${nextActionLabel}`);
+      ? `${visibleStatusLabel}：短按${nextActionLabel}，长按重启`
+      : `${visibleStatusLabel}：${nextActionLabel}`);
     chip.title = longPressAction
       ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按0.5秒重启`
       : detail || "";

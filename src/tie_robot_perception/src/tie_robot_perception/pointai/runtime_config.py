@@ -114,9 +114,18 @@ def set_scan_beam_exclusion_callback(self, msg):
     self.scan_beam_exclusion_enabled = bool(getattr(msg, "data", False))
     rospy.set_param("~scan_beam_exclusion_enabled", bool(self.scan_beam_exclusion_enabled))
     rospy.loginfo(
-        "pointAI: 扫描梁筋±13cm过滤已%s。",
+        "pointAI: 扫描梁筋过滤已%s。",
         "启用" if self.scan_beam_exclusion_enabled else "关闭",
     )
+
+
+def set_scan_beam_exclusion_margin_callback(self, msg):
+    requested_margin_mm = float(getattr(msg, "data", 150.0))
+    if not math.isfinite(requested_margin_mm) or requested_margin_mm <= 0.0:
+        requested_margin_mm = 150.0
+    self.scan_beam_exclusion_margin_mm = requested_margin_mm
+    rospy.set_param("~scan_beam_exclusion_margin_mm", float(self.scan_beam_exclusion_margin_mm))
+    rospy.loginfo("pointAI: 扫描梁筋过滤半径已设置为: %.1f mm", self.scan_beam_exclusion_margin_mm)
 
 
 def set_scan_response_source_callback(self, msg):
@@ -136,6 +145,69 @@ def set_scan_response_source_callback(self, msg):
     self.scan_response_source = requested_source
     rospy.set_param("~scan_response_source", str(self.scan_response_source))
     rospy.loginfo("pointAI: 扫描底图已设置为: %s", self.scan_response_source)
+
+
+def _finite_float_or(value, fallback):
+    numeric_value = float(value)
+    return numeric_value if math.isfinite(numeric_value) else fallback
+
+
+def set_scan_linear_compensation_callback(self, msg):
+    raw_data = list(getattr(msg, "data", []))
+    if len(raw_data) < 6:
+        rospy.logwarn(
+            "pointAI: 扫描线性补偿需要6个值[enabled,reference_z,x_per_mm,y_per_mm,min_z,max_delta]，实际收到%d个",
+            len(raw_data),
+        )
+        return
+    try:
+        enabled = bool(raw_data[0])
+        reference_z_mm = _finite_float_or(
+            raw_data[1],
+            float(getattr(self, "scan_linear_compensation_reference_z_mm", 1000.0)),
+        )
+        if reference_z_mm <= 0.0:
+            reference_z_mm = 1000.0
+        x_per_mm = _finite_float_or(
+            raw_data[2],
+            float(getattr(self, "scan_linear_compensation_x_per_mm", 0.0)),
+        )
+        y_per_mm = _finite_float_or(
+            raw_data[3],
+            float(getattr(self, "scan_linear_compensation_y_per_mm", 0.0)),
+        )
+        min_z_mm = _finite_float_or(
+            raw_data[4],
+            float(getattr(self, "scan_linear_compensation_min_z_mm", 1200.0)),
+        )
+        if min_z_mm < 0.0:
+            min_z_mm = 1200.0
+        max_abs_scale_delta = _finite_float_or(
+            raw_data[5],
+            float(getattr(self, "scan_linear_compensation_max_abs_scale_delta", 0.25)),
+        )
+        if max_abs_scale_delta < 0.0:
+            max_abs_scale_delta = 0.25
+    except (TypeError, ValueError) as exc:
+        rospy.logwarn("pointAI: 扫描线性补偿参数无效: %s", exc)
+        return
+
+    self.scan_linear_compensation_enabled = enabled
+    self.scan_linear_compensation_reference_z_mm = reference_z_mm
+    self.scan_linear_compensation_x_per_mm = x_per_mm
+    self.scan_linear_compensation_y_per_mm = y_per_mm
+    self.scan_linear_compensation_min_z_mm = min_z_mm
+    self.scan_linear_compensation_max_abs_scale_delta = max_abs_scale_delta
+    self.save_runtime_config()
+    rospy.loginfo(
+        "pointAI: 扫描线性补偿已%s reference_z=%.1fmm x=%.8f/mm y=%.8f/mm min_z=%.1fmm max_delta=%.3f",
+        "启用" if enabled else "关闭",
+        reference_z_mm,
+        x_per_mm,
+        y_per_mm,
+        min_z_mm,
+        max_abs_scale_delta,
+    )
 
 
 def _normalize_execution_refine_tcp_roi_axis(min_value, max_value):
@@ -315,6 +387,6 @@ def workspace_center_scan_pose_callback(self, msg):
     result = self.run_workspace_center_scan_pose_move()
     if not result.get("success", False):
         rospy.logwarn(
-            "pointAI workspace center scan pose move failed: %s",
-            result.get("message", "unknown error"),
+            "pointAI移动到工作区中心扫描位姿失败: %s",
+            result.get("message", "未知错误"),
         )

@@ -83,7 +83,7 @@ def initialize_processor_state(self):
     self.stable_z_tolerance_mm = float(rospy.get_param("~stable_z_tolerance_mm", 5.0))
     self.bind_check_max_height_mm = float(rospy.get_param("~bind_check_max_height_mm", 95.0))
     self.scan_beam_exclusion_enabled = bool(rospy.get_param("~scan_beam_exclusion_enabled", False))
-    self.scan_beam_exclusion_margin_mm = float(rospy.get_param("~scan_beam_exclusion_margin_mm", 130.0))
+    self.scan_beam_exclusion_margin_mm = float(rospy.get_param("~scan_beam_exclusion_margin_mm", 150.0))
     self.scan_response_source = str(rospy.get_param("~scan_response_source", "depth_gradient") or "depth_gradient")
     self.scan_linear_compensation_enabled = bool(rospy.get_param("~scan_linear_compensation_enabled", False))
     self.scan_linear_compensation_reference_z_mm = float(

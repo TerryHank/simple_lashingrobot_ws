@@ -181,6 +181,11 @@ int normalize_requested_bind_group_point_count(int requested_group_point_count)
     return std::min(64, std::max(2, requested_group_point_count));
 }
 
+int normalize_recognition_pose_index(int recognition_pose_index)
+{
+    return recognition_pose_index > 0 ? recognition_pose_index : 1;
+}
+
 bool is_adaptive_bind_grouping_requested(int requested_group_point_count)
 {
     // adaptive_bind_grouping：前端传 0 表示请求自适应绑扎分组。
@@ -3336,9 +3341,12 @@ bool run_pseudo_slam_scan(
     std::string& message,
     int requested_bind_group_point_count,
     float requested_bind_execution_cabin_min_z_mm,
-    const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override)
+    const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override,
+    int recognition_pose_index)
 {
     std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
+    const int normalized_recognition_pose_index =
+        normalize_recognition_pose_index(recognition_pose_index);
     std::vector<tie_robot_msgs::PointCoords> merged_world_points;
     set_pseudo_slam_tf_points({});
     clear_pseudo_slam_markers();
@@ -3997,8 +4005,10 @@ bool run_pseudo_slam_scan(
         outlier_column_neighbor_blocked_global_indices,
         scan_session_id,
         path_signature,
+        normalized_recognition_pose_index,
         &pseudo_slam_points_error
     );
+    BindExecutionPathOriginPose merged_execution_path_origin = execution_path_origin;
     const bool pseudo_slam_bind_path_written = write_pseudo_slam_bind_path_json(
         bind_area_entries,
         bind_path_checkerboard_info_by_idx,
@@ -4007,6 +4017,8 @@ bool run_pseudo_slam_scan(
         cabin_speed,
         scan_session_id,
         path_signature,
+        normalized_recognition_pose_index,
+        &merged_execution_path_origin,
         &pseudo_slam_bind_path_error
     );
     if (!pseudo_slam_points_written ||
@@ -4040,8 +4052,8 @@ bool run_pseudo_slam_scan(
 
     BindExecutionMemory bind_execution_memory =
         reset_bind_execution_memory_for_scan_session(scan_session_id, path_signature, path_origin);
-    bind_execution_memory.path_origin.x = execution_path_origin.x;
-    bind_execution_memory.path_origin.y = execution_path_origin.y;
+    bind_execution_memory.path_origin.x = merged_execution_path_origin.x;
+    bind_execution_memory.path_origin.y = merged_execution_path_origin.y;
     std::string bind_execution_memory_error;
     if (!write_bind_execution_memory_json(bind_execution_memory, &bind_execution_memory_error)) {
         printCurrentTime();

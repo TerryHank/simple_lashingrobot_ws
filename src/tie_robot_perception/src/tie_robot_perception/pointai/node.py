@@ -19,11 +19,11 @@ class ImageProcessor:
         self.load_runtime_config()
         self.publish_current_manual_workspace_quad_pixels()
         self.setup_visual_diagnostics()
-        rospy.loginfo("pointAI node initialized!")
+        rospy.loginfo("pointAI节点已初始化")
         rospy.loginfo(
-            "pointAI camera_coord_source=/Scepter/worldCoord/raw_world_coord, "
-            "source_frame=Scepter_depth_frame, downstream_coordinate_layer=external, "
-            "height_threshold=%s",
+            "pointAI相机坐标来源=/Scepter/worldCoord/raw_world_coord，"
+            "源坐标系=Scepter_depth_frame，下游坐标层=外部转换，"
+            "高度阈值=%s",
             self.height_threshold,
         )
 

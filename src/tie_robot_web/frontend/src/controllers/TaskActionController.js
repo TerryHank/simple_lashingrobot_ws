@@ -34,6 +34,12 @@ function normalizeBindExecutionCabinMinZ(value) {
     : DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM;
 }
 
+function normalizeRecognitionPoseIndex(value) {
+  const numericValue = Number(value);
+  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : 1;
+  return roundedValue >= 1 ? roundedValue : 1;
+}
+
 function normalizeGlobalExecutionMode(value) {
   const numericValue = Number(value);
   const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : DEFAULT_GLOBAL_EXECUTION_MODE;
@@ -49,6 +55,7 @@ export class TaskActionController {
     getExecutionMode = null,
     getAdaptiveBindGrouping = null,
     getBindExecutionCabinMinZ = null,
+    getRecognitionPoseIndex = null,
     callbacks = {},
   }) {
     this.rosConnection = rosConnection;
@@ -56,6 +63,7 @@ export class TaskActionController {
     this.getExecutionMode = getExecutionMode;
     this.getAdaptiveBindGrouping = getAdaptiveBindGrouping;
     this.getBindExecutionCabinMinZ = getBindExecutionCabinMinZ;
+    this.getRecognitionPoseIndex = getRecognitionPoseIndex;
     this.callbacks = callbacks;
     this.pendingWorkspaceQuadSubmission = null;
   }
@@ -95,34 +103,37 @@ export class TaskActionController {
   }
 
   triggerSavedWorkspaceS2() {
-    return this.triggerSurfaceDpRecognition({
-      resultMessage:
-        `正在触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
-        "完成后会覆盖 pseudo_slam_points.json 和 pseudo_slam_bind_path.json。",
-      logMessage: `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并准备覆盖本地绑扎点文件`,
-    });
+    return this.triggerSurfaceDpRecognition();
   }
 
   async triggerSurfaceDpRecognition({
-    resultMessage =
-      `正在触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
-      "完成后会覆盖 pseudo_slam_points.json 和 pseudo_slam_bind_path.json。",
-    logMessage = `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并准备覆盖本地绑扎点文件`,
+    resultMessage = null,
+    logMessage = null,
   } = {}) {
     const resources = this.rosConnection.getResources();
+    const recognitionPoseIndex = normalizeRecognitionPoseIndex(this.getRecognitionPoseIndex?.());
+    const recognitionPoseLabel = `识别位姿 ${recognitionPoseIndex}`;
+    const effectiveResultMessage =
+      resultMessage ||
+      `正在触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
+        `完成后会覆盖${recognitionPoseLabel} 的大组，并保留其他识别位姿数据。`;
+    const effectiveLogMessage =
+      logMessage ||
+      `已触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别，将更新${recognitionPoseLabel}的大组并保留其他识别位姿数据`;
     if (!resources?.startPseudoSlamScanActionClient) {
-      this.report("ROS 还没连好，暂时不能触发视觉识别并覆盖本地绑扎点文件。", "warn");
+      this.report("ROS 还没连好，暂时不能触发视觉识别并更新当前识别位姿大组。", "warn");
       return false;
     }
     this.workspaceView.setExecutionOverlayMessage(null);
     this.callbacks.onWorkspaceS2Triggered?.();
-    this.callbacks.onResultMessage?.(resultMessage);
-    this.callbacks.onLog?.(logMessage, "success");
+    this.callbacks.onResultMessage?.(effectiveResultMessage);
+    this.callbacks.onLog?.(effectiveLogMessage, "success");
 
     const result = await this.sendActionGoal(resources.startPseudoSlamScanActionClient, {
       goalMessage: {
         enable_capture_gate: false,
         scan_strategy: 3,
+        recognition_pose_index: recognitionPoseIndex,
         bind_group_point_count:
           normalizeAdaptiveBindGrouping(this.getAdaptiveBindGrouping?.()) ? 0 : 4,
         bind_execution_cabin_min_z_mm:
@@ -229,7 +240,7 @@ export class TaskActionController {
     const resources = this.rosConnection.getResources();
     if (!resources?.startPseudoSlamScanActionClient) {
       this.clearPendingWorkspaceQuadSubmission();
-      this.report("工作区已保存，但 ROS 未就绪，当前不能触发视觉识别并覆盖本地绑扎点文件。", "warn");
+      this.report("工作区已保存，但 ROS 未就绪，当前不能触发视觉识别并更新当前识别位姿大组。", "warn");
       return false;
     }
 
@@ -237,9 +248,9 @@ export class TaskActionController {
     void this.triggerSurfaceDpRecognition({
       resultMessage:
         `工作区已保存，正在自动触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
-        "完成后会覆盖 pseudo_slam_points.json 和 pseudo_slam_bind_path.json。",
+        "完成后会覆盖当前识别位姿的大组，并保留其他识别位姿数据。",
       logMessage:
-        `已收到工作区保存确认，自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并覆盖本地绑扎点文件`,
+        `已收到工作区保存确认，自动触发${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别并更新当前识别位姿大组`,
     }).catch((error) => {
       this.report(`自动触发视觉识别失败: ${error?.message || String(error)}`, "error");
     });

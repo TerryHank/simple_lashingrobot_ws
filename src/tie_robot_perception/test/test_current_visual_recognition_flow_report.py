@@ -39,12 +39,12 @@ class CurrentVisualRecognitionFlowReportTest(unittest.TestCase):
         report_html = REPORT_PATH.read_text(encoding="utf-8")
         for required_text in (
             "当前视觉识别流程效果图",
-            "扫描识别：2026-04-22 PR-FPRG",
+            "扫描识别：Surface-DP 单源底图",
             "执行微调：平面分割 + Hough",
-            "depth-only 背景差分",
-            "纵横 profile 周期相位",
-            "透视网格反投影",
-            "Surface-DP 底图上叠加 beam_candidate 梁筋候选；视觉调试开关启用时",
+            "统一物理网格评分",
+            "physical_lattice_count_aspect_error",
+            "Surface-DP 曲线交点",
+            "beam_candidate 梁筋候选",
         ):
             self.assertIn(required_text, report_html)
 

@@ -12,7 +12,6 @@ from tie_robot_perception.perception.workspace_s2 import (
     build_workspace_s2_axis_profile,
     build_workspace_s2_curved_line_families,
     expand_workspace_s2_exclusion_mask_by_metric_margin,
-    filter_workspace_s2_rectified_points_outside_mask,
     intersect_workspace_s2_curved_line_families,
     intersect_workspace_s2_oriented_line_families,
     normalize_workspace_s2_profile_for_support,
@@ -24,8 +23,7 @@ from tie_robot_perception.perception.workspace_s2 import (
 FULL_SCAN_REBAR_SPACING_MM_RANGE = (120.0, 160.0)
 MIN_PHYSICAL_LATTICE_LINE_COUNT = 2
 PHYSICAL_LATTICE_PRIOR_MODE = "unified_physical_lattice"
-PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE = 0.18
-PHYSICAL_LATTICE_ASPECT_SPARSE_INTERVAL_RELIEF = 0.70
+PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE = 0.68
 DEFAULT_RESOLUTION_MM_PER_PX = 5.0
 DEFAULT_BEAM_EXCLUSION_MARGIN_MM = 150.0
 SCAN_RUNTIME_RESPONSE_POLICY = "single_selected_response"
@@ -739,6 +737,115 @@ def _score_profile_positions(profile, positions):
     return scores
 
 
+def _profile_peak_support_near_position(support_profile, expected_position, spacing_px):
+    support_profile = np.asarray(support_profile, dtype=np.float32).reshape(-1)
+    if support_profile.size == 0:
+        return None
+
+    spacing_px = max(1.0, float(spacing_px))
+    search_radius_px = int(round(max(2.0, min(8.0, spacing_px * 0.22))))
+    expected_index = int(round(float(expected_position)))
+    window_start = max(0, expected_index - search_radius_px)
+    window_end = min(support_profile.size - 1, expected_index + search_radius_px)
+    if window_end < window_start:
+        return None
+
+    window = support_profile[window_start:window_end + 1]
+    if window.size == 0:
+        return None
+    peak_position = int(window_start + int(np.argmax(window)))
+    peak_score = float(support_profile[peak_position])
+
+    background_radius_px = int(round(max(search_radius_px + 3.0, spacing_px * 0.36)))
+    core_radius_px = int(round(max(2.0, min(4.0, spacing_px * 0.12))))
+    background_start = max(0, peak_position - background_radius_px)
+    background_end = min(support_profile.size - 1, peak_position + background_radius_px)
+    background_values = []
+    if background_start <= peak_position - core_radius_px - 1:
+        background_values.append(support_profile[background_start:peak_position - core_radius_px])
+    if peak_position + core_radius_px + 1 <= background_end:
+        background_values.append(support_profile[peak_position + core_radius_px + 1:background_end + 1])
+    if background_values:
+        background = np.concatenate(background_values)
+        background = background[np.isfinite(background)]
+    else:
+        background = np.asarray([], dtype=np.float32)
+    background_score = float(np.median(background)) if background.size else 0.0
+    prominence = peak_score - background_score
+    return {
+        "position": float(peak_position),
+        "score": float(peak_score),
+        "prominence": float(prominence),
+    }
+
+
+def _backfill_physical_lattice_positions_from_profile(
+    selected_positions,
+    support_profile,
+    spacing_px,
+    max_count,
+):
+    selected_positions = sorted(float(position) for position in selected_positions)
+    if len(selected_positions) < 2:
+        return selected_positions, {}
+
+    support_profile = np.asarray(support_profile, dtype=np.float32).reshape(-1)
+    if support_profile.size == 0:
+        return selected_positions, {}
+
+    spacing_px = max(1.0, float(spacing_px))
+    max_count = max(len(selected_positions), int(max_count))
+    evidence_prominence_floor = 0.003
+    inserted_before = 0
+    inserted_after = 0
+
+    def evidence_position(expected_position):
+        if expected_position < 0.0 or expected_position > float(support_profile.size - 1):
+            return None
+        support = _profile_peak_support_near_position(
+            support_profile,
+            expected_position,
+            spacing_px,
+        )
+        if support is None:
+            return None
+        if float(support["prominence"]) < evidence_prominence_floor:
+            return None
+        return float(support["position"])
+
+    while len(selected_positions) < max_count:
+        next_position = evidence_position(selected_positions[0] - spacing_px)
+        if next_position is None:
+            break
+        if abs(next_position - selected_positions[0]) < spacing_px * 0.62:
+            break
+        selected_positions.insert(0, next_position)
+        inserted_before += 1
+
+    while len(selected_positions) < max_count:
+        next_position = evidence_position(selected_positions[-1] + spacing_px)
+        if next_position is None:
+            break
+        if abs(next_position - selected_positions[-1]) < spacing_px * 0.62:
+            break
+        selected_positions.append(next_position)
+        inserted_after += 1
+
+    if inserted_before == 0 and inserted_after == 0:
+        return selected_positions, {}
+
+    scores = [
+        float(support_profile[int(np.clip(int(round(position)), 0, support_profile.size - 1))])
+        for position in selected_positions
+    ]
+    return selected_positions, {
+        "backfilled_line_count": int(inserted_before + inserted_after),
+        "backfilled_before_count": int(inserted_before),
+        "backfilled_after_count": int(inserted_after),
+        "mean_support": float(np.mean(scores)) if scores else 0.0,
+    }
+
+
 def _select_physical_lattice_positions(
     profile,
     spacing_px_range,
@@ -754,13 +861,14 @@ def _select_physical_lattice_positions(
     min_count, max_count = [int(value) for value in line_count_range]
     if max_count < min_count or max_count < 2:
         return [], {}
+    prior_max_count = int(max_count)
 
     support_profile = normalize_workspace_s2_profile_for_support(profile)
     if support_profile.size == 0 or float(np.max(support_profile)) <= 1e-6:
         return [], {}
 
     candidate_positions = []
-    for peak_ratio in (min_peak_ratio, max(0.08, min_peak_ratio * 0.70), 0.06):
+    for peak_ratio in (min_peak_ratio, max(0.04, min_peak_ratio * 0.70), 0.015):
         candidate_positions = select_workspace_s2_peak_supported_line_positions(
             support_profile,
             list(range(profile.size)),
@@ -871,6 +979,20 @@ def _select_physical_lattice_positions(
                             "mean_support": float(mean_support),
                             "mean_error_ratio": float(mean_error_ratio),
                         }
+
+    if best_positions:
+        lattice_spacing_px = float(best_metadata.get("selected_spacing_px", 0.0))
+        if lattice_spacing_px <= 1e-6 and len(best_positions) > 1:
+            lattice_spacing_px = float(np.median(np.diff(np.asarray(best_positions, dtype=np.float32))))
+        backfilled_positions, backfill_metadata = _backfill_physical_lattice_positions_from_profile(
+            best_positions,
+            support_profile,
+            lattice_spacing_px,
+            prior_max_count,
+        )
+        if len(backfilled_positions) > len(best_positions):
+            best_positions = [float(position) for position in backfilled_positions]
+            best_metadata.update(backfill_metadata)
 
     return best_positions, best_metadata
 
@@ -1000,11 +1122,7 @@ def _physical_lattice_score_metadata(line_families, valid_mask=None, rectified_g
     visible_physical_aspect = float(visible_width_px) / max(float(visible_height_px), 1.0)
     visible_physical_aspect = max(visible_physical_aspect, 1e-6)
     count_aspect_error = abs(float(np.log(max(observed_count_aspect, 1e-6) / visible_physical_aspect)))
-    sparse_interval_relief = (
-        float(PHYSICAL_LATTICE_ASPECT_SPARSE_INTERVAL_RELIEF)
-        / max(min(horizontal_intervals, vertical_intervals), 1.0)
-    )
-    count_aspect_tolerance = float(PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE) + sparse_interval_relief
+    count_aspect_tolerance = float(PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE)
     if count_aspect_error > count_aspect_tolerance:
         return {
             "accepted": False,
@@ -1038,6 +1156,17 @@ def _physical_lattice_score_metadata(line_families, valid_mask=None, rectified_g
     }
 
 
+def _physical_lattice_reject_reason_zh(reject_reason):
+    reason = str(reject_reason or "")
+    return {
+        "count_aspect_mismatch": "横纵线族比例与画幅宽高不匹配",
+        "insufficient_families": "横纵线族不足",
+        "insufficient_line_count": "单轴线数不足",
+        "missing_response": "所选扫描底图无有效响应",
+        "not_attempted": "尚未尝试物理线族筛选",
+    }.get(reason, "物理线族筛选未通过")
+
+
 def _score_physical_line_families(line_families, valid_mask=None, rectified_geometry=None):
     metadata = _physical_lattice_score_metadata(
         line_families,
@@ -1056,7 +1185,7 @@ def _build_best_physical_axis_aligned_line_families(
     for source_name, response_map in response_candidates:
         if response_map is None:
             continue
-        for ratio in (peak_min_ratio, max(0.10, peak_min_ratio * 0.72), 0.08, 0.06):
+        for ratio in (peak_min_ratio, max(0.04, peak_min_ratio * 0.72), 0.02, 0.015):
             line_families = _build_physical_axis_aligned_line_families(
                 response_map,
                 valid_mask,
@@ -1075,6 +1204,60 @@ def _build_best_physical_axis_aligned_line_families(
                     family["physical_lattice"] = lattice_metadata
                 return line_families[:2], physical_source
     return [], None
+
+
+def _build_physical_line_family_failure_diagnostics(
+    response_source,
+    response_map,
+    valid_mask,
+    rectified_geometry,
+    peak_min_ratio=0.18,
+):
+    response_source = str(response_source)
+    attempts = []
+    last_counts = []
+    last_reject_reason = "not_attempted"
+    if response_map is None:
+        return {
+            "physical_lattice_last_source": response_source,
+            "physical_lattice_last_line_counts": [],
+            "physical_lattice_last_ratio": None,
+            "physical_lattice_last_reject_reason": "missing_response",
+            "physical_lattice_attempts": [],
+        }
+
+    for ratio in (peak_min_ratio, max(0.04, peak_min_ratio * 0.72), 0.02, 0.015):
+        line_families = _build_physical_axis_aligned_line_families(
+            response_map,
+            valid_mask,
+            rectified_geometry,
+            peak_min_ratio=ratio,
+        )
+        counts = [len(family.get("line_rhos", [])) for family in line_families[:2]]
+        lattice_metadata = _physical_lattice_score_metadata(
+            line_families,
+            valid_mask=valid_mask,
+            rectified_geometry=rectified_geometry,
+        )
+        last_counts = [int(count) for count in counts]
+        last_reject_reason = str(lattice_metadata.get("reject_reason", ""))
+        attempts.append(
+            {
+                "source": response_source,
+                "ratio": float(ratio),
+                "line_counts": last_counts,
+                "accepted": bool(lattice_metadata.get("accepted", False)),
+                "reject_reason": last_reject_reason,
+            }
+        )
+
+    return {
+        "physical_lattice_last_source": response_source,
+        "physical_lattice_last_line_counts": last_counts,
+        "physical_lattice_last_ratio": float(attempts[-1]["ratio"]) if attempts else None,
+        "physical_lattice_last_reject_reason": last_reject_reason,
+        "physical_lattice_attempts": attempts,
+    }
 
 
 def _build_runtime_response(result, response_source):
@@ -1160,6 +1343,15 @@ def _build_completed_surface(result, modalities, min_period, max_period):
     if len(line_families) < 2:
         line_families = []
         physical_source = "physical_prior_unresolved"
+    failure_diagnostics = {}
+    if len(line_families) < 2:
+        failure_diagnostics = _build_physical_line_family_failure_diagnostics(
+            response_source,
+            runtime_response,
+            valid_mask,
+            rectified_geometry,
+            peak_min_ratio=0.18,
+        )
     line_support_mask = draw_line_family_mask(
         modalities["binary_candidate"].shape,
         line_families,
@@ -1179,6 +1371,7 @@ def _build_completed_surface(result, modalities, min_period, max_period):
         "completed_physical_source": physical_source,
         "response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
         "runtime_response_source": response_source,
+        "failure_diagnostics": failure_diagnostics,
     }
 
 
@@ -1338,6 +1531,75 @@ def _project_rectified_points_to_image(rectified_points, inverse_h):
     return [[float(x_value), float(y_value)] for x_value, y_value in image_points]
 
 
+def _filter_beam_excluded_intersection_columns(
+    rectified_points,
+    beam_candidate_margin_mask,
+    vertical_lines,
+    horizontal_lines=None,
+):
+    beam_candidate_margin_mask = np.asarray(beam_candidate_margin_mask, dtype=bool)
+    if beam_candidate_margin_mask.ndim != 2 or beam_candidate_margin_mask.size == 0:
+        return [tuple(float(value) for value in point) for point in rectified_points], 0
+
+    vertical_lines = sorted(
+        float(line) for line in (vertical_lines or []) if np.isfinite(float(line))
+    )
+    if not vertical_lines:
+        vertical_lines = sorted(
+            {
+                int(round(float(point[0])))
+                for point in rectified_points
+                if len(point) >= 2 and np.isfinite(float(point[0]))
+            }
+        )
+    if not vertical_lines:
+        return [tuple(float(value) for value in point) for point in rectified_points], 0
+
+    height, width = beam_candidate_margin_mask.shape[:2]
+    removed_column_indices = set()
+    vertical_array = np.asarray(vertical_lines, dtype=np.float32)
+
+    horizontal_lines = sorted(
+        float(line) for line in (horizontal_lines or []) if np.isfinite(float(line))
+    )
+    if horizontal_lines:
+        for column_index, x_value in enumerate(vertical_lines):
+            x_index = int(round(float(x_value)))
+            if x_index < 0 or x_index >= width:
+                continue
+            for y_value in horizontal_lines:
+                y_index = int(round(float(y_value)))
+                if y_index < 0 or y_index >= height:
+                    continue
+                if beam_candidate_margin_mask[y_index, x_index]:
+                    removed_column_indices.add(column_index)
+                    break
+
+    point_columns = []
+    for point in rectified_points:
+        x_value = float(point[0])
+        y_value = float(point[1])
+        column_index = int(np.argmin(np.abs(vertical_array - x_value)))
+        point_columns.append(column_index)
+
+        x_index = int(round(x_value))
+        y_index = int(round(y_value))
+        if x_index < 0 or x_index >= width or y_index < 0 or y_index >= height:
+            continue
+        if beam_candidate_margin_mask[y_index, x_index]:
+            removed_column_indices.add(column_index)
+
+    if not removed_column_indices:
+        return [tuple(float(value) for value in point) for point in rectified_points], 0
+
+    filtered_points = [
+        tuple(float(value) for value in point)
+        for point, column_index in zip(rectified_points, point_columns)
+        if column_index not in removed_column_indices
+    ]
+    return filtered_points, len(removed_column_indices)
+
+
 def build_scan_surface_dp_result(
     result,
     threshold_percentile=83.0,
@@ -1368,9 +1630,21 @@ def build_scan_surface_dp_result(
     surface = _build_completed_surface(result, modalities, min_period, max_period)
     line_families = surface["completed_line_families"]
     if len(line_families) < 2:
+        failure_diagnostics = surface.get("failure_diagnostics") or {}
+        last_counts = failure_diagnostics.get("physical_lattice_last_line_counts", [])
+        last_reject_reason = failure_diagnostics.get(
+            "physical_lattice_last_reject_reason",
+            "",
+        )
+        last_reject_reason_zh = _physical_lattice_reject_reason_zh(last_reject_reason)
+        failure_message = (
+            "所选扫描底图横纵线族不足"
+            f"（底图={selected_response_source}，线族计数={last_counts}"
+            f"，原因={last_reject_reason_zh}）"
+        )
         return {
             "success": False,
-            "message": "所选扫描底图横纵线族不足",
+            "message": failure_message,
             "diagnostics": {
                 "instance_graph_endpoint_count": modalities["instance_graph_endpoint_count"],
                 "instance_graph_junction_count": modalities["instance_graph_junction_count"],
@@ -1379,6 +1653,7 @@ def build_scan_surface_dp_result(
                 "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
                 "scan_runtime_response_source": selected_response_source,
                 "scan_runtime_response_source_requested": requested_response_source,
+                **failure_diagnostics,
             },
         }
     beam_candidate_bands, beam_candidate_lattice_rejected_count = _filter_beam_candidate_bands_by_lattice_context(
@@ -1450,13 +1725,16 @@ def build_scan_surface_dp_result(
             },
         }
 
+    vertical_lines, horizontal_lines = _axis_positions_from_families(line_families)
     raw_rectified_intersection_count = len(rectified_intersections)
     beam_filtered_point_count = 0
+    beam_filtered_column_count = 0
     if bool(enable_beam_exclusion):
-        rectified_intersections = filter_workspace_s2_rectified_points_outside_mask(
+        rectified_intersections, beam_filtered_column_count = _filter_beam_excluded_intersection_columns(
             rectified_intersections,
             beam_candidate_margin_mask,
-            margin_px=0,
+            vertical_lines,
+            horizontal_lines=horizontal_lines,
         )
         beam_filtered_point_count = raw_rectified_intersection_count - len(rectified_intersections)
         if not rectified_intersections:
@@ -1474,7 +1752,8 @@ def build_scan_surface_dp_result(
                     "beam_exclusion_enabled": True,
                     "beam_exclusion_margin_mm": float(beam_exclusion_margin_mm),
                     "beam_filtered_point_count": int(beam_filtered_point_count),
-                    "beam_candidate_15cm_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
+                    "beam_filtered_column_count": int(beam_filtered_column_count),
+                    "beam_candidate_margin_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
                     "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
                     "scan_runtime_response_source": selected_response_source,
                     "scan_runtime_response_source_requested": requested_response_source,
@@ -1483,7 +1762,6 @@ def build_scan_surface_dp_result(
 
     inverse_h = rectified_geometry.get("inverse_h")
     image_intersections = _project_rectified_points_to_image(rectified_intersections, inverse_h) if inverse_h is not None else []
-    vertical_lines, horizontal_lines = _axis_positions_from_families(line_families)
     completed_scores = [
         _response_value_at(surface["completed_surface_response"], point)
         for point in rectified_intersections
@@ -1509,7 +1787,7 @@ def build_scan_surface_dp_result(
         "surface": surface,
         "beam_candidate_bands": modalities.get("beam_candidate_bands", []),
         "beam_candidate_mask": modalities.get("beam_candidate_mask"),
-        "beam_candidate_15cm_mask": beam_candidate_margin_mask,
+        "beam_candidate_margin_mask": beam_candidate_margin_mask,
         "completed_surface_response": surface["completed_surface_response"],
         "completed_surface_mask": surface["completed_surface_mask"],
         "mean_completed_surface_score": float(np.mean(completed_scores)) if completed_scores else 0.0,
@@ -1527,7 +1805,8 @@ def build_scan_surface_dp_result(
             "beam_exclusion_enabled": bool(enable_beam_exclusion),
             "beam_exclusion_margin_mm": float(beam_exclusion_margin_mm),
             "beam_filtered_point_count": int(beam_filtered_point_count),
-            "beam_candidate_15cm_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
+            "beam_filtered_column_count": int(beam_filtered_column_count),
+            "beam_candidate_margin_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
             "physical_prior_modes": physical_prior_modes,
             "physical_spacing_mm_range": [
                 float(FULL_SCAN_REBAR_SPACING_MM_RANGE[0]),

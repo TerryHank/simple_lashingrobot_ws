@@ -63,7 +63,9 @@
 /Scepter/ir/image_raw
 /Scepter/worldCoord/raw_world_coord
 /Scepter/worldCoord/world_coord
-/pointAI/manual_workspace_s2_result_raw
+/perception/lashing/result_image
+/perception/lashing/scan_surface_dp_base_image
+/perception/lashing/execution_refine_base_image
 /system_log/all
 ```
 

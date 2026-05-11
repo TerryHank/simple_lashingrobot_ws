@@ -2,6 +2,484 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-12 01:48 - 前端热调扫描线性补偿系数
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：视觉调试页新增扫描线性补偿控件，现场可直接增大/减小 X补偿(%/m)、Y补偿(%/m)、基准Z、生效Z和最大比例限幅。前端通过 /web/pointAI/set_scan_linear_compensation 发布 Float32MultiArray：[enabled, reference_z_mm, x_per_mm, y_per_mm, min_z_mm, max_abs_scale_delta]，其中 %/m 会除以 100000 转成后端 per-mm 系数；pointAI 订阅后热更新 scan_linear_compensation_* ROS 参数并影响后续扫描账本点。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs; node src/tie_robot_web/frontend/test/statusMonitorController.test.mjs; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg; npm --prefix src/tie_robot_web/frontend run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 01:46 - Surface-DP 弱线补齐物理网格
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：用户反馈扫描调试图像网格效果好但绑扎点只覆盖一小片，怀疑门限导致。根因定位为 Surface-DP 物理线族选择先按强候选峰接受 9x16/10x16 等局部网格，导致后续交点只覆盖强响应区域。现在 _select_physical_lattice_positions 在候选峰确定可信物理间距后，会沿同一物理网格向两侧补齐有局部凸起证据的弱线，避免强局部网格提前收敛；纯缺线场景仍保留 9/10/11x16 可见网格兼容，不凭空铺满。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -q`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 01:00 - 视觉算法异常只让视觉按钮变黄
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：用户纠正前端告警口径：/diagnostics 中 tie_robot/visual_algorithm 的 DiagnosticStatus.ERROR（例如 Surface-DP失败：所选扫描底图横纵线族不足）表示视觉算法告警，但不要进入顶部连接报警横幅，也不要把视觉按钮文案改成‘视觉报警/重启’。前端应把原视觉状态按钮置为黄色 warn，保留原按钮文案/启动动作；详细错误只写入前端日志。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/StatusMonitorController.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/statusMonitorController.test.mjs`
+- `src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs`
+- `src/tie_robot_web/frontend/test/systemControlCatalog.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+- `src/tie_robot_bringup/test/test_architecture_cleanup.py`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/statusMonitorController.test.mjs; node src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs; node src/tie_robot_web/frontend/test/systemControlCatalog.test.mjs; for test_file in src/tie_robot_web/frontend/test/areaNavigationController.test.mjs
+src/tie_robot_web/frontend/test/areaProgressDisplay.test.mjs
+src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs
+src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs
+src/tie_robot_web/frontend/test/cabinRemoteButtonSingleFire.test.mjs
+src/tie_robot_web/frontend/test/cabinRemoteController.test.mjs
+src/tie_robot_web/frontend/test/cabinRemoteKeyboard.test.mjs
+src/tie_robot_web/frontend/test/cabinRemoteOperationState.test.mjs
+src/tie_robot_web/frontend/test/cabinRemoteProtocolFeedback.test.mjs
+src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs
+src/tie_robot_web/frontend/test/coordinateDisplayPrecision.test.mjs
+src/tie_robot_web/frontend/test/gripperTfCalibration.test.mjs
+src/tie_robot_web/frontend/test/imageHoverCoordinateModeControls.test.mjs
+src/tie_robot_web/frontend/test/imageHoverCoordinateReadout.test.mjs
+src/tie_robot_web/frontend/test/imageTopicCatalog.test.mjs
+src/tie_robot_web/frontend/test/irImageLayerOverlayControls.test.mjs
+src/tie_robot_web/frontend/test/jumpBindToggleController.test.mjs
+src/tie_robot_web/frontend/test/lightToggleTelemetry.test.mjs
+src/tie_robot_web/frontend/test/logText.test.mjs
+src/tie_robot_web/frontend/test/robotHomeCalibration.test.mjs
+src/tie_robot_web/frontend/test/rosConnectionController.test.mjs
+src/tie_robot_web/frontend/test/scenePointHoverTooltip.test.mjs
+src/tie_robot_web/frontend/test/sceneViewModeBehavior.test.mjs
+src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs
+src/tie_robot_web/frontend/test/statusMonitorController.test.mjs
+src/tie_robot_web/frontend/test/systemControlCatalog.test.mjs
+src/tie_robot_web/frontend/test/taskActionController.test.mjs
+src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs
+src/tie_robot_web/frontend/test/tcpToolGeometry.test.mjs
+src/tie_robot_web/frontend/test/tcpWorkspaceOverlay.test.mjs
+src/tie_robot_web/frontend/test/topicLayerStatePersistence.test.mjs
+src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs
+src/tie_robot_web/frontend/test/workspaceCanvasInteractionMode.test.mjs
+src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs
+src/tie_robot_web/frontend/test/workspaceRealtimeRangeFrame.test.mjs
+src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs; do node "" || exit 1; done; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_status_capsule_tracks_only_connection_and_hardware; python3 -m unittest src.tie_robot_bringup.test.test_architecture_cleanup.TieRobotArchitectureCleanupTest.test_driver_nodes_publish_standard_diagnostics_and_support_independent_start_stop; npm run build (src/tie_robot_web/frontend)`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:54 - 扫描账本按识别位姿分组续传
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：扫描 action/service 新增 recognition_pose_index，前端从设置/工作区的当前扫描位姿下拉框传入序号。pseudo_slam_points.json 与 pseudo_slam_bind_path.json 写入 scan_pose_groups 和 scan_pose_groups_by_pose_index，重扫同一识别位姿只替换该位姿大组，其他位姿组保留；顶层 pseudo_slam_points/areas 仍保留为汇总扁平结构供执行层和前端兼容。每个点/区域带 pose_index、recognition_pose_index 和 pose_local_* 字段，执行记忆去重也包含 recognition_pose_index，避免不同位姿相同行列互相吞掉。
+
+### 影响范围
+
+- `src/tie_robot_msgs/srv/StartPseudoSlamScan.srv`
+- `src/tie_robot_msgs/action/StartPseudoSlamScanTask.action`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/src/web_bridge/action_bridge.cpp`
+- `src/tie_robot_process/src/suoqu/bind_path_store.cpp`
+- `src/tie_robot_process/src/suoqu/execution_memory_store.cpp`
+- `src/tie_robot_process/src/suoqu/area_execution.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py -q; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs; node src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs; node src/tie_robot_web/frontend/test/bindPathGeometry.test.mjs; node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; source /opt/ros/noetic/setup.bash && catkin_make; npm run build (src/tie_robot_web/frontend)`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:48 - Surface-DP 继续放宽到 10x16 现场线族
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：用户要求继续放宽扫描底图线族门限。基于前一轮确认 11x16 通过后，新增 10x16 回归并验证当前实现仍失败，随后将 PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE 再从 0.40 提到 0.55。修改后 11x16、10x16 都通过，9x16 仍被 count_aspect_mismatch 拦住，2x16 仍失败。失败消息继续保留中文原因映射。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `新增 10x16 回归先红后绿；完整 test_scan_surface_dp_runtime.py 运行中；额外直接计算显示 11x16/10x16 accepted`
+- `9x16/2x16 rejected；py_compile 与 diff --check 已跑。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:47 - 视觉算法异常显示为报警态
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：前端状态胶囊语义修正。/diagnostics 中 tie_robot/visual_algorithm 的 DiagnosticStatus.ERROR（例如 Surface-DP失败：所选扫描底图横纵线族不足）表示视觉算法报警，不表示视觉节点关闭；前端应把 detail 纳入报警汇总，视觉胶囊显示‘视觉报警/重启’，只有 OK 运行态才显示‘关闭’动作，WARN 未上报/超时仍按启动语义处理。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/StatusMonitorController.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/statusMonitorController.test.mjs`
+- `src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/statusMonitorController.test.mjs && node src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs && node src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs && node src/tie_robot_web/frontend/test/systemControlCatalog.test.mjs; for test_file in src/tie_robot_web/frontend/test/*.mjs; do node "$test_file"; done; python3 -m unittest src.tie_robot_web.test.test_workspace_picker_web.WorkspacePickerWebTest.test_status_capsule_tracks_only_connection_and_hardware src.tie_robot_bringup.test.test_architecture_cleanup.TieRobotArchitectureCleanupTest.test_driver_nodes_publish_standard_diagnostics_and_support_independent_start_stop; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:42 - Action 字段变更需重生成并重启 rosbridge
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- StartPseudoSlamScanTask.action / srv 等 ROS 接口新增字段后，前端可能已经按源码发布新字段，但运行中的 rosbridge 会按 devel 中旧生成消息校验并报 does not have a field。处理方式是 catkin_make 重生成 tie_robot_msgs，并重启 tie-robot-rosbridge.service，让 rosbridge/web_action_bridge_node 加载新消息定义。2026-05-12 本次 recognition_pose_index 报错即为此原因。
+
+### 影响范围
+
+- `src/tie_robot_msgs/action/StartPseudoSlamScanTask.action`
+- `src/tie_robot_msgs/srv/StartPseudoSlamScan.srv`
+- `src/tie_robot_web/src/web_bridge/action_bridge.cpp`
+- `src/tie_robot_web/frontend/src/TaskActionController.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `catkin_make; rosmsg show tie_robot_msgs/StartPseudoSlamScanTaskGoal shows uint16 recognition_pose_index; systemctl restart tie-robot-rosbridge.service; rostopic md5 /web/cabin/start_pseudo_slam_scan/goal = 94cf5ed61277f503cd0d360ddf9a23fd`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:42 - Surface-DP 接受 11x16 现场线族并中文化拒绝原因
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：现场报 Frangi-like 底图扫描失败但诊断显示线族计数 [11,16]。根因是物理网格评分的 count_aspect_mismatch 门槛过窄：接近正方形画幅中 15/10 的线族间隔比例误差约 0.41，大于旧容忍度 0.25。将 PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE 从 0.18 放宽到 0.40，使 11x16 这种单轴漏若干线的可见网格通过，同时 2x16 极端失衡仍被拒绝；失败消息增加中文原因映射，例如 横纵线族比例与画幅宽高不匹配。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `新增回归测试红绿验证；完整 test_scan_surface_dp_runtime.py 40 tests OK；py_compile OK；git diff --check OK；额外 Frangi-like/Hessian 11x16 压测 108 runs failures 0，2x16 仍失败。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:27 - 前端扫描入口二次收口
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：用户要求设置页删除独立‘工作区选点’和‘扫描动作’设置块；确认工作区域放到‘移动到选中位姿’右侧，仍在设置/工作区的扫描位姿卡片内。控制面板扫描区重新只保留‘触发扫描视觉’入口。点选列表和撤销/清空保留在扫描位姿卡片中，避免误点无法修正。
+
+### 影响范围
+
+- `README.md`
+- `CHANGELOG.md`
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs`
+- `src/tie_robot_web/web`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/workspaceScanPoseSettings.test.mjs; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:10 - Frangi Hessian 扫描弱线压力验证
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：收到现场反馈 Frangi-like/Hessian ridge 仍报‘所选扫描底图横纵线族不足’后，重新做针对性验证。将 Surface-DP 物理线族弱峰兜底从 0.03/0.04 继续下探到 0.015/0.02，新增失败诊断：扫描底图线族不足时消息包含底图 id 与最后一次线族计数，diagnostics 写入 physical_lattice_last_* 和 attempts。新增测试覆盖 0.02 级弱规律线族和失败诊断。额外压力脚本对 frangi_like/hessian_ridge 在 3 个弱线强度、5 个噪声档、8 个随机种子下共 240 次运行，失败 0 次。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `针对测试 2 项通过；Frangi/Hessian 压力脚本 runs=240 failures=0；PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -v => Ran 38 tests OK；python3 -m py_compile scan_surface_dp.py test_scan_surface_dp_runtime.py；git diff --check 相关文件`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 00:08 - 扫描位姿支持删除当前识别位姿
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：设置/工作区选点/扫描位姿新增删除位姿按钮，删除当前下拉框选中的识别位姿槽位；当只剩 1 个槽位时按钮禁用并保留最后一个位姿，避免现场误删到无可移动目标。删除后自动选中相邻或第一个剩余位姿，并同步更新本地持久化的 tie_robot_frontend_recognition_pose 多槽位结构。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && for test_file in test/*.mjs; do node "" || exit 1; done; npm run build; python3 ../../../scripts/agent_memory.py check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 23:50 - 前端扫描区迁入工作区选点并支持多识别位姿
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：控制面板不再展示扫描区；原扫描区的移动到位姿、设为识别位姿、确认工作区域、触发扫描视觉迁入设置/工作区选点。识别位姿由单槽位升级为本地持久化多槽位，下拉框选择当前识别位姿，新增位姿会复制当前选中槽位，记录当前位姿只覆盖选中槽位，移动到位姿按选中槽位定点移动。旧 tie_robot_frontend_recognition_pose 单个位姿自动迁移为识别位姿 1。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && for test_file in test/*.mjs; do node "" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 23:43 - 帮助站同步当前视觉方案
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：帮助站视觉文档已从历史 PR-FPRG 口径同步为当前 Surface-DP 单源底图 + 统一物理网格评分方案；新增 current-visual-flow 页面，扫描和执行微调每个流程节点都有对应效果图。文档明确校对不再要求横纵线数 1:1，而是用 physical_lattice_count_aspect_error 与 tolerance 比较候选线数比例和有效视野物理长宽比，适配长方形、小视野、正方形和大视野。
+
+### 影响范围
+
+- `src/tie_robot_web/help/guide/visual-principles.md`
+- `src/tie_robot_web/help/guide/surface-dp-depth-gradient.md`
+- `src/tie_robot_web/help/guide/current-visual-flow.md`
+- `src/tie_robot_web/help/public/images/visual/current-visual-flow`
+- `src/tie_robot_perception/tools/build_current_visual_recognition_flow_page.py`
+- `src/tie_robot_perception/test/test_current_visual_recognition_flow_report.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_perception/test/test_current_visual_recognition_flow_report.py; npm run build in src/tie_robot_web/help; git diff --check on touched docs/report files; image link existence script`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 23:33 - 扫描底图弱线门限继续下探
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：为现场尝试 Frangi-like 脊线、Hessian ridge 脊线等所有可选扫描底图单轮出点，Surface-DP 物理线族弱峰兜底进一步放宽：单轴选峰 fallback 从 0.06 下探到 0.03，整图线族重试档位改为 0.04/0.03。新增回归测试覆盖 0.04 级弱但规律线族，以及七种 selected response source 单独运行时都能一次产出扫描交点。仍保持横纵线族与物理间距/画幅比例门控。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src/tie_robot_perception/test/test_scan_surface_dp_runtime.py -v；python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py；git diff --check -- src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 23:24 - Surface-DP梁筋过滤理论交点命中删整列
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：扫描 Surface-DP 启用梁筋过滤时，列级过滤进一步补齐现场口径：不仅最终输出交点命中 beam_candidate_margin_mask 会删整列，纵向/横向 line family 形成的理论交点若命中梁筋扩张 mask，也会删除该纵列全部输出交点。这样即使曲线追踪在梁筋附近已断开、缺失点没有进入最终 rectified_intersections，下方残留点也会随整列删除，避免画面出现一列缺一截。诊断保留 beam_filtered_point_count，并新增 beam_filtered_column_count。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH="/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages" python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-11 23:20 - 梁筋过滤半径视觉调试热调
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-11：扫描 Surface-DP 梁筋过滤从固定 ±15cm 文案收口为视觉调试可调半径。前端视觉调试页新增梁筋过滤半径(mm)输入，默认 150，输入变化立即持久化并发布 /web/pointAI/set_scan_beam_exclusion_margin_mm(std_msgs/Float32)；开关文案改为启用梁筋过滤。PointAI 订阅该 topic 后写入 ~scan_beam_exclusion_margin_mm，扫描链路使用运行态参数。Surface-DP 梁筋过滤诊断键改为 beam_candidate_margin_mask / beam_candidate_margin_pixels，并在有竖向线族时按列过滤：某列任一交点落入梁筋 margin mask，则移除该列全部扫描交点，避免同列孔洞式缺点。历史研究工具中的 13cm 命名仍是归档实验口径。
+
+### 影响范围
+
+- `CHANGELOG.md`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/visualDebugSettings.test.mjs; PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_manual_workspace_s2_current_chain_rejects_depth_only_fallback src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_pointai_scan_beam_exclusion_margin_is_hot_configurable src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_manual_workspace_s2_module_omits_later_stability_and_phase_lock_experiments src.tie_robot_perception.test.test_scan_surface_dp_runtime.ScanSurfaceDpRuntimeTest.test_surface_dp_beam_exclusion_is_noop_without_depth_gradient_beam_candidate src.tie_robot_perception.test.test_scan_surface_dp_runtime.ScanSurfaceDpRuntimeTest.test_surface_dp_beam_exclusion_keeps_curve_tracing_outside_beam_margin_mask src.tie_robot_perception.test.test_scan_surface_dp_runtime.ScanSurfaceDpRuntimeTest.test_surface_dp_beam_exclusion_removes_entire_column_when_one_point_is_masked src.tie_robot_perception.test.test_current_visual_recognition_flow_report.CurrentVisualRecognitionFlowReportTest.test_report_page_documents_current_visual_steps_with_existing_images; PYTHONPATH=src/tie_robot_perception/src python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py; npm run build; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-11 22:53 - 扫描梁筋过滤默认改为15cm
 
 <!-- AGENT-MEMORY: entry -->

@@ -1,6 +1,6 @@
-# 扫描层 Surface-DP 单源底图主链
+# Surface-DP 当前视觉方案
 
-扫描层视觉现在采用**设置页选择的一种底图**作为主链响应。每次运行只生成被激活的底图，并在这张底图上完成物理线族识别和 Surface-DP 曲线追踪；其它底图保留在代码和离线工具中，只作为解释、对照和回溯材料。
+扫描层视觉现在采用**设置页选择的一种底图**作为主链响应。每次运行只生成被激活的底图，并在这张底图上完成物理线族识别、统一物理网格校对和 Surface-DP 曲线追踪；其它底图保留在代码和离线工具中，只作为解释、对照和回溯材料。
 
 ## 当前口径
 
@@ -8,6 +8,8 @@
 - 默认运行源：`depth_gradient`（深度梯度边缘）。
 - 运行策略：`single_selected_response`。
 - 运行次数：只做一次响应图构建和一次物理线族识别。
+- 物理线距先验：120-160 mm。
+- 网格校对：`unified_physical_lattice`，不按小视野、大视野、长方形或正方形分档。
 - 可选底图：融合实例响应、Frangi-like 脊线、Hessian ridge 脊线、深度梯度边缘、红外响应、组合响应、深度响应。
 
 这版口径的含义是：主链只相信当前选中的一张底图，不再先跑一轮多模态候选、再跑一轮旧补全面候选。默认的深度梯度边缘更关注深度图上的局部变化边缘；如果现场光照、反光或钢筋形态变化，可以在前端「设置 / 视觉调试」里的「扫描底图」下拉栏切换其它底图。前端会把上一次选择保存到本地，并在 ROS 重连后自动下发给 PointAI。
@@ -17,9 +19,12 @@
 1. 读取手动工作区四边形和当前 `raw_world_coord` / 深度数据。
 2. 将工作区透视展开成 rectified 画幅。
 3. 根据「扫描底图」选择，只生成当前被激活的一张响应图。
-4. 在当前响应图上按物理钢筋间距寻找横纵线族。
-5. 使用横纵线族数量均衡门，拒绝类似 `16 x 2` 的不合理结果。
-6. 用 Surface-DP 沿当前响应图做曲线追踪，输出最终交点。
+4. 对响应图做阈值、骨架和梁筋候选诊断；这些诊断不直接产出绑扎点。
+5. 在当前响应图上按 120-160 mm 物理钢筋间距寻找横纵线族。
+6. 用统一物理网格评分校对线族，拒绝线数比例和可见物理视野长宽不一致的结果。
+7. 用 Surface-DP 沿当前响应图做曲线追踪，得到两组曲线线族。
+8. 求曲线交点，通过 inverse H 投回原图，再从 `raw_world_coord` 反查相机坐标。
+9. 发布扫描点、结果图、扫描底图诊断图和 `surface_dp_bind_point_*` TF。
 
 默认 `depth_gradient` 的构建步骤是：对填补后的深度图做轻量高斯平滑，用 Sobel 计算 X / Y 方向梯度，再取梯度幅值并归一化。
 
@@ -45,6 +50,8 @@
 
 ## 主链效果图
 
+每个流程节点的完整效果图见：[当前视觉流程效果图](./current-visual-flow)。这里保留 Surface-DP 主链的核心图。
+
 当前输入工作区：
 
 ![当前输入工作区](/images/visual/surface-dp-depth-gradient/input-workspace.png)
@@ -64,6 +71,54 @@
 深度梯度结果投回原图：
 
 ![深度梯度原图投影](/images/visual/surface-dp-depth-gradient/depth-gradient-original.png)
+
+## 统一物理网格校对
+
+旧版曾经用「横纵线族数量接近 `1:1`」来拒绝极端假阳，这对正方形网格有用，但会误伤长方形钢筋面。当前版本改为统一物理网格评分：
+
+- 横纵线数可以不相等，允许 `3 m x 5 m` 这类长方形版面自然出现更多长边方向钢筋。
+- 校对使用线数间隔比例，而不是线条数量本身。
+- 线数间隔比例要匹配 rectified 有效 mask 的物理长宽比。
+- 小视野因为可见间隔少，会自动获得更宽的 tolerance，但仍要求两轴都成立。
+- `16 x 2` 这类只在一个方向大量出线、另一个方向近乎缺失的结果，如果和视野物理长宽不匹配，会被 `count_aspect_mismatch` 拒绝。
+
+诊断字段：
+
+```text
+physical_prior_modes = [unified_physical_lattice, unified_physical_lattice]
+physical_lattice_score
+physical_lattice_count_aspect
+physical_lattice_visible_aspect
+physical_lattice_count_aspect_error
+physical_lattice_count_aspect_tolerance
+```
+
+判断规则：
+
+```text
+physical_lattice_count_aspect_error <= physical_lattice_count_aspect_tolerance
+```
+
+成立时，候选网格的线数比例和当前可见物理视野一致；不成立时，说明线族更像局部杂线、梁筋、边缘反光或单轴假阳。
+
+## 梁筋候选与过滤
+
+Surface-DP 会在扫描底图上检测 `beam_candidate` 梁筋候选，并在 `/perception/lashing/scan_surface_dp_base_image` 上用红色半透明竖带显示。梁筋候选默认是诊断信息，不会删除普通钢筋线族。
+
+启用「梁筋过滤」后，流程才会使用当前过滤半径对最终绑扎点做点级排除。当前默认半径为 150 mm，对应诊断字段包括：
+
+```text
+beam_candidate_count
+beam_candidate_pixels
+beam_candidate_lattice_rejected_count
+beam_exclusion_enabled
+beam_exclusion_margin_mm
+beam_filtered_point_count
+beam_filtered_column_count
+beam_candidate_margin_pixels
+```
+
+这层过滤用于处理梁筋附近不应绑扎的区域；普通长方形钢筋面、局部小视野和正方形钢筋面仍共用同一套物理网格校对逻辑。
 
 ## 隐藏模态说明
 
@@ -123,7 +178,7 @@ completed_physical_source = depth_gradient          # 兼容字段，与当前�
 
 ## 相机 SDK 热修改
 
-「设置 / 视觉调试」还提供「相机底层 SDK 调试」面板，用来热修改 `scepter_manager` 的 `dynamic_reconfigure` 参数。它走的就是 ROS 官方动态参数方案，等价于手工运行：
+「设置 / 相机底层 SDK 调试」面板用来热修改 `scepter_manager` 的 `dynamic_reconfigure` 参数。它走的是 ROS 官方动态参数方案，等价于手工运行：
 
 ```bash
 rosrun rqt_reconfigure rqt_reconfigure

@@ -10,7 +10,7 @@
 
 - `tie_robot_msgs` 只放全局 `msg / srv / action`，避免接口散落在业务包里。
 - `tie_robot_hw` 是硬件与协议层，只提供驱动层原子动作：索驱 TCP 帧、线性模组 Modbus 寄存器动作、相机 SDK 取帧。
-- `tie_robot_perception` 负责相机世界点处理、PR-FPRG 视觉识别和 TF 相关感知节点。
+- `tie_robot_perception` 负责相机世界点处理、Surface-DP 扫描视觉、执行层 Hough 微调和 TF 相关感知节点。
 - `tie_robot_control` 负责编排线性模组运动控制、到位等待、FINISHALL 等末端动作链。
 - `tie_robot_process` 负责编排扫描、规划、账本、索驱区域位姿和整条绑扎执行链。
 - `tie_robot_web` 负责浏览器前端、ROS bridge 接入、系统控制 HTTP 接口和帮助站。
@@ -82,7 +82,7 @@
 Scepter 相机
 -> scepter_manager
 -> scepter_world_coord_processor
--> pointAINode(PR-FPRG)
+-> pointAINode(Surface-DP / execution Hough)
 -> /coordinate_point + /pointAI/* result
 -> bind_task_executor + 前端 3D Scene
 ```

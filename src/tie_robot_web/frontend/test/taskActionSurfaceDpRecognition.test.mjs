@@ -98,6 +98,7 @@ assert.deepEqual(processImageCalls, []);
 assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   enable_capture_gate: false,
   scan_strategy: 3,
+  recognition_pose_index: 1,
   bind_group_point_count: 4,
   bind_execution_cabin_min_z_mm: 485,
 });
@@ -106,6 +107,14 @@ assert.equal(actionGoals.at(-1)?.sent, true);
 assert.equal(callbackEvents.some(([event]) => event === "workspaceS2Triggered"), true);
 assert.equal(
   callbackEvents.some((event) => event[0] === "log" && event[1].includes("pseudo_slam_points.json")),
+  true,
+);
+assert.equal(
+  callbackEvents.some((event) => event[0] === "result" && event[1].includes("识别位姿 1 的大组")),
+  true,
+);
+assert.equal(
+  callbackEvents.some((event) => event[0] === "result" && event[1].includes("保留其他识别位姿数据")),
   true,
 );
 
@@ -150,6 +159,7 @@ assert.equal(actionGoals.at(-1)?.actionClient, independentActionClient);
 assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   enable_capture_gate: false,
   scan_strategy: 3,
+  recognition_pose_index: 1,
   bind_group_point_count: 4,
   bind_execution_cabin_min_z_mm: 485,
 });
@@ -196,12 +206,14 @@ assert.deepEqual(
     {
       enable_capture_gate: false,
       scan_strategy: 3,
+      recognition_pose_index: 1,
       bind_group_point_count: 4,
       bind_execution_cabin_min_z_mm: 485,
     },
     {
       enable_capture_gate: false,
       scan_strategy: 3,
+      recognition_pose_index: 1,
       bind_group_point_count: 4,
       bind_execution_cabin_min_z_mm: 485,
     },

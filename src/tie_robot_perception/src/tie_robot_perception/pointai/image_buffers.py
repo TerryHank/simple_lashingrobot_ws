@@ -47,7 +47,7 @@ from .constants import *
 from .live_visible_area_overlay import draw_live_visible_area_boundary
 
 def printsomething(self, msg):
-    rospy.loginfo("msg: %s", msg.data)
+    rospy.loginfo("收到消息: %s", msg.data)
 
 
 def test_callback(self):
@@ -59,7 +59,7 @@ def test_callback(self):
         self.fps = self.frame_count / elapsed_time
         self.frame_count=0
         self.start_time = cur_time
-    rospy.loginfo_throttle(1.0, "Average FPS: %.2f", self.fps)
+    rospy.loginfo_throttle(1.0, "平均帧率: %.2f", self.fps)
 
 
 def image_color_callback(self, msg):
@@ -337,4 +337,4 @@ def detect_and_save_pose_service(self, req):
             time.sleep(0.1)  # 避免CPU占用过高
 
     self.call_linear_module_move_service(0,0,0)
-    return TriggerResponse(success=saved, message="Detected: {}, Saved: {}".format(detected, saved))
+    return TriggerResponse(success=saved, message="检测到标定板: {}，已保存标定矩阵: {}".format(detected, saved))

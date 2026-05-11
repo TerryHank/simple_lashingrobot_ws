@@ -27,6 +27,7 @@ import {
   loadDisplayPreferences,
   loadNetworkPingSettings,
   loadRecognitionPose,
+  loadRecognitionPoseLibrary,
   loadSettingsHomePagePreference,
   loadSettingsPageOrderPreference,
   loadTcpLinearRemoteSettings,
@@ -38,7 +39,7 @@ import {
   saveCameraSdkSettings,
   saveDisplayPreferences,
   saveNetworkPingSettings,
-  saveRecognitionPose,
+  saveRecognitionPoseLibrary,
   saveSettingsHomePagePreference,
   saveSettingsPageOrderPreference,
   saveTcpLinearRemoteSettings,
@@ -138,6 +139,7 @@ export class TieRobotFrontApp {
     this.cabinRemoteSettings = loadCabinRemoteSettings();
     this.tcpLinearRemoteSettings = loadTcpLinearRemoteSettings();
     this.networkPingSettings = loadNetworkPingSettings();
+    this.recognitionPoseLibrary = loadRecognitionPoseLibrary(DIRECT_CABIN_MOVE_TARGET);
     this.recognitionPose = loadRecognitionPose(DIRECT_CABIN_MOVE_TARGET);
     this.visualDebugSettings = loadVisualDebugSettings();
     this.cameraSdkSettings = loadCameraSdkSettings();
@@ -177,6 +179,7 @@ export class TieRobotFrontApp {
     this.ui.setCabinRemoteSettings(this.cabinRemoteSettings);
     this.ui.setTcpLinearRemoteSettings(this.tcpLinearRemoteSettings);
     this.ui.setNetworkPingSettings(this.networkPingSettings);
+    this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
 
     this.panelManager = new PanelManager({
       onLayoutChange: () => this.persistActiveLayout(),
@@ -441,6 +444,7 @@ export class TieRobotFrontApp {
       getExecutionMode: () => this.visualDebugSettings?.executionMode,
       getAdaptiveBindGrouping: () => this.visualDebugSettings?.adaptiveBindGrouping,
       getBindExecutionCabinMinZ: () => this.visualDebugSettings?.bindExecutionCabinMinZMm,
+      getRecognitionPoseIndex: () => this.getSelectedRecognitionPoseIndex(),
       callbacks: {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
@@ -661,6 +665,52 @@ export class TieRobotFrontApp {
       } else if (workspaceAction === "clear") {
         this.workspaceView.clearSelection();
       }
+      this.refreshActionState();
+    });
+    this.ui.onWorkspaceScanAction((workspaceAction, detail = {}) => {
+      if (workspaceAction === "addRecognitionPose") {
+        this.handleAddRecognitionPose();
+        this.refreshActionState();
+        return;
+      }
+      if (workspaceAction === "deleteRecognitionPose") {
+        this.handleDeleteRecognitionPose();
+        this.refreshActionState();
+        return;
+      }
+      if (workspaceAction === "selectRecognitionPose") {
+        this.handleSelectRecognitionPose(detail.selectedPoseId);
+        this.refreshActionState();
+        return;
+      }
+      if (workspaceAction === "setRecognitionPose") {
+        this.handleSetRecognitionPose();
+        this.refreshActionState();
+        return;
+      }
+      if (workspaceAction === "moveToPosition") {
+        this.surfaceDpOverlayActive = false;
+        this.surfaceDpOverlayRequested = false;
+        this.visualRecognitionOverlayCompleted = false;
+        this.visualRecognitionOverlayCleared = false;
+        this.workspaceView.setS2OverlayMessage(null);
+        this.workspaceView.setVisualRecognitionPointsMessage(null);
+        this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
+        this.handleMoveToPosition();
+        return;
+      }
+      if (workspaceAction === "runSavedS2") {
+        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, { suppressLog: true });
+      } else if (workspaceAction === "submitQuad") {
+        this.surfaceDpOverlayActive = false;
+        this.surfaceDpOverlayRequested = false;
+        this.visualRecognitionOverlayCompleted = false;
+        this.visualRecognitionOverlayCleared = false;
+        this.workspaceView.setS2OverlayMessage(null);
+        this.workspaceView.setVisualRecognitionPointsMessage(null);
+        this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
+      }
+      this.taskActionController.handle(workspaceAction);
       this.refreshActionState();
     });
     this.ui.onDisplaySettingsChange((settings) => {
@@ -904,20 +954,142 @@ export class TieRobotFrontApp {
       this.addLog(message, "warn");
       return;
     }
-    this.recognitionPose = {
+    const selectedPose = this.getSelectedRecognitionPose();
+    const nextPose = {
+      id: selectedPose?.id || "pose-1",
+      label: selectedPose?.label || "识别位姿 1",
       x: Number(pose.x),
       y: Number(pose.y),
       z: Number(pose.z),
     };
-    saveRecognitionPose(pose);
+    this.recognitionPose = { x: nextPose.x, y: nextPose.y, z: nextPose.z };
+    this.recognitionPoseLibrary = {
+      selectedId: nextPose.id,
+      poses: this.recognitionPoseLibrary.poses.map((candidate) => (
+        candidate.id === nextPose.id ? nextPose : candidate
+      )),
+    };
+    if (!this.recognitionPoseLibrary.poses.some((candidate) => candidate.id === nextPose.id)) {
+      this.recognitionPoseLibrary.poses.push(nextPose);
+    }
+    saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
     const message =
-      `识别位姿已保存: x=${Math.round(this.recognitionPose.x)}, y=${Math.round(this.recognitionPose.y)}, z=${Math.round(this.recognitionPose.z)}`;
+      `${nextPose.label}已保存: x=${Math.round(this.recognitionPose.x)}, y=${Math.round(this.recognitionPose.y)}, z=${Math.round(this.recognitionPose.z)}`;
     this.ui.setControlFeedback(message);
     this.addLog(message, "success");
   }
 
+  handleAddRecognitionPose() {
+    const existingIndexes = this.recognitionPoseLibrary.poses
+      .map((pose, index) => this.resolveRecognitionPoseIndex(pose, index))
+      .filter((index) => Number.isFinite(index) && index > 0);
+    const nextIndex = Math.max(0, ...existingIndexes) + 1;
+    const basePose = this.getSelectedRecognitionPose() || this.recognitionPose || DIRECT_CABIN_MOVE_TARGET;
+    const pose = {
+      id: `pose-${nextIndex}`,
+      label: `识别位姿 ${nextIndex}`,
+      x: Number(basePose.x),
+      y: Number(basePose.y),
+      z: Number(basePose.z),
+    };
+    this.recognitionPoseLibrary = {
+      selectedId: pose.id,
+      poses: [...this.recognitionPoseLibrary.poses, pose],
+    };
+    this.recognitionPose = { x: pose.x, y: pose.y, z: pose.z };
+    saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    const message = `${pose.label}已新增，可记录当前位置或直接移动。`;
+    this.ui.setControlFeedback(message);
+    this.addLog(message, "success");
+  }
+
+  handleDeleteRecognitionPose() {
+    const poses = this.recognitionPoseLibrary.poses;
+    if (poses.length <= 1) {
+      const message = "至少保留一个识别位姿，当前位姿不能删除。";
+      this.ui.setControlFeedback(message);
+      this.addLog(message, "warn");
+      return;
+    }
+
+    const selectedPose = this.getSelectedRecognitionPose();
+    const selectedIndex = Math.max(0, poses.findIndex((pose) => pose.id === selectedPose?.id));
+    const nextPoses = poses.filter((pose) => pose.id !== selectedPose?.id);
+    const nextSelectedPose = nextPoses[Math.min(selectedIndex, nextPoses.length - 1)] || nextPoses[0];
+    this.recognitionPoseLibrary = {
+      selectedId: nextSelectedPose.id,
+      poses: nextPoses,
+    };
+    this.recognitionPose = {
+      x: Number(nextSelectedPose.x),
+      y: Number(nextSelectedPose.y),
+      z: Number(nextSelectedPose.z),
+    };
+    saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    const message = `${selectedPose?.label || "当前识别位姿"}已删除，当前选择${nextSelectedPose.label}。`;
+    this.ui.setControlFeedback(message);
+    this.addLog(message, "success");
+  }
+
+  handleSelectRecognitionPose(poseId) {
+    if (!this.recognitionPoseLibrary.poses.some((pose) => pose.id === poseId)) {
+      return;
+    }
+    this.recognitionPoseLibrary = {
+      ...this.recognitionPoseLibrary,
+      selectedId: poseId,
+    };
+    const selectedPose = this.getSelectedRecognitionPose();
+    if (selectedPose) {
+      this.recognitionPose = {
+        x: Number(selectedPose.x),
+        y: Number(selectedPose.y),
+        z: Number(selectedPose.z),
+      };
+    }
+    saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+  }
+
+  getSelectedRecognitionPose() {
+    return this.recognitionPoseLibrary.poses.find((pose) => pose.id === this.recognitionPoseLibrary.selectedId)
+      || this.recognitionPoseLibrary.poses[0]
+      || null;
+  }
+
+  resolveRecognitionPoseIndex(pose, fallbackIndex = 0) {
+    const idMatch = typeof pose?.id === "string" ? pose.id.match(/(\d+)$/) : null;
+    if (idMatch) {
+      return Math.max(1, Number(idMatch[1]));
+    }
+    const labelMatch = typeof pose?.label === "string" ? pose.label.match(/(\d+)$/) : null;
+    if (labelMatch) {
+      return Math.max(1, Number(labelMatch[1]));
+    }
+    return fallbackIndex + 1;
+  }
+
+  getSelectedRecognitionPoseIndex() {
+    const selectedPose = this.getSelectedRecognitionPose();
+    const fallbackIndex = Math.max(
+      0,
+      this.recognitionPoseLibrary.poses.findIndex((pose) => pose.id === selectedPose?.id),
+    );
+    return this.resolveRecognitionPoseIndex(selectedPose, fallbackIndex);
+  }
+
   async handleMoveToPosition() {
-    const payload = { ...this.recognitionPose, speed: this.getGlobalCabinMoveSpeed() };
+    const selectedPose = this.getSelectedRecognitionPose();
+    const targetPose = selectedPose || this.recognitionPose;
+    const payload = {
+      x: Number(targetPose?.x),
+      y: Number(targetPose?.y),
+      z: Number(targetPose?.z),
+      speed: this.getGlobalCabinMoveSpeed(),
+    };
     this.addLog(
       `准备直接移动到位姿: x=${payload.x}, y=${payload.y}, z=${payload.z}, speed=${payload.speed}`,
       "info",
@@ -979,7 +1151,11 @@ export class TieRobotFrontApp {
     saveVisualDebugSettings(nextSettings);
     const boundary = this.applyVisualDebugBindRangeSettings(nextSettings);
     const frameResult = this.rosConnectionController.publishStableFrameCount(nextSettings.stableFrameCount);
+    const beamMarginResult = this.rosConnectionController.publishScanBeamExclusionMargin(
+      nextSettings.beamExclusionMarginMm,
+    );
     const sourceResult = this.rosConnectionController.publishScanResponseSource(nextSettings.scanResponseSource);
+    const scanLinearCompensationResult = this.rosConnectionController.publishScanLinearCompensation(nextSettings.scanLinearCompensation);
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: nextSettings.stableFrameCount,
       bindExecutionCabinMinZMm: nextSettings.bindExecutionCabinMinZMm,
@@ -996,12 +1172,29 @@ export class TieRobotFrontApp {
       this.addVisualDebugLog(message, "warn");
     }
     const beamResult = this.applyVisualDebugBeamExclusionSettings(nextSettings, { suppressLog });
+    if (!beamMarginResult?.success && !suppressLog) {
+      const message = beamMarginResult?.message || "扫描梁筋过滤半径设置同步失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
     if (!sourceResult?.success && !suppressLog) {
       const message = sourceResult?.message || "扫描底图设置同步失败。";
       this.addLog(message, "warn");
       this.addVisualDebugLog(message, "warn");
     }
-    return { boundary, frameResult, sourceResult, beamResult };
+    if (!scanLinearCompensationResult?.success && !suppressLog) {
+      const message = scanLinearCompensationResult?.message || "扫描线性补偿设置同步失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
+    return {
+      boundary,
+      frameResult,
+      sourceResult,
+      scanLinearCompensationResult,
+      beamResult,
+      beamMarginResult,
+    };
   }
 
   async applyCameraSdkSettings(settings = this.ui.getCameraSdkSettings(), { suppressLog = false } = {}) {
@@ -1577,6 +1770,19 @@ export class TieRobotFrontApp {
     this.ui.setWorkspaceButtonsEnabled({
       undo: selectedPoints.length > 0,
       clear: selectedPoints.length > 0,
+    });
+    this.ui.setWorkspaceScanButtonsEnabled({
+      addRecognitionPose: true,
+      deleteRecognitionPose: this.recognitionPoseLibrary.poses.length > 1,
+      setRecognitionPose: Boolean(currentCabinPosition),
+      moveToPosition: ready && Boolean(resources?.cabinSingleMoveService) && Boolean(this.getSelectedRecognitionPose()),
+      submitQuad:
+        ready &&
+        Boolean(resources?.workspaceQuadPublisher && resources?.processImageService) &&
+        selectedPoints.length === 4,
+      runSavedS2:
+        ready &&
+        Boolean(resources?.startPseudoSlamScanActionClient),
     });
     this.syncCabinRemoteOperationState();
     this.ui.setTcpLinearRemoteButtonsEnabled(

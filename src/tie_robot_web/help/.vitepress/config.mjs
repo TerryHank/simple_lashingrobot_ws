@@ -11,8 +11,9 @@ export default {
       { text: "系统设计", link: "/guide/system-design" },
       { text: "ROS Graph", link: "/guide/ros-graph" },
       { text: "视觉原理", link: "/guide/visual-principles" },
-      { text: "深度梯度主链", link: "/guide/surface-dp-depth-gradient" },
-      { text: "PR-FPRG 流程", link: "/guide/pr-fprg-workflow" },
+      { text: "视觉流程图", link: "/guide/current-visual-flow" },
+      { text: "Surface-DP", link: "/guide/surface-dp-depth-gradient" },
+      { text: "历史 PR-FPRG", link: "/guide/pr-fprg-workflow" },
       {
         text: "对外接入",
         items: [
@@ -33,8 +34,9 @@ export default {
           { text: "ROS Graph", link: "/guide/ros-graph" },
           { text: "运行主链", link: "/guide/runtime-flows" },
           { text: "视觉原理", link: "/guide/visual-principles" },
-          { text: "Surface-DP 深度梯度主链", link: "/guide/surface-dp-depth-gradient" },
-          { text: "PR-FPRG 流程详解", link: "/guide/pr-fprg-workflow" },
+          { text: "当前视觉流程效果图", link: "/guide/current-visual-flow" },
+          { text: "Surface-DP 当前视觉方案", link: "/guide/surface-dp-depth-gradient" },
+          { text: "历史 PR-FPRG 流程", link: "/guide/pr-fprg-workflow" },
           { text: "开发入口", link: "/guide/dev-entrypoints" }
         ]
       },

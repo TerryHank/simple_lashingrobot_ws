@@ -115,6 +115,39 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("自适应", suoqu_node)
         self.assertIn("无法规划", suoqu_node)
 
+    def test_scan_action_carries_recognition_pose_index_and_artifacts_group_by_pose(self):
+        srv = (WORKSPACE_ROOT / "tie_robot_msgs" / "srv" / "StartPseudoSlamScan.srv").read_text(encoding="utf-8")
+        action = (
+            WORKSPACE_ROOT / "tie_robot_msgs" / "action" / "StartPseudoSlamScanTask.action"
+        ).read_text(encoding="utf-8")
+        action_bridge = (
+            WORKSPACE_ROOT / "tie_robot_web" / "src" / "web_bridge" / "action_bridge.cpp"
+        ).read_text(encoding="utf-8")
+        service_orchestration = (
+            PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+        header = (PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp").read_text(encoding="utf-8")
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        bind_store = (PROCESS_DIR / "src" / "suoqu" / "bind_path_store.cpp").read_text(encoding="utf-8")
+        memory_store = (PROCESS_DIR / "src" / "suoqu" / "execution_memory_store.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("uint16 recognition_pose_index", srv)
+        self.assertIn("uint16 recognition_pose_index", action)
+        self.assertIn("scan_srv.request.recognition_pose_index = goal->recognition_pose_index", action_bridge)
+        self.assertIn("req.recognition_pose_index", service_orchestration)
+        self.assertIn("int recognition_pose_index = 1", header)
+        self.assertIn("normalize_recognition_pose_index", suoqu_node)
+        self.assertIn("recognition_pose_index", suoqu_node)
+        self.assertIn("recognition_pose_index", bind_store)
+        self.assertIn('"scan_pose_groups"', bind_store)
+        self.assertIn('"scan_pose_groups_by_pose_index"', bind_store)
+        self.assertIn('"pose_index"', bind_store)
+        self.assertIn('"pose_local_global_idx"', bind_store)
+        self.assertIn("replace_scan_pose_group_by_index", bind_store)
+        self.assertIn("flatten_scan_pose_groups", bind_store)
+        self.assertIn("point_record.recognition_pose_index", memory_store)
+        self.assertIn('"recognition_pose_index"', memory_store)
+
     def test_scan_artifacts_and_execution_memory_carry_jump_bind_color_metadata(self):
         bind_store = (PROCESS_DIR / "src" / "suoqu" / "bind_path_store.cpp").read_text(encoding="utf-8")
         area_execution = (PROCESS_DIR / "src" / "suoqu" / "area_execution.cpp").read_text(encoding="utf-8")
@@ -434,7 +467,7 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertNotIn("is_outlier_column_neighbor_blocked", helper_body)
         self.assertNotIn("is_planning_checkerboard_member", helper_body)
 
-    def test_frontend_visual_trigger_runs_current_frame_no_motion_action_to_overwrite_bind_artifacts(self):
+    def test_frontend_visual_trigger_runs_current_frame_no_motion_action_to_update_selected_pose_group(self):
         task_action_controller = (
             WEB_DIR / "frontend" / "src" / "controllers" / "TaskActionController.js"
         ).read_text(encoding="utf-8")
@@ -448,8 +481,9 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("startPseudoSlamScanActionClient", trigger_body)
         self.assertIn("enable_capture_gate: false", trigger_body)
         self.assertIn("scan_strategy: 3", trigger_body)
-        self.assertIn("pseudo_slam_points.json", trigger_body)
-        self.assertIn("pseudo_slam_bind_path.json", trigger_body)
+        self.assertIn("recognition_pose_index: recognitionPoseIndex", trigger_body)
+        self.assertIn("识别位姿", trigger_body)
+        self.assertIn("保留其他识别位姿数据", trigger_body)
         self.assertNotIn("固定识别位姿", trigger_body)
         self.assertNotIn("callProcessImageService", trigger_body)
 

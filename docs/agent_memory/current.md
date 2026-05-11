@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-11 22:53:17，当前 HEAD：`9eb95dd`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-12 01:48:59，当前 HEAD：`4ca8724`。
 
 ## Bootstrap Files
 
@@ -36,18 +36,22 @@
 
 ## Latest CHANGELOG Signals
 
-- 用户最新口径：新前端 header 的“演示模式”点击后只关闭当前 `simple_lashingrobot_ws` 工程相关进程和后台服务，然后按钮状态变绿；不再启动、停止或清理 `/home/hyq-/lashingrobotROS` 或 `/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws` 里的任何内容。
-- 演示模式进入动作收口为停止本工程 `tie-robot-backend.service`、三个 driver service 与 `tie-robot-rosbridge.service`，并且只按当前工作区路径清理残留 ROS 进程；不再启动旧前端、旧 `chassis_ctrl api.launch`、`tie-robot-demo-rosbridge.service` 或 `tie-robot-demo-show-full.service`。
-- 演示模式退出动作仍按当前工程依赖顺序恢复 `tie-robot-rosbridge.service`、三个 driver service 和 `tie-robot-backend.service`。
+- 用户最新口径：设置页不再展示独立的“工作区选点”和“扫描动作”卡片；“确认工作区域”跟在“移动到选中位姿”右侧，仍在设置 / 工作区的扫描位姿卡片内。
+- “触发扫描视觉”重新放回控制面板“扫描区”，且扫描区只保留这个主动视觉触发入口；移动到位姿、记录识别位姿和确认工作区域不再作为控制面板任务按钮。
+- 工作区点选列表与“撤销最后一点 / 清空重选”保留在扫描位姿卡片内，避免现场误点后无法修正。
+- 当前工程状态已先保存并推送远端 tag `slam/v44`，作为本轮扫描线族语义修改前的恢复点。
+- Surface-DP 扫描线族不再使用横纵线数接近 `1:1` 的强平衡门槛；小视野、正方形和长方形钢筋面统一走同一套物理网格评分。
+- 新评分用候选横纵线数比例与当前 rectified 有效视野物理长宽比的一致性、线距物理先验、弱规则线召回和响应支持共同判断网格可信度；`34x21` 这类长方形全局网格可通过，正方形视野中的 `16x2` 线族假阳仍会被拒绝。
+- 运行态诊断新增 `physical_lattice_score`、`physical_lattice_count_aspect`、`physical_lattice_visible_aspect`、`physical_lattice_count_aspect_error` 和 tolerance 字段；旧 `full_workspace / visible_local` 分档标签收口为 `unified_physical_lattice`，避免后续按视野大小重新分支。
 
 ## Recent Session Memory
 
-- `2026-05-11 22:53 - 扫描梁筋过滤默认改为15cm`：2026-05-11：用户现场确认同列缺点符合扫描梁筋过滤路径，当前扫描 Surface-DP 在启用 scan_beam_exclusion 时从梁筋候选 band 扩张物理 mask 后过滤最终交点。运行态默认 scan_beam_exclusion_margin_mm 已从 130.0 mm 改为 150.0 mm；诊断键同步为 beam_candidate_15cm_mask / beam_candidate_15cm_pixels，前端视觉调试开关和 ROS 日志文案显示「梁筋 ±15 cm 过滤」。旧 PR-FPRG 研究工具中的 13cm 命名属于历史实验口径，未作为当前运行态入口修改。
-- `2026-05-11 22:51 - Surface-DP统一物理网格评分`：2026-05-11：扫描层 Surface-DP 不再用横纵线数接近 1:1 的 full_workspace 平衡硬门槛过滤线族；改为统一物理网格评分，用候选线数比例与当前 rectified 有效视野物理长宽比的一致性、弱规则线召回和支持度共同接纳/拒绝。长方形全局网格如 34x21 可通过，正方形视野里的 16x2 假阳仍拒绝；小视野、正方形、长方形共用同一判据，不按视野大小分档。当前工程状态已先保存并推送 tag slam/v44。
-- `2026-05-11 22:50 - 扫描线族弱响应门限放宽`：2026-05-11：Surface-DP 扫描层在所选单一底图上放宽物理线族弱峰兜底门限：单轴选峰 fallback 从 0.08 放到 0.06，整图物理线族重试增加 0.08/0.06 档；线族评分略降低平均响应权重，提高线数完整度和画幅覆盖权重，便于现场检测弱但规律的横纵线族。仍保留必须同时存在横向线族和纵向线族、且数量比例符合画幅物理宽高的约束，不把单轴结果硬凑成交点。
-- `2026-05-11 21:51 - 扫描模式失败当前帧立即返回`：2026-05-11：PointAI 扫描模式 MODE_SCAN_ONLY 在单次 /pointAI/process_image 请求内仍尊重用户设置的 stable_frame_count 释放帧数；但若当前帧 Surface-DP 没有返回有效点，不再循环等待下一帧，而是立即返回当前帧失败原因。Surface-DP 横纵线族不足错误文案改为中文“所选扫描底图横纵线族不足”，避免 completed surface 旧术语误导现场。
-- `2026-05-11 21:35 - 相机SDK调试页独立中文化`：2026-05-11：设置页把“相机底层 SDK 调试”从视觉调试页拆成独立设置页选项 cameraSdkDebug；面板内参数显示全部中文化，dynamic_reconfigure 仍使用 Scepter ROS cfg 原始英文参数名向 /scepter_manager/set_parameters 下发，避免破坏相机 SDK 接口。
-- `2026-05-11 21:19 - 3D显示未入组扫描点`：2026-05-11：3D Scene 规划点图层新增未入组扫描点显示。/api/planning/bind-path 返回的全量 grid_points 仍保留；黄色 bindPathPoints 只表示进入 pseudo_slam_bind_path.json 有效分组的可执行点，新增玫红色 unplannedBindPathPoints 表示扫描检测到但未进入任何规划组的点，悬停标签为“未入组扫描点”。行/列线、2x2成组线、跳绑高亮仍只使用已分组点，避免误导执行语义。
+- `2026-05-12 01:48 - 前端热调扫描线性补偿系数`：2026-05-12：视觉调试页新增扫描线性补偿控件，现场可直接增大/减小 X补偿(%/m)、Y补偿(%/m)、基准Z、生效Z和最大比例限幅。前端通过 /web/pointAI/set_scan_linear_compensation 发布 Float32MultiArray：[enabled, reference_z_mm, x_per_mm, y_per_mm, min_z_mm, max_abs_scale_delta]，其中 %/m 会除以 100000 转成后端 per-mm 系数；pointAI 订阅后热更新 scan_linear_compensation_* ROS 参数并影响后续扫描账本点。
+- `2026-05-12 01:46 - Surface-DP 弱线补齐物理网格`：2026-05-12：用户反馈扫描调试图像网格效果好但绑扎点只覆盖一小片，怀疑门限导致。根因定位为 Surface-DP 物理线族选择先按强候选峰接受 9x16/10x16 等局部网格，导致后续交点只覆盖强响应区域。现在 _select_physical_lattice_positions 在候选峰确定可信物理间距后，会沿同一物理网格向两侧补齐有局部凸起证据的弱线，避免强局部网格提前收敛；纯缺线场景仍保留 9/10/11x16 可见网格兼容，不凭空铺满。
+- `2026-05-12 01:00 - 视觉算法异常只让视觉按钮变黄`：2026-05-12：用户纠正前端告警口径：/diagnostics 中 tie_robot/visual_algorithm 的 DiagnosticStatus.ERROR（例如 Surface-DP失败：所选扫描底图横纵线族不足）表示视觉算法告警，但不要进入顶部连接报警横幅，也不要把视觉按钮文案改成‘视觉报警/重启’。前端应把原视觉状态按钮置为黄色 warn，保留原按钮文案/启动动作；详细错误只写入前端日志。
+- `2026-05-12 00:54 - 扫描账本按识别位姿分组续传`：2026-05-12：扫描 action/service 新增 recognition_pose_index，前端从设置/工作区的当前扫描位姿下拉框传入序号。pseudo_slam_points.json 与 pseudo_slam_bind_path.json 写入 scan_pose_groups 和 scan_pose_groups_by_pose_index，重扫同一识别位姿只替换该位姿大组，其他位姿组保留；顶层 pseudo_slam_points/areas 仍保留为汇总扁平结构供执行层和前端兼容。每个点/区域带 pose_index、recognition_pose_index 和 pose_local_* 字段，执行记忆去重也包含 recognition_pose_index，避免不同位姿相同行列互相吞掉。
+- `2026-05-12 00:48 - Surface-DP 继续放宽到 10x16 现场线族`：2026-05-12：用户要求继续放宽扫描底图线族门限。基于前一轮确认 11x16 通过后，新增 10x16 回归并验证当前实现仍失败，随后将 PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE 再从 0.40 提到 0.55。修改后 11x16、10x16 都通过，9x16 仍被 count_aspect_mismatch 拦住，2x16 仍失败。失败消息继续保留中文原因映射。
+- `2026-05-12 00:47 - 视觉算法异常显示为报警态`：2026-05-12：前端状态胶囊语义修正。/diagnostics 中 tie_robot/visual_algorithm 的 DiagnosticStatus.ERROR（例如 Surface-DP失败：所选扫描底图横纵线族不足）表示视觉算法报警，不表示视觉节点关闭；前端应把 detail 纳入报警汇总，视觉胶囊显示‘视觉报警/重启’，只有 OK 运行态才显示‘关闭’动作，WARN 未上报/超时仍按启动语义处理。
 
 ## Handoff Documents
 

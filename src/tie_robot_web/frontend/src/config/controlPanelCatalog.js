@@ -3,10 +3,7 @@ export const CONTROL_PANEL_TASK_SECTIONS = [
     id: "scan",
     title: "扫描区",
     tasks: [
-      { id: "moveToPosition", label: "移动到\n位姿", tone: "blue" },
-      { id: "setRecognitionPose", label: "设为\n识别位姿", tone: "amber" },
-      { id: "submitQuad", label: "确认\n工作区域", tone: "green" },
-      { id: "runSavedS2", label: "触发扫描\n视觉", tone: "green" },
+      { id: "runSavedS2", label: "触发扫描\n视觉", tone: "blue" },
     ],
   },
   {

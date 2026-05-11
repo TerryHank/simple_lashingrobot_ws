@@ -199,8 +199,8 @@ def log_manual_workspace_s2_camera_distance(
     camera_z = float(camera_coord[2])
     camera_distance = math.sqrt((camera_x * camera_x) + (camera_y * camera_y) + (camera_z * camera_z))
     rospy.loginfo(
-        "pointAI tie point camera distance: idx=%d source_frame=Scepter_depth_frame "
-        "pixel=(%d,%d) camera_xyz_mm=(%.1f,%.1f,%.1f) camera_depth_z_mm=%.1f camera_distance_mm=%.1f",
+        "pointAI绑扎点相机距离：编号=%d，源坐标系=Scepter_depth_frame，"
+        "像素=(%d,%d)，相机坐标mm=(%.1f,%.1f,%.1f)，相机深度Z=%.1fmm，相机距离=%.1fmm",
         int(point_index),
         int(pixel_x),
         int(pixel_y),
@@ -593,13 +593,13 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
     surface_result = scan_surface_dp.build_scan_surface_dp_result(
         rectified_result,
         enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False)),
-        beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 130.0)),
+        beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 150.0)),
         response_source=getattr(self, "scan_response_source", "depth_gradient"),
     )
     if not surface_result.get("success", False):
         return {
             "success": False,
-            "message": f"Surface-DP失败：{surface_result.get('message', 'unknown error')}",
+            "message": f"Surface-DP失败：{surface_result.get('message', '未知错误')}",
             "point_coords": None,
             "result_image": None,
             "surface_dp_diagnostics": surface_result.get("diagnostics", {}),
@@ -651,7 +651,7 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
     min_x, min_y, max_x, max_y = workspace_bbox
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
     rospy.loginfo(
-        "pointAI manual workspace Surface-DP: bbox=(%d,%d,%d,%d), rectified=(%d,%d), lines=%s, points=%d, mean_surface=%.3f, elapsed_ms=%.1f",
+        "pointAI手动工作区Surface-DP：边界框=(%d,%d,%d,%d)，透视尺寸=(%d,%d)，线族=%s，点数=%d，平均底图响应=%.3f，耗时=%.1fms",
         min_x,
         min_y,
         max_x,
@@ -665,7 +665,7 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
     )
     return {
         "success": True,
-        "message": "manual workspace Surface-DP finished",
+        "message": "手动工作区Surface-DP识别完成",
         "point_count": points_array_msg.count,
         "point_coords": points_array_msg,
         "result_image": result_image,
@@ -739,7 +739,7 @@ def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):
     min_x, min_y, max_x, max_y = workspace_bbox
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
     rospy.loginfo(
-        "pointAI manual workspace S2: bbox=(%d,%d,%d,%d), rectified=(%d,%d), v_period=%d, h_period=%d, points=%d, elapsed_ms=%.1f",
+        "pointAI手动工作区S2：边界框=(%d,%d,%d,%d)，透视尺寸=(%d,%d)，纵向周期=%d，横向周期=%d，点数=%d，耗时=%.1fms",
         min_x,
         min_y,
         max_x,
@@ -753,7 +753,7 @@ def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):
     )
     return {
         "success": True,
-        "message": "manual workspace S2 finished",
+        "message": "手动工作区S2识别完成",
         "point_count": points_array_msg.count,
         "point_coords": points_array_msg,
         "result_image": result_image,
@@ -767,8 +767,8 @@ def run_manual_workspace_s2_pipeline(self, publish=False):
         return surface_result
 
     rospy.logwarn(
-        "pointAI manual workspace Surface-DP failed without legacy depth-only fallback: %s",
-        surface_result.get("message", "unknown error"),
+        "pointAI手动工作区Surface-DP失败，且不会回退到旧版纯深度链路: %s",
+        surface_result.get("message", "未知错误"),
     )
     surface_result["legacy_depth_only_fallback"] = False
     return surface_result
@@ -788,7 +788,7 @@ def try_scan_only_manual_workspace_s2(self):
             "success": False,
             "message": (
                 "扫描模式检测到已保存工作区四边形，但Surface-DP物理先验扫描失败："
-                f"{s2_result.get('message', 'unknown error')}"
+                f"{s2_result.get('message', '未知错误')}"
             ),
             "point_coords": None,
             "out_of_height_count": 0,
@@ -815,7 +815,7 @@ def manual_workspace_s2_callback(self, msg):
 
     result = self.run_visual_detection_with_release_frames(PROCESS_IMAGE_MODE_SCAN_ONLY)
     if not result.get("success", False):
-        rospy.logwarn("pointAI manual workspace Surface-DP failed: %s", result.get("message", "unknown error"))
+        rospy.logwarn("pointAI手动工作区Surface-DP失败: %s", result.get("message", "未知错误"))
 
 
 def handle_lashing_recognize_once(self, _req):

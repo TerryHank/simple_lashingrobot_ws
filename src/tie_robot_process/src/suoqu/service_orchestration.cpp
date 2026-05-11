@@ -105,7 +105,8 @@ bool startPseudoSlamScanWithOptions(
             res.message,
             req.bind_group_point_count,
             req.bind_execution_cabin_min_z_mm,
-            fixed_scan_pose_override
+            fixed_scan_pose_override,
+            req.recognition_pose_index
         );
     } catch (const std::exception& ex) {
         res.success = false;

@@ -24,6 +24,11 @@ const CABIN_ALARM_VALUE_LABELS = [
   ["internal_calc_error", "索驱内部计算异常"],
 ];
 
+const MONITOR_ALARM_LABELS = {
+  chassis: "索驱驱动异常",
+  moduan: "末端驱动异常",
+};
+
 function uniqueLabels(labels) {
   const seen = new Set();
   return labels.filter((label) => {
@@ -95,10 +100,18 @@ function diagnosticValuesToObject(status) {
 function collectDiagnosticAlarmLabels(status, monitorId) {
   const values = diagnosticValuesToObject(status);
   if (monitorId === "moduan") {
-    return collectAlarmLabelsFromObject(values, MODUAN_ALARM_VALUE_LABELS);
+    const labels = collectAlarmLabelsFromObject(values, MODUAN_ALARM_VALUE_LABELS);
+    if (Number(status?.level) === 2) {
+      labels.push(formatDiagnosticDetail(status) || MONITOR_ALARM_LABELS.moduan);
+    }
+    return uniqueLabels(labels);
   }
   if (monitorId === "chassis") {
-    return collectAlarmLabelsFromObject(values, CABIN_ALARM_VALUE_LABELS);
+    const labels = collectAlarmLabelsFromObject(values, CABIN_ALARM_VALUE_LABELS);
+    if (Number(status?.level) === 2) {
+      labels.push(formatDiagnosticDetail(status) || MONITOR_ALARM_LABELS.chassis);
+    }
+    return uniqueLabels(labels);
   }
   return [];
 }
@@ -107,7 +120,10 @@ function collectLinearModuleAlarmLabels(message) {
   return collectAlarmLabelsFromObject(message, LINEAR_MODULE_ALARM_VALUE_LABELS);
 }
 
-function diagnosticLevelToUiLevel(level) {
+function diagnosticLevelToUiLevel(level, monitorId = "") {
+  if (monitorId === "visual" && Number(level) === 2) {
+    return "warn";
+  }
   switch (Number(level)) {
     case 0:
       return "success";
@@ -210,7 +226,7 @@ export class StatusMonitorController {
         const detail = stale
           ? `${monitor.label}状态超时`
           : formatDiagnosticDetail(cached.status);
-        const level = stale ? "warn" : diagnosticLevelToUiLevel(cached.status.level);
+        const level = stale ? "warn" : diagnosticLevelToUiLevel(cached.status.level, monitor.id);
         this.emitStatus(monitor.id, level, detail, `${cached.status.level}:${detail}`);
         this.setAlarmLabels(
           `diagnostic:${monitor.id}`,

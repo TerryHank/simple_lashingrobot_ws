@@ -197,3 +197,83 @@ try {
 } finally {
   Date.now = originalDateNow;
 }
+
+topicInstances.length = 0;
+logs.length = 0;
+statusChanges.length = 0;
+batteryVoltages.length = 0;
+alarmStates.length = 0;
+lightStates.length = 0;
+
+const visualAlarmController = new StatusMonitorController({
+  onBatteryVoltage: (voltage) => batteryVoltages.push(voltage),
+  onLightState: (enabled) => lightStates.push(enabled),
+  onLog: (message, level) => logs.push({ message, level }),
+  onStatusChip: (statusId, level, detail) => statusChanges.push({ statusId, level, detail }),
+  onAlarmState: (alarms) => alarmStates.push(alarms),
+});
+visualAlarmController.start({ isConnected: true });
+logs.length = 0;
+statusChanges.length = 0;
+alarmStates.length = 0;
+
+const visualAlarmDiagnosticsTopic = topicInstances.find((topic) => topic.name === TOPICS.process.diagnostics);
+assert.ok(visualAlarmDiagnosticsTopic, "diagnostics topic should be subscribed for visual alarm checks");
+
+visualAlarmDiagnosticsTopic.emit({
+  status: [
+    {
+      hardware_id: "tie_robot/visual_algorithm",
+      level: 2,
+      message: "视觉算法异常",
+      values: [
+        { key: "transport_state", value: "algorithm_error" },
+        { key: "failure_detail", value: "Surface-DP失败：所选扫描底图横纵线族不足" },
+      ],
+    },
+  ],
+});
+
+assert.deepEqual(
+  statusChanges.filter((change) => change.statusId === "visual").at(-1),
+  {
+    statusId: "visual",
+    level: "warn",
+    detail: "视觉算法异常：Surface-DP失败：所选扫描底图横纵线族不足",
+  },
+  "视觉算法诊断 ERROR 应让原视觉按钮变黄，详情只保留给日志",
+);
+assert.deepEqual(
+  alarmStates.at(-1),
+  [],
+  "视觉算法异常不应进入顶部连接报警汇总",
+);
+assert.deepEqual(
+  logs.filter((entry) => entry.message.includes("状态变化 visual")).at(-1),
+  {
+    message: "状态变化 visual -> 视觉算法异常：Surface-DP失败：所选扫描底图横纵线族不足",
+    level: "warn",
+  },
+  "视觉算法异常详情应写入前端日志",
+);
+
+visualAlarmDiagnosticsTopic.emit({
+  status: [
+    {
+      hardware_id: "tie_robot/visual_algorithm",
+      level: 0,
+      message: "视觉算法运行中",
+      values: [
+        { key: "transport_state", value: "running" },
+        { key: "failure_detail", value: "" },
+      ],
+    },
+  ],
+});
+
+assert.deepEqual(
+  alarmStates.at(-1),
+  [],
+  "视觉算法恢复 OK 后应继续保持顶部报警汇总为空",
+);
+visualAlarmController.stop();

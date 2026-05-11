@@ -47,6 +47,7 @@ void executeStartPseudoSlamScanAction(
     tie_robot_msgs::StartPseudoSlamScan scan_srv;
     scan_srv.request.enable_capture_gate = goal->enable_capture_gate;
     scan_srv.request.scan_strategy = goal->scan_strategy;
+    scan_srv.request.recognition_pose_index = goal->recognition_pose_index;
     scan_srv.request.use_fixed_scan_pose_override = goal->use_fixed_scan_pose_override;
     scan_srv.request.fixed_scan_pose_x_mm = goal->fixed_scan_pose_x_mm;
     scan_srv.request.fixed_scan_pose_y_mm = goal->fixed_scan_pose_y_mm;

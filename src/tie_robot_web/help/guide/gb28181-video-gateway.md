@@ -75,7 +75,7 @@ GB28181 设备节点
 | `ROS Color Image` | `/Scepter/color/image_raw` | 彩色图 |
 | `ROS Depth Image` | `/Scepter/depth/image_raw` | 深度归一化 |
 | `ROS Detection Result` | `/pointAI/result_image_raw` | 彩色图 |
-| `ROS PR-FPRG Result` | `/pointAI/manual_workspace_s2_result_raw` | 彩色图 |
+| `ROS Surface-DP Result` | `/perception/lashing/result_image` | 彩色图 |
 | `ROS World Coord Filtered` | `/Scepter/worldCoord/world_coord` | 世界坐标幅值可视化 |
 | `ROS World Coord Raw` | `/Scepter/worldCoord/raw_world_coord` | 世界坐标幅值可视化 |
 
@@ -301,7 +301,7 @@ roslaunch tie_robot_bringup api.launch \
 | `34020000001320000003` | `ROS Color Image` |
 | `34020000001320000004` | `ROS Depth Image` |
 | `34020000001320000005` | `ROS Detection Result` |
-| `34020000001320000006` | `ROS PR-FPRG Result` |
+| `34020000001320000006` | `ROS Surface-DP Result` |
 | `34020000001320000007` | `ROS World Coord Filtered` |
 | `34020000001320000008` | `ROS World Coord Raw` |
 
@@ -328,7 +328,7 @@ y=<SSRC>
 3. 点播 `ROS Color Image` 有画面。
 4. 点播 `ROS IR Image` 有灰度画面。
 5. 点播 `ROS Depth Image` 有归一化深度画面。
-6. 点播 `ROS PR-FPRG Result` 能看到当前识别结果画面。
+6. 点播 `ROS Surface-DP Result` 能看到当前识别结果画面。
 7. 停止预览后，平台发送 BYE，本机停止该路推流。
 
 ## 平台点播时序

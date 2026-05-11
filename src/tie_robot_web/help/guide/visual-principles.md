@@ -2,135 +2,130 @@
 
 ## 当前认可方案
 
-当前扫描层视觉统一指：
+当前视觉分成两条运行分支：
 
-- 中文名：Surface-DP 单源底图方案
-- 运行策略：只生成一次当前选中的扫描底图，默认 `depth_gradient`
-- 详细流程：[Surface-DP 单源底图主链](./surface-dp-depth-gradient)
+- 扫描建图：Surface-DP 单源底图方案，默认使用 `depth_gradient`，由物理钢筋间距和统一物理网格评分约束整张钢筋面。
+- 执行微调：平面分割 + Hough 局部视觉，只在逐区到位后为线性模组提供当前区域的可执行点。
 
-旧帮助页里提到的「当前认可 S2」，历史上指：
+两条分支共用相机输入，但语义不同：扫描分支负责生成全局 `pseudo_slam_points.json` 和 `pseudo_slam_bind_path.json`；执行微调分支负责到位后复核局部 `2x2` 执行点。逐步效果图见：[当前视觉流程效果图](./current-visual-flow)。扫描主链细节见：[Surface-DP 当前视觉方案](./surface-dp-depth-gradient)。
 
-- 中文名：`PR-FPRG 透视展开频相回归网格方案`
-- 英文全称：`Projective-Rectified Frequency-Phase Regression Grid`
-
-它不是在原始 IR 图像里直接铺满横竖线，也不假设钢筋一定与画面水平/垂直。PR-FPRG 会先把手动工作区透视展开成规则平面，再在 `theta/rho` 空间估计两组钢筋真实摆放方向的周期线族。候选线必须经过一维峰值、二维连续钢筋条和主间距一致性检查，最后才把线交点投回原图。
-
-PR-FPRG 的完整逐步图像流程见：[PR-FPRG 流程详解](./pr-fprg-workflow)。这部分保留为历史说明和对照，不代表扫描层当前仍采用 PR-FPRG 主链。
+历史 `PR-FPRG 透视展开频相回归网格方案` 已保留为对照文档：[PR-FPRG 流程详解](./pr-fprg-workflow)。它不再代表扫描层当前主链。
 
 ## 前端如何触发
 
-新前端的控制面板按钮显示为「触发 PR-FPRG」，内部仍复用历史动作 ID `runSavedS2`，这样可以少动已有 ROS 接口。
-
-触发链如下：
+控制面板里的「触发扫描视觉」会走扫描建图 action，而不是直接调用旧 `/web/pointAI/run_workspace_s2` 话题：
 
 ```text
 前端按钮 runSavedS2
 -> TaskActionController.triggerSavedWorkspaceS2()
--> /web/pointAI/run_workspace_s2 std_msgs/Bool(data=true)
--> pointAI.manual_workspace_s2_callback()
--> run_manual_workspace_s2_pipeline(publish=true)
--> /pointAI/manual_workspace_s2_result_raw
--> /pointAI/manual_workspace_s2_points
+-> /web/cabin/start_pseudo_slam_scan action
+-> tie_robot_process::run_pseudo_slam_scan
+-> /pointAI/process_image request_mode=3
+-> MODE_SCAN_ONLY
+-> run_manual_workspace_surface_dp_pipeline(publish=true)
+-> Surface-DP 单源底图 + 统一物理网格评分
+-> /perception/lashing/points_camera
 -> /coordinate_point
--> /pointAI/result_image_raw
--> /tf pr_fprg_bind_point_*
+-> /perception/lashing/result_image
+-> /tf surface_dp_bind_point_*
+-> pseudo_slam_points.json
+-> pseudo_slam_bind_path.json
 ```
 
-这些点话题表达相机坐标系下的视觉结果；前端 3D 显示层再通过 TF 把它们放到全局场景里。
+执行层视觉入口仍复用 `/pointAI/process_image`，但使用 `request_mode=4`：
 
-`process_image` 服务里的扫描模式现在进入 Surface-DP 单源底图主链；执行微调仍按执行层局部视觉分流处理。旧 `pre_img()` 不再作为扫描主链前置门控。
+```text
+执行到位或单点视觉测试
+-> /pointAI/process_image request_mode=4
+-> MODE_EXECUTION_REFINE
+-> execution_refine_hough.py
+-> /perception/lashing/execution_refine_base_image
+-> /perception/lashing/points_camera
+```
 
-## 当前方案效果图状态
-
-![当前 PR-FPRG 结果](/images/visual/pr-fprg-result.png)
-
-当前帮助站效果图已经用新版探针从现场相机帧重新生成，来源是同步的 `raw_world_coord + world_coord + IR`，不是旧轴向截图。当前帧里钢筋本身接近 rectified 横/竖方向，所以画出来接近水平/垂直；如果钢筋在地面上斜摆，线族角度会随钢筋真实方向变化。
-
-本次截图摘要：
-
-- 响应来源：`depth_background_minus_filled`
-- 线族角度：`88° / 178°`
-- 线族数量：`3 x 4`
-- 绑扎点数量：`12`
-
-方向选择现在会先用响应图梯度做 `theta` 候选先验，再做 PR-FPRG 频相回归、峰值支撑、二维连续钢筋条验证和主间距一致性裁剪。底部原来容易出现的 13、14、15 号伪点应优先在二维连续钢筋条验证阶段删除；主间距一致性裁剪继续作为最后兜底。
+`process_image` 服务里的扫描模式进入 Surface-DP；执行微调进入 Hough 分支。旧 `pre_img()` 不再作为扫描主链前置门控。
 
 ## 输入数据
 
-PR-FPRG 依赖 3 类输入：
+扫描分支依赖 4 类输入：
 
-- IR 图像：用于显示、叠加和人工检查。
-- `/Scepter/worldCoord/raw_world_coord`：用于从像素交点反查原始相机系世界坐标。
+- IR 图像：用于工作区确认、结果叠加和人工检查。
+- `/Scepter/worldCoord/raw_world_coord`：用于 rectified 深度、物理尺度估计和最终点位反查。
 - 手动工作区四边形：后端保存为 `corner_pixels`，用于确定透视展开范围。
+- 前端视觉调试设置：扫描底图、稳定放行帧数、梁筋过滤开关和梁筋过滤半径。
 
-## 算法主链
+执行微调分支依赖：
 
-1. 保存手动工作区四边形，并发布 `/pointAI/manual_workspace_quad_pixels` 给前端确认。
-2. 根据四边形构建正向透视矩阵 `forward_h` 和逆向透视矩阵 `inverse_h`。
-3. 从 `raw_world_coord[:, :, 2]` 取深度，透视展开并填补无效值。
-4. 用背景深度差生成钢筋凸起响应图。
-5. 从响应图梯度提取主方向先验，补齐正交方向候选。
-6. 扫描候选角度 `theta`，把二维响应图投影到法向 `rho`，得到每个方向的一维 profile。
-7. 对每个 profile 做频域周期检测与相位回归，选出两组近似正交且连续性更好的钢筋线族。
-8. 把候选 `rho` 线吸附到局部峰值，并删除峰值支撑不足的线。
-9. 在二维响应图上沿每条斜线采样，验证它是否是一整条连续钢筋条，并要求横截面呈现贴近候选线中心的 ridge。
-10. 按主网格间距兜底删除靠边或由垫高件造成的残留额外伪线。
-11. 两组线族用线方程求交点，通过 `inverse_h` 投回原图。
-12. 从 `raw_world_coord` 反查每个绑扎点的相机系三维坐标并发布。
+- `/Scepter/worldCoord/world_coord`：上游平面分割后的世界点图，用于 Hough 二值化。
+- `/Scepter/worldCoord/raw_world_coord`：候选交点反查原始相机坐标。
+- 当前 TCP / 线性模组范围：用于保留可执行范围内的点。
+
+## 扫描算法主链
+
+1. 读取已保存工作区四边形、IR 图和 `raw_world_coord`。
+2. 根据四边形和角点世界坐标构建透视展开几何。
+3. 在 rectified 平面里生成当前选中的单一响应图，默认 `depth_gradient`。
+4. 阈值化和骨架化只作为诊断，不直接把 skeleton junction 当绑扎点。
+5. 在响应图上按 120-160 mm 钢筋间距寻找横纵线族。
+6. 用统一物理网格评分校对线族：线数比例要匹配当前有效视野的物理长宽比，而不是强行要求横纵线数接近 `1:1`。
+7. 检测 `beam_candidate` 梁筋候选；只有视觉调试开关启用时，才按当前梁筋过滤半径对最终点做点级过滤。
+8. 使用 Surface-DP 沿响应图追踪曲线线族，处理轻微弯曲和局部响应弱化。
+9. 求两组曲线线族交点，通过 inverse H 投回原图。
+10. 从 `raw_world_coord` 查找相机系三维坐标并发布点、结果图和 TF。
+
+## 校对方案
+
+当前校对不是「纵向钢筋数量必须等于横向钢筋数量」。统一评分看的是候选网格和当前可见钢筋面的物理一致性：
+
+- 线距必须落在 120-160 mm 对应的像素范围内。
+- 横纵线族都至少有 2 根线，且弱但规律的线允许通过低阈值召回。
+- 候选线数比例使用 `(纵向间隔数 / 横向间隔数)` 计算。
+- 该比例会和 rectified 有效 mask 的物理宽高比比较。
+- 误差小于动态 tolerance 才通过；小视野线数少时 tolerance 会自然放宽。
+
+所以 `3 m x 5 m` 这类长方形钢筋面不会因为不是正方形而被杀掉。真正会被拒绝的是「物理视野看起来接近正方形，但线族结果却像 `16 x 2`」这类明显假阳。
+
+关键诊断字段：
+
+```text
+physical_lattice_score
+physical_lattice_count_aspect
+physical_lattice_visible_aspect
+physical_lattice_count_aspect_error
+physical_lattice_count_aspect_tolerance
+physical_prior_modes = [unified_physical_lattice, unified_physical_lattice]
+```
+
+现场判断时优先看 `physical_lattice_count_aspect_error <= physical_lattice_count_aspect_tolerance`。如果错误超过 tolerance，说明线数比例和当前可见物理视野不一致。
 
 ## 代码落点
 
 前端触发代码：
 
 - `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`：控制面板按钮文案。
-- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`：提交四边形、触发 PR-FPRG、固定扫描规划入口。
-- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`：发布 `/web/pointAI/run_workspace_s2`。
-- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`：触发后切换覆盖层显示、等待 result 图。
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`：提交四边形、触发扫描视觉和执行层视觉入口。
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`：下发视觉调试设置和调用 `process_image`。
+- `src/tie_robot_web/frontend/src/config/visualRecognitionMode.js`：扫描底图选项与 `request_mode` 常量。
 - `src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js`：IR 图像选点、拖拽四边形、显示结果覆盖层。
 
 后端实现代码：
 
 - `src/tie_robot_perception/scripts/pointai_node.py`：pointAI ROS 节点可执行入口。
-- `src/tie_robot_perception/src/tie_robot_perception/pointai/node.py`：pointAI 节点实现，订阅 `/web/pointAI/run_workspace_s2`。
-- `src/tie_robot_perception/src/tie_robot_perception/pointai/workspace_masks.py`：保存与发布手动工作区四边形。
-- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`：PR-FPRG 运行时主链。
-- `src/tie_robot_perception/src/tie_robot_perception/perception/workspace_s2.py`：方向线族估计、周期估计、峰值筛选、连续线验证、间距裁剪和线族求交。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/node.py`：pointAI 节点实现。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`：视觉 topic、service 和 publisher 装配。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`：扫描入口，当前优先调用 Surface-DP。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`：Surface-DP 单源底图、物理网格评分、梁筋候选和 DP 曲线交点。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py`：执行微调 Hough 分支。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/rendering.py`：结果图渲染与发布。
-- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`：`process_image` 主视觉入口，统一调用 PR-FPRG。
-- `src/tie_robot_perception/tools/pr_fprg_peak_supported_probe.py`：独立探针，可导出逐步处理图片。
-
-## 旧 RANSAC + Hough 已归档
-
-相机上游世界点处理在：
-
-- `src/tie_robot_perception/src/perception/scepter_world_coord_processor.cpp`
-
-这里会把原始深度图转成三维点，再用 `SACMODEL_PLANE` 和 `SAC_RANSAC` 拟合主平面。系统同时保留两套世界点：
-
-- `raw_world_coord`：未经过主平面剔除的原始世界点。
-- `world_coord`：去掉主平面后的残差世界点。
-
-PR-FPRG 更依赖 `raw_world_coord`，因为它需要从规则网格交点反查真实相机系坐标。
-
-旧 `pre_img()` 绑扎点识别链路曾经负责深度二值化、细化、霍夫线提取、交点聚类和可执行范围过滤。现在这套 `RANSAC + Hough + pre_img` pointAI 链路已经从 active package 中移除，归档在：
-
-- `docs/archive/legacy_ransac_hough_pointai/`
-
-当前分工是：
-
-1. 相机上游继续提供 `raw_world_coord` 和 `world_coord`。
-2. 方向自适应 PR-FPRG 负责 pointAI 绑扎点主视觉识别。
-3. 旧 `pre_img()` 归档保留用于追溯，不参与 ROS 节点运行。
-
-注意：上游 `scepter_world_coord_processor.cpp` 中的 PCL `SAC_RANSAC` 平面处理属于世界坐标生成链路，不等同于已经归档的旧 pointAI RANSAC+Hough 绑扎点识别。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`：`process_image` 主入口，按 `request_mode` 分流扫描和执行微调。
 
 ## 不要退回的旧做法
 
 以下做法都视为退化，不应再恢复：
 
-1. 直接在工作区像素 bbox 里估周期。
-2. 在原图里直接铺满横竖线。
-3. 只凭一维 profile 峰值生成整张网格。
-4. 把方向自适应线族退回固定 X/Y 方向。
-5. 把 PR-FPRG 重新挂到旧 `pre_img()` 或 Hough 结果之后。
+1. 扫描层回到旧 `pre_img()` 或 RANSAC + Hough 直接出点。
+2. 把 skeleton junction 原始交点直接写入扫描账本。
+3. 只凭一维 profile 或单轴强响应铺满整张网格。
+4. 用横纵线数接近 `1:1` 的硬门槛判断钢筋面。
+5. 按小视野、大视野、长方形、正方形拆分多套校对逻辑。
 6. 修改显示层时忘记把 rectified 线和点逆投影回原图。

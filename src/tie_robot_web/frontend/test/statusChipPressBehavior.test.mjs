@@ -8,11 +8,11 @@ import { UIController } from "../src/ui/UIController.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(__dirname, "..");
 
-function createFakeStatusChip({ statusId = "chassis", statusAction = "", statusLongAction = "" } = {}) {
+function createFakeStatusChip({ statusId = "chassis", statusAction = "", statusLongAction = "", statusLabelText = statusId } = {}) {
   const listeners = new Map();
   const classNames = new Set(["system-status-item", "success", "is-interactive"]);
   const actionLabel = { textContent: "" };
-  const statusLabel = { textContent: statusId };
+  const statusLabel = { textContent: statusLabelText };
   const chip = {
     dataset: { statusId, statusAction, statusLongAction },
     disabled: false,
@@ -71,6 +71,7 @@ function createFakeStatusChip({ statusId = "chassis", statusAction = "", statusL
       return null;
     },
     actionLabel,
+    statusLabel,
   };
   return chip;
 }
@@ -124,21 +125,25 @@ function createFakeBottomLinearModulePosition() {
 }
 
 const expectedActionsByStatus = [
-  ["chassis", "success", "stopCabinSubsystem", "restartCabinSubsystem", "关闭"],
-  ["chassis", "warn", "startCabinSubsystem", "restartCabinSubsystem", "启动"],
-  ["moduan", "success", "stopModuanSubsystem", "restartModuanSubsystem", "关闭"],
-  ["moduan", "warn", "startModuanSubsystem", "restartModuanSubsystem", "启动"],
-  ["visual", "success", "stopVisualSubsystem", "restartVisualSubsystem", "关闭"],
-  ["visual", "warn", "startVisualSubsystem", "restartVisualSubsystem", "启动"],
+  ["chassis", "success", "stopCabinSubsystem", "restartCabinSubsystem", "关闭", "索驱"],
+  ["chassis", "warn", "startCabinSubsystem", "restartCabinSubsystem", "启动", "索驱"],
+  ["chassis", "error", "restartCabinSubsystem", "restartCabinSubsystem", "重启", "索驱报警"],
+  ["moduan", "success", "stopModuanSubsystem", "restartModuanSubsystem", "关闭", "末端"],
+  ["moduan", "warn", "startModuanSubsystem", "restartModuanSubsystem", "启动", "末端"],
+  ["moduan", "error", "restartModuanSubsystem", "restartModuanSubsystem", "重启", "末端报警"],
+  ["visual", "success", "stopVisualSubsystem", "restartVisualSubsystem", "关闭", "视觉"],
+  ["visual", "warn", "startVisualSubsystem", "restartVisualSubsystem", "启动", "视觉"],
+  ["visual", "error", "startVisualSubsystem", "restartVisualSubsystem", "启动", "视觉"],
 ];
 
-for (const [statusId, level, shortAction, longAction, label] of expectedActionsByStatus) {
-  const chip = createFakeStatusChip({ statusId });
+for (const [statusId, level, shortAction, longAction, label, visibleStatusLabel] of expectedActionsByStatus) {
+  const chip = createFakeStatusChip({ statusId, statusLabelText: visibleStatusLabel.replace(/报警$/, "") });
   UIController.prototype.setStatusChipState.call({ rootElement: makeRootForChip(chip) }, statusId, level, "状态详情");
 
   assert.equal(chip.dataset.statusAction, shortAction, `${statusId}/${level} short action`);
   assert.equal(chip.dataset.statusLongAction, longAction, `${statusId}/${level} long action`);
   assert.equal(chip.actionLabel.textContent, label, `${statusId}/${level} visible action label`);
+  assert.equal(chip.statusLabel.textContent, visibleStatusLabel, `${statusId}/${level} visible status label`);
 }
 
 const scheduledTimers = [];

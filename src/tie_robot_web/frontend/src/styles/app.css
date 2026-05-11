@@ -2336,6 +2336,23 @@ a {
   padding: 0 2px;
 }
 
+.workspace-scan-card {
+  gap: 10px;
+}
+
+.workspace-scan-pose-actions,
+.workspace-scan-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+}
+
+.workspace-scan-pose-actions .secondary-btn,
+.workspace-scan-actions .secondary-btn,
+.workspace-scan-actions .primary-btn {
+  min-height: 42px;
+  padding-inline: 10px;
+}
+
 .mono {
   font-family: "JetBrains Mono", "Consolas", monospace;
 }

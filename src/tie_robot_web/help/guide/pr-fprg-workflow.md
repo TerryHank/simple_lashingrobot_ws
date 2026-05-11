@@ -1,6 +1,10 @@
-# PR-FPRG 识别流程详解
+# 历史 PR-FPRG 识别流程详解
 
-本页说明当前绑扎点识别链路如何从相机图像一步步变成 12 个绑扎点。核心口径是：
+::: warning 历史对照
+本页记录的是 2026-04 到 2026-05 初期使用过的 PR-FPRG 透视展开频相回归网格方案。当前扫描建图主链已经切换为 Surface-DP 单源底图 + 统一物理网格评分；当前口径见 [视觉原理](./visual-principles) 和 [当前视觉流程效果图](./current-visual-flow)。
+:::
+
+本页说明历史 PR-FPRG 绑扎点识别链路如何从相机图像一步步变成 12 个绑扎点。核心口径是：
 
 - 不再按整张工作区铺满网格。
 - 不再假设钢筋一定与画面水平/垂直；钢筋在地面上本身斜摆时，按钢筋真实方向估计线族。
@@ -8,7 +12,7 @@
 - 13、14、15 这类底部垫高件或起子造成的伪点，优先在「二维连续钢筋条验证」删除。
 - 「主间距一致性裁剪」保留为最后兜底，不作为起子伪线的主要过滤层。
 - 红外图像用于显示和人工核对；正式运行优先使用 `raw_world_coord` 深度响应，响应图梯度只作为 `theta` 候选方向先验，最终线仍要通过 PR-FPRG 峰值与二维连续 ridge 验证。
-- 旧 `RANSAC + Hough + pre_img` pointAI 识别链路已经归档，不参与当前运行主链。
+- 旧 `RANSAC + Hough + pre_img` pointAI 识别链路已经归档，不参与当前 Surface-DP 扫描主链。
 
 目标版本流水线是：
 
@@ -29,7 +33,7 @@
 
 ![PR-FPRG 总流程](/images/visual/pr-fprg-workflow.png)
 
-这张图对应当前工程链路：
+这张图对应当时的历史链路：
 
 ```text
 /web/pointAI/run_workspace_s2
@@ -41,24 +45,24 @@
 -> /tf pr_fprg_bind_point_*
 ```
 
-## 当前帧最终结果
+## 历史样例帧最终结果
 
-![当前帧 PR-FPRG 最终结果](/images/visual/pr-fprg-result.png)
+![历史样例帧 PR-FPRG 最终结果](/images/visual/pr-fprg-result.png)
 
-这张图由当前相机现场帧重新生成，来源是正式同步的 `/Scepter/worldCoord/raw_world_coord`、`/Scepter/worldCoord/world_coord` 和 `/Scepter/ir/image_raw`，不是旧轴向截图。当前帧识别结果为：
+这张图由当时的相机现场帧重新生成，来源是正式同步的 `/Scepter/worldCoord/raw_world_coord`、`/Scepter/worldCoord/world_coord` 和 `/Scepter/ir/image_raw`，不是旧轴向截图。该样例帧识别结果为：
 
 - 响应来源：`depth_background_minus_filled`
 - 第一组线族角度：`88°`，`rho = [-262, -172, -84]`
 - 第二组线族角度：`178°`，`rho = [-297, -206, -121, -14]`
 - 绑扎点数量：`12`
 
-当前帧里钢筋方向接近 rectified 平面的横/竖方向，所以结果看起来接近水平/垂直；如果钢筋在地面上本身斜摆，`line_angle_deg` 会随钢筋真实方向变化，逆透视回原图后也会沿着钢筋走向画线。
+该样例帧里钢筋方向接近 rectified 平面的横/竖方向，所以结果看起来接近水平/垂直；如果钢筋在地面上本身斜摆，`line_angle_deg` 会随钢筋真实方向变化，逆透视回原图后也会沿着钢筋走向画线。
 
 ## 每一步图像处理
 
-### 1. 同步当前帧与工作区
+### 1. 同步样例帧与工作区
 
-![1. 同步当前帧与工作区](/images/visual/pr-fprg-steps/pr-fprg-step-01_input_workspace.png)
+![1. 同步样例帧与工作区](/images/visual/pr-fprg-steps/pr-fprg-step-01_input_workspace.png)
 
 输入来自 3 个地方：
 
@@ -95,7 +99,7 @@ inverse_h = cv2.getPerspectiveTransform(destination_points, source_points)
 
 ![4. 深度背景差响应图](/images/visual/pr-fprg-steps/pr-fprg-step-04_depth_response.png)
 
-当前主要响应来自深度背景差：
+历史 PR-FPRG 主要响应来自深度背景差：
 
 ```text
 background_depth = GaussianBlur(filled_depth)
@@ -111,7 +115,7 @@ response = normalize(response, valid_mask)
 
 ![6. 第二组 theta/rho profile](/images/visual/pr-fprg-steps/pr-fprg-step-06_horizontal_profile.png)
 
-当前主链会扫描候选钢筋方向 `theta`，把二维响应图沿该方向的法向 `rho` 压缩成一维 profile：
+历史 PR-FPRG 会扫描候选钢筋方向 `theta`，把二维响应图沿该方向的法向 `rho` 压缩成一维 profile：
 
 ```text
 normal(theta) = [-sin(theta), cos(theta)]
@@ -119,7 +123,7 @@ rho = normal_x * x + normal_y * y
 profile_theta[rho] = response 在同一 rho bin 内的平均值
 ```
 
-profile 的峰值表示「这条 `rho` 线整体更像钢筋条」。当前版本还会从响应图梯度里提取方向先验，把真实钢筋方向及其正交方向放进候选池；这不是用 Hough 出点，最终线仍由 PR-FPRG 的峰值和连续 ridge 决定。
+profile 的峰值表示「这条 `rho` 线整体更像钢筋条」。历史版本还会从响应图梯度里提取方向先验，把真实钢筋方向及其正交方向放进候选池；这不是用 Hough 出点，最终线仍由 PR-FPRG 的峰值和连续 ridge 决定。
 
 这样钢筋网只要在 rectified 平面内仍是两组近似平行线，就可以识别；它不要求线条刚好平行于图像 X/Y 轴。但单独看 profile 不够，因为局部杂物也可能把某条 `rho` 线抬成峰值，所以后面还要做二维连续性验证。
 
@@ -165,7 +169,7 @@ line_supported = 支撑段比例 >= min_segment_coverage
 
 真实钢筋条应该在多数段上都有线状响应，并且横截面像一根窄钢筋。只有局部亮块、局部阴影、起子、垫高件或斜穿过交叉点的伪线会在这里被删除。
 
-当前帧中，峰值阶段第一组曾多出一条靠边候选线：
+该样例帧中，峰值阶段第一组曾多出一条靠边候选线：
 
 ```text
 peak_supported.family_0 = [-262, -172, -84, 12]
@@ -178,9 +182,9 @@ continuous.family_0 = [-262.7, -172.0, -83.7]
 
 ![10. 主间距一致性裁剪](/images/visual/pr-fprg-steps/pr-fprg-step-10_spacing_pruned_lines.png)
 
-绿色线是保留线。如果连续验证之后仍有靠边伪线，距离筛选会把不符合主网格间距的线标红删除；当前帧里的靠边伪线已经在上一步删除，所以这里没有额外红线。
+绿色线是保留线。如果连续验证之后仍有靠边伪线，距离筛选会把不符合主网格间距的线标红删除；该样例帧里的靠边伪线已经在上一步删除，所以这里没有额外红线。
 
-当前裁剪逻辑是：
+历史裁剪逻辑是：
 
 ```text
 diffs = 相邻线间距
@@ -219,13 +223,13 @@ image_points = cv2.perspectiveTransform(rectified_intersections, inverse_h)
 camera_xyz = raw_world_coord[pixel_y, pixel_x, :3]
 ```
 
-如果该像素无效，会在小邻域内找最近有效值。当前 pointAI 发布的点保持相机坐标系语义，前端 3D Scene 再通过 TF 投到全局显示层。
+如果该像素无效，会在小邻域内找最近有效值。当时 pointAI 发布的点保持相机坐标系语义，前端 3D Scene 再通过 TF 投到全局显示层。
 
 ## 代码落点
 
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`：运行时主链，负责准备输入、调用算法、发布结果。
 - `src/tie_robot_perception/src/tie_robot_perception/perception/workspace_s2.py`：方向线族估计、周期估计、峰值筛选、连续线验证、间距裁剪和线族求交。
-- `src/tie_robot_perception/tools/pr_fprg_peak_supported_probe.py`：独立探针，可抓取当前帧并导出本页使用的逐步图像。
+- `src/tie_robot_perception/tools/pr_fprg_peak_supported_probe.py`：独立探针，可抓取样例帧并导出本页使用的逐步图像。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/rendering.py`：把最终线和点渲染到结果图。
 
 ## 独立复现命令

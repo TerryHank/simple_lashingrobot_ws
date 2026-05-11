@@ -487,6 +487,51 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["completed_physical_source"], "depth_response")
         self.assertEqual(result["line_counts"], [16, 16])
 
+    def test_surface_dp_all_selected_response_sources_can_produce_scan_points_once(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 156
+        height = 158
+        vertical_lines = [18.0 + (28.0 * index) for index in range(5)]
+        horizontal_lines = [19.0 + (28.0 * index) for index in range(5)]
+        ridge_signal = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(ridge_signal, "x", vertical_lines, amplitude=1.0)
+        _draw_axis_line(ridge_signal, "y", horizontal_lines, amplitude=0.04)
+        ridge_signal = np.clip(ridge_signal, 0.0, 1.0).astype(np.float32)
+        valid_mask = np.ones((height, width), dtype=bool)
+        rectified_depth = (1000.0 - (34.0 * ridge_signal)).astype(np.float32)
+        rectified_ir = (185.0 - (90.0 * ridge_signal)).astype(np.float32)
+        frame = {
+            "rectified_depth": rectified_depth,
+            "filled_depth": rectified_depth.copy(),
+            "rectified_ir": rectified_ir,
+            "rectified_valid": valid_mask,
+            "response": ridge_signal,
+            "response_source": "synthetic",
+            "rectified_geometry": {
+                "rectified_width": width,
+                "rectified_height": height,
+                "inverse_h": np.eye(3, dtype=np.float32),
+                "resolution_mm_per_px": 5.0,
+            },
+        }
+
+        for response_source in scan_surface_dp.SCAN_RESPONSE_SOURCE_IDS:
+            with self.subTest(response_source=response_source):
+                result = scan_surface_dp.build_scan_surface_dp_result(
+                    frame,
+                    threshold_percentile=78.0,
+                    response_source=response_source,
+                )
+
+                self.assertTrue(result["success"], result.get("message"))
+                self.assertEqual(
+                    result["diagnostics"]["scan_runtime_response_source"],
+                    response_source,
+                )
+                self.assertGreaterEqual(min(result["line_counts"]), 5)
+                self.assertGreaterEqual(len(result["rectified_intersections"]), 25)
+
     def test_surface_dp_invalid_response_source_falls_back_to_depth_gradient(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
@@ -694,6 +739,149 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(families, [])
         self.assertIsNone(source)
 
+    def test_surface_dp_accepts_visible_grid_when_one_axis_loses_some_lines(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(11)]
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=width,
+                height=height,
+                vertical_lines=vertical_lines,
+                horizontal_lines=horizontal_lines,
+            ),
+            threshold_percentile=78.0,
+            response_source="frangi_like",
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [11, 16])
+        self.assertEqual(len(result["rectified_intersections"]), 176)
+        self.assertGreaterEqual(
+            result["diagnostics"]["physical_lattice_count_aspect_tolerance"],
+            result["diagnostics"]["physical_lattice_count_aspect_error"],
+        )
+
+    def test_surface_dp_accepts_grid_when_visible_axes_drop_to_ten_and_sixteen(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(10)]
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=width,
+                height=height,
+                vertical_lines=vertical_lines,
+                horizontal_lines=horizontal_lines,
+            ),
+            threshold_percentile=78.0,
+            response_source="hessian_ridge",
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [10, 16])
+        self.assertEqual(len(result["rectified_intersections"]), 160)
+
+    def test_surface_dp_accepts_grid_when_visible_axes_drop_to_nine_and_sixteen(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(9)]
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=width,
+                height=height,
+                vertical_lines=vertical_lines,
+                horizontal_lines=horizontal_lines,
+            ),
+            threshold_percentile=78.0,
+            response_source="frangi_like",
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [9, 16])
+        self.assertEqual(len(result["rectified_intersections"]), 144)
+
+    def test_surface_dp_backfills_faint_physical_lattice_lines_before_accepting_local_grid(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(16)]
+        ridge_signal = np.zeros((height, width), dtype=np.float32)
+        _draw_axis_line(ridge_signal, "x", vertical_lines, amplitude=1.0)
+        _draw_axis_line(ridge_signal, "y", horizontal_lines[:7], amplitude=0.10)
+        _draw_axis_line(ridge_signal, "y", horizontal_lines[7:], amplitude=1.0)
+        ridge_signal = np.clip(ridge_signal, 0.0, 1.0).astype(np.float32)
+
+        valid_mask = np.ones((height, width), dtype=bool)
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            {
+                "rectified_depth": (1000.0 - (34.0 * ridge_signal)).astype(np.float32),
+                "filled_depth": (1000.0 - (34.0 * ridge_signal)).astype(np.float32),
+                "rectified_ir": (185.0 - (90.0 * ridge_signal)).astype(np.float32),
+                "rectified_valid": valid_mask,
+                "response": ridge_signal,
+                "response_source": "synthetic",
+                "rectified_geometry": {
+                    "rectified_width": width,
+                    "rectified_height": height,
+                    "inverse_h": np.eye(3, dtype=np.float32),
+                    "resolution_mm_per_px": 5.0,
+                },
+            },
+            threshold_percentile=78.0,
+            response_source="frangi_like",
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [16, 16])
+        self.assertEqual(len(result["rectified_intersections"]), 256)
+        self.assertLessEqual(max(abs(a - b) for a, b in zip(result["horizontal_lines"], horizontal_lines)), 3.0)
+
+    def test_surface_dp_count_aspect_tolerance_only_depends_on_workspace_aspect(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        valid_mask = np.ones((height, width), dtype=bool)
+        shared_geometry = {
+            "rectified_width": width,
+            "rectified_height": height,
+            "inverse_h": np.eye(3, dtype=np.float32),
+            "resolution_mm_per_px": 5.0,
+        }
+        families_a = [
+            {"line_rhos": [float(i) for i in range(11)], "physical_prior": {"mean_support": 1.0}},
+            {"line_rhos": [float(i) for i in range(16)], "physical_prior": {"mean_support": 1.0}},
+        ]
+        families_b = [
+            {"line_rhos": [float(i) for i in range(10)], "physical_prior": {"mean_support": 1.0}},
+            {"line_rhos": [float(i) for i in range(16)], "physical_prior": {"mean_support": 1.0}},
+        ]
+        tolerance_a = scan_surface_dp._physical_lattice_score_metadata(
+            families_a,
+            valid_mask=valid_mask,
+            rectified_geometry=shared_geometry,
+        )["count_aspect_tolerance"]
+        tolerance_b = scan_surface_dp._physical_lattice_score_metadata(
+            families_b,
+            valid_mask=valid_mask,
+            rectified_geometry=shared_geometry,
+        )["count_aspect_tolerance"]
+        self.assertEqual(
+            tolerance_a,
+            tolerance_b,
+        )
+
     def test_surface_dp_accepts_rectangular_grid_by_physical_aspect(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
@@ -718,13 +906,13 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
             0.20,
         )
 
-    def test_surface_dp_physical_lattice_keeps_faint_regular_lines_for_live_tuning(self):
+    def test_surface_dp_physical_lattice_keeps_very_faint_regular_lines_for_live_tuning(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         profile = np.zeros(180, dtype=np.float32)
         faint_regular_lines = [24, 52, 80, 108, 136]
         for position in faint_regular_lines:
-            profile[position] = 0.08
+            profile[position] = 0.02
         profile[168] = 1.0
 
         positions, _metadata = scan_surface_dp._select_physical_lattice_positions(
@@ -736,6 +924,71 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         )
 
         self.assertEqual(positions, [float(position) for position in faint_regular_lines + [168]])
+
+    def test_surface_dp_insufficient_line_family_reports_selected_source_and_counts(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 156
+        height = 158
+        response = np.zeros((height, width), dtype=np.float32)
+        valid_mask = np.ones((height, width), dtype=bool)
+        rectified_depth = (1000.0 - (34.0 * response)).astype(np.float32)
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            {
+                "rectified_depth": rectified_depth,
+                "filled_depth": rectified_depth.copy(),
+                "rectified_ir": (185.0 - (90.0 * response)).astype(np.float32),
+                "rectified_valid": valid_mask,
+                "response": response,
+                "response_source": "synthetic",
+                "rectified_geometry": {
+                    "rectified_width": width,
+                    "rectified_height": height,
+                    "inverse_h": np.eye(3, dtype=np.float32),
+                    "resolution_mm_per_px": 5.0,
+                },
+            },
+            threshold_percentile=78.0,
+            response_source="hessian_ridge",
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("hessian_ridge", result["message"])
+        self.assertIn("线族计数", result["message"])
+        self.assertEqual(
+            result["diagnostics"]["scan_runtime_response_source"],
+            "hessian_ridge",
+        )
+        self.assertEqual(
+            result["diagnostics"]["physical_lattice_last_line_counts"],
+            [],
+        )
+
+    def test_surface_dp_failure_message_reports_count_aspect_mismatch_in_chinese(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(16)]
+        sparse_horizontal_lines = [48.0, 76.0]
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=width,
+                height=height,
+                vertical_lines=vertical_lines,
+                horizontal_lines=sparse_horizontal_lines,
+            ),
+            threshold_percentile=78.0,
+            response_source="frangi_like",
+        )
+
+        self.assertFalse(result["success"])
+        self.assertIn("横纵线族比例与画幅宽高不匹配", result["message"])
+        self.assertIn("原因=", result["message"])
+        self.assertEqual(
+            result["diagnostics"]["physical_lattice_last_reject_reason"],
+            "count_aspect_mismatch",
+        )
 
     def test_surface_dp_skips_unbalanced_first_candidate_and_uses_balanced_later_candidate(self):
         from tie_robot_perception.pointai import scan_surface_dp
@@ -1043,8 +1296,8 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result["rectified_intersections"]), 256)
         self.assertEqual(result["diagnostics"]["beam_exclusion_enabled"], True)
         self.assertEqual(result["diagnostics"]["beam_exclusion_margin_mm"], 150.0)
-        self.assertEqual(result["diagnostics"]["beam_candidate_15cm_pixels"], 0)
-        beam_margin_mask = np.asarray(result["beam_candidate_15cm_mask"], dtype=bool)
+        self.assertEqual(result["diagnostics"]["beam_candidate_margin_pixels"], 0)
+        beam_margin_mask = np.asarray(result["beam_candidate_margin_mask"], dtype=bool)
         final_points_inside_beam_mask = 0
         for point in result.get("rectified_intersections", []):
             x_index = int(round(float(point[0])))
@@ -1067,7 +1320,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         )
 
         self.assertTrue(result["success"], result.get("message"))
-        beam_margin_mask = np.asarray(result["beam_candidate_15cm_mask"], dtype=bool)
+        beam_margin_mask = np.asarray(result["beam_candidate_margin_mask"], dtype=bool)
         traced_points_inside_beam_mask = 0
         traced_points_sampled = 0
         for family in result.get("curved_families", []):
@@ -1085,6 +1338,79 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertGreater(traced_points_sampled, 0)
         self.assertEqual(traced_points_inside_beam_mask, 0)
+
+    def test_surface_dp_beam_exclusion_removes_entire_column_when_one_point_is_masked(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        rectified_points = [
+            (10.0, 10.0),
+            (10.0, 30.0),
+            (10.0, 50.0),
+            (30.0, 10.0),
+            (30.0, 30.0),
+            (30.0, 50.0),
+            (50.0, 10.0),
+            (50.0, 30.0),
+            (50.0, 50.0),
+        ]
+        beam_margin_mask = np.zeros((64, 64), dtype=bool)
+        beam_margin_mask[9:12, 29:32] = True
+        vertical_lines = [10.0, 30.0, 50.0]
+
+        filtered_points, removed_columns = scan_surface_dp._filter_beam_excluded_intersection_columns(
+            rectified_points,
+            beam_margin_mask,
+            vertical_lines,
+        )
+
+        self.assertEqual(removed_columns, 1)
+        self.assertEqual(
+            filtered_points,
+            [
+                (10.0, 10.0),
+                (10.0, 30.0),
+                (10.0, 50.0),
+                (50.0, 10.0),
+                (50.0, 30.0),
+                (50.0, 50.0),
+            ],
+        )
+
+    def test_surface_dp_beam_exclusion_removes_column_when_expected_grid_point_is_masked(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        rectified_points = [
+            (10.0, 10.0),
+            (10.0, 30.0),
+            (10.0, 50.0),
+            (30.0, 30.0),
+            (30.0, 50.0),
+            (50.0, 10.0),
+            (50.0, 30.0),
+            (50.0, 50.0),
+        ]
+        beam_margin_mask = np.zeros((64, 64), dtype=bool)
+        beam_margin_mask[9:12, 29:32] = True
+
+        filtered_points, removed_columns = scan_surface_dp._filter_beam_excluded_intersection_columns(
+            rectified_points,
+            beam_margin_mask,
+            vertical_lines=[10.0, 30.0, 50.0],
+            horizontal_lines=[10.0, 30.0, 50.0],
+        )
+
+        self.assertEqual(removed_columns, 1)
+        self.assertEqual(
+            filtered_points,
+            [
+                (10.0, 10.0),
+                (10.0, 30.0),
+                (10.0, 50.0),
+                (50.0, 10.0),
+                (50.0, 30.0),
+                (50.0, 50.0),
+            ],
+        )
 
     def test_surface_dp_debug_base_images_overlay_rectified_intersections(self):
         publish_source = _function_source(MANUAL_WORKSPACE_S2_PATH, "publish_scan_surface_dp_base_images")

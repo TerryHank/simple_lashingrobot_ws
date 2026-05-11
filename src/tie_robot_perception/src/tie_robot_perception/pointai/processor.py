@@ -16,7 +16,9 @@ def bind_image_processor_methods(cls):
     cls.fixed_z_value_callback = runtime_config.fixed_z_value_callback
     cls.set_stable_frame_count_callback = runtime_config.set_stable_frame_count_callback
     cls.set_scan_beam_exclusion_callback = runtime_config.set_scan_beam_exclusion_callback
+    cls.set_scan_beam_exclusion_margin_callback = runtime_config.set_scan_beam_exclusion_margin_callback
     cls.set_scan_response_source_callback = runtime_config.set_scan_response_source_callback
+    cls.set_scan_linear_compensation_callback = runtime_config.set_scan_linear_compensation_callback
     cls.set_execution_refine_tcp_roi_bounds = runtime_config.set_execution_refine_tcp_roi_bounds
     cls.set_execution_refine_tcp_roi_callback = runtime_config.set_execution_refine_tcp_roi_callback
     cls.linear_module_state_callback = runtime_config.linear_module_state_callback

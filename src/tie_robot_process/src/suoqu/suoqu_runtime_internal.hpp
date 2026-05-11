@@ -107,6 +107,7 @@ struct LiveVisualCheckerboardGrid
 
 struct BindExecutionPointRecord
 {
+    int recognition_pose_index = 1;
     int global_row = -1;
     int global_col = -1;
     int checkerboard_parity = -1;
@@ -447,6 +448,7 @@ bool invalidate_current_scan_artifacts_after_execution_memory_write_failure(
 );
 bool is_point_already_executed(
     const BindExecutionMemory& memory,
+    int recognition_pose_index,
     int global_row,
     int global_col
 );
@@ -469,6 +471,7 @@ bool write_pseudo_slam_points_json(
     const std::unordered_set<int>& outlier_column_neighbor_blocked_global_indices,
     const std::string& scan_session_id,
     const std::string& path_signature,
+    int recognition_pose_index,
     std::string* error_message
 );
 bool write_pseudo_slam_bind_path_json(
@@ -479,6 +482,8 @@ bool write_pseudo_slam_bind_path_json(
     float cabin_speed,
     const std::string& scan_session_id,
     const std::string& path_signature,
+    int recognition_pose_index,
+    BindExecutionPathOriginPose* merged_path_origin_out,
     std::string* error_message
 );
 
@@ -504,7 +509,8 @@ bool run_pseudo_slam_scan(
     std::string& message,
     int requested_bind_group_point_count = 4,
     float requested_bind_execution_cabin_min_z_mm = kBindExecutionCabinMinZMm,
-    const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override = PseudoSlamFixedScanPoseOverride{}
+    const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override = PseudoSlamFixedScanPoseOverride{},
+    int recognition_pose_index = 1
 );
 bool run_current_area_bind_from_scan_test(std::string& message);
 bool run_bind_path_direct_test(std::string& message);

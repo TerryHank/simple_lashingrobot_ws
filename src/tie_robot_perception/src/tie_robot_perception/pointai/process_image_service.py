@@ -153,18 +153,18 @@ def get_request_mode_name(self, request_mode):
 
 def build_process_image_timing_message(self, request_mode, response, elapsed_sec, single_frame_elapsed_ms=None):
     single_frame_part = (
-        f"single_frame_elapsed_ms={float(single_frame_elapsed_ms):.1f}, "
+        f"单帧耗时={float(single_frame_elapsed_ms):.1f}ms，"
         if single_frame_elapsed_ms is not None
         else ""
     )
     return (
-        "pointAI process_image response: "
-        f"mode={self.get_request_mode_name(request_mode)}, "
-        f"success={getattr(response, 'success', False)}, "
-        f"count={getattr(response, 'count', 0)}, "
+        "pointAI视觉服务响应："
+        f"模式={self.get_request_mode_name(request_mode)}，"
+        f"成功={getattr(response, 'success', False)}，"
+        f"点数={getattr(response, 'count', 0)}，"
         f"{single_frame_part}"
-        f"elapsed_ms={elapsed_sec * 1000.0:.1f}, "
-        f"message={getattr(response, 'message', '')}"
+        f"总耗时={elapsed_sec * 1000.0:.1f}ms，"
+        f"消息={getattr(response, 'message', '')}"
     )
 
 
@@ -375,11 +375,11 @@ def wait_for_stable_point_coords(self, request_mode):
     while not rospy.is_shutdown():
         if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
             if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-                message = "pointAI process_image timed out while waiting for execution refine plane-segmentation + Hough vision"
+                message = "pointAI视觉服务等待执行微调平面分割+Hough超时"
             elif request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-                message = "pointAI process_image timed out while waiting for Surface-DP physical-prior scan vision"
+                message = "pointAI视觉服务等待Surface-DP物理先验扫描超时"
             else:
-                message = "pointAI process_image timed out while waiting for Surface-DP main vision"
+                message = "pointAI视觉服务等待Surface-DP主视觉超时"
             rospy.logwarn(message)
             return {
                 "success": False,
@@ -391,7 +391,7 @@ def wait_for_stable_point_coords(self, request_mode):
             }
 
         if self.image is None or not hasattr(self, "image_raw_world") or self.image_raw_world is None:
-            rospy.logwarn_throttle(2.0, "pointAI waiting for image and raw world coordinate frames")
+            rospy.logwarn_throttle(2.0, "pointAI等待图像帧和原始世界坐标帧")
             rate.sleep()
             continue
 
@@ -420,7 +420,7 @@ def wait_for_stable_point_coords(self, request_mode):
                     rospy.logwarn(
                         "%s；最近视觉消息：%s",
                         message,
-                        execution_refine_result.get("message", "unknown error"),
+                        execution_refine_result.get("message", "未知错误"),
                     )
                     return {
                         "success": False,
@@ -434,7 +434,7 @@ def wait_for_stable_point_coords(self, request_mode):
                 rospy.logwarn_throttle(
                     2.0,
                     "pointAI等待执行微调平面分割+Hough有效点: %s（无点等待%.1fs/%.1fs）",
-                    execution_refine_result.get("message", "unknown error"),
+                    execution_refine_result.get("message", "未知错误"),
                     no_points_elapsed_sec,
                     no_points_timeout_sec,
                 )
@@ -482,7 +482,7 @@ def wait_for_stable_point_coords(self, request_mode):
             stable_snapshots = []
             latest_point_coords = None
             if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
-                message = main_visual_result.get("message", "unknown error")
+                message = main_visual_result.get("message", "未知错误")
                 rospy.logwarn("pointAI扫描当前帧未返回有效点: %s", message)
                 return {
                     "success": False,
@@ -498,7 +498,7 @@ def wait_for_stable_point_coords(self, request_mode):
                 (
                     "pointAI等待Surface-DP主视觉有效点: %s"
                 ),
-                main_visual_result.get("message", "unknown error"),
+                main_visual_result.get("message", "未知错误"),
             )
             rate.sleep()
             continue
@@ -559,7 +559,7 @@ def wait_for_stable_point_coords(self, request_mode):
         else:
             rospy.loginfo_throttle(
                 2.0,
-                "pointAI waiting for stable Z: %d/%d frames within +/-%.1f mm",
+                "pointAI等待Z轴稳定: %d/%d帧，容差在+-%.1fmm内",
                 len(stable_snapshots),
                 mode_frame_count,
                 mode_tolerance_mm
@@ -568,7 +568,7 @@ def wait_for_stable_point_coords(self, request_mode):
 
     return {
         "success": False,
-        "message": "pointAI process_image interrupted before stable result was available",
+        "message": "pointAI视觉服务在获得稳定结果前被中断",
         "point_coords": latest_point_coords if self.has_detected_points(latest_point_coords) else None,
         "out_of_height_count": 0,
         "out_of_height_point_indices": [],
@@ -621,11 +621,11 @@ def handle_process_image(self, req):
         return response
 
     except Exception as e:
-        rospy.logerr(f"Error in handle_process_image: {str(e)}")
-        self.mark_visual_error(f"Error in handle_process_image: {str(e)}")
+        rospy.logerr(f"处理pointAI视觉服务请求异常: {str(e)}")
+        self.mark_visual_error(f"处理pointAI视觉服务请求异常: {str(e)}")
         response = self.build_process_image_response(
             success=False,
-            message=f"Error in handle_process_image: {str(e)}",
+            message=f"处理pointAI视觉服务请求异常: {str(e)}",
         )
         self.log_process_image_timing(request_mode, response, time.perf_counter() - start_time)
         return response

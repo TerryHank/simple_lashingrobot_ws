@@ -522,9 +522,9 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         ),
     }
     rospy.loginfo(
-        "execution_refine_hough: lines=%d intersections=%d centers=%d "
-        "world_fallback=%d zero_world=%d candidate_points=%d "
-        "in_range_candidates=%d out_of_range_points=%d output_points=%d",
+        "执行微调Hough统计：线段=%d，交点=%d，中心=%d，"
+        "世界坐标兜底=%d，零世界坐标=%d，候选点=%d，"
+        "范围内候选=%d，范围外点=%d，输出点=%d",
         self.last_detection_debug["lines"],
         self.last_detection_debug["intersections"],
         self.last_detection_debug["centers"],

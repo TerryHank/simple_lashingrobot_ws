@@ -47,20 +47,13 @@ ROSLIB.Goal = class {
   }
 };
 
-const submitTask = CONTROL_PANEL_TASKS.find((task) => task.id === "submitQuad");
-const runSavedS2Task = CONTROL_PANEL_TASKS.find((task) => task.id === "runSavedS2");
 const executionVisionOnlyTask = CONTROL_PANEL_TASKS.find((task) => task.id === "executionVisionOnly");
 const startExecutionTask = CONTROL_PANEL_TASKS.find((task) => task.id === "startExecution");
 const taskIds = CONTROL_PANEL_TASKS.map((task) => task.id);
-assert.equal(submitTask?.label, "确认\n工作区域");
-assert.equal(runSavedS2Task?.label, "触发扫描\n视觉");
 assert.equal(executionVisionOnlyTask?.label, "单点视觉\n测试");
 assert.equal(startExecutionTask?.label, "执行全局\n绑扎");
 assert.deepEqual(CONTROL_PANEL_TASK_SECTIONS.map((section) => section.title), ["扫描区", "执行层", "区域切换"]);
 assert.deepEqual(taskIds, [
-  "moveToPosition",
-  "setRecognitionPose",
-  "submitQuad",
   "runSavedS2",
   "startExecution",
   "triggerSingleBind",
@@ -156,6 +149,7 @@ assert.equal(actionGoals.at(-1)?.actionClient, scanActionClient);
 assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   enable_capture_gate: false,
   scan_strategy: 3,
+  recognition_pose_index: 1,
   bind_group_point_count: 0,
   bind_execution_cabin_min_z_mm: 420,
 });

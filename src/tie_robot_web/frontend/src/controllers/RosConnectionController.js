@@ -104,7 +104,9 @@ export class RosConnectionController {
       this.resources.moduanSpeedPublisher.advertise();
       this.resources.stableFrameCountPublisher.advertise();
       this.resources.scanBeamExclusionPublisher.advertise();
+      this.resources.scanBeamExclusionMarginPublisher.advertise();
       this.resources.scanResponseSourcePublisher.advertise();
+      this.resources.scanLinearCompensationPublisher.advertise();
       this.resources.executionRefineTcpRoiPublisher.advertise();
       this.resources.linearModuleInterruptStopPublisher.advertise();
       this.bindSubscriptions();
@@ -235,10 +237,20 @@ export class RosConnectionController {
         name: TOPICS.algorithm.setScanBeamExclusion,
         messageType: MESSAGE_TYPES.bool,
       }),
+      scanBeamExclusionMarginPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setScanBeamExclusionMargin,
+        messageType: MESSAGE_TYPES.float32,
+      }),
       scanResponseSourcePublisher: new ROSLIB.Topic({
         ros,
         name: TOPICS.algorithm.setScanResponseSource,
         messageType: MESSAGE_TYPES.string,
+      }),
+      scanLinearCompensationPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setScanLinearCompensation,
+        messageType: MESSAGE_TYPES.float32MultiArray,
       }),
       executionRefineTcpRoiPublisher: new ROSLIB.Topic({
         ros,
@@ -778,7 +790,21 @@ export class RosConnectionController {
     return {
       success: true,
       enabled: enabledValue,
-      message: `扫描梁筋 ±13 cm 过滤已${enabledValue ? "启用" : "关闭"}。`,
+      message: `扫描梁筋过滤已${enabledValue ? "启用" : "关闭"}。`,
+    };
+  }
+
+  publishScanBeamExclusionMargin(marginMm) {
+    if (!this.ros?.isConnected || !this.resources?.scanBeamExclusionMarginPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置梁筋过滤半径。" };
+    }
+    const numericMargin = Number(marginMm);
+    const sanitizedMargin = Number.isFinite(numericMargin) && numericMargin > 0 ? numericMargin : 150;
+    this.resources.scanBeamExclusionMarginPublisher.publish(new ROSLIB.Message({ data: sanitizedMargin }));
+    return {
+      success: true,
+      marginMm: sanitizedMargin,
+      message: `扫描梁筋过滤半径已设置为 ${sanitizedMargin} mm。`,
     };
   }
 
@@ -792,6 +818,42 @@ export class RosConnectionController {
       success: true,
       source: normalizedSource,
       message: `扫描底图已切换为 ${normalizedSource}。`,
+    };
+  }
+
+  publishScanLinearCompensation(settings = {}) {
+    if (!this.ros?.isConnected || !this.resources?.scanLinearCompensationPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置扫描线性补偿。" };
+    }
+    const enabled = Boolean(settings?.enabled);
+    const referenceZMm = Number.isFinite(Number(settings?.referenceZMm)) ? Number(settings.referenceZMm) : 1000;
+    const xPercentPerMeter = Number.isFinite(Number(settings?.xPercentPerMeter)) ? Number(settings.xPercentPerMeter) : 0;
+    const yPercentPerMeter = Number.isFinite(Number(settings?.yPercentPerMeter)) ? Number(settings.yPercentPerMeter) : 0;
+    const minZMm = Number.isFinite(Number(settings?.minZMm)) ? Number(settings.minZMm) : 1200;
+    const maxScaleDelta = Number.isFinite(Number(settings?.maxScaleDelta)) && Number(settings.maxScaleDelta) >= 0
+      ? Number(settings.maxScaleDelta)
+      : 0.25;
+    const data = [
+      enabled ? 1 : 0,
+      referenceZMm,
+      xPercentPerMeter / 100000,
+      yPercentPerMeter / 100000,
+      minZMm,
+      maxScaleDelta,
+    ];
+    this.resources.scanLinearCompensationPublisher.publish(new ROSLIB.Message({ data }));
+    return {
+      success: true,
+      settings: {
+        enabled,
+        referenceZMm,
+        xPercentPerMeter,
+        yPercentPerMeter,
+        minZMm,
+        maxScaleDelta,
+      },
+      data,
+      message: `扫描线性补偿已${enabled ? "启用" : "关闭"}。`,
     };
   }
 

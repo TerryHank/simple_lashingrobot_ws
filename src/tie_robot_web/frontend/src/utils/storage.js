@@ -29,6 +29,16 @@ export const VISUAL_DEBUG_SETTINGS_KEY = "tie_robot_frontend_visual_debug_settin
 export const CAMERA_SDK_SETTINGS_KEY = "tie_robot_frontend_camera_sdk_settings";
 export const TOPIC_LAYER_STATE_KEY = "tie_robot_frontend_topic_layer_state";
 export const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
+export const DEFAULT_SCAN_BEAM_EXCLUSION_MARGIN_MM = 150;
+export const DEFAULT_SCAN_LINEAR_COMPENSATION = Object.freeze({
+  enabled: false,
+  referenceZMm: 1000,
+  xPercentPerMeter: 0,
+  yPercentPerMeter: 0,
+  minZMm: 1200,
+  maxScaleDelta: 0.25,
+});
+const DEFAULT_RECOGNITION_POSE_ID = "pose-1";
 
 function normalizePositiveNumber(value, fallback) {
   const numericValue = Number(value);
@@ -38,6 +48,37 @@ function normalizePositiveNumber(value, fallback) {
 function normalizeNonNegativeNumber(value, fallback) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : fallback;
+}
+
+function normalizeFiniteNumber(value, fallback) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+}
+
+function normalizeScanLinearCompensation(value = null) {
+  return {
+    enabled: normalizeBoolean(value?.enabled, DEFAULT_SCAN_LINEAR_COMPENSATION.enabled),
+    referenceZMm: normalizePositiveNumber(
+      value?.referenceZMm,
+      DEFAULT_SCAN_LINEAR_COMPENSATION.referenceZMm,
+    ),
+    xPercentPerMeter: normalizeFiniteNumber(
+      value?.xPercentPerMeter,
+      DEFAULT_SCAN_LINEAR_COMPENSATION.xPercentPerMeter,
+    ),
+    yPercentPerMeter: normalizeFiniteNumber(
+      value?.yPercentPerMeter,
+      DEFAULT_SCAN_LINEAR_COMPENSATION.yPercentPerMeter,
+    ),
+    minZMm: normalizeNonNegativeNumber(
+      value?.minZMm,
+      DEFAULT_SCAN_LINEAR_COMPENSATION.minZMm,
+    ),
+    maxScaleDelta: normalizeNonNegativeNumber(
+      value?.maxScaleDelta,
+      DEFAULT_SCAN_LINEAR_COMPENSATION.maxScaleDelta,
+    ),
+  };
 }
 
 function normalizeGlobalExecutionMode(value, fallback = DEFAULT_GLOBAL_EXECUTION_MODE) {
@@ -58,6 +99,60 @@ function normalizeCabinPose(value, fallback = null) {
     return pose;
   }
   return fallback ? normalizeCabinPose(fallback, null) : null;
+}
+
+function normalizeRecognitionPoseItem(value, index = 0, fallbackPose = null) {
+  const pose = normalizeCabinPose(value, fallbackPose);
+  if (!pose) {
+    return null;
+  }
+  const fallbackId = `pose-${index + 1}`;
+  const id = typeof value?.id === "string" && value.id.trim()
+    ? value.id.trim()
+    : fallbackId;
+  const label = typeof value?.label === "string" && value.label.trim()
+    ? value.label.trim()
+    : `识别位姿 ${index + 1}`;
+  return { id, label, ...pose };
+}
+
+function normalizeRecognitionPoseLibrary(value, defaultPose = null) {
+  const sourcePoses = Array.isArray(value?.poses)
+    ? value.poses
+    : [value].filter(Boolean);
+  const poses = [];
+  const usedIds = new Set();
+
+  sourcePoses.forEach((sourcePose, index) => {
+    const normalized = normalizeRecognitionPoseItem(sourcePose, index);
+    if (!normalized) {
+      return;
+    }
+    let id = normalized.id;
+    if (usedIds.has(id)) {
+      id = `pose-${poses.length + 1}`;
+    }
+    usedIds.add(id);
+    poses.push({ ...normalized, id });
+  });
+
+  if (!poses.length) {
+    const fallbackPose = normalizeCabinPose(defaultPose);
+    const fallbackItem = normalizeRecognitionPoseItem({
+      id: DEFAULT_RECOGNITION_POSE_ID,
+      label: "识别位姿 1",
+      ...fallbackPose,
+    });
+    if (fallbackItem) {
+      poses.push(fallbackItem);
+    }
+  }
+
+  const selectedId = poses.some((pose) => pose.id === value?.selectedId)
+    ? value.selectedId
+    : poses[0]?.id || DEFAULT_RECOGNITION_POSE_ID;
+
+  return { selectedId, poses };
 }
 
 function normalizeBoolean(value, fallback) {
@@ -310,20 +405,38 @@ export function saveNetworkPingSettings(value) {
 }
 
 export function loadRecognitionPose(defaultPose = null) {
-  try {
-    const raw = localStorage.getItem(RECOGNITION_POSE_KEY);
-    if (!raw) {
-      return normalizeCabinPose(defaultPose);
-    }
-    return normalizeCabinPose(JSON.parse(raw), defaultPose);
-  } catch {
-    return normalizeCabinPose(defaultPose);
-  }
+  const library = loadRecognitionPoseLibrary(defaultPose);
+  const selectedPose = library.poses.find((pose) => pose.id === library.selectedId) || library.poses[0];
+  return normalizeCabinPose(selectedPose, defaultPose);
 }
 
 export function saveRecognitionPose(value) {
-  const payload = normalizeCabinPose(value);
-  if (!payload) {
+  const pose = normalizeRecognitionPoseItem({
+    id: DEFAULT_RECOGNITION_POSE_ID,
+    label: "识别位姿 1",
+    ...value,
+  });
+  if (!pose) {
+    return;
+  }
+  saveRecognitionPoseLibrary({ selectedId: pose.id, poses: [pose] });
+}
+
+export function loadRecognitionPoseLibrary(defaultPose = null) {
+  try {
+    const raw = localStorage.getItem(RECOGNITION_POSE_KEY);
+    if (!raw) {
+      return normalizeRecognitionPoseLibrary(null, defaultPose);
+    }
+    return normalizeRecognitionPoseLibrary(JSON.parse(raw), defaultPose);
+  } catch {
+    return normalizeRecognitionPoseLibrary(null, defaultPose);
+  }
+}
+
+export function saveRecognitionPoseLibrary(value) {
+  const payload = normalizeRecognitionPoseLibrary(value);
+  if (!payload.poses.length) {
     return;
   }
   try {
@@ -341,6 +454,8 @@ export function loadVisualDebugSettings() {
     scanResponseSource: DEFAULT_SCAN_RESPONSE_SOURCE,
     adaptiveBindGrouping: false,
     enableBeamExclusion: false,
+    beamExclusionMarginMm: DEFAULT_SCAN_BEAM_EXCLUSION_MARGIN_MM,
+    scanLinearCompensation: normalizeScanLinearCompensation(),
     bindExecutionCabinMinZMm: DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,
     linearModuleBindRangeMm: normalizeTcpWorkspaceBoundaryMm(),
   };
@@ -357,6 +472,11 @@ export function loadVisualDebugSettings() {
       scanResponseSource: normalizeScanResponseSource(parsed?.scanResponseSource, defaults.scanResponseSource),
       adaptiveBindGrouping: normalizeBoolean(parsed?.adaptiveBindGrouping, defaults.adaptiveBindGrouping),
       enableBeamExclusion: normalizeBoolean(parsed?.enableBeamExclusion, defaults.enableBeamExclusion),
+      beamExclusionMarginMm: normalizePositiveNumber(
+        parsed?.beamExclusionMarginMm,
+        defaults.beamExclusionMarginMm,
+      ),
+      scanLinearCompensation: normalizeScanLinearCompensation(parsed?.scanLinearCompensation),
       bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
         parsed?.bindExecutionCabinMinZMm,
         defaults.bindExecutionCabinMinZMm,
@@ -376,6 +496,11 @@ export function saveVisualDebugSettings(value) {
     scanResponseSource: normalizeScanResponseSource(value?.scanResponseSource, DEFAULT_SCAN_RESPONSE_SOURCE),
     adaptiveBindGrouping: normalizeBoolean(value?.adaptiveBindGrouping, false),
     enableBeamExclusion: normalizeBoolean(value?.enableBeamExclusion, false),
+    beamExclusionMarginMm: normalizePositiveNumber(
+      value?.beamExclusionMarginMm,
+      DEFAULT_SCAN_BEAM_EXCLUSION_MARGIN_MM,
+    ),
+    scanLinearCompensation: normalizeScanLinearCompensation(value?.scanLinearCompensation),
     bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
       value?.bindExecutionCabinMinZMm,
       DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,

@@ -276,7 +276,8 @@ nlohmann::json filter_precomputed_group_points_for_execution(
 
         const int global_row = point_json.value("global_row", -1);
         const int global_col = point_json.value("global_col", -1);
-        if (is_point_already_executed(memory, global_row, global_col)) {
+        const int recognition_pose_index = point_json.value("recognition_pose_index", 1);
+        if (is_point_already_executed(memory, recognition_pose_index, global_row, global_col)) {
             continue;
         }
         if (global_row >= 0 && global_col >= 0) {

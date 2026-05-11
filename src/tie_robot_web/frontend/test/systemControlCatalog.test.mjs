@@ -17,8 +17,10 @@ function actionSteps(actionId) {
   return action.steps || [];
 }
 
-assert.match(uiControllerText, /chassis: level === "success" \? "stopCabinSubsystem" : "startCabinSubsystem"/);
-assert.match(uiControllerText, /chassis: level === "success" \? "关闭" : "启动"/);
+assert.match(uiControllerText, /chassis: level === "success" \? "stopCabinSubsystem" : level === "error" \? "restartCabinSubsystem" : "startCabinSubsystem"/);
+assert.match(uiControllerText, /chassis: level === "success" \? "关闭" : level === "error" \? "重启" : "启动"/);
+assert.match(uiControllerText, /visual: level === "success" \? "stopVisualSubsystem" : "startVisualSubsystem"/);
+assert.match(uiControllerText, /visual: level === "success" \? "关闭" : "启动"/);
 
 assert.deepEqual(actionSteps("startCabinSubsystem"), ["startCabinDriver"]);
 assert.deepEqual(actionSteps("restartCabinSubsystem"), ["restartCabinDriver"]);

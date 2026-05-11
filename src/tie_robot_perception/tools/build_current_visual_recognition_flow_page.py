@@ -380,7 +380,7 @@ def run_scan_pipeline() -> tuple[list[dict[str, str]], dict[str, float | int | s
         },
         {
             "title": "03 原始相机深度",
-            "detail": "/Scepter/worldCoord/raw_world_coord 的 Z 通道，扫描算法只用这一路做响应。",
+            "detail": "/Scepter/worldCoord/raw_world_coord 的 Z 通道，当前 Surface-DP 默认从这里生成 depth_gradient。",
             "src": save_image("03_scan_raw_depth.png", colorize_gray(depth_image), "raw world Z"),
         },
         {
@@ -394,13 +394,13 @@ def run_scan_pipeline() -> tuple[list[dict[str, str]], dict[str, float | int | s
             "src": save_image("05_scan_rectified_depth.png", colorize_gray(rectified_depth), "rectified depth"),
         },
         {
-            "title": "06 depth-only 背景差分",
-            "detail": "当前版本只取 depth 背景差分响应，不混入 IR 响应。",
-            "src": save_image("06_scan_depth_response.png", colorize_gray(best_variant["response"]), "depth-only response"),
+            "title": "06 单源响应图",
+            "detail": "离线快照保留 depth 背景差分图；当前运行默认生成单源 depth_gradient 响应。",
+            "src": save_image("06_scan_depth_response.png", colorize_gray(best_variant["response"]), "single response"),
         },
         {
-            "title": "07 纵横 profile 周期相位",
-            "detail": "分别沿 X/Y 方向投影响应，估计 period 与 phase。",
+            "title": "07 线族 profile 诊断",
+            "detail": "该图用于解释响应沿两轴的支撑分布；当前运行再叠加物理间距和统一物理网格评分。",
             "src": save_image(
                 "07_scan_axis_profiles.png",
                 draw_profile_plot(
@@ -412,8 +412,8 @@ def run_scan_pipeline() -> tuple[list[dict[str, str]], dict[str, float | int | s
             ),
         },
         {
-            "title": "08 rectified 网格",
-            "detail": "按估计出的纵横线位置构造规则网格，交点仍在 rectified 平面。",
+            "title": "08 rectified 线族",
+            "detail": "横纵线族先在 rectified 平面校对；当前校对使用 unified_physical_lattice。",
             "src": save_image(
                 "08_scan_rectified_grid.png",
                 draw_rectified_grid(best_variant["response"], vertical_lines, horizontal_lines),
@@ -421,8 +421,8 @@ def run_scan_pipeline() -> tuple[list[dict[str, str]], dict[str, float | int | s
             ),
         },
         {
-            "title": "09 透视网格反投影",
-            "detail": "将 rectified 网格线和交点通过 inverse H 投回原图。",
+            "title": "09 Surface-DP 曲线交点投影",
+            "detail": "当前运行会用 Surface-DP 曲线追踪求交，再通过 inverse H 投回原图。",
             "src": save_image(
                 "09_scan_projective_overlay.png",
                 draw_projective_overlay(ir_image, line_segments, valid_points, number_points=False),
@@ -431,7 +431,7 @@ def run_scan_pipeline() -> tuple[list[dict[str, str]], dict[str, float | int | s
         },
         {
             "title": "10 扫描识别输出",
-            "detail": "最终输出有效相机坐标点，同步用于 /coordinate_point 与扫描账本。",
+            "detail": "最终输出有效相机坐标点，同步用于 /coordinate_point、/perception/lashing/points_camera 与扫描账本。",
             "src": save_image(
                 "10_scan_final_overlay.png",
                 draw_projective_overlay(ir_image, line_segments, valid_points, number_points=True),
@@ -632,8 +632,8 @@ def render_step_cards(steps: list[dict[str, str]]) -> str:
 def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) -> str:
     scan_metric_rows = [
         ("rectified", f"{scan_metrics['rectified_width']} x {scan_metrics['rectified_height']} px"),
-        ("v period / phase", f"{scan_metrics['vertical_period']} / {scan_metrics['vertical_phase']}"),
-        ("h period / phase", f"{scan_metrics['horizontal_period']} / {scan_metrics['horizontal_phase']}"),
+        ("response policy", "single selected"),
+        ("lattice check", "unified"),
         ("grid lines", f"{scan_metrics['vertical_line_count']} x {scan_metrics['horizontal_line_count']}"),
         ("valid points", str(scan_metrics["point_count"])),
     ]
@@ -894,8 +894,8 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
       <div>
         <h1>当前视觉识别流程效果图</h1>
         <p class="subtitle">
-          基于仓库内 <code>slam_v30</code> 视觉模态快照离线生成，扫描分支按当前代码的 2026-04-22
-          <code>manual workspace S2</code> 口径重跑：depth-only 背景差分、纵横 profile 周期相位、透视网格反投影。
+          基于仓库内 <code>slam_v30</code> 视觉模态快照离线生成；扫描分支按当前帮助口径解释为
+          Surface-DP 单源底图、统一物理网格评分、Surface-DP 曲线交点和原图投影。历史 profile 图只作为线族支撑诊断参考。
         </p>
       </div>
     </div>
@@ -903,24 +903,25 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
       <span class="badge">/pointAI/process_image request_mode=3</span>
       <span class="badge">MODE_SCAN_ONLY</span>
       <span class="badge">MODE_EXECUTION_REFINE</span>
-      <span class="badge">2026-05-03</span>
+      <span class="badge">2026-05-11</span>
     </div>
   </header>
 
   <main>
     <div class="notice">
-      当前扫描识别链路会在 Surface-DP 底图上叠加 beam_candidate 梁筋候选；视觉调试开关启用时，才对最终绑扎点执行梁筋 ±13 cm 点级过滤。更重的多尺度融合仍只保留在研究工具和报告中。
+      当前扫描识别链路使用 Surface-DP 单源底图，并通过统一物理网格评分校对线族；关键字段包括 <code>physical_lattice_count_aspect_error</code> 和 <code>physical_lattice_count_aspect_tolerance</code>。
+      扫描底图会叠加 beam_candidate 梁筋候选；视觉调试开关启用时，才按视觉调试里的梁筋过滤半径对最终绑扎点执行点级过滤。更重的多尺度融合仍只保留在研究工具和报告中。
       执行微调仍走平面分割 + Hough，用于逐区到位后的局部视觉。
     </div>
 
     <section>
       <div class="section-head">
         <div>
-          <h2>扫描识别：2026-04-22 PR-FPRG</h2>
+          <h2>扫描识别：Surface-DP 单源底图</h2>
           <p>
             固定识别位姿下，前端触发仍进入 <code>/pointAI/process_image</code> 的
-            <code>request_mode=3</code>。算法只看手动工作区内的原始相机深度，展开到 rectified 平面后
-            做周期相位估计，再把规则网格映射回原图并输出相机坐标点。
+            <code>request_mode=3</code>。当前算法把手动工作区展开到 rectified 平面，生成当前选中的单源底图，
+            用 120-160 mm 间距先验和统一物理网格评分校对横纵线族，再由 Surface-DP 曲线交点输出相机坐标点。
           </p>
         </div>
         <div class="metrics">
@@ -954,7 +955,8 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
     <div class="runtime-note">
       本页是离线可打开的流程效果页，生成脚本为
       <code>src/tie_robot_perception/tools/build_current_visual_recognition_flow_page.py</code>。
-      重新采集现场样例后，可替换 <code>docs/releases/slam_v30/visual_modalities</code> 下的快照并重新运行脚本生成新图。
+      重新采集现场样例后，可替换 <code>docs/releases/slam_v30/visual_modalities</code> 下的快照并重新运行脚本生成新图；
+      帮助站里的当前流程图在 <code>src/tie_robot_web/help/public/images/visual/current-visual-flow</code>。
     </div>
   </main>
 </body>
