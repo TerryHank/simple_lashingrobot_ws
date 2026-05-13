@@ -54,7 +54,7 @@ std::mutex plc_mutex;
 uint16_t MODULE = 0;
 Module_State module_state{};
 Motor_State motor_state{};
-bool enable_lashing = true;
+bool enable_lashing = false;
 std::mutex lashing_mutex;
 ros::Subscriber enb_las_sub;
 int pause_interrupt_count = 0;

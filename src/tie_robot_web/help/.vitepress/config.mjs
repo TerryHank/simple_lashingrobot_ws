@@ -1,8 +1,18 @@
+const deploymentTarget = process.env.TIE_ROBOT_HELP_DEPLOY_TARGET || "local";
+
+const baseByTarget = {
+  local: "/help/",
+  github: "/simple_lashingrobot_ws/",
+  cloudflare: "/",
+};
+
+const base = baseByTarget[deploymentTarget] || baseByTarget.local;
+
 export default {
   title: "Tie Robot Help",
   description: "simple_lashingrobot_ws 工程结构与主链说明",
   lang: "zh-CN",
-  base: "/help/",
+  base,
   cleanUrls: true,
   themeConfig: {
     nav: [

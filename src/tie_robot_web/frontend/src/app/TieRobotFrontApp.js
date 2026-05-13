@@ -11,6 +11,7 @@ import { PANEL_REGISTRY } from "../panels/panelRegistry.js";
 import { ViewerStore } from "../state/ViewerStore.js";
 import { LegacyCommandController } from "../controllers/LegacyCommandController.js";
 import { RosConnectionController } from "../controllers/RosConnectionController.js";
+import { createOfflineRosConnection } from "../controllers/offlineRosConnection.js";
 import { StatusMonitorController } from "../controllers/StatusMonitorController.js";
 import { SystemControlController } from "../controllers/SystemControlController.js";
 import { TaskActionController } from "../controllers/TaskActionController.js";
@@ -21,10 +22,12 @@ import { TerminalController } from "../controllers/TerminalController.js";
 import { TopicLayerController } from "../controllers/TopicLayerController.js";
 import { PanelManager } from "../ui/PanelManager.js";
 import { UIController } from "../ui/UIController.js";
+import { ROSLIB } from "../vendor/roslib.js";
 import {
   loadCabinRemoteSettings,
   loadCameraSdkSettings,
   loadDisplayPreferences,
+  loadGb28181Settings,
   loadNetworkPingSettings,
   loadRecognitionPose,
   loadRecognitionPoseLibrary,
@@ -35,9 +38,11 @@ import {
   loadTopicLayerStatePreference,
   loadVisualDebugSettings,
   loadViewerLayout,
+  flushFrontendSharedStateOnUnload,
   saveCabinRemoteSettings,
   saveCameraSdkSettings,
   saveDisplayPreferences,
+  saveGb28181Settings,
   saveNetworkPingSettings,
   saveRecognitionPoseLibrary,
   saveSettingsHomePagePreference,
@@ -61,7 +66,7 @@ import {
 import { formatCabinRemoteProtocolFeedback } from "../utils/cabinRemoteProtocolFeedback.js";
 import { buildWorkspaceQuadPayload, sampleFloat32XYZImagePixel } from "../utils/irImageUtils.js";
 import { inferLegacyLogLevel, sanitizeRosLogText } from "../utils/logText.js";
-import { Scene3DView } from "../views/Scene3DView.js";
+import { createScene3DView } from "../views/Scene3DView.js";
 import { WorkspaceCanvasView } from "../views/WorkspaceCanvasView.js";
 import { TOPICS } from "../config/topicRegistry.js";
 import { getImageHoverCoordinateFrameLabel } from "../config/topicLayerCatalog.js";
@@ -77,6 +82,10 @@ const SETTINGS_LAYER_LOG_HISTORY_LIMIT = 50;
 const SETTINGS_LAYER_LOG_TOTAL_LIMIT = 500;
 const IMAGE_HOVER_COORDINATE_IDLE_UNSUBSCRIBE_MS = 1800;
 const LINEAR_MODULE_ZERO_LEGACY_COMMAND_ID = 15;
+const MARKER_ACTION_DELETE = 2;
+const MARKER_ACTION_DELETEALL = 3;
+const MARKER_TYPE_SPHERE_LIST = 7;
+const MARKER_TYPE_POINTS = 8;
 
 const DRIVER_LAYER_LOG_NODES = new Map([
   ["suoquNode", "索驱/流程主控"],
@@ -121,6 +130,7 @@ export class TieRobotFrontApp {
     this.visualRecognitionOverlayCompleted = false;
     this.visualRecognitionOverlayCleared = false;
     this.latestVisualRecognitionPointsMessage = null;
+    this.bindPointVisualsSuppressed = false;
     this.latestAreaProgress = null;
     this.irCameraInfo = null;
     this.displayedImageTopicName = DEFAULT_IMAGE_TOPIC;
@@ -136,11 +146,14 @@ export class TieRobotFrontApp {
     this.handleWindowBeforeUnload = this.handleWindowBeforeUnload.bind(this);
     this.handleGraphicalAppFrameMessage = this.handleGraphicalAppFrameMessage.bind(this);
     this.displaySettings = loadDisplayPreferences();
+    this.rosConnectionController = createOfflineRosConnection();
     this.cabinRemoteSettings = loadCabinRemoteSettings();
     this.tcpLinearRemoteSettings = loadTcpLinearRemoteSettings();
     this.networkPingSettings = loadNetworkPingSettings();
+    this.gb28181Settings = loadGb28181Settings();
     this.recognitionPoseLibrary = loadRecognitionPoseLibrary(DIRECT_CABIN_MOVE_TARGET);
     this.recognitionPose = loadRecognitionPose(DIRECT_CABIN_MOVE_TARGET);
+    this.pendingWorkspacePoseId = null;
     this.visualDebugSettings = loadVisualDebugSettings();
     this.cameraSdkSettings = loadCameraSdkSettings();
     this.topicLayerState = loadTopicLayerStatePreference();
@@ -179,6 +192,7 @@ export class TieRobotFrontApp {
     this.ui.setCabinRemoteSettings(this.cabinRemoteSettings);
     this.ui.setTcpLinearRemoteSettings(this.tcpLinearRemoteSettings);
     this.ui.setNetworkPingSettings(this.networkPingSettings);
+    this.ui.setGb28181Settings(this.gb28181Settings);
     this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
 
     this.panelManager = new PanelManager({
@@ -186,6 +200,9 @@ export class TieRobotFrontApp {
     });
     this.panelManager.init(rootElement);
     this.panelManager.applyPanelLayout(this.activeLayout);
+    window.requestAnimationFrame(() => {
+      this.panelManager.enableResizeObserverLayoutPersistence();
+    });
 
     const canvasRefs = this.ui.getCanvasRefs();
     this.workspaceView = new WorkspaceCanvasView({
@@ -207,11 +224,11 @@ export class TieRobotFrontApp {
     this.ui.setDisplaySettings(this.displaySettings);
     this.ui.setVisualDebugSettings(this.visualDebugSettings);
     this.ui.setCameraSdkSettings(this.cameraSdkSettings);
-    this.ui.renderPointList([]);
+    this.ui.renderPointList(this.workspaceView.getSelectedPoints());
     this.ui.renderSettingsLayerLogs(this.buildSettingsLayerLogViewModel());
     this.ui.renderVisualDebugLogs(this.visualDebugLogs);
 
-    this.sceneView = new Scene3DView({
+    this.sceneView = createScene3DView({
       container: this.ui.getSceneContainer(),
     });
     this.sceneView.setTheme(this.theme);
@@ -331,10 +348,27 @@ export class TieRobotFrontApp {
         this.imageHoverWorldCoordMessage = message;
       },
       onSavedWorkspacePayload: (payload) => {
-        this.workspaceView.setSavedWorkspacePayload(payload);
-        this.saveCurrentRecognitionPoseWorkspace({ selectedPayload: payload, savedPayload: payload });
+        const pendingPoseId = this.pendingWorkspacePoseId;
+        if (!this.shouldAcceptSavedWorkspacePayload(payload)) {
+          return;
+        }
         const confirmed = this.taskActionController.handleSavedWorkspacePayload(payload);
+        const targetPoseId = confirmed
+          ? pendingPoseId
+          : this.getSelectedRecognitionPose()?.id || null;
+        this.saveCurrentRecognitionPoseWorkspace({
+          poseId: targetPoseId,
+          selectedPayload: payload,
+          savedPayload: payload,
+        });
         if (confirmed) {
+          this.pendingWorkspacePoseId = null;
+        }
+        const currentPoseId = this.getSelectedRecognitionPose()?.id || null;
+        if (!targetPoseId || targetPoseId === currentPoseId) {
+          this.workspaceView.setSavedWorkspacePayload(payload);
+        }
+        if (confirmed && (!targetPoseId || targetPoseId === currentPoseId)) {
           this.workspaceView.setSelectedWorkspacePayload(payload);
         }
         this.refreshActionState();
@@ -366,6 +400,9 @@ export class TieRobotFrontApp {
         this.viewerStore.updateIn("scene", { [`${source}Count`]: count });
       },
       onTiePoints: (message) => {
+        if (this.shouldSuppressBindPointVisualMessage(message)) {
+          return 0;
+        }
         this.sceneAdapter.normalizeTiePoints(message);
         const count = this.sceneView.setTiePointsMessage(message);
         if (this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested) {
@@ -375,9 +412,15 @@ export class TieRobotFrontApp {
         this.viewerStore.updateIn("scene", { tiePointCount: count });
       },
       onVisualRecognitionPoints: (message) => {
+        if (this.shouldSuppressBindPointVisualMessage(message)) {
+          return 0;
+        }
         this.handleVisualRecognitionPointsMessage(message);
       },
       onPlanningMarkers: (message) => {
+        if (this.shouldSuppressBindPointVisualMessage(message)) {
+          return 0;
+        }
         this.sceneAdapter.normalizePlanningMarkers(message);
         const count = this.sceneView.setPlanningMarkersMessage(message);
         this.schedulePlanningAreaRefresh();
@@ -446,12 +489,16 @@ export class TieRobotFrontApp {
       workspaceView: this.workspaceView,
       getExecutionMode: () => this.visualDebugSettings?.executionMode,
       getAdaptiveBindGrouping: () => this.visualDebugSettings?.adaptiveBindGrouping,
+      getBindGroupRowThreshold: () => this.visualDebugSettings?.bindGroupRowThresholdMm,
+      getBindGroupColumnThreshold: () => this.visualDebugSettings?.bindGroupColumnThresholdMm,
       getBindExecutionCabinMinZ: () => this.visualDebugSettings?.bindExecutionCabinMinZMm,
+      getBindExecutionCabinZMode: () => this.visualDebugSettings?.bindExecutionCabinZMode,
       getRecognitionPoseIndex: () => this.getSelectedRecognitionPoseIndex(),
       callbacks: {
         onResultMessage: (message) => this.ui.setControlFeedback(message),
         onLog: (message, level) => this.addLog(message, level),
         onWorkspaceS2Triggered: () => this.handleWorkspaceS2Triggered(),
+        onSurfaceDpRecognitionFinished: () => this.requestPlanningAreaRefresh(),
       },
     });
 
@@ -647,6 +694,11 @@ export class TieRobotFrontApp {
         this.handleMoveToPosition();
         return;
       }
+      if (taskAction === "clearAllBindPoints") {
+        this.handleClearAllBindPoints();
+        this.refreshActionState();
+        return;
+      }
       if (!["runSavedS2", "triggerSingleBind"].includes(taskAction)) {
         this.surfaceDpOverlayActive = false;
         this.surfaceDpOverlayRequested = false;
@@ -657,7 +709,9 @@ export class TieRobotFrontApp {
         this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
       }
       if (VISUAL_FRAME_SYNC_TASK_ACTIONS.has(taskAction)) {
-        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, { suppressLog: true });
+        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, {
+          suppressLog: true,
+        });
       }
       this.taskActionController.handle(taskAction);
       this.refreshActionState();
@@ -667,6 +721,10 @@ export class TieRobotFrontApp {
         this.workspaceView.undoSelection();
       } else if (workspaceAction === "clear") {
         this.workspaceView.clearSelection();
+        this.saveCurrentRecognitionPoseWorkspace({
+          selectedPayload: null,
+          savedPayload: null,
+        });
       }
       this.refreshActionState();
     });
@@ -703,8 +761,11 @@ export class TieRobotFrontApp {
         return;
       }
       if (workspaceAction === "runSavedS2") {
-        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, { suppressLog: true });
+        this.applyVisualDebugRuntimeSettings(this.visualDebugSettings, {
+          suppressLog: true,
+        });
       } else if (workspaceAction === "submitQuad") {
+        this.pendingWorkspacePoseId = this.getSelectedRecognitionPose()?.id || null;
         this.surfaceDpOverlayActive = false;
         this.surfaceDpOverlayRequested = false;
         this.visualRecognitionOverlayCompleted = false;
@@ -791,6 +852,10 @@ export class TieRobotFrontApp {
     this.ui.onNetworkPingSettingsChange((settings) => {
       this.networkPingSettings = settings;
       saveNetworkPingSettings(settings);
+    });
+    this.ui.onGb28181SettingsChange((settings) => {
+      this.gb28181Settings = settings;
+      saveGb28181Settings(settings);
     });
     this.ui.onNetworkPingTest((targetId) => {
       this.handleNetworkPingTest(targetId);
@@ -902,7 +967,7 @@ export class TieRobotFrontApp {
   }
 
   handleWindowBeforeUnload() {
-    this.persistActiveLayout();
+    flushFrontendSharedStateOnUnload();
   }
 
   restoreTerminalPanelIfVisible() {
@@ -965,6 +1030,9 @@ export class TieRobotFrontApp {
       y: Number(pose.y),
       z: Number(pose.z),
     };
+    if (selectedPose?.workspace) {
+      nextPose.workspace = selectedPose.workspace;
+    }
     this.recognitionPose = { x: nextPose.x, y: nextPose.y, z: nextPose.z };
     this.recognitionPoseLibrary = {
       selectedId: nextPose.id,
@@ -1003,6 +1071,7 @@ export class TieRobotFrontApp {
     this.recognitionPose = { x: pose.x, y: pose.y, z: pose.z };
     saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
     this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.applySelectedRecognitionPoseWorkspace();
     const message = `${pose.label}已新增，可记录当前位置或直接移动。`;
     this.ui.setControlFeedback(message);
     this.addLog(message, "success");
@@ -1019,6 +1088,7 @@ export class TieRobotFrontApp {
 
     const selectedPose = this.getSelectedRecognitionPose();
     const selectedIndex = Math.max(0, poses.findIndex((pose) => pose.id === selectedPose?.id));
+    const selectedPoseIndex = this.resolveRecognitionPoseIndex(selectedPose, selectedIndex);
     const nextPoses = poses.filter((pose) => pose.id !== selectedPose?.id);
     const nextSelectedPose = nextPoses[Math.min(selectedIndex, nextPoses.length - 1)] || nextPoses[0];
     this.recognitionPoseLibrary = {
@@ -1032,9 +1102,82 @@ export class TieRobotFrontApp {
     };
     saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
     this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.applySelectedRecognitionPoseWorkspace();
+    this.deleteRecognitionPoseArtifacts(selectedPoseIndex, selectedPose?.label);
     const message = `${selectedPose?.label || "当前识别位姿"}已删除，当前选择${nextSelectedPose.label}。`;
     this.ui.setControlFeedback(message);
     this.addLog(message, "success");
+  }
+
+  async deleteRecognitionPoseArtifacts(poseIndex, poseLabel = "") {
+    const normalizedPoseIndex = Number.isFinite(Number(poseIndex)) ? Math.round(Number(poseIndex)) : 0;
+    if (normalizedPoseIndex <= 0) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/planning/scan-pose/${normalizedPoseIndex}`, {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.message || response.statusText || "未知错误");
+      }
+      this.addLog(
+        payload?.message || `${poseLabel || `识别位姿 ${normalizedPoseIndex}`}对应扫描账本已删除。`,
+        "success",
+      );
+      this.requestPlanningAreaRefresh();
+    } catch (error) {
+      this.addLog(
+        `${poseLabel || `识别位姿 ${normalizedPoseIndex}`}已删除，但对应扫描账本清理失败：${error?.message || String(error)}`,
+        "warn",
+      );
+    }
+  }
+
+  async handleClearAllBindPoints() {
+    try {
+      const response = await fetch("/api/planning/bind-points", {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.success === false) {
+        throw new Error(payload?.message || response.statusText || "未知错误");
+      }
+      const message = payload?.message || "已清除所有绑扎点账本。";
+      this.bindPointVisualsSuppressed = true;
+      this.planningAreaRequestToken += 1;
+      this.latestVisualRecognitionPointsMessage = null;
+      this.surfaceDpOverlayActive = false;
+      this.surfaceDpOverlayRequested = false;
+      this.visualRecognitionOverlayCompleted = false;
+      this.visualRecognitionOverlayCleared = true;
+      this.workspaceView.setS2OverlayMessage(null);
+      this.workspaceView.setVisualRecognitionPointsMessage(null);
+      this.workspaceView.setVisualRecognitionOverlaySourceSize(null);
+      this.sceneView.clearBindPointVisuals();
+      this.topicLayerController.updateStats({
+        tiePointCount: 0,
+        planningPointCount: 0,
+      });
+      this.viewerStore.updateIn("scene", {
+        tiePointCount: 0,
+        planningPointCount: 0,
+      });
+      this.ui.setControlFeedback(message);
+      this.addLog(message, "success");
+      this.requestPlanningAreaRefresh();
+    } catch (error) {
+      const message = `清除所有绑扎点失败：${error?.message || String(error)}`;
+      this.ui.setControlFeedback(message);
+      this.addLog(message, "warn");
+    }
   }
 
   handleSelectRecognitionPose(poseId) {
@@ -1055,6 +1198,112 @@ export class TieRobotFrontApp {
     }
     saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
     this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.applySelectedRecognitionPoseWorkspace({ publishSavedWorkspace: true });
+  }
+
+  saveCurrentRecognitionPoseWorkspace({
+    poseId = null,
+    selectedPoints = null,
+    selectedPayload = undefined,
+    savedPayload = undefined,
+  } = {}) {
+    const selectedPose = poseId
+      ? this.recognitionPoseLibrary.poses.find((pose) => pose.id === poseId)
+      : this.getSelectedRecognitionPose();
+    if (!selectedPose) {
+      return;
+    }
+
+    let nextSelectedPayload = selectedPayload;
+    if (nextSelectedPayload === undefined && Array.isArray(selectedPoints) && selectedPoints.length === 4) {
+      nextSelectedPayload = buildWorkspaceQuadPayload(selectedPoints);
+    }
+    if (nextSelectedPayload === undefined) {
+      const currentSelectedPoints = this.workspaceView?.getSelectedPoints?.() || [];
+      nextSelectedPayload = currentSelectedPoints.length === 4
+        ? buildWorkspaceQuadPayload(currentSelectedPoints)
+        : selectedPose.workspace?.selectedPayload || null;
+    }
+
+    let nextSavedPayload = savedPayload;
+    if (nextSavedPayload === undefined) {
+      nextSavedPayload = selectedPose.workspace?.savedPayload || null;
+    }
+
+    const nextWorkspace = nextSelectedPayload || nextSavedPayload
+      ? {
+        selectedPayload: nextSelectedPayload || nextSavedPayload,
+        savedPayload: nextSavedPayload || null,
+      }
+      : null;
+    this.recognitionPoseLibrary = {
+      ...this.recognitionPoseLibrary,
+      poses: this.recognitionPoseLibrary.poses.map((pose) => {
+        if (pose.id !== selectedPose.id) {
+          return pose;
+        }
+        const nextPose = { ...pose };
+        if (nextWorkspace) {
+          nextPose.workspace = nextWorkspace;
+        } else {
+          delete nextPose.workspace;
+        }
+        return nextPose;
+      }),
+    };
+    saveRecognitionPoseLibrary(this.recognitionPoseLibrary);
+    this.ui.setRecognitionPoseLibrary(this.recognitionPoseLibrary);
+  }
+
+  applySelectedRecognitionPoseWorkspace({
+    suppressSelectionNotify = false,
+    publishSavedWorkspace = false,
+  } = {}) {
+    const workspace = this.getSelectedRecognitionPose()?.workspace || null;
+    if (workspace?.savedPayload) {
+      this.workspaceView.setSavedWorkspacePayload(workspace.savedPayload);
+      if (publishSavedWorkspace) {
+        this.publishSelectedRecognitionPoseWorkspace(workspace.savedPayload);
+      }
+    } else {
+      this.workspaceView.clearSavedWorkspace();
+    }
+
+    if (workspace?.selectedPayload) {
+      this.workspaceView.setSelectedWorkspacePayload(workspace.selectedPayload, {
+        notify: !suppressSelectionNotify,
+      });
+      if (suppressSelectionNotify) {
+        this.ui.renderPointList(this.workspaceView.getSelectedPoints());
+      }
+    } else {
+      this.workspaceView.clearSelectedWorkspace({ notify: !suppressSelectionNotify });
+      if (suppressSelectionNotify) {
+        this.ui.renderPointList([]);
+      }
+    }
+  }
+
+  publishSelectedRecognitionPoseWorkspace(payload) {
+    const resources = this.rosConnectionController?.getResources?.();
+    if (!resources?.workspaceQuadPublisher || !Array.isArray(payload) || payload.length !== 8) {
+      return;
+    }
+    resources.workspaceQuadPublisher.publish(new ROSLIB.Message({ data: payload }));
+    const selectedPose = this.getSelectedRecognitionPose();
+    this.addLog(`${selectedPose?.label || "当前识别位姿"}工作区已切换并同步到 pointAI`, "info");
+  }
+
+  shouldAcceptSavedWorkspacePayload(payload) {
+    const confirmed = this.taskActionController?.isPendingWorkspacePayload?.(payload);
+    if (confirmed) {
+      return true;
+    }
+    const savedPayload = this.getSelectedRecognitionPose()?.workspace?.savedPayload;
+    if (!Array.isArray(savedPayload) || !Array.isArray(payload) || savedPayload.length !== payload.length) {
+      return false;
+    }
+    return savedPayload.every((value, index) => Math.round(Number(value)) === Math.round(Number(payload[index])));
   }
 
   getSelectedRecognitionPose() {
@@ -1148,7 +1397,10 @@ export class TieRobotFrontApp {
     this.ui.renderVisualDebugLogs(this.visualDebugLogs);
   }
 
-  applyVisualDebugRuntimeSettings(settings = this.ui.getVisualDebugSettings(), { suppressLog = false } = {}) {
+  applyVisualDebugRuntimeSettings(
+    settings = this.ui.getVisualDebugSettings(),
+    { suppressLog = false } = {},
+  ) {
     const nextSettings = settings || this.ui.getVisualDebugSettings();
     this.visualDebugSettings = nextSettings;
     saveVisualDebugSettings(nextSettings);
@@ -1162,6 +1414,9 @@ export class TieRobotFrontApp {
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: nextSettings.stableFrameCount,
       bindExecutionCabinMinZMm: nextSettings.bindExecutionCabinMinZMm,
+      bindExecutionCabinZMode: nextSettings.bindExecutionCabinZMode,
+      bindGroupRowThresholdMm: nextSettings.bindGroupRowThresholdMm,
+      bindGroupColumnThresholdMm: nextSettings.bindGroupColumnThresholdMm,
     });
     if (frameResult?.success) {
       const message = frameResult.message || `视觉服务最终放行帧数已设置为 ${nextSettings.stableFrameCount} 帧。`;
@@ -1223,6 +1478,9 @@ export class TieRobotFrontApp {
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: settings.stableFrameCount,
       bindExecutionCabinMinZMm: settings.bindExecutionCabinMinZMm,
+      bindExecutionCabinZMode: settings.bindExecutionCabinZMode,
+      bindGroupRowThresholdMm: settings.bindGroupRowThresholdMm,
+      bindGroupColumnThresholdMm: settings.bindGroupColumnThresholdMm,
     });
     if (result?.success) {
       const message = result.message || `视觉服务最终放行帧数已设置为 ${settings.stableFrameCount} 帧。`;
@@ -1600,7 +1858,39 @@ export class TieRobotFrontApp {
     );
   }
 
+  shouldSuppressBindPointVisualMessage(message) {
+    if (!this.bindPointVisualsSuppressed) {
+      return false;
+    }
+    const pointCount = Array.isArray(message?.PointCoordinatesArray)
+      ? message.PointCoordinatesArray.length
+      : 0;
+    const markerPointCount = Array.isArray(message?.markers)
+      ? message.markers.reduce((count, marker) => (
+        count + this.countPlanningMarkerVisualPoints(marker)
+      ), 0)
+      : 0;
+    return pointCount > 0 || markerPointCount > 0;
+  }
+
+  countPlanningMarkerVisualPoints(marker) {
+    const markerAction = Number(marker?.action);
+    if (!marker || markerAction === MARKER_ACTION_DELETEALL || markerAction === MARKER_ACTION_DELETE) {
+      return 0;
+    }
+    if (Array.isArray(marker?.points) && marker.points.length > 0) {
+      return marker.points.length;
+    }
+    const markerNamespace = String(marker?.ns || "");
+    const markerType = Number(marker?.type);
+    if (markerNamespace.startsWith("pseudo_slam_")) {
+      return 1;
+    }
+    return markerType === MARKER_TYPE_SPHERE_LIST || markerType === MARKER_TYPE_POINTS ? 1 : 0;
+  }
+
   handleWorkspaceS2Triggered() {
+    this.bindPointVisualsSuppressed = false;
     this.surfaceDpOverlayActive = true;
     this.surfaceDpOverlayRequested = true;
     this.visualRecognitionOverlayCompleted = false;
@@ -1639,6 +1929,9 @@ export class TieRobotFrontApp {
   }
 
   handleVisualRecognitionPointsMessage(message) {
+    if (this.shouldSuppressBindPointVisualMessage(message)) {
+      return 0;
+    }
     const pointsLength = this.cacheLatestVisualRecognitionPointsMessage(message);
     const requestActive = this.surfaceDpOverlayActive || this.surfaceDpOverlayRequested;
     if (pointsLength > 0 && (requestActive || this.displayedImageTopicName === TOPICS.camera.irImage)) {
@@ -1679,6 +1972,10 @@ export class TieRobotFrontApp {
       this.planningAreaRefreshTimerId = null;
       this.refreshPlanningAreaOverlay();
     }, PLANNING_AREA_REFRESH_DELAY_MS);
+  }
+
+  requestPlanningAreaRefresh() {
+    this.schedulePlanningAreaRefresh();
   }
 
   clearPlanningAreaRefresh() {
@@ -1745,6 +2042,7 @@ export class TieRobotFrontApp {
       runSavedS2:
         ready &&
         Boolean(resources?.startPseudoSlamScanActionClient),
+      clearAllBindPoints: true,
       triggerSingleBind:
         ready &&
         Boolean(resources?.singlePointBindService) &&

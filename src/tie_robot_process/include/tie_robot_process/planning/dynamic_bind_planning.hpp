@@ -50,6 +50,12 @@ enum class DynamicBindWorldAxis
     kY = 1,
 };
 
+enum class DynamicBindExecutionCabinZMode
+{
+    kFixed = 0,
+    kMinimum = 1,
+};
+
 struct DynamicBindGridAxisMapping
 {
     DynamicBindWorldAxis row_axis = DynamicBindWorldAxis::kY;
@@ -67,6 +73,7 @@ struct DynamicBindPlannerConfig
     float tcp_max_y_mm = 330.0f;
     float tcp_max_z_mm = 160.0f;
     float bind_execution_cabin_min_z_mm = 485.0f;
+    DynamicBindExecutionCabinZMode bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kFixed;
     float template_center_x_mm = 190.0f;
     float template_center_y_mm = 165.0f;
     float template_center_z_mm = 70.0f;
@@ -77,6 +84,7 @@ struct DynamicBindPlannerConfig
     int seed_neighbor_count = 8;
     bool adaptive_grouping_enabled = false;
     int requested_group_point_count = 4;
+    bool force_axis_threshold_grouping = false;
 };
 
 float get_dynamic_bind_world_axis_value(
@@ -103,7 +111,7 @@ BindExecutionPathOriginPose build_dynamic_bind_execution_path_origin(
     const std::vector<PseudoSlamGroupedAreaEntry>& bind_area_entries,
     const CabinPoint& planning_reference_origin,
     float cabin_height,
-    float bind_execution_cabin_min_z_mm);
+    const DynamicBindPlannerConfig& config);
 
 void sort_bind_area_entries_by_snake_rows(
     std::vector<PseudoSlamGroupedAreaEntry>& bind_area_entries,

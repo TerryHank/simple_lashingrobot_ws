@@ -630,7 +630,7 @@ void forced_stop_nodeCallback(const std_msgs::Float32 &debug_mes)
     if(debug_mes.data == 3.0)
     {
         printCurrentTime();
-        ros_log_printf("Moduan_log:急停信号已被触发，强制关闭末端节点。\n");
+        ros_log_printf("Moduan_log:急停信号已被触发，随后强制关闭末端节点。\n");
         ros::shutdown();
     }
 }
@@ -757,6 +757,7 @@ void request_legacy_moduan_zero(const char* reason)
         PLC_Order_Write(FINISHALL, 0, plc);
         PLC_Order_Write(EN_DISABLE, 1, plc);
         PLC_Order_Write(IS_ZERO, 1, plc);
+        PLC_Order_Write(IS_ZERO, 0, plc);
     }
 }
 
@@ -773,7 +774,9 @@ bool return_zero_ordered_service(std_srvs::Trigger::Request& req, std_srvs::Trig
     {
         std::lock_guard<std::mutex> lock2(plc_mutex);
         moduan_return_zero_ordered_requested.store(true, std::memory_order_release);
+        PLC_Order_Write(IS_ZERO, 1, plc);
         PLC_Order_Write(IS_STOP, 1, plc);
+        PLC_Order_Write(IS_ZERO, 0, plc);
         PLC_Order_Write(FINISHALL, 0, plc);
         handle_pause_interrupt = true;
     }
@@ -881,7 +884,9 @@ void handSolveWarnCallback(const std_msgs::Float32 &warn_msg)
         moduan_return_zero_ordered_requested.store(true, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lock2(plc_mutex);
+            PLC_Order_Write(IS_ZERO, 1, plc);
             PLC_Order_Write(IS_STOP, 1, plc);
+            PLC_Order_Write(IS_ZERO, 0, plc);
             PLC_Order_Write(FINISHALL, 0, plc);
             handle_pause_interrupt = true;
         }
@@ -1109,6 +1114,8 @@ void initPLC()
     PLC_Order_Write(EN_DISABLE, 1, plc);
     PLC_Order_Write(FINISHALL, 0, plc);
     PLC_Order_Write(IS_STOP, 0, plc);
+    enable_lashing = false;
+    PLC_Order_Write(IS_LASHING, 0, plc);
     Set_Module_Speed(WX_SPEED, &module_speed, plc);
     Set_Module_Speed(WY_SPEED, &module_speed, plc);
     Set_Module_Speed(WZ_SPEED, &module_speed, plc);

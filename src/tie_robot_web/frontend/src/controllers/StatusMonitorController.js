@@ -121,16 +121,13 @@ function collectLinearModuleAlarmLabels(message) {
 }
 
 function diagnosticLevelToUiLevel(level, monitorId = "") {
-  if (monitorId === "visual" && Number(level) === 2) {
-    return "warn";
-  }
   switch (Number(level)) {
     case 0:
       return "success";
     case 1:
       return "warn";
     case 2:
-      return "error";
+      return "warn";
     case 3:
       return "warn";
     default:
@@ -157,7 +154,7 @@ export class StatusMonitorController {
     this.subscriptions = [];
     this.lastValues = new Map();
     this.diagnosticCache = new Map();
-    this.alarmSources = new Map();
+    this.layerAlarmSources = new Map();
   }
 
   setConnectionState(level, detail) {
@@ -172,24 +169,64 @@ export class StatusMonitorController {
     }
   }
 
-  setAlarmLabels(sourceId, labels = []) {
-    const normalizedLabels = uniqueLabels(labels);
-    if (normalizedLabels.length > 0) {
-      this.alarmSources.set(sourceId, normalizedLabels);
-    } else {
-      this.alarmSources.delete(sourceId);
-    }
-    this.emitAlarmState();
+  getDiagnosticMonitorById(monitorId) {
+    return STATUS_MONITORS.find((item) => item.id === monitorId && item.diagnosticHardwareId) || null;
   }
 
-  emitAlarmState() {
-    const labels = uniqueLabels([...this.alarmSources.values()].flat());
-    this.callbacks.onAlarmState?.(labels);
+  setLayerAlarmLabels(sourceId, monitorId, labels = []) {
+    const normalizedLabels = uniqueLabels(labels);
+    const previous = this.layerAlarmSources.get(sourceId);
+    const previousLabels = previous?.labels || [];
+    const changed = Boolean(previous || normalizedLabels.length > 0)
+      && (previous?.monitorId !== monitorId
+      || previousLabels.length !== normalizedLabels.length
+      || previousLabels.some((label, index) => label !== normalizedLabels[index]));
+    if (normalizedLabels.length > 0) {
+      this.layerAlarmSources.set(sourceId, { monitorId, labels: normalizedLabels });
+    } else {
+      this.layerAlarmSources.delete(sourceId);
+    }
+    return changed;
+  }
+
+  getLayerAlarmLabels(monitorId) {
+    return uniqueLabels([...this.layerAlarmSources.values()]
+      .filter((source) => source.monitorId === monitorId)
+      .flatMap((source) => source.labels));
+  }
+
+  formatLayerAlarmDetail(monitor, labels) {
+    return `${monitor.label}报警：${labels.join("、")}`;
+  }
+
+  emitDiagnosticMonitorStatus(monitor, now = Date.now()) {
+    const layerAlarmLabels = this.getLayerAlarmLabels(monitor.id);
+    if (layerAlarmLabels.length > 0) {
+      const detail = this.formatLayerAlarmDetail(monitor, layerAlarmLabels);
+      this.emitStatus(monitor.id, "warn", detail, `alarm:${detail}`);
+      return;
+    }
+
+    const cached = this.diagnosticCache.get(monitor.diagnosticHardwareId);
+    if (!cached) {
+      const detail = `${monitor.label}状态未上报`;
+      this.emitStatus(monitor.id, "warn", detail, `missing:${detail}`);
+      return;
+    }
+
+    const staleMs = monitor.diagnosticStaleMs ?? DEFAULT_DIAGNOSTIC_STALE_MS;
+    const stale = now - cached.receivedAt > staleMs;
+    const detail = stale
+      ? `${monitor.label}状态超时`
+      : formatDiagnosticDetail(cached.status);
+    const level = stale ? "warn" : diagnosticLevelToUiLevel(cached.status.level, monitor.id);
+    this.emitStatus(monitor.id, level, detail, `${cached.status.level}:${detail}`);
   }
 
   clearAlarmState() {
-    this.alarmSources.clear();
-    this.emitAlarmState();
+    this.layerAlarmSources.clear();
+    STATUS_MONITORS.filter((item) => item.diagnosticHardwareId)
+      .forEach((monitor) => this.emitDiagnosticMonitorStatus(monitor));
   }
 
   start(ros) {
@@ -215,23 +252,12 @@ export class StatusMonitorController {
       });
       STATUS_MONITORS.filter((item) => item.diagnosticHardwareId).forEach((monitor) => {
         const cached = this.diagnosticCache.get(monitor.diagnosticHardwareId);
-        if (!cached) {
-          const detail = `${monitor.label}状态未上报`;
-          this.emitStatus(monitor.id, "warn", detail, `missing:${detail}`);
-          this.setAlarmLabels(`diagnostic:${monitor.id}`, []);
-          return;
-        }
-        const staleMs = monitor.diagnosticStaleMs ?? DEFAULT_DIAGNOSTIC_STALE_MS;
-        const stale = now - cached.receivedAt > staleMs;
-        const detail = stale
-          ? `${monitor.label}状态超时`
-          : formatDiagnosticDetail(cached.status);
-        const level = stale ? "warn" : diagnosticLevelToUiLevel(cached.status.level, monitor.id);
-        this.emitStatus(monitor.id, level, detail, `${cached.status.level}:${detail}`);
-        this.setAlarmLabels(
+        this.setLayerAlarmLabels(
           `diagnostic:${monitor.id}`,
-          stale ? [] : collectDiagnosticAlarmLabels(cached.status, monitor.id),
+          monitor.id,
+          cached ? collectDiagnosticAlarmLabels(cached.status, monitor.id) : [],
         );
+        this.emitDiagnosticMonitorStatus(monitor, now);
       });
     });
     this.subscriptions.push(diagnosticsTopic);
@@ -251,7 +277,13 @@ export class StatusMonitorController {
       if (lightState !== null) {
         this.callbacks.onLightState?.(lightState);
       }
-      this.setAlarmLabels("telemetry:moduan", collectLinearModuleAlarmLabels(message));
+      const monitor = this.getDiagnosticMonitorById("moduan");
+      const alarmLabels = collectLinearModuleAlarmLabels(message);
+      const alarmChanged = this.setLayerAlarmLabels("telemetry:moduan", "moduan", alarmLabels);
+      const hasDiagnosticStatus = Boolean(monitor && this.diagnosticCache.has(monitor.diagnosticHardwareId));
+      if (monitor && (alarmLabels.length > 0 || alarmChanged || hasDiagnosticStatus)) {
+        this.emitDiagnosticMonitorStatus(monitor);
+      }
     });
     this.subscriptions.push(telemetryTopic);
   }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -89,6 +90,7 @@ constexpr int kLinearModuleAxisArrivalLogIntervalSec = 2;
 constexpr double kLinearModuleAxisArrivalPollSec = 0.02;
 constexpr auto kFinishAllPollInterval = std::chrono::milliseconds(150);
 constexpr auto kFinishAllTimeout = std::chrono::seconds(kFinishAllTimeoutSec);
+constexpr auto kFinishAllClearTimeout = std::chrono::seconds(2);
 
 class ScopedPlcExecutionState
 {
@@ -131,8 +133,59 @@ bool is_bind_points_failure_before_motion_started(const std::string& message)
     return message.find("预生成绑扎点为空") != std::string::npos ||
            message.find("线性模组驱动连接失败") != std::string::npos ||
            message.find("线性模组清理FINISHALL失败") != std::string::npos ||
+           message.find("线性模组等待FINISHALL清零失败") != std::string::npos ||
            message.find("线性模组预计算点位写入失败") != std::string::npos ||
            message.find("线性模组预计算点执行触发失败") != std::string::npos;
+}
+
+void log_plc_execution_snapshot(const char* stage)
+{
+    int is_zero = 0;
+    int is_stop = 0;
+    int en_disable = 0;
+    int is_lashing = 0;
+    int finishall = 0;
+    {
+        std::lock_guard<std::mutex> lock2(plc_mutex);
+        is_zero = static_cast<int>(Read_Module_Status(IS_ZERO, plc));
+        is_stop = static_cast<int>(Read_Module_Status(IS_STOP, plc));
+        en_disable = static_cast<int>(Read_Module_Status(EN_DISABLE, plc));
+        is_lashing = static_cast<int>(Read_Module_Status(IS_LASHING, plc));
+        finishall = static_cast<int>(Read_Module_Status(FINISHALL, plc));
+    }
+
+    double cur_x = 0.0;
+    double cur_y = 0.0;
+    double cur_z = 0.0;
+    double speed_x = 0.0;
+    double speed_y = 0.0;
+    double speed_z = 0.0;
+    {
+        std::lock_guard<std::mutex> lock2(module_state_mutex);
+        cur_x = module_state.X;
+        cur_y = module_state.Y;
+        cur_z = module_state.Z;
+        speed_x = module_state.X_SPEED;
+        speed_y = module_state.Y_SPEED;
+        speed_z = module_state.Z_SPEED;
+    }
+
+    printCurrentTime();
+    ros_log_printf(
+        "Moduan_diag: %s，PLC快照 IS_ZERO=%d IS_STOP=%d EN_DISABLE=%d IS_LASHING=%d FINISHALL=%d，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)，速度(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+        stage,
+        is_zero,
+        is_stop,
+        en_disable,
+        is_lashing,
+        finishall,
+        cur_x,
+        cur_y,
+        cur_z,
+        speed_x,
+        speed_y,
+        speed_z
+    );
 }
 
 struct LinearModuleAxisSnapshot
@@ -467,6 +520,47 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
     return true;
 }
 
+bool wait_for_plc_finish_all_clear(std::chrono::milliseconds poll_interval, std::chrono::seconds timeout)
+{
+    const auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+    while (ros::ok()) {
+        int finishall_flag = 0;
+        {
+            std::lock_guard<std::mutex> lock2(module_state_mutex);
+            finishall_flag = static_cast<int>(module_state.FINISH_ALL_FLAG);
+        }
+        if (!finishall_flag) {
+            return true;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed_sec =
+            std::chrono::duration_cast<std::chrono::seconds>(now - start_time).count();
+        if (elapsed_sec >= timeout.count()) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_Error: 等待FINISHALL清零超时，当前FINISH_ALL_FLAG=%d。\n",
+                finishall_flag
+            );
+            return false;
+        }
+
+        const auto log_elapsed_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - last_log_time).count();
+        if (log_elapsed_ms >= 500) {
+            printCurrentTime();
+            ros_log_printf(
+                "Moduan_log: 等待FINISHALL清零中，当前FINISH_ALL_FLAG=%d。\n",
+                finishall_flag
+            );
+            last_log_time = now;
+        }
+        std::this_thread::sleep_for(poll_interval);
+    }
+    return false;
+}
+
 bool move_linear_module_to_target(double x, double y, double z, double angle, std::string& response_message)
 {
     printCurrentTime();
@@ -673,6 +767,7 @@ bool execute_bind_points(
         return false;
     }
     if (selected_bind_point_count != 0) {
+        log_plc_execution_snapshot("执行前");
         if (!g_linear_module_driver->clearFinishAll(&driver_error)) {
             response_message = compose_linear_module_driver_error_message(
                 "线性模组清理FINISHALL失败",
@@ -680,6 +775,11 @@ bool execute_bind_points(
             );
             return false;
         }
+        if (!wait_for_plc_finish_all_clear(kFinishAllPollInterval, kFinishAllClearTimeout)) {
+            response_message = "线性模组等待FINISHALL清零失败";
+            return false;
+        }
+        log_plc_execution_snapshot("写点前");
         const std::vector<tie_robot_hw::driver::LinearModulePoint> driver_points =
             build_linear_module_points_from_bind_points(selected_bind_points);
         if (!g_linear_module_driver->writeQueuedPoints(driver_points, &driver_error)) {
@@ -689,6 +789,7 @@ bool execute_bind_points(
             );
             return false;
         }
+        log_plc_execution_snapshot("点位写入后");
         ScopedPlcExecutionState plc_execution_state;
         if (!g_linear_module_driver->pulseExecutionEnable(&driver_error)) {
             response_message = compose_linear_module_driver_error_message(
@@ -698,11 +799,13 @@ bool execute_bind_points(
             plc_execution_state.mark_safe_to_clear();
             return false;
         }
+        log_plc_execution_snapshot("EN_DISABLE启动脉冲后");
         if (!wait_for_plc_finish_all(kFinishAllPollInterval, kFinishAllTimeout)) {
             response_message = "等待FINISHALL标志超时，当前子区域绑扎未确认完成";
             return false;
         }
         plc_execution_state.mark_safe_to_clear();
+        log_plc_execution_snapshot("FINISHALL完成后");
     }
     bind_all_data.push_back(bind_data);
     response_message = "区域绑扎作业完成";

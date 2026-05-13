@@ -20,12 +20,36 @@ const bindPath = {
       groups: [
         {
           points: [
-            { global_idx: 11, global_row: 2, global_col: 3, world_x: 100, world_y: 200, world_z: 510 },
-            { global_idx: 12, global_row: 2, global_col: 4, world_x: 250, world_y: 200, world_z: 512 },
+            {
+              global_idx: 11,
+              global_row: 2,
+              global_col: 3,
+              world_x: 100,
+              world_y: 200,
+              world_z: 510,
+              x: 35,
+              y: 42.5,
+              z: 118.25,
+            },
+            {
+              global_idx: 12,
+              global_row: 2,
+              global_col: 4,
+              world_x: 250,
+              world_y: 200,
+              world_z: 512,
+              x: 186.75,
+              y: 44,
+              z: 118,
+            },
           ],
         },
       ],
     },
+  ],
+  grid_points: [
+    { global_idx: 11, global_row: 2, global_col: 3, world_x: 100, world_y: 200, world_z: 510 },
+    { global_idx: 12, global_row: 2, global_col: 4, world_x: 250, world_y: 200, world_z: 512 },
   ],
 };
 
@@ -42,6 +66,17 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  buildBindPathPointHoverEntries(bindPath.areas, bindPath.grid_points).map((entry) => ({
+    globalIdx: entry.globalIdx,
+    toolMm: entry.toolMm,
+  })),
+  [
+    { globalIdx: 11, toolMm: { x: 35, y: 42.5, z: 118.25 } },
+    { globalIdx: 12, toolMm: { x: 186.75, y: 44, z: 118 } },
+  ],
+);
+
+assert.deepEqual(
   buildCabinPathPointHoverEntries(bindPath.areas).map((entry) => ({
     label: entry.label,
     areaIndex: entry.areaIndex,
@@ -54,7 +89,12 @@ assert.deepEqual(
 
 assert.equal(
   formatScenePointWorldCoordinate(buildBindPathPointHoverEntries(bindPath.areas)[0]),
-  "绑扎点 #11\n世界 X 100.0 mm\n世界 Y 200.0 mm\n世界 Z 510.0 mm",
+  "绑扎点 #11\n工具 X 35.0 mm\n工具 Y 42.5 mm\n工具 Z 118.3 mm\n世界 X 100.0 mm\n世界 Y 200.0 mm\n世界 Z 510.0 mm",
+);
+
+assert.equal(
+  formatScenePointWorldCoordinate(buildBindPathPointHoverEntries(bindPath.areas, bindPath.grid_points)[0]),
+  "绑扎点 #11\n工具 X 35.0 mm\n工具 Y 42.5 mm\n工具 Z 118.3 mm\n世界 X 100.0 mm\n世界 Y 200.0 mm\n世界 Z 510.0 mm",
 );
 
 assert.equal(

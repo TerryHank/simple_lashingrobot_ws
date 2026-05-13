@@ -2,6 +2,1064 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-14 05:40 - 扫描完成后只刷新规划显示
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：去掉前端阈值热重规划后，扫描 action 成功时仍必须刷新前端规划组显示。TieRobotFrontApp 的 onSurfaceDpRecognitionFinished 现在只调用 requestPlanningAreaRefresh() 重新读取 /api/planning/bind-path，不调用 /cabin/replan_pseudo_slam_bind_path，也不做第二次规划；这样 pseudo_slam_bind_path.json 写完后 3D Scene 能看到新规划组。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+- `node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs`
+- `npm run build`
+- `rg schedulePseudoSlamBindPathReplan src/tie_robot_web/web/assets/app/index-YLNGTL91.js`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 05:27 - 扫描阈值只随一次扫描规划生效
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：用户撤回前端阈值热重规划口径。成行/成列阈值仍由 StartPseudoSlamScan action goal 传入后端，并在 run_pseudo_slam_scan 的一次扫描规划中生成 pseudo_slam_points.json 和 pseudo_slam_bind_path.json；前端不再在阈值变化、扫描完成回调或确认工作区自动视觉完成后调用 /cabin/replan_pseudo_slam_bind_path。replan service 先保留为手动/诊断能力，不作为正常扫描链路第二次规划。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+- `node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs`
+- `npm run build`
+- `rg schedulePseudoSlamBindPathReplan src/tie_robot_web/web/assets/app/index-DV33-xB5.js`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 05:03 - 扫描规划优先 2x2 四点分组
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：用户明确扫描账本点规划要优先考虑 2x2 分组。动态规划自适应分组候选形状现在先尝试 2x2，再考虑显式 requested_group_point_count 对应的大矩形和更小补组；默认 4 点与阈值重规划继续保持 slam/v35 固定 2x2 切块口径。只有显式非自适应请求 6/9 等点数时才优先按对应大组规划。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && catkin_make run_tests_tie_robot_process_gtest_test_dynamic_bind_planning; python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py; source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 04:52 - 阈值重规划保持 v35 默认 2x2 固定切块
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：修正扫描账本阈值重规划的默认 4 点成组口径。/cabin/replan_pseudo_slam_bind_path 为了让行/列阈值生效会设置 force_axis_threshold_grouping=true、忽略旧 global_row/global_col 并按世界 XY 阈值重聚类；但默认 bind_group_point_count=4 时仍必须和 slam/v35 一样从起点固定 2x2 切块，形成 (1,1)(1,2)(2,2)(2,1) 这类四点组，不走邻接匹配大量生成 matrix_2x2_edge_pair 短线。当前 planner 在 force_axis_threshold_grouping && requested_group_point_count==4 时改走 select_grid_group_candidates_by_fixed_two_by_two_tiling；Z 可达性仍只看 XY，真实 Z 保留。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && catkin_make run_tests_tie_robot_process_gtest_test_dynamic_bind_planning; python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py; source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 04:34 - 扫描账本成组可达性改为只看 XY
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：按现场口径，pseudo_slam_bind_path 动态成组的可达性不再用局部 Z 拦截；is_group_reachable_from_centered_dynamic_pose 只检查规划姿态下局部 X/Y 是否落在线模工作盒内，真实点位 Z 仍保留在 bind_points_world 和后续执行 JSON 中。这样扫描层散点只要 XY 可覆盖就能排成组，Z 不再导致规划阶段丢组。
+
+### 影响范围
+
+- `src/tie_robot_process/src/planning/dynamic_bind_planning.cpp`
+- `src/tie_robot_process/src/planning/dynamic_bind_geometry.cpp`
+- `src/tie_robot_process/src/planning/dynamic_bind_planning_internal.hpp`
+- `src/tie_robot_process/test/test_dynamic_bind_planning.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && catkin_make run_tests_tie_robot_process_gtest_test_dynamic_bind_planning; python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py; source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 03:55 - 扫描层阈值重规划不覆盖微调层视觉
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：用户确认行/列阈值只属于扫描层 pseudo_slam_bind_path 成组规划，不属于执行/微调层视觉。TieRobotFrontApp 现在在任务按钮触发视觉调试参数同步时传 scheduleBindPathReplan=false，避免 executionVisionOnly、triggerSingleBind、startExecution/startExecutionKeepMemory 因同步参数而触发 /cabin/replan_pseudo_slam_bind_path。扫描层 runSavedS2 与确认工作区后的自动 Surface-DP 扫描仍在扫描 action 成功后通过 onSurfaceDpRecognitionFinished 调用重规划；视觉调试页直接改阈值仍可防抖重规划已有扫描账本。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js;src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py; npm run build; source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 03:51 - 阈值重规划入口日志与视觉完成后重规划
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：/cabin/replan_pseudo_slam_bind_path service 入口现在会打印收到的 recognition_pose_index、成行阈值、成列阈值、每组点数、规划Z和Z模式，便于现场确认前端阈值是否真正传到后端。前端 TaskActionController 在 Surface-DP 扫描 action 成功后触发 onSurfaceDpRecognitionFinished，TieRobotFrontApp 随即按当前 visualDebugSettings 调用 replanPseudoSlamBindPath，因此改阈值后再次点控制面板/工作区的触发视觉，或确认工作区自动视觉完成后，都会用当前阈值重规划 pseudo_slam_bind_path。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoqu/service_orchestration.cpp;src/tie_robot_web/frontend/src/controllers/TaskActionController.js;src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js;src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs;src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs;src/tie_robot_process/test/test_scan_artifact_write_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py; npm run build; source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 03:16 - 扫描行列阈值支持热重规划
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：视觉调试页成行阈值/成列阈值输入变化后，前端会防抖调用 /cabin/replan_pseudo_slam_bind_path，不重跑 pointAI 识别；后端读取当前 pseudo_slam_points.json，强制忽略旧 global_row/global_col，按当前毫米阈值重新聚类并重写 pseudo_slam_bind_path.json，同时刷新 pseudo_slam markers。现场更新后必须重编译并重启 tie-robot-backend.service 或 bind_task_executor_node，以及 rosbridge_websocket/rosapi/web_action_bridge_node，让新 ReplanPseudoSlamBindPath srv 字段表和新二进制生效。
+
+### 影响范围
+
+- `src/tie_robot_msgs/srv/ReplanPseudoSlamBindPath.srv`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/src/suoqu/service_orchestration.cpp`
+- `src/tie_robot_process/include/tie_robot_process/planning/dynamic_bind_planning.hpp`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs；npm run build；source /opt/ros/noetic/setup.bash && catkin_make run_tests_tie_robot_process_gtest_test_dynamic_bind_planning；source /opt/ros/noetic/setup.bash && catkin_make`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 03:15 - IS_ZERO 使用范围收窄
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：按现场口径，IS_ZERO 只允许在显式末端回零/长按停止回起点链路中使用，并且所有 IS_ZERO=1 后立即写 IS_ZERO=0；普通全局绑扎执行、索驱移动/停止前置、短按暂停、急停和 Ctrl+C 不再写 IS_ZERO。全局绑扎执行只清 FINISHALL、等待清零、写点并触发 EN_DISABLE，IS_LASHING 默认仍为 0，由前端/人工开关控制。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp;src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp;src/tie_robot_control/src/moduan/error_handling.cpp;src/tie_robot_process/src/suoqu/cabin_transport.cpp;src/tie_robot_control/test/test_single_point_bind_chain.py;src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_motion_chain_signal_guard.py; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_control;tie_robot_process' --pkg tie_robot_control tie_robot_process`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 02:29 - 全局绑扎线模执行链排查口径纠正
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：纠正上一条把 IS_LASHING=1 当根因的误判。用户明确默认 IS_LASHING 必须为0，开启/禁止绑扎由前端控制；本轮已恢复 runtime 默认 enable_lashing=false 且 initPLC 写 IS_LASHING=0。已有日志证明全局绑扎点已进入 /moduan/driver/raw_execute_points 并打印 Cur pt_vec size/Current 点位，问题不在点没下发，而在 PLC 执行触发链。执行前现在会 clear FINISHALL、set IS_ZERO=0 并读回等待 IS_ZERO=0，再等待 FINISHALL 清零，随后写点、打 EN_DISABLE 脉冲，并输出 Moduan_diag 快照以判断 IS_ZERO/EN_DISABLE/FINISHALL 是否卡住。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/runtime_state.cpp`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_motion_chain_signal_guard.py; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_control' --pkg tie_robot_control; 重启末端driver后只读PLC快照确认 IS_LASHING_5173=0`
+- `IS_ZERO_5072=0`
+- `IS_STOP_5074=0`
+- `EN_DISABLE_5076=0`
+- `FINISHALL_5210=1`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 02:27 - StartPseudoSlamScan action 字段更新需重启桥接和后端
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14 02:20 现场出现 rosbridge publish: tie_robot_msgs/StartPseudoSlamScanTaskActionGoal does not have field goal.bind_group_row_threshold_mm，前端随后报等待后端结果图超时。根因不是视觉算法慢，而是 action/service 消息新增 bind_group_row_threshold_mm / bind_group_column_threshold_mm 后，rosbridge_websocket/rosapi/web_action_bridge_node 仍在内存使用旧消息字段表；同时 bind_task_executor_node 和 cabin_motion_controller_node 进程显示 /proc/<pid>/exe (deleted)，说明它们还挂着重编译前旧二进制。处理这类消息定义/二进制热更新后，至少重启 rosbridge_websocket、rosapi、web_action_bridge_node；若后端 process 二进制也重编译过，需要重启 tie-robot-backend.service 或对应节点，让服务端加载新二进制。
+
+### 影响范围
+
+- `src/tie_robot_msgs/action/StartPseudoSlamScanTask.action`
+- `src/tie_robot_msgs/srv/StartPseudoSlamScan.srv`
+- `src/tie_robot_web/src/web_bridge/action_bridge.cpp`
+- `src/tie_robot_process/src/suoqu/service_orchestration.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `rosapi/message_details 重启桥接前缺少两个 bind_group_* 字段；rosnode kill /rosbridge_websocket /rosapi /web_action_bridge_node 后，rosapi/message_details StartPseudoSlamScanTaskGoal 显示 bind_group_row_threshold_mm 和 bind_group_column_threshold_mm。stat/readlink 显示 bind_task_executor_node 与 cabin_motion_controller_node 当前 /proc exe 为 deleted，仍需重启后端进程加载 02:03 新二进制。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 02:05 - 扫描成组行列阈值前端可调
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：扫描后动态绑扎路径的点成行/列阈值已接入前端视觉调试页，默认保持行40mm、列45mm；前端通过 StartPseudoSlamScanTask action 下发 bind_group_row_threshold_mm / bind_group_column_threshold_mm，经 web_action_bridge 透传到 /cabin/start_pseudo_slam_scan_with_options，tie_robot_process 写入 DynamicBindPlannerConfig.matrix_row_threshold_mm / matrix_column_threshold_mm。该配置只影响扫描后账本/规划成组，不改变执行微调 Hough 的 2x2 阈值。
+
+### 影响范围
+
+- `src/tie_robot_msgs/srv/StartPseudoSlamScan.srv`
+- `src/tie_robot_msgs/action/StartPseudoSlamScanTask.action`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/src/web_bridge/action_bridge.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py -k grouping_axis_thresholds; node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs; npm run build; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_process;tie_robot_web'; rossrv/rosmsg show confirmed fields`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 02:00 - 全局绑扎末端使能位恢复
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：用户反馈修复后全局绑扎末端仍不触发。现场日志确认 /moduan/execute_bind_points 持续收到每组4点，但每组0.16~0.31秒即返回“当前子区域绑扎完成”，实时 PLC 快照显示 IS_LASHING(5173)=0 且 /web/moduan/enb_las 无发布者，说明驱动重启后绑扎枪使能位没有恢复，点位和执行脉冲下发后 PLC 处于禁止绑扎状态。已在 initPLC() 按软件默认 enable_lashing=true 写 IS_LASHING=1；并保留执行前释放 IS_ZERO=0、等待 FINISHALL 清零逻辑。重启 tie-robot-driver-moduan.service 后只读 PLC 快照确认 IS_LASHING_5173=1、IS_STOP=0、ERROR_INQUIRE=0、EMERGENCY_STOP=0。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp; src/tie_robot_control/src/moduan/linear_module_executor.cpp; src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `moduan`
+- `plc`
+- `lashing`
+- `global-bind`
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py -k lashing_enable 先红后绿；python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_motion_chain_signal_guard.py -> 71 tests OK；source /opt/ros/noetic/setup.bash && catkin_make --pkg tie_robot_control -> Built target moduan_driver_node/moduan_motion_controller_node；curl -X POST /api/system/restart_moduan_driver 成功；PLC 只读快照 IS_LASHING_5173=1。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 01:22 - 全局绑扎末端瞬间完成修复
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：排查点击执行全局绑扎后现场末端看似不绑的问题。日志显示后端已向 /moduan/execute_bind_points 下发多组4点，但末端 driver 在20~170ms内立刻打印当前子区域绑扎完成，说明不是前端或规划未触发，而是 PLC FINISHALL 旧完成标志或索驱移动前写入的 IS_ZERO=1 未释放，导致执行链瞬间判定完成。已在 execute_bind_points 执行预计算点前 clearFinishAll 后释放 IS_ZERO=0，并等待 FINISHALL 确认清零后再写点和 pulseExecutionEnable。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp; src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_motion_chain_signal_guard.py；catkin_make --pkg tie_robot_control；curl -X POST http://127.0.0.1:8080/api/system/restart_moduan_driver 后 tie-robot-driver-moduan.service active PID 23895`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-14 01:08 - 前端 Firefox 后端连接排查与初始化兜底
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：用户反馈 http://127.0.0.1:8080/index.html 一直连不上后端。排查确认 tie-robot-frontend/rosbridge/backend service 均 active，ws://127.0.0.1:9090 可调用 /rosapi/topics 返回 198 个 topics。真正根因是前端构造期先调用订阅/工作区同步逻辑，早于 rosConnectionController、cabinRemoteController 等控制器初始化，导致 Firefox 控制台出现 this.rosConnectionController / this.cabinRemoteController undefined 并中断页面启动。已加入 offlineRosConnection 初始 no-op 连接兜底，工作区 setSelectedWorkspacePayload 支持 suppress notify，3D Scene WebGL 创建失败时降级为 Scene3DUnavailableView；Firefox headless 仍会打印 THREE WebGL context 创建失败，但 DOM 显示“3D 场景暂不可用；ROS 连接和控制功能继续运行”，连接胶囊为“连接成功”，window.tieRobotFrontApp.rosConnectionController.isReady() 为 true。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/offlineRosConnection.js;src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js;src/tie_robot_web/frontend/src/views/WorkspaceCanvasView.js;src/tie_robot_web/frontend/src/views/Scene3DView.js;src/tie_robot_web/frontend/test/offlineRosConnection.test.mjs;src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs;src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs; node src/tie_robot_web/frontend/test/offlineRosConnection.test.mjs; node src/tie_robot_web/frontend/test/workspaceCanvasViewOverlay.test.mjs; node src/tie_robot_web/frontend/test/rosConnectionController.test.mjs; npm run build; curl 8080 index 指向 index-BUxTumIZ.js; Node WebSocket rosapi/topics 返回 198; Firefox WebDriver BiDi DOM: connectionLabel=连接成功`
+- `rosReady=True`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 23:51 - 前端共享状态改为 patch 合并并避免视口覆盖布局
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户反馈不同浏览器仍显示不同布局/参数。根因是前端共享状态保存原来整包 POST，多个浏览器同时打开时旧快照会覆盖其它浏览器的新参数；同时 PanelManager 的窗口 resize/ResizeObserver/beforeunload 会把小屏视口夹取后的布局写回共享状态。已改为 storage.js 只上传本页 dirty keys，后端 /api/frontend/state 在 patch=true 时按 key 合并；无 dirty key 的 beforeunload 不再整包回写；PanelManager 在 applyPanelLayout 和 window.resize 后一帧内抑制 ResizeObserver 持久化，并且 window.resize 本身不保存布局。GB28181 接入表单也接入 tie_robot_frontend_gb28181_settings 共享状态。前端静态产物已重建，8080 运行脚本 hash 为 index-Dp6_eas6.js，tie-robot-frontend.service 已重启加载后端 patch 合并逻辑。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/ui/PanelManager.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_web/frontend/test/sharedFrontendState.test.mjs`
+- `src/tie_robot_web/frontend/test/panelManagerPersistence.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node sharedFrontendState/panelManagerPersistence/visualDebugSettings/topicLayerStatePersistence/workspaceScanPoseSettings/imageHoverCoordinateModeControls tests; python3 -m py_compile workspace_picker_web_server.py; python3 -m unittest frontend_shared_state tests; npm run build; curl 8080 index hash and /api/frontend/state patch merge probe`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 23:36 - 扫描 Surface-DP 梁筋过滤保留且改点级
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：纠正上一条误解口径。用户明确不是下线梁筋过滤，而是保留梁筋候选、红色竖带、前端开关、150 mm 默认半径和 ROS topics；取消的是梁筋 mask 命中一个点后连带移除同一 X 位置其它交点。当前 scan_surface_dp 保留 beam_candidate_*、beam_candidate_margin_mask、beam_filter_mode=point_mask 和 beam_filtered_point_count，只通过点级过滤 helper 删除自身落入 mask 的交点，不再输出列级过滤计数字段。
+
+### 影响范围
+
+- `CHANGELOG.md`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `src/tie_robot_perception/test/test_current_visual_recognition_flow_report.py`
+- `src/tie_robot_web/frontend/src`
+- `src/tie_robot_web/help/guide`
+- `docs/reports/current_visual_recognition_flow/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime.ScanSurfaceDpRuntimeTest; targeted pointAI/report tests OK; node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs OK; py_compile pointAI files OK; npm run build in src/tie_robot_web/frontend OK; npm run build in src/tie_robot_web/help OK; rg current runtime/docs/web for column-delete residual strings returned no matches`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 22:38 - 索驱规划Z新增固定/下限模式
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：视觉调试前端的索驱规划 Z 参数新增模式切换，默认 fixed 固定 Z，选择后扫描生成的所有动态绑扎 area.cabin_z 和 execution path origin z 都强制使用输入值；可切到 min 恢复旧的 max(planned_z, input_z) 下限行为。ROS StartPseudoSlamScan service/action 新增 bind_execution_cabin_z_mode，0=fixed、1=min，web action bridge 透传到 tie_robot_process；规划层 DynamicBindPlannerConfig 新增 bind_execution_cabin_z_mode 并通过 resolve_bind_execution_cabin_z 统一解析。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_msgs/srv/StartPseudoSlamScan.srv`
+- `src/tie_robot_msgs/action/StartPseudoSlamScanTask.action`
+- `src/tie_robot_process/include/tie_robot_process/planning/dynamic_bind_planning.hpp`
+- `src/tie_robot_process/src/planning/dynamic_bind_geometry.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; node src/tie_robot_web/frontend/test/taskActionSurfaceDpRecognition.test.mjs; python3 -m unittest src/tie_robot_process/test/test_scan_artifact_write_guard.py; cmake --build build --target test_dynamic_bind_planning -- -j8 && devel/lib/tie_robot_process/test_dynamic_bind_planning; npm --prefix src/tie_robot_web/frontend run build; catkin_make -DCATKIN_WHITELIST_PACKAGES='tie_robot_msgs;tie_robot_hw;tie_robot_process;tie_robot_web'`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 22:30 - 索驱移动和任务中止前先触发末端IS_ZERO
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户明确要求任何中止任务或索驱移动之前都要先执行IS_ZERO=1。已在末端控制层新增 /moduan/request_is_zero 服务和 request_moduan_is_zero()，长按停止/有序回零、暂停、人工切区、急停、Ctrl+C 关闭前都先写 IS_ZERO=1；流程层 stop_cabin_motion_via_driver、move_cabin_pose_via_driver、move_cabin_incremental_via_driver 在真正索驱 stop/move 前先调用 /moduan/request_is_zero，调用失败则拒绝下发索驱指令。绝不能绕过这条前置安全口径。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/src/moduan/error_handling.cpp`
+- `src/tie_robot_process/src/suoqu/cabin_transport.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_motion_chain_signal_guard.py; catkin_make --only-pkg-with-deps tie_robot_control passed; catkin_make --only-pkg-with-deps tie_robot_control tie_robot_process still fails at existing run_pseudo_slam_scan undefined reference while cabin_transport.cpp compiles`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 22:09 - 扫描 Surface-DP 梁筋过滤误解记录（已作废）
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 已作废：这条是对用户意图的误解，不能作为当前运行口径。2026-05-13 23:36 已纠正为：保留梁筋候选、梁筋过滤、红色竖带、默认 150 mm 半径和 ROS / 前端接线；只取消梁筋 mask 命中一个点后连带移除同一 X 位置其它交点。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py;src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py;src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py;src/tie_robot_web/frontend/src;src/tie_robot_web/help/guide;docs/reports/current_visual_recognition_flow;CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime; node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; npm run build (frontend/help); py_compile; rg 当前运行/前端/help/web 关键词无残留`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 22:03 - 前端布局和参数改为服务器共享持久化
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：前端原本只用浏览器 localStorage 保存布局、视觉调试参数、识别位姿、图层和设置页偏好，换浏览器或清站点数据会回默认。现在 workspace_picker_web_server 新增 /api/frontend/state GET/POST，读写 src/tie_robot_web/data/frontend_state.json；前端启动先 loadFrontendSharedState，再构造 TieRobotFrontApp，保存函数同时写 localStorage 和共享状态，并在 beforeunload 用 sendBeacon/keepalive 兜底。共享状态优先于本机旧 localStorage，运行态 state 文件已加入 .gitignore。
+
+### 影响范围
+
+- `.gitignore`
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/main.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/sharedFrontendState.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-_b3hxhUz.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m py_compile src/tie_robot_web/scripts/workspace_picker_web_server.py; python3 -m unittest shared frontend state tests OK; node sharedFrontendState/visualDebugSettings/topicLayerStatePersistence/workspaceScanPoseSettings OK; npm run build exit 0 with existing chunk-size warning`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 21:29 - 前端线性补偿改为光轴/平移互斥模式
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：底层坐标线性补偿前端新增模式切换，mode=optical_axis 为光轴偏移（仅发布 X/Y %/m 比例项，整体平移项清 0），mode=translation 为整体平移（比例项清 0，仅发布 X/Y 平移 mm/m）。前端用 radiogroup 展示‘光轴偏移 / 整体平移’，非当前模式输入框禁用但保留数值，localStorage 持久化 mode 与两组参数；后端消息仍走 /web/pointAI/set_scan_linear_compensation 的 8 位 Float32MultiArray，因此旧后端兼容语义不变。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs -> exit 0; npm --prefix src/tie_robot_web/frontend run build -> built successfully with existing chunk-size warning; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py -k scan_linear_compensation -> 4 tests OK`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 21:20 - 底层线性补偿新增整体平移项
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：在已有底层坐标线性补偿（按光轴距离比例缩放 X/Y）基础上，新增整体平移补偿参数 xShiftMmPerMeter/yShiftMmPerMeter。前端设置页显示 X平移(mm/m)、Y平移(mm/m)，通过 /web/pointAI/set_scan_linear_compensation 的 Float32MultiArray 追加为第 7/8 位（后端单位 mm/mm）；旧 6 位消息兼容且平移回 0。world_coord.apply_scan_linear_camera_compensation_to_channels 公式变为 scaled_x/y + shift_per_mm*(z-reference_z)，作用于 raw_world 底层 x/y 通道，depth 不改。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/world_coord.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/state.py`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py -> 123 tests OK; node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs -> exit 0; npm --prefix src/tie_robot_web/frontend run build -> built successfully with existing chunk-size warning`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 21:02 - Hough报告改为header底图切换布局
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户反馈 Hough 全流程报告页面布局太乱，要求用 header 切换不同底图，一页只显示当前底图流程。已将 current_scan_all_sources_hough_report.py HTML 模板改为深色诊断工作台：顶部 source-switcher tab 切换 8 个底图，每个底图对应一个 source-panel，主体只显示该底图的指标和 6 步流程图；JS activateSource 控制 active/hidden 状态。重新生成 .debug_frames/current_scan_all_sources_hough_tabs_20260513_210104 并覆盖发布到原 URL /reports/current_scan_all_sources_hough_20260513_201258/index.html。验证页面有 8 tabs/8 panels，默认 1 个 active，57 张 PNG 无缺失。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/current_scan_all_sources_hough_report.py`
+- `src/tie_robot_perception/test/test_scan_hough_intersection_experiment.py`
+- `src/tie_robot_web/web/reports/current_scan_all_sources_hough_20260513_201258`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_hough_intersection_experiment -v => 8 tests OK; py_compile Hough tools OK; published HTML/image curl on 192.168.6.99:8080 => HTTP 200; image_refs=57 missing=[]`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 20:39 - 前端3D绑扎点hover显示工具坐标
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：前端3D点悬停 tooltip 现在对 pseudo_slam_bind_path 的绑扎点额外显示相对于线性模组/工具坐标系的 x/y/z。实现口径：绘制位置仍使用世界坐标；hover entry 从 areas[].groups[].points[] 里按 global_idx 读取 x/y/z 作为 toolMm，再与 grid_points 的世界坐标合并，避免把 grid_points 中的 x/y/z/world_x 当成工具坐标。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/utils/bindPathGeometry.js; src/tie_robot_web/frontend/test/scenePointHoverTooltip.test.mjs; src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/scenePointHoverTooltip.test.mjs; node test/bindPathGeometry.test.mjs; node test/scene3dUnavailableFallback.test.mjs; for test_file in test/*.test.mjs; do node "" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 20:35 - Hough全底图报告补齐流程效果图
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户要求把 Hough 实验整个流程效果图放出来。已扩展 scan_hough_intersection_experiment.py 新增 render_hough_stage_image，并让 current_scan_all_sources_hough_report.py 对每个底图输出 6 个阶段：响应底图、二值化、骨架、Hough线段、聚类横纵线、最终交点。新报告生成到 .debug_frames/current_scan_all_sources_hough_flow_20260513_203355，并覆盖发布到 src/tie_robot_web/web/reports/current_scan_all_sources_hough_20260513_201258，保持 URL 不变：http://192.168.6.99:8080/reports/current_scan_all_sources_hough_20260513_201258/index.html。summary 显示 8 个底图、57 张 PNG 引用、无缺图。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/scan_hough_intersection_experiment.py`
+- `src/tie_robot_perception/tools/current_scan_all_sources_hough_report.py`
+- `src/tie_robot_perception/test/test_scan_hough_intersection_experiment.py`
+- `src/tie_robot_web/web/reports/current_scan_all_sources_hough_20260513_201258`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_hough_intersection_experiment -v => 7 tests OK; py_compile Hough tools OK; summary image_refs=57 missing=[]; curl index/binary/segments on 192.168.6.99:8080 => HTTP 200`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 20:35 - 扫描线性补偿下沉到 raw_world 底层
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户希望补偿底层而不是只补偿绑扎点。已先创建回退 tag slam/point-linear-compensation-20260513 指向点级扫描线性补偿方案。随后将 scan_linear_compensation_* 应用位置从 manual_workspace_s2 建点处下沉到 pointAI world_coord.ensure_raw_world_channels()：raw_world 图拆出的 x_channel/y_channel 会按同一 X/Y %/m 公式基于 z 做整张相机坐标底层补偿，depth_v 不改；manual_workspace_s2.build_manual_workspace_s2_points_array 改为直接使用 get_valid_world_coord_near_pixel 返回值，避免二次补偿。前端标签改为‘底层坐标线性补偿’。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/world_coord.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg; npm --prefix src/tie_robot_web/frontend run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 20:14 - 扫描全底图 Hough 交点旁路实验
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：按用户要求在实验环境、不改主链的前提下新增扫描全底图 Hough 交点实验。新增 ROS-free 工具 scan_hough_intersection_experiment.py：对响应图做阈值、骨架、HoughLinesP、横纵线段聚类和交点生成；新增 current_scan_all_sources_hough_report.py：复用当前扫描 rectified 输入，构建 depth_gradient、Frangi、Hessian、IR、combined、depth、fused、completed_surface 等 8 个底图并输出 Hough 直线/交点 HTML+PNG+summary，支持 live ROS 帧和 --snapshot-dir 快照回落。首次 live raw_world 报告 .debug_frames/current_scan_all_sources_hough_20260513_201258：depth_gradient [2,16]/32 点，Frangi [16,32]/510 点，Hessian [17,30]/509 点，completed_surface [16,20]/320 点；结论是直接 Hough 当前更适合作诊断/候选源，裸替主链会过检或漏轴。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/scan_hough_intersection_experiment.py`
+- `src/tie_robot_perception/tools/current_scan_all_sources_hough_report.py`
+- `src/tie_robot_perception/test/test_scan_hough_intersection_experiment.py`
+- `docs/superpowers/plans/2026-05-13-scan-hough-all-sources-experiment.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_hough_intersection_experiment -v => 5 tests OK; python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime -v => 45 tests OK; py_compile Hough tools OK; generated .debug_frames/current_scan_all_sources_hough_20260513_201258 with 8 rows and 9 PNG images`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 20:10 - 清除绑扎点按钮未生效根因：frontend旧进程
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户反馈点击‘清除所有绑扎点’后前端三维点仍不清。排查确认当时 tie-robot-frontend.service 仍是 17:07 启动的旧 workspace_picker_web_server.py 进程，日志中 DELETE /api/planning/bind-points 返回 404，说明新增 DELETE 接口没有被运行进程加载；磁盘账本仍有 pseudo_slam_points=359、pseudo_slam_bind_path areas=95，ROS /cabin/pseudo_slam_markers 也仍有 latched pseudo_slam_points。已通过终止旧用户进程让 systemd 自动重启，20:04 新进程启动后 /api/planning/scan-pose/0 DELETE 返回新逻辑的 400，静态 bundle 包含 bindPointVisualsSuppressed/clearBindPointVisuals。后续修改 src/tie_robot_web/frontend 或 workspace_picker_web_server.py 后必须重建静态页并重启 tie-robot-frontend.service/刷新浏览器，否则按钮可能仍打到旧接口。
+
+### 影响范围
+
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py; src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js; src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `systemctl status tie-robot-frontend.service 显示新 PID 55228 于 20:04 启动；curl -X DELETE /api/planning/scan-pose/0 返回 400 识别位姿序号必须大于 0；curl 静态 bundle grep 到 bindPointVisualsSuppressed、shouldSuppressBindPointVisualMessage、clearBindPointVisuals。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 19:35 - Surface-DP黄点改为物理绿线交点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户要求扫描结果黄色点老实呆在绿色线族上。已先把当前 HEAD 79d2354 推送远端 tag slam/v46 作为恢复点。随后将 Surface-DP 最终 rectified_intersections/primary_point_source 从 DP 曲线交点改为物理线族几何交点：绿色 line_families 仍由统一物理网格评分生成，DP 曲线交点保留在 dp_curve_intersections 和 dp_curve_intersection_count 里只作诊断，不再牵引最终黄点。manual_workspace_s2 的 algorithm 跟随 variant_id=surface_dp_lattice_intersection。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 src/tie_robot_perception/test/test_scan_surface_dp_runtime.py => Ran 45 tests OK; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py => Ran 120 tests OK`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 19:22 - 清除绑扎点需同步清 latched Marker
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户反馈点击‘清除所有绑扎点’后前端三维点仍残留。根因有两层：源码清本地状态后，旧 /perception/lashing/points_camera 或 /cabin/pseudo_slam_markers 消息会回灌；且 /cabin/pseudo_slam_markers 是 latch=True，刷新页面也可能恢复旧 marker。现在前端清除成功后设置 bindPointVisualsSuppressed，作废旧 bind-path 刷新 token，清空 3D 与红外 overlay，并在下一次扫描触发时解除抑制；后端 bind_task_executor 新增 /cabin/clear_pseudo_slam_markers Trigger 服务，HTTP DELETE /api/planning/bind-points 删除 JSON 后调用该服务发布 DELETEALL 清掉 latched marker。静态前端已重建到 web/assets/app/index-DSkUEhOG.js。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_process/src/suoqu/service_orchestration.cpp`
+- `src/tie_robot_process/src/suoqu/suoqu_runtime_internal.hpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/clearBindPointVisualSuppression.test.mjs && node src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs && node src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs && node src/tie_robot_web/frontend/test/taskActionController.test.mjs && node src/tie_robot_web/frontend/test/sceneViewModeBehavior.test.mjs && node src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs; python3 src/tie_robot_process/test/test_scan_artifact_write_guard.py; python3 src/tie_robot_web/test/test_workspace_picker_web.py WorkspacePickerWebTest.test_clear_bind_point_artifacts_clears_all_pose_groups_and_execution_memory WorkspacePickerWebTest.test_clear_bind_points_clears_latched_pseudo_slam_markers; python3 -m py_compile src/tie_robot_web/scripts/workspace_picker_web_server.py; npm run build; catkin_make --pkg tie_robot_process tie_robot_web; git diff --check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 18:38 - 清除绑扎点同步清前端三维显示
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：用户反馈点击控制面板‘清除所有绑扎点’后前端 3D 绑扎点仍残留。根因是之前只清了 pseudo_slam_points/pseudo_slam_bind_path/bind_execution_memory 文件账本并刷新 bind-path overlay，没有同步清空前端本地保存的 tiePoints/planningPoints/bindPathPoints/jumpBindPoints 等三维显示状态。现在 Scene3DView/Scene3DUnavailableView 都新增 clearBindPointVisuals()；TieRobotFrontApp.handleClearAllBindPoints 在 DELETE /api/planning/bind-points 成功后会立即清空 3D 场景点、路径线、hover 数据、视觉 overlay 和 viewer/topic 统计，再异步 refreshPlanningAreaOverlay。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs && node src/tie_robot_web/frontend/test/taskActionController.test.mjs && node src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs && node src/tie_robot_web/frontend/test/sceneViewModeBehavior.test.mjs && node src/tie_robot_web/frontend/test/bindPathLayerControls.test.mjs && npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 18:21 - 前端连接中卡死的 WebGL 根因
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：前端卡在‘连接中’并非 rosbridge 后端断开，而是浏览器创建 Three.js WebGLRenderer 抛 Error creating WebGL context，导致 TieRobotFrontApp.init() 在执行 rosConnectionController.connect() 前中断。Scene3DView 现在通过 createScene3DView 工厂只对 WebGL/context 初始化失败降级为 Scene3DUnavailableView，保留 TF/坐标换算和 ROS 连接流程；连接中状态仍可短按顶部胶囊 manualRosReconnect。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/views/Scene3DView.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/styles/app.css`
+- `src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/scene3dUnavailableFallback.test.mjs; node src/tie_robot_web/frontend/test/rosConnectionController.test.mjs; node src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs; node src/tie_robot_web/frontend/test/sceneViewModeBehavior.test.mjs; npm run build; Firefox headless opened http://127.0.0.1:8080/index.html and rosbridge log grew 34->53 with Client connected/subscriptions`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 17:35 - 控制面板新增清除所有绑扎点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：控制面板扫描区新增‘清除所有绑扎点’按钮，前端调用 DELETE /api/planning/bind-points，workspace_picker_web_server 会同时清空 pseudo_slam_points.json、pseudo_slam_bind_path.json 和 bind_execution_memory.json 中所有识别位姿累计的 scan_pose_groups/pseudo_slam_points/areas/executed_points，但保留识别位姿库、各位姿工作区以及 path_signature/scan_session_id/path_origin 等元信息；同时补上 TieRobotFrontApp.requestPlanningAreaRefresh 让删位姿和整包清空后立即刷新规划显示。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs`
+- `src/tie_robot_web/frontend/test/taskActionController.test.mjs`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+- `src/tie_robot_web/web/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs && node src/tie_robot_web/frontend/test/taskActionController.test.mjs && node src/tie_robot_web/frontend/test/workspaceCanvasInteractionMode.test.mjs && python3 src/tie_robot_web/test/test_workspace_picker_web.py -k clear_bind_point_artifacts && npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 17:30 - 连接中允许手动重连
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：前端顶部 ROS 连接胶囊在 info/连接中 状态下也提供短按 manualRosReconnect 动作，显示‘立即重连’；reconnecting 状态保持同样动作。这样浏览器停在连接中时无需等待自动重连失败，也能直接点胶囊手动重连。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-gdVorTDU.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs && node src/tie_robot_web/frontend/test/rosConnectionController.test.mjs; npm run build (src/tie_robot_web/frontend); full frontend test sweep currently stops at pre-existing taskActionController.test.mjs expectation for removed clear button`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-13 16:40 - 删除位姿联动删除对应扫描账本
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-13：前端设置/工作区删除识别位姿时，除了本地识别位姿与工作区一起删除，还会调用 workspace_picker_web_server 的 DELETE /api/planning/scan-pose/<pose_index>。服务器会同时从 pseudo_slam_points.json、pseudo_slam_bind_path.json 的 scan_pose_groups/scan_pose_groups_by_pose_index 里删除该 recognition_pose_index 对应大组，并从 bind_execution_memory.json 里删除同 pose 的 executed_points，避免已删位姿的扫描点和执行记忆继续参与后续显示/执行。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/scripts/workspace_picker_web_server.py`
+- `src/tie_robot_web/test/test_workspace_picker_web.py`
+- `src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-BnBVR-62.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; node src/tie_robot_web/frontend/test/workspaceCanvasInteractionMode.test.mjs; python3 src/tie_robot_web/test/test_workspace_picker_web.py -k delete_scan_pose_artifacts; npm run build in src/tie_robot_web/frontend`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 02:23 - 识别位姿独立工作区
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：前端设置/工作区里的每个识别位姿现在保留独立 workspace.selectedPayload/savedPayload。切换下拉框会把该位姿工作区显示到画布；选择已有且已确认工作区的位姿时会同步发布给 pointAI；新增位姿显示为空工作区；记录当前位姿只更新 x/y/z，不丢该位姿已有工作区；确认工作区的回执和自动扫描 recognition_pose_index 绑定到提交时位姿，避免切换下拉框后串写/串扫。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/src/controllers/TaskActionController.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs`
+- `src/tie_robot_web/frontend/test/taskActionController.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `src/tie_robot_web/web/assets/app/index-MU3ewGeV.js`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs; node src/tie_robot_web/frontend/test/taskActionController.test.mjs; node src/tie_robot_web/frontend/test/workspaceCanvasInteractionMode.test.mjs; git diff --check -- relevant frontend files; npm run build in src/tie_robot_web/frontend`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-12 02:11 - 前端报警按层级变黄，不占顶部连接横幅
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-12：用户明确任何索驱、末端、视觉或诊断报警都不要放到顶部连接报警横幅；报警详情写入前端日志，哪一层报警只让对应状态胶囊变黄。StatusMonitorController 现在把 diagnostic/telemetry 报警保存在 layerAlarmSources，统一按对应 monitor 输出 warn 状态，不再触发顶部连接报警汇总；UIController.setConnectionAlarmState 对旧调用保持空操作。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/StatusMonitorController.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/test/statusMonitorController.test.mjs`
+- `src/tie_robot_web/frontend/test/connectionBadgeAlarmBehavior.test.mjs`
+- `src/tie_robot_web/web/index.html`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/frontend && find test -name '*.test.mjs' -print0 | xargs -0 -n 1 node; cd src/tie_robot_web/frontend && npm run build`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-12 01:48 - 前端热调扫描线性补偿系数
 
 <!-- AGENT-MEMORY: entry -->
@@ -421,13 +1479,13 @@ src/tie_robot_web/frontend/test/workspaceScanPoseSettings.test.mjs; do node "" |
 
 - 暂无。
 
-## 2026-05-11 23:24 - Surface-DP梁筋过滤理论交点命中删整列
+## 2026-05-11 23:24 - Surface-DP 梁筋过滤列级策略（已作废）
 
 <!-- AGENT-MEMORY: entry -->
 
 ### 摘要
 
-- 2026-05-11：扫描 Surface-DP 启用梁筋过滤时，列级过滤进一步补齐现场口径：不仅最终输出交点命中 beam_candidate_margin_mask 会删整列，纵向/横向 line family 形成的理论交点若命中梁筋扩张 mask，也会删除该纵列全部输出交点。这样即使曲线追踪在梁筋附近已断开、缺失点没有进入最终 rectified_intersections，下方残留点也会随整列删除，避免画面出现一列缺一截。诊断保留 beam_filtered_point_count，并新增 beam_filtered_column_count。
+- 已作废：2026-05-13 用户纠正当前口径，梁筋过滤仍保留，但只做点级过滤。任何按同一 X 位置连带移除其它交点的策略都不再作为当前运行入口或诊断字段使用。
 
 ### 影响范围
 

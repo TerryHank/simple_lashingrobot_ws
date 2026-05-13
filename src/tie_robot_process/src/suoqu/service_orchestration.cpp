@@ -1,6 +1,7 @@
 #include "suoqu_runtime_internal.hpp"
 #include "tie_robot_process/suoqu/cabin_transport.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 
@@ -72,6 +73,14 @@ bool startPseudoSlamScan(std_srvs::Trigger::Request&, std_srvs::Trigger::Respons
     return true;
 }
 
+bool clearPseudoSlamMarkersService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res)
+{
+    clear_pseudo_slam_markers();
+    res.success = true;
+    res.message = "已清除/cabin/pseudo_slam_markers历史绑扎点。";
+    return true;
+}
+
 bool startPseudoSlamScanWithOptions(
     tie_robot_msgs::StartPseudoSlamScan::Request& req,
     tie_robot_msgs::StartPseudoSlamScan::Response& res)
@@ -104,13 +113,60 @@ bool startPseudoSlamScanWithOptions(
             req.enable_capture_gate,
             res.message,
             req.bind_group_point_count,
+            req.bind_group_row_threshold_mm,
+            req.bind_group_column_threshold_mm,
             req.bind_execution_cabin_min_z_mm,
+            req.bind_execution_cabin_z_mode,
             fixed_scan_pose_override,
             req.recognition_pose_index
         );
     } catch (const std::exception& ex) {
         res.success = false;
         res.message = ex.what();
+    }
+    return true;
+}
+
+bool replanPseudoSlamBindPath(
+    tie_robot_msgs::ReplanPseudoSlamBindPath::Request& req,
+    tie_robot_msgs::ReplanPseudoSlamBindPath::Response& res)
+{
+    printCurrentTime();
+    ros_log_printf(
+        "Cabin_log: 收到阈值重规划请求：识别位姿=%u，成行阈值=%.2fmm，成列阈值=%.2fmm，每组点数=%u，规划Z=%.2fmm，Z模式=%u。\n",
+        static_cast<unsigned int>(req.recognition_pose_index),
+        static_cast<double>(req.bind_group_row_threshold_mm),
+        static_cast<double>(req.bind_group_column_threshold_mm),
+        static_cast<unsigned int>(req.bind_group_point_count),
+        static_cast<double>(req.bind_execution_cabin_min_z_mm),
+        static_cast<unsigned int>(req.bind_execution_cabin_z_mode)
+    );
+
+    int area_count = 0;
+    int group_count = 0;
+    int point_count = 0;
+    try {
+        res.success = replan_pseudo_slam_bind_path_from_current_points(
+            res.message,
+            req.bind_group_point_count,
+            req.bind_group_row_threshold_mm,
+            req.bind_group_column_threshold_mm,
+            req.bind_execution_cabin_min_z_mm,
+            req.bind_execution_cabin_z_mode,
+            req.recognition_pose_index,
+            &area_count,
+            &group_count,
+            &point_count
+        );
+        res.area_count = static_cast<uint32_t>(std::max(area_count, 0));
+        res.group_count = static_cast<uint32_t>(std::max(group_count, 0));
+        res.point_count = static_cast<uint32_t>(std::max(point_count, 0));
+    } catch (const std::exception& ex) {
+        res.success = false;
+        res.message = ex.what();
+        res.area_count = 0;
+        res.group_count = 0;
+        res.point_count = 0;
     }
     return true;
 }

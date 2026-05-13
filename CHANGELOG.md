@@ -3,7 +3,22 @@
 本文档记录 `simple_lashingrobot_ws` 的项目级变更约定和近期关键调整。  
 开始修改代码前，先读最新日期的记录，再进入具体包目录。
 
+## 2026-05-13
+
+### 扫描 Surface-DP 梁筋过滤改为点级过滤
+
+- 用户最新口径：保留“梁筋候选 / 梁筋过滤 / 过滤半径”功能，保留扫描底图红色梁筋候选竖带和前端开关；只取消“某个梁筋 mask 命中点后连带移除同 X 位置其它交点”的逻辑。
+- Surface-DP 当前运行链路继续输出 `beam_candidate_*` 诊断，启用梁筋过滤时仍按前端半径扩张 `beam_candidate_margin_mask`，但最终过滤改为点级 `point_mask`：只删除自身落入梁筋 mask 的交点，不会连带移除同一 X 位置的其它普通钢筋交点。
+- pointAI ROS 继续订阅 `/web/pointAI/set_scan_beam_exclusion` 与 `/web/pointAI/set_scan_beam_exclusion_margin_mm`；前端视觉调试页继续提供梁筋过滤开关、半径输入、topic registry 和 localStorage 字段。
+- 运行态诊断保留 `beam_filtered_point_count`，`beam_filter_mode=point_mask` 表示点级过滤；当前入口不再使用列级过滤 helper，也不再输出列级过滤计数字段。
+
 ## 2026-05-11
+
+### 前端报警只落到对应层级状态
+
+- 用户最新口径：任何索驱、末端、视觉或诊断报警都不要再占用顶部连接报警横幅；顶部连接胶囊只表达 ROS / rosbridge 连接状态。
+- 报警详情统一进入前端日志；哪一层报警，就只让哪一层状态胶囊变黄并显示该层详情，例如索驱报警只让“索驱”胶囊 `warn`，末端报警只让“末端”胶囊 `warn`。
+- `/diagnostics` 中各子系统 `ERROR` 级别不再映射为红色错误态，也不再汇总为顶部“等 N 项报警”；按层级转成黄色告警，恢复 OK 后回到对应运行态。
 
 ### 前端扫描入口二次收口
 
@@ -71,7 +86,7 @@
 ### 扫描 DP 底图梁筋候选可视化
 
 - Surface-DP 运行态新增 `beam_candidate` 梁筋候选诊断：基于收束底图中的宽、连续、高响应竖向 band 识别梁筋候选，并输出 `beam_candidate_bands`、`beam_candidate_count` 和像素统计。
-- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可启用梁筋过滤并填写过滤半径，默认半径 150 mm，启用后按梁筋候选扩张范围过滤最终绑扎列，不删除普通钢筋线族。
+- `/perception/lashing/scan_surface_dp_base_image` 与 `/perception/lashing/scan_surface_dp_completed_surface_image` 会用红色半透明竖带叠加梁筋候选，同时保留黄色 DP 交点；视觉调试设置里可启用梁筋过滤并填写过滤半径，默认半径 150 mm，启用后按梁筋候选扩张范围过滤最终绑扎点，不删除普通钢筋线族。
 - 梁筋候选识别补充「黑色竖沟 + 双侧窄亮边」形态：现场截图中梁筋中间常表现为贯穿全高的暗沟，而不是整条宽亮带；检测逻辑会把两侧连续亮边与中间低覆盖暗沟合并成一条 beam_candidate 竖带，避免漏掉这种梁筋。
 - 梁筋候选进一步增加高度门控：竖带这一列必须在 `background_depth - filled_depth` 高度响应上高于邻近普通钢筋才会标为梁筋；红色半透明带按高度峰值列收窄，避免把只是更宽、更亮但不更高的普通钢筋误判为梁筋。
 - 梁筋候选再增加网格线族上下文门控：候选竖带必须位于相邻普通竖向钢筋列之间，并接近这两列的中点；如果候选中心落在正常竖筋 line-family 上，会被视为普通钢筋抬高或局部变粗而剔除，降低误识别红带。
@@ -186,7 +201,7 @@
 - 用户明确口径：视觉请求和触发链路保持当前 `/pointAI/process_image request_mode=3`，只把扫描视觉算法本体恢复到 2026-04-22 那版 `manual workspace S2`。
 - 扫描 S2 主链回到 depth-only 版本：手动工作区透视展开后，基于深度背景差分构造响应图，分别对 rectified 图的纵向、横向 profile 做周期和相位估计，再用 `build_workspace_s2_projective_line_segments` 与 inverse mapping 投回原图。
 - 扫描 S2 与 `38baa98` 的算法差异继续收口：运行态会完整评分 `background_depth - filled_depth` 与 `filled_depth - background_depth` 两个 depth 响应变体，并按纵横周期估计总分选择最佳变体；透视展开几何优先使用当前 `map` 口径的 `corner_world_map_frame`，缺失时才回退兼容当前已有的 `corner_world_camera_frame`。
-- 当前扫描算法不恢复旧实验链路中的行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、稳定采样择优或 phase lock；当前运行态 Surface-DP 梁筋过滤由视觉调试开关和半径输入控制，默认半径 150 mm，启用后只按梁筋候选扩张 mask 过滤最终绑扎列，不删除普通钢筋线族。
+- 当前扫描算法不恢复旧实验链路中的行/列峰值 line-family 主链、depth+IR 组合响应、`axis_peak_families` 日志口径、稳定采样择优或 phase lock；当前运行态 Surface-DP 梁筋过滤由视觉调试开关和半径输入控制，默认半径 150 mm，启用后只按梁筋候选扩张 mask 过滤最终绑扎点，不删除普通钢筋线族。
 - `MODE_EXECUTION_REFINE` 仍按 2026-04-30 口径走平面分割 + Hough 局部视觉；本次不修改前端按钮、Web action、`/pointAI/process_image` 服务入口或执行层 Hough 分流。
 
 ### 当前视觉识别流程效果页

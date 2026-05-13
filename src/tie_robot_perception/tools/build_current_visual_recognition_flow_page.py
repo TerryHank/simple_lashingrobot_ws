@@ -421,8 +421,8 @@ def run_scan_pipeline() -> tuple[list[dict[str, str]], dict[str, float | int | s
             ),
         },
         {
-            "title": "09 Surface-DP 曲线交点投影",
-            "detail": "当前运行会用 Surface-DP 曲线追踪求交，再通过 inverse H 投回原图。",
+            "title": "09 物理线族交点投影",
+            "detail": "当前运行会用通过校对的物理线族求交，再通过 inverse H 投回原图。",
             "src": save_image(
                 "09_scan_projective_overlay.png",
                 draw_projective_overlay(ir_image, line_segments, valid_points, number_points=False),
@@ -895,7 +895,7 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
         <h1>当前视觉识别流程效果图</h1>
         <p class="subtitle">
           基于仓库内 <code>slam_v30</code> 视觉模态快照离线生成；扫描分支按当前帮助口径解释为
-          Surface-DP 单源底图、统一物理网格评分、Surface-DP 曲线交点和原图投影。历史 profile 图只作为线族支撑诊断参考。
+          Surface-DP 单源底图、统一物理网格评分、物理线族交点和原图投影。历史 profile 图只作为线族支撑诊断参考。
         </p>
       </div>
     </div>
@@ -910,7 +910,7 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
   <main>
     <div class="notice">
       当前扫描识别链路使用 Surface-DP 单源底图，并通过统一物理网格评分校对线族；关键字段包括 <code>physical_lattice_count_aspect_error</code> 和 <code>physical_lattice_count_aspect_tolerance</code>。
-      扫描底图会叠加 beam_candidate 梁筋候选；视觉调试开关启用时，才按视觉调试里的梁筋过滤半径对最终绑扎点执行点级过滤。更重的多尺度融合仍只保留在研究工具和报告中。
+      扫描底图继续叠加 <code>beam_candidate</code> 梁筋候选红带；视觉调试启用梁筋过滤时，只按梁筋扩张 mask 做点级过滤，不会连带移除同一 X 位置的其它交点。
       执行微调仍走平面分割 + Hough，用于逐区到位后的局部视觉。
     </div>
 
@@ -921,7 +921,7 @@ def render_html(scan_steps, scan_metrics, execution_steps, execution_metrics) ->
           <p>
             固定识别位姿下，前端触发仍进入 <code>/pointAI/process_image</code> 的
             <code>request_mode=3</code>。当前算法把手动工作区展开到 rectified 平面，生成当前选中的单源底图，
-            用 120-160 mm 间距先验和统一物理网格评分校对横纵线族，再由 Surface-DP 曲线交点输出相机坐标点。
+            用 120-160 mm 间距先验和统一物理网格评分校对横纵线族，再由物理线族交点输出相机坐标点。
           </p>
         </div>
         <div class="metrics">

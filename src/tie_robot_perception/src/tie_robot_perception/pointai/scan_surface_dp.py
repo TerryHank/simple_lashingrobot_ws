@@ -1531,73 +1531,26 @@ def _project_rectified_points_to_image(rectified_points, inverse_h):
     return [[float(x_value), float(y_value)] for x_value, y_value in image_points]
 
 
-def _filter_beam_excluded_intersection_columns(
-    rectified_points,
-    beam_candidate_margin_mask,
-    vertical_lines,
-    horizontal_lines=None,
-):
+def _filter_beam_excluded_intersection_points(rectified_points, beam_candidate_margin_mask):
     beam_candidate_margin_mask = np.asarray(beam_candidate_margin_mask, dtype=bool)
     if beam_candidate_margin_mask.ndim != 2 or beam_candidate_margin_mask.size == 0:
-        return [tuple(float(value) for value in point) for point in rectified_points], 0
-
-    vertical_lines = sorted(
-        float(line) for line in (vertical_lines or []) if np.isfinite(float(line))
-    )
-    if not vertical_lines:
-        vertical_lines = sorted(
-            {
-                int(round(float(point[0])))
-                for point in rectified_points
-                if len(point) >= 2 and np.isfinite(float(point[0]))
-            }
-        )
-    if not vertical_lines:
-        return [tuple(float(value) for value in point) for point in rectified_points], 0
+        return [[float(value) for value in point] for point in rectified_points], 0
 
     height, width = beam_candidate_margin_mask.shape[:2]
-    removed_column_indices = set()
-    vertical_array = np.asarray(vertical_lines, dtype=np.float32)
-
-    horizontal_lines = sorted(
-        float(line) for line in (horizontal_lines or []) if np.isfinite(float(line))
-    )
-    if horizontal_lines:
-        for column_index, x_value in enumerate(vertical_lines):
-            x_index = int(round(float(x_value)))
-            if x_index < 0 or x_index >= width:
-                continue
-            for y_value in horizontal_lines:
-                y_index = int(round(float(y_value)))
-                if y_index < 0 or y_index >= height:
-                    continue
-                if beam_candidate_margin_mask[y_index, x_index]:
-                    removed_column_indices.add(column_index)
-                    break
-
-    point_columns = []
+    filtered_points = []
+    removed_count = 0
     for point in rectified_points:
-        x_value = float(point[0])
-        y_value = float(point[1])
-        column_index = int(np.argmin(np.abs(vertical_array - x_value)))
-        point_columns.append(column_index)
-
-        x_index = int(round(x_value))
-        y_index = int(round(y_value))
-        if x_index < 0 or x_index >= width or y_index < 0 or y_index >= height:
+        point_values = [float(value) for value in point]
+        if len(point_values) < 2:
+            filtered_points.append(point_values)
             continue
-        if beam_candidate_margin_mask[y_index, x_index]:
-            removed_column_indices.add(column_index)
-
-    if not removed_column_indices:
-        return [tuple(float(value) for value in point) for point in rectified_points], 0
-
-    filtered_points = [
-        tuple(float(value) for value in point)
-        for point, column_index in zip(rectified_points, point_columns)
-        if column_index not in removed_column_indices
-    ]
-    return filtered_points, len(removed_column_indices)
+        x_index = int(round(point_values[0]))
+        y_index = int(round(point_values[1]))
+        if 0 <= x_index < width and 0 <= y_index < height and beam_candidate_margin_mask[y_index, x_index]:
+            removed_count += 1
+            continue
+        filtered_points.append(point_values)
+    return filtered_points, int(removed_count)
 
 
 def build_scan_surface_dp_result(
@@ -1670,8 +1623,8 @@ def build_scan_surface_dp_result(
     modalities["beam_candidate_pixels"] = int(np.count_nonzero(modalities["beam_candidate_mask"]))
     modalities["beam_candidate_lattice_rejected_count"] = int(beam_candidate_lattice_rejected_count)
 
-    beam_candidate_margin_mask = np.zeros_like(valid_mask, dtype=bool)
     curve_trace_mask = valid_mask
+    beam_candidate_margin_mask = np.zeros_like(valid_mask, dtype=bool)
     if bool(enable_beam_exclusion):
         beam_candidate_margin_mask = expand_workspace_s2_exclusion_mask_by_metric_margin(
             modalities.get("beam_candidate_mask", np.zeros_like(valid_mask, dtype=bool)),
@@ -1694,26 +1647,26 @@ def build_scan_surface_dp_result(
         smoothing_window_samples=5,
         smoothness_weight=0.12,
     )
-    rectified_intersections = intersect_workspace_s2_curved_line_families(
+    dp_curve_intersections = intersect_workspace_s2_curved_line_families(
         curved_families[0],
         curved_families[1],
         rectified_width,
         rectified_height,
     )
-    if not rectified_intersections:
-        rectified_intersections = intersect_workspace_s2_oriented_line_families(
-            line_families[0],
-            line_families[1],
-            rectified_width,
-            rectified_height,
-        )
+    rectified_intersections = intersect_workspace_s2_oriented_line_families(
+        line_families[0],
+        line_families[1],
+        rectified_width,
+        rectified_height,
+    )
     if not rectified_intersections:
         return {
             "success": False,
-            "message": "Surface-DP 未生成有效交点",
+            "message": "Surface-DP 物理线族未生成有效交点",
             "diagnostics": {
                 "instance_graph_endpoint_count": modalities["instance_graph_endpoint_count"],
                 "instance_graph_junction_count": modalities["instance_graph_junction_count"],
+                "dp_curve_intersection_count": int(len(dp_curve_intersections)),
                 "beam_candidate_count": len(modalities.get("beam_candidate_bands", [])),
                 "beam_candidate_pixels": int(modalities.get("beam_candidate_pixels", 0)),
                 "beam_candidate_lattice_rejected_count": int(
@@ -1728,15 +1681,11 @@ def build_scan_surface_dp_result(
     vertical_lines, horizontal_lines = _axis_positions_from_families(line_families)
     raw_rectified_intersection_count = len(rectified_intersections)
     beam_filtered_point_count = 0
-    beam_filtered_column_count = 0
     if bool(enable_beam_exclusion):
-        rectified_intersections, beam_filtered_column_count = _filter_beam_excluded_intersection_columns(
+        rectified_intersections, beam_filtered_point_count = _filter_beam_excluded_intersection_points(
             rectified_intersections,
             beam_candidate_margin_mask,
-            vertical_lines,
-            horizontal_lines=horizontal_lines,
         )
-        beam_filtered_point_count = raw_rectified_intersection_count - len(rectified_intersections)
         if not rectified_intersections:
             return {
                 "success": False,
@@ -1744,6 +1693,7 @@ def build_scan_surface_dp_result(
                 "diagnostics": {
                     "instance_graph_endpoint_count": modalities["instance_graph_endpoint_count"],
                     "instance_graph_junction_count": modalities["instance_graph_junction_count"],
+                    "dp_curve_intersection_count": int(len(dp_curve_intersections)),
                     "beam_candidate_count": len(modalities.get("beam_candidate_bands", [])),
                     "beam_candidate_pixels": int(modalities.get("beam_candidate_pixels", 0)),
                     "beam_candidate_lattice_rejected_count": int(
@@ -1751,8 +1701,8 @@ def build_scan_surface_dp_result(
                     ),
                     "beam_exclusion_enabled": True,
                     "beam_exclusion_margin_mm": float(beam_exclusion_margin_mm),
+                    "beam_filter_mode": "point_mask",
                     "beam_filtered_point_count": int(beam_filtered_point_count),
-                    "beam_filtered_column_count": int(beam_filtered_column_count),
                     "beam_candidate_margin_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
                     "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
                     "scan_runtime_response_source": selected_response_source,
@@ -1774,9 +1724,10 @@ def build_scan_surface_dp_result(
     return {
         "success": True,
         "message": "Surface-DP 扫描识别完成",
-        "variant_id": "surface_dp_curve",
-        "primary_point_source": "dp_curve_intersections",
+        "variant_id": "surface_dp_lattice_intersection",
+        "primary_point_source": "physical_lattice_intersections",
         "rectified_intersections": rectified_intersections,
+        "dp_curve_intersections": dp_curve_intersections,
         "image_intersections": image_intersections,
         "line_counts": [len(family.get("line_rhos", [])) for family in line_families],
         "vertical_lines": vertical_lines,
@@ -1797,6 +1748,9 @@ def build_scan_surface_dp_result(
             "completed_surface_pixels": int(np.count_nonzero(surface["completed_surface_mask"])),
             "instance_graph_endpoint_count": modalities["instance_graph_endpoint_count"],
             "instance_graph_junction_count": modalities["instance_graph_junction_count"],
+            "physical_lattice_intersection_count": int(len(rectified_intersections)),
+            "physical_lattice_raw_intersection_count": int(raw_rectified_intersection_count),
+            "dp_curve_intersection_count": int(len(dp_curve_intersections)),
             "beam_candidate_count": len(modalities.get("beam_candidate_bands", [])),
             "beam_candidate_pixels": int(modalities.get("beam_candidate_pixels", 0)),
             "beam_candidate_lattice_rejected_count": int(
@@ -1804,8 +1758,8 @@ def build_scan_surface_dp_result(
             ),
             "beam_exclusion_enabled": bool(enable_beam_exclusion),
             "beam_exclusion_margin_mm": float(beam_exclusion_margin_mm),
+            "beam_filter_mode": "point_mask",
             "beam_filtered_point_count": int(beam_filtered_point_count),
-            "beam_filtered_column_count": int(beam_filtered_column_count),
             "beam_candidate_margin_pixels": int(np.count_nonzero(beam_candidate_margin_mask)),
             "physical_prior_modes": physical_prior_modes,
             "physical_spacing_mm_range": [

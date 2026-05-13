@@ -49,7 +49,7 @@ const CONNECTION_LABELS = {
 };
 
 const CONNECTION_ACTIONS = {
-  info: { id: "", label: "" },
+  info: { id: "manualRosReconnect", label: "立即重连" },
   reconnecting: { id: "manualRosReconnect", label: "立即重连" },
   success: { id: "", label: "长按重启" },
   manual: { id: "manualRosReconnect", label: "手动重连" },
@@ -62,6 +62,9 @@ const STATUS_CHIP_LONG_PRESS_RESTART_MS = 500;
 const STATUS_CHIP_CHARGE_COMPLETE_HOLD_MS = 240;
 const BOTTOM_LINEAR_MODULE_ZERO_HINT = "长按0.5秒线性模组回零";
 const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
+const DEFAULT_BIND_EXECUTION_CABIN_Z_MODE = "fixed";
+const DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM = 40;
+const DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM = 45;
 
 const CABIN_POSITION_AXES = [
   { id: "x", label: "X" },
@@ -96,12 +99,25 @@ const VISUAL_DEBUG_BIND_RANGE_AXES = [
 
 const DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS = Object.freeze({
   enabled: false,
+  mode: "optical_axis",
   referenceZMm: 1000,
   xPercentPerMeter: 0,
   yPercentPerMeter: 0,
+  xShiftMmPerMeter: 0,
+  yShiftMmPerMeter: 0,
   minZMm: 1200,
   maxScaleDelta: 0.25,
 });
+
+const SCAN_LINEAR_COMPENSATION_MODES = [
+  { id: "optical_axis", label: "光轴偏移" },
+  { id: "translation", label: "整体平移" },
+];
+
+const BIND_EXECUTION_CABIN_Z_MODES = [
+  { id: "fixed", label: "固定 Z", summaryLabel: "固定Z" },
+  { id: "min", label: "Z 下限", summaryLabel: "Z下限" },
+];
 
 const VISUAL_DEBUG_EXECUTION_MODE_CONTROLS = [
   {
@@ -231,6 +247,21 @@ function formatCoordinateInputValue(value) {
 function normalizeBindExecutionCabinMinZ(value, fallback = DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : fallback;
+}
+
+function normalizeBindExecutionCabinZMode(value, fallback = DEFAULT_BIND_EXECUTION_CABIN_Z_MODE) {
+  return BIND_EXECUTION_CABIN_Z_MODES.some((modeOption) => modeOption.id === value)
+    ? value
+    : fallback;
+}
+
+function normalizeBindGroupAxisThreshold(value, fallback) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+}
+
+function getBindExecutionCabinZModeSummaryLabel(mode) {
+  return BIND_EXECUTION_CABIN_Z_MODES.find((modeOption) => modeOption.id === mode)?.summaryLabel || "固定Z";
 }
 
 export class UIController {
@@ -546,13 +577,35 @@ export class UIController {
                           <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
                         </div>
                         <div class="field">
-                          <label for="visualDebugBindExecutionCabinMinZ">索驱规划 Z 下限 (mm)</label>
+                          <label for="visualDebugBindExecutionCabinMinZ">索驱规划 Z (mm)</label>
                           <input id="visualDebugBindExecutionCabinMinZ" type="number" min="0" step="1" value="485" />
                         </div>
                         <div class="field">
                           <label for="visualDebugBeamExclusionMargin">梁筋过滤半径 (mm)</label>
                           <input id="visualDebugBeamExclusionMargin" type="number" min="1" step="1" value="150" />
                         </div>
+                        <div class="field">
+                          <label for="visualDebugBindGroupRowThreshold">成行阈值 (mm)</label>
+                          <input id="visualDebugBindGroupRowThreshold" type="number" min="1" step="1" value="40" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindGroupColumnThreshold">成列阈值 (mm)</label>
+                          <input id="visualDebugBindGroupColumnThreshold" type="number" min="1" step="1" value="45" />
+                        </div>
+                      </div>
+                      <div class="visual-debug-cabin-z-mode" role="radiogroup" aria-label="索驱规划 Z 模式">
+                        ${BIND_EXECUTION_CABIN_Z_MODES.map((modeOption) => `
+                          <label class="visual-debug-mode-option" for="visualDebugBindExecutionCabinZMode${modeOption.id}">
+                            <input
+                              id="visualDebugBindExecutionCabinZMode${modeOption.id}"
+                              name="visualDebugBindExecutionCabinZMode"
+                              type="radio"
+                              value="${modeOption.id}"
+                              ${modeOption.id === DEFAULT_BIND_EXECUTION_CABIN_Z_MODE ? "checked" : ""}
+                            />
+                            <span>${modeOption.label}</span>
+                          </label>
+                        `).join("")}
                       </div>
                       <label class="checkbox-field visual-debug-adaptive-bind-grouping" for="visualDebugAdaptiveBindGrouping">
                         <input id="visualDebugAdaptiveBindGrouping" type="checkbox" />
@@ -564,16 +617,38 @@ export class UIController {
                       </label>
                       <label class="checkbox-field visual-debug-scan-linear-compensation" for="visualDebugScanLinearCompensationToggle">
                         <input id="visualDebugScanLinearCompensationToggle" type="checkbox" />
-                        <span>扫描线性补偿</span>
+                        <span>底层坐标线性补偿</span>
                       </label>
+                      <div class="visual-debug-compensation-mode" role="radiogroup" aria-label="底层坐标线性补偿模式">
+                        ${SCAN_LINEAR_COMPENSATION_MODES.map((modeOption) => `
+                          <label class="visual-debug-mode-option visual-debug-compensation-mode-option" for="visualDebugScanLinearCompensationMode${modeOption.id}">
+                            <input
+                              id="visualDebugScanLinearCompensationMode${modeOption.id}"
+                              name="visualDebugScanLinearCompensationMode"
+                              type="radio"
+                              value="${modeOption.id}"
+                              ${modeOption.id === DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS.mode ? "checked" : ""}
+                            />
+                            <span>${modeOption.label}</span>
+                          </label>
+                        `).join("")}
+                      </div>
                       <div class="field-grid compact-grid visual-debug-scan-linear-grid">
-                        <div class="field">
+                        <div class="field visual-debug-scan-linear-scale-field">
                           <label for="visualDebugScanLinearCompensationX">X补偿 (%/m)</label>
                           <input id="visualDebugScanLinearCompensationX" type="number" step="0.1" value="0" />
                         </div>
-                        <div class="field">
+                        <div class="field visual-debug-scan-linear-scale-field">
                           <label for="visualDebugScanLinearCompensationY">Y补偿 (%/m)</label>
                           <input id="visualDebugScanLinearCompensationY" type="number" step="0.1" value="0" />
+                        </div>
+                        <div class="field visual-debug-scan-linear-translation-field">
+                          <label for="visualDebugScanLinearCompensationXShift">X平移 (mm/m)</label>
+                          <input id="visualDebugScanLinearCompensationXShift" type="number" step="0.1" value="0" />
+                        </div>
+                        <div class="field visual-debug-scan-linear-translation-field">
+                          <label for="visualDebugScanLinearCompensationYShift">Y平移 (mm/m)</label>
+                          <input id="visualDebugScanLinearCompensationYShift" type="number" step="0.1" value="0" />
                         </div>
                         <div class="field">
                           <label for="visualDebugScanLinearCompensationReferenceZ">基准 Z (mm)</label>
@@ -1209,11 +1284,21 @@ export class UIController {
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
     this.refs.visualDebugBindExecutionCabinMinZ = this.rootElement.querySelector("#visualDebugBindExecutionCabinMinZ");
     this.refs.visualDebugBeamExclusionMargin = this.rootElement.querySelector("#visualDebugBeamExclusionMargin");
+    this.refs.visualDebugBindGroupRowThreshold = this.rootElement.querySelector("#visualDebugBindGroupRowThreshold");
+    this.refs.visualDebugBindGroupColumnThreshold = this.rootElement.querySelector("#visualDebugBindGroupColumnThreshold");
+    this.refs.visualDebugBindExecutionCabinZModeInputs = Array.from(
+      this.rootElement.querySelectorAll("input[name='visualDebugBindExecutionCabinZMode']"),
+    );
     this.refs.visualDebugAdaptiveBindGrouping = this.rootElement.querySelector("#visualDebugAdaptiveBindGrouping");
     this.refs.visualDebugBeamExclusionToggle = this.rootElement.querySelector("#visualDebugBeamExclusionToggle");
     this.refs.visualDebugScanLinearCompensationToggle = this.rootElement.querySelector("#visualDebugScanLinearCompensationToggle");
+    this.refs.visualDebugScanLinearCompensationModeInputs = Array.from(
+      this.rootElement.querySelectorAll('input[name="visualDebugScanLinearCompensationMode"]'),
+    );
     this.refs.visualDebugScanLinearCompensationX = this.rootElement.querySelector("#visualDebugScanLinearCompensationX");
     this.refs.visualDebugScanLinearCompensationY = this.rootElement.querySelector("#visualDebugScanLinearCompensationY");
+    this.refs.visualDebugScanLinearCompensationXShift = this.rootElement.querySelector("#visualDebugScanLinearCompensationXShift");
+    this.refs.visualDebugScanLinearCompensationYShift = this.rootElement.querySelector("#visualDebugScanLinearCompensationYShift");
     this.refs.visualDebugScanLinearCompensationReferenceZ = this.rootElement.querySelector("#visualDebugScanLinearCompensationReferenceZ");
     this.refs.visualDebugScanLinearCompensationMinZ = this.rootElement.querySelector("#visualDebugScanLinearCompensationMinZ");
     this.refs.visualDebugScanLinearCompensationMaxDelta = this.rootElement.querySelector("#visualDebugScanLinearCompensationMaxDelta");
@@ -2004,6 +2089,37 @@ export class UIController {
     return this.refs[refName]?.value?.trim() || fallback;
   }
 
+  getGb28181Settings() {
+    return {
+      remoteIp: this.getGb28181InputValue("gb28181RemoteIp"),
+      remotePort: this.getGb28181Port("gb28181RemotePort", 5060),
+      serverId: this.getGb28181InputValue("gb28181ServerId"),
+      domain: this.getGb28181InputValue("gb28181Domain"),
+      password: this.getGb28181InputValue("gb28181Password"),
+      localIp: this.getGb28181InputValue("gb28181LocalIp", this.inferGb28181LocalIp()),
+      localPort: this.getGb28181Port("gb28181LocalPort", 5060),
+      deviceId: this.getGb28181InputValue("gb28181DeviceId", "34020000001320000001"),
+    };
+  }
+
+  setGb28181Settings(settings = {}) {
+    const values = {
+      gb28181RemoteIp: settings?.remoteIp || "",
+      gb28181RemotePort: Number.isInteger(Number(settings?.remotePort)) ? String(settings.remotePort) : "5060",
+      gb28181ServerId: settings?.serverId || "",
+      gb28181Domain: settings?.domain || "",
+      gb28181Password: settings?.password || "",
+      gb28181LocalIp: settings?.localIp || this.inferGb28181LocalIp(),
+      gb28181LocalPort: Number.isInteger(Number(settings?.localPort)) ? String(settings.localPort) : "5060",
+      gb28181DeviceId: settings?.deviceId || "34020000001320000001",
+    };
+    Object.entries(values).forEach(([refName, value]) => {
+      if (this.refs[refName]) {
+        this.refs[refName].value = String(value);
+      }
+    });
+  }
+
   bindGb28181LocalControls() {
     if (!this.refs.gb28181WriteConfig) {
       return;
@@ -2478,8 +2594,19 @@ export class UIController {
         1,
         Number.parseFloat(this.refs.visualDebugBeamExclusionMargin?.value || "150") || 150,
       ),
+      bindGroupRowThresholdMm: normalizeBindGroupAxisThreshold(
+        this.refs.visualDebugBindGroupRowThreshold?.value,
+        DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM,
+      ),
+      bindGroupColumnThresholdMm: normalizeBindGroupAxisThreshold(
+        this.refs.visualDebugBindGroupColumnThreshold?.value,
+        DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+      ),
       bindExecutionCabinMinZMm: normalizeBindExecutionCabinMinZ(
         this.refs.visualDebugBindExecutionCabinMinZ?.value,
+      ),
+      bindExecutionCabinZMode: normalizeBindExecutionCabinZMode(
+        this.refs.visualDebugBindExecutionCabinZModeInputs?.find((input) => input.checked)?.value,
       ),
       scanLinearCompensation: this.getVisualDebugScanLinearCompensationInputs(),
       linearModuleBindRangeMm: this.getVisualDebugBindRangeInputs(),
@@ -2518,6 +2645,26 @@ export class UIController {
         Number.isFinite(marginValue) && marginValue > 0 ? marginValue : 150,
       );
     }
+    if (this.refs.visualDebugBindGroupRowThreshold) {
+      this.refs.visualDebugBindGroupRowThreshold.value = String(
+        normalizeBindGroupAxisThreshold(
+          settings?.bindGroupRowThresholdMm,
+          DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM,
+        ),
+      );
+    }
+    if (this.refs.visualDebugBindGroupColumnThreshold) {
+      this.refs.visualDebugBindGroupColumnThreshold.value = String(
+        normalizeBindGroupAxisThreshold(
+          settings?.bindGroupColumnThresholdMm,
+          DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+        ),
+      );
+    }
+    const cabinZMode = normalizeBindExecutionCabinZMode(settings?.bindExecutionCabinZMode);
+    this.refs.visualDebugBindExecutionCabinZModeInputs?.forEach((input) => {
+      input.checked = input.value === cabinZMode;
+    });
     if (this.refs.visualDebugAdaptiveBindGrouping) {
       this.refs.visualDebugAdaptiveBindGrouping.checked = Boolean(settings?.adaptiveBindGrouping);
     }
@@ -2528,22 +2675,31 @@ export class UIController {
     this.setVisualDebugTimingSummary({
       releaseFrameCount: stableFrameCount,
       bindExecutionCabinMinZMm: settings?.bindExecutionCabinMinZMm,
+      bindExecutionCabinZMode: cabinZMode,
+      bindGroupRowThresholdMm: settings?.bindGroupRowThresholdMm,
+      bindGroupColumnThresholdMm: settings?.bindGroupColumnThresholdMm,
     });
     this.setVisualDebugBindRangeInputs(settings?.linearModuleBindRangeMm);
   }
 
   getVisualDebugScanLinearCompensationInputs() {
     const defaults = DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS;
+    const mode = this.refs.visualDebugScanLinearCompensationModeInputs?.find((input) => input.checked)?.value;
     const referenceZMm = Number.parseFloat(this.refs.visualDebugScanLinearCompensationReferenceZ?.value || "");
     const xPercentPerMeter = Number.parseFloat(this.refs.visualDebugScanLinearCompensationX?.value || "");
     const yPercentPerMeter = Number.parseFloat(this.refs.visualDebugScanLinearCompensationY?.value || "");
+    const xShiftMmPerMeter = Number.parseFloat(this.refs.visualDebugScanLinearCompensationXShift?.value || "");
+    const yShiftMmPerMeter = Number.parseFloat(this.refs.visualDebugScanLinearCompensationYShift?.value || "");
     const minZMm = Number.parseFloat(this.refs.visualDebugScanLinearCompensationMinZ?.value || "");
     const maxScaleDelta = Number.parseFloat(this.refs.visualDebugScanLinearCompensationMaxDelta?.value || "");
     return {
       enabled: Boolean(this.refs.visualDebugScanLinearCompensationToggle?.checked),
+      mode: SCAN_LINEAR_COMPENSATION_MODES.some((modeOption) => modeOption.id === mode) ? mode : defaults.mode,
       referenceZMm: Number.isFinite(referenceZMm) && referenceZMm > 0 ? referenceZMm : defaults.referenceZMm,
       xPercentPerMeter: Number.isFinite(xPercentPerMeter) ? xPercentPerMeter : defaults.xPercentPerMeter,
       yPercentPerMeter: Number.isFinite(yPercentPerMeter) ? yPercentPerMeter : defaults.yPercentPerMeter,
+      xShiftMmPerMeter: Number.isFinite(xShiftMmPerMeter) ? xShiftMmPerMeter : defaults.xShiftMmPerMeter,
+      yShiftMmPerMeter: Number.isFinite(yShiftMmPerMeter) ? yShiftMmPerMeter : defaults.yShiftMmPerMeter,
       minZMm: Number.isFinite(minZMm) && minZMm >= 0 ? minZMm : defaults.minZMm,
       maxScaleDelta: Number.isFinite(maxScaleDelta) && maxScaleDelta >= 0 ? maxScaleDelta : defaults.maxScaleDelta,
     };
@@ -2551,8 +2707,12 @@ export class UIController {
 
   setVisualDebugScanLinearCompensationInputs(settings = {}) {
     const defaults = DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS;
+    const mode = SCAN_LINEAR_COMPENSATION_MODES.some((modeOption) => modeOption.id === settings?.mode)
+      ? settings.mode
+      : defaults.mode;
     const normalized = {
       enabled: Boolean(settings?.enabled),
+      mode,
       referenceZMm: Number.isFinite(Number(settings?.referenceZMm))
         && Number(settings.referenceZMm) > 0
         ? Number(settings.referenceZMm)
@@ -2563,6 +2723,12 @@ export class UIController {
       yPercentPerMeter: Number.isFinite(Number(settings?.yPercentPerMeter))
         ? Number(settings.yPercentPerMeter)
         : defaults.yPercentPerMeter,
+      xShiftMmPerMeter: Number.isFinite(Number(settings?.xShiftMmPerMeter))
+        ? Number(settings.xShiftMmPerMeter)
+        : defaults.xShiftMmPerMeter,
+      yShiftMmPerMeter: Number.isFinite(Number(settings?.yShiftMmPerMeter))
+        ? Number(settings.yShiftMmPerMeter)
+        : defaults.yShiftMmPerMeter,
       minZMm: Number.isFinite(Number(settings?.minZMm))
         && Number(settings.minZMm) >= 0
         ? Number(settings.minZMm)
@@ -2575,6 +2741,9 @@ export class UIController {
     if (this.refs.visualDebugScanLinearCompensationToggle) {
       this.refs.visualDebugScanLinearCompensationToggle.checked = normalized.enabled;
     }
+    this.refs.visualDebugScanLinearCompensationModeInputs?.forEach((input) => {
+      input.checked = input.value === normalized.mode;
+    });
     if (this.refs.visualDebugScanLinearCompensationReferenceZ) {
       this.refs.visualDebugScanLinearCompensationReferenceZ.value = String(normalized.referenceZMm);
     }
@@ -2584,12 +2753,41 @@ export class UIController {
     if (this.refs.visualDebugScanLinearCompensationY) {
       this.refs.visualDebugScanLinearCompensationY.value = String(normalized.yPercentPerMeter);
     }
+    if (this.refs.visualDebugScanLinearCompensationXShift) {
+      this.refs.visualDebugScanLinearCompensationXShift.value = String(normalized.xShiftMmPerMeter);
+    }
+    if (this.refs.visualDebugScanLinearCompensationYShift) {
+      this.refs.visualDebugScanLinearCompensationYShift.value = String(normalized.yShiftMmPerMeter);
+    }
     if (this.refs.visualDebugScanLinearCompensationMinZ) {
       this.refs.visualDebugScanLinearCompensationMinZ.value = String(normalized.minZMm);
     }
     if (this.refs.visualDebugScanLinearCompensationMaxDelta) {
       this.refs.visualDebugScanLinearCompensationMaxDelta.value = String(normalized.maxScaleDelta);
     }
+    this.updateScanLinearCompensationModeState(normalized.mode);
+  }
+
+  updateScanLinearCompensationModeState(mode = DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS.mode) {
+    const normalizedMode = SCAN_LINEAR_COMPENSATION_MODES.some((modeOption) => modeOption.id === mode)
+      ? mode
+      : DEFAULT_SCAN_LINEAR_COMPENSATION_SETTINGS.mode;
+    const scaleEnabled = normalizedMode === "optical_axis";
+    const translationEnabled = normalizedMode === "translation";
+    [
+      this.refs.visualDebugScanLinearCompensationX,
+      this.refs.visualDebugScanLinearCompensationY,
+    ].filter(Boolean).forEach((input) => {
+      input.disabled = !scaleEnabled;
+      input.closest(".field")?.classList.toggle("is-disabled", !scaleEnabled);
+    });
+    [
+      this.refs.visualDebugScanLinearCompensationXShift,
+      this.refs.visualDebugScanLinearCompensationYShift,
+    ].filter(Boolean).forEach((input) => {
+      input.disabled = !translationEnabled;
+      input.closest(".field")?.classList.toggle("is-disabled", !translationEnabled);
+    });
   }
 
   getCameraSdkSettings() {
@@ -3133,6 +3331,24 @@ export class UIController {
       });
   }
 
+  onGb28181SettingsChange(callback) {
+    const notify = () => callback(this.getGb28181Settings());
+    [
+      this.refs.gb28181RemoteIp,
+      this.refs.gb28181RemotePort,
+      this.refs.gb28181ServerId,
+      this.refs.gb28181Domain,
+      this.refs.gb28181Password,
+      this.refs.gb28181LocalIp,
+      this.refs.gb28181LocalPort,
+    ].filter(Boolean).forEach((element) => {
+      element.addEventListener("input", notify);
+      element.addEventListener("change", notify);
+    });
+    this.refs.gb28181RefreshLocalIp?.addEventListener("click", notify);
+    this.refs.gb28181ResetRemote?.addEventListener("click", notify);
+  }
+
   onTcpLinearRemoteAction(callback) {
     this.refs.tcpLinearRemoteStopButton?.addEventListener("click", () => {
       if (this.refs.tcpLinearRemoteStopButton.disabled) {
@@ -3166,11 +3382,17 @@ export class UIController {
       this.refs.visualDebugStableFrameCount,
       this.refs.visualDebugBindExecutionCabinMinZ,
       this.refs.visualDebugBeamExclusionMargin,
+      this.refs.visualDebugBindGroupRowThreshold,
+      this.refs.visualDebugBindGroupColumnThreshold,
+      ...this.refs.visualDebugBindExecutionCabinZModeInputs,
       this.refs.visualDebugAdaptiveBindGrouping,
       this.refs.visualDebugBeamExclusionToggle,
       this.refs.visualDebugScanLinearCompensationToggle,
+      ...this.refs.visualDebugScanLinearCompensationModeInputs,
       this.refs.visualDebugScanLinearCompensationX,
       this.refs.visualDebugScanLinearCompensationY,
+      this.refs.visualDebugScanLinearCompensationXShift,
+      this.refs.visualDebugScanLinearCompensationYShift,
       this.refs.visualDebugScanLinearCompensationReferenceZ,
       this.refs.visualDebugScanLinearCompensationMinZ,
       this.refs.visualDebugScanLinearCompensationMaxDelta,
@@ -3181,8 +3403,16 @@ export class UIController {
     ]
       .filter(Boolean)
       .forEach((element) => {
-        element.addEventListener("input", () => callback(this.getVisualDebugSettings()));
-        element.addEventListener("change", () => callback(this.getVisualDebugSettings()));
+        const handleChange = () => {
+          if (element.name === "visualDebugScanLinearCompensationMode") {
+            this.updateScanLinearCompensationModeState(
+              this.refs.visualDebugScanLinearCompensationModeInputs?.find((input) => input.checked)?.value,
+            );
+          }
+          callback(this.getVisualDebugSettings());
+        };
+        element.addEventListener("input", handleChange);
+        element.addEventListener("change", handleChange);
       });
   }
 
@@ -3372,16 +3602,7 @@ export class UIController {
   }
 
   setConnectionAlarmState(messages = []) {
-    const seen = new Set();
-    this.connectionAlarmMessages = (Array.isArray(messages) ? messages : [])
-      .map((message) => String(message || "").trim())
-      .filter((message) => {
-        if (!message || seen.has(message)) {
-          return false;
-        }
-        seen.add(message);
-        return true;
-      });
+    this.connectionAlarmMessages = [];
     this.renderConnectionBadgeState();
   }
 
@@ -3610,9 +3831,14 @@ export class UIController {
         this.refs.recognitionPoseSummary.textContent = "暂无识别位姿，请点击新增位姿后记录当前位置。";
         return;
       }
+      const workspaceStatus = selectedPose.workspace?.savedPayload
+        ? "已保存工作区"
+        : selectedPose.workspace?.selectedPayload
+          ? "已点选工作区，待确认"
+          : "未设置工作区";
       this.refs.recognitionPoseSummary.textContent =
         `${selectedPose.label || "识别位姿"}：x=${Math.round(Number(selectedPose.x))}, ` +
-        `y=${Math.round(Number(selectedPose.y))}, z=${Math.round(Number(selectedPose.z))}`;
+        `y=${Math.round(Number(selectedPose.y))}, z=${Math.round(Number(selectedPose.z))}；${workspaceStatus}`;
     }
   }
 
@@ -3677,6 +3903,9 @@ export class UIController {
     serviceElapsedMs = null,
     releaseFrameCount = null,
     bindExecutionCabinMinZMm = null,
+    bindExecutionCabinZMode = null,
+    bindGroupRowThresholdMm = null,
+    bindGroupColumnThresholdMm = null,
     pointCount = null,
   } = {}) {
     if (!this.refs.visualDebugTimingSummary) {
@@ -3696,8 +3925,19 @@ export class UIController {
     const zMinText = Number.isFinite(Number(zMin))
       ? String(Math.round(Number(zMin)))
       : "--";
+    const zMode = normalizeBindExecutionCabinZMode(bindExecutionCabinZMode ?? this.getVisualDebugSettings().bindExecutionCabinZMode);
+    const zModeText = getBindExecutionCabinZModeSummaryLabel(zMode);
+    const settings = this.getVisualDebugSettings();
+    const rowThreshold = normalizeBindGroupAxisThreshold(
+      bindGroupRowThresholdMm ?? settings.bindGroupRowThresholdMm,
+      DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM,
+    );
+    const columnThreshold = normalizeBindGroupAxisThreshold(
+      bindGroupColumnThresholdMm ?? settings.bindGroupColumnThresholdMm,
+      DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+    );
     this.refs.visualDebugTimingSummary.textContent =
-      `单帧=${singleFrameText}ms 服务=${serviceText}ms 释放=${frameCount}帧 Z下限=${zMinText}mm 点数=${pointText}`;
+      `单帧=${singleFrameText}ms 服务=${serviceText}ms 释放=${frameCount}帧 Z模式=${zModeText} ${zMinText}mm 行阈=${rowThreshold}mm 列阈=${columnThreshold}mm 点数=${pointText}`;
   }
 
   setTopicLayerState(state) {

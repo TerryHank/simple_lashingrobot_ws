@@ -235,10 +235,16 @@ class SinglePointBindChainTest(unittest.TestCase):
         service_end = callbacks.index("\nvoid moduan_move_zero_forthread", service_start)
         service_body = callbacks[service_start:service_end]
         request_index = service_body.index("moduan_return_zero_ordered_requested.store(true")
+        zero_index = service_body.index("PLC_Order_Write(IS_ZERO, 1")
+        zero_release_index = service_body.index("PLC_Order_Write(IS_ZERO, 0", zero_index)
+        stop_index = service_body.index("PLC_Order_Write(IS_STOP, 1")
         lock_wait_index = service_body.index("wait_for_lashing_mutex_for_ordered_return_zero")
         motion_wait_index = service_body.index("wait_for_ordered_return_zero_motion_release")
         clear_index = service_body.index("moduan_return_zero_ordered_requested.store(false")
         move_index = service_body.index("move_linear_module_to_origin()")
+        self.assertLess(zero_index, stop_index)
+        self.assertLess(stop_index, zero_release_index)
+        self.assertLess(zero_release_index, lock_wait_index)
         self.assertLess(request_index, lock_wait_index)
         self.assertLess(lock_wait_index, motion_wait_index)
         self.assertLess(motion_wait_index, clear_index)
@@ -306,7 +312,9 @@ class SinglePointBindChainTest(unittest.TestCase):
         helper_body = callbacks[helper_start:helper_end]
         enable_index = helper_body.index("PLC_Order_Write(EN_DISABLE, 1")
         zero_index = helper_body.index("PLC_Order_Write(IS_ZERO, 1")
+        zero_release_index = helper_body.index("PLC_Order_Write(IS_ZERO, 0", zero_index)
         self.assertLess(enable_index, zero_index)
+        self.assertLess(zero_index, zero_release_index)
         self.assertNotIn("request_linear_module_zero_via_driver", callback_body)
         self.assertNotIn("move_linear_module_to_origin()", callback_body)
         self.assertNotIn("wait_linear_module_axis_arrival", callback_body)
@@ -327,9 +335,11 @@ class SinglePointBindChainTest(unittest.TestCase):
         finish_index = helper_body.index("PLC_Order_Write(FINISHALL, 0")
         enable_index = helper_body.index("PLC_Order_Write(EN_DISABLE, 1")
         zero_index = helper_body.index("PLC_Order_Write(IS_ZERO, 1")
+        zero_release_index = helper_body.index("PLC_Order_Write(IS_ZERO, 0", zero_index)
         self.assertLess(stop_index, enable_index)
         self.assertLess(finish_index, enable_index)
         self.assertLess(enable_index, zero_index)
+        self.assertLess(zero_index, zero_release_index)
         self.assertNotIn("request_linear_module_zero_via_driver", helper_body)
         self.assertNotIn("move_linear_module_to_origin()", helper_body)
         self.assertNotIn("wait_linear_module_axis_arrival", helper_body)
@@ -386,7 +396,28 @@ class SinglePointBindChainTest(unittest.TestCase):
         self.assertNotIn("ScopedModuleSpeedOverride", fast_body)
         self.assertNotIn("kPrecomputedFastModuleSpeedMmPerSec", fast_body)
 
-    def test_short_pause_waits_and_return_to_start_aborts_finishall_wait(self):
+    def test_forced_stop_does_not_touch_is_zero_before_shutdown(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        stop_start = callbacks.index("void forced_stop_nodeCallback(")
+        stop_end = callbacks.index("\nbool wait_for_lashing_mutex_for_ordered_return_zero", stop_start)
+        stop_body = callbacks[stop_start:stop_end]
+        self.assertNotIn("IS_ZERO", stop_body)
+        self.assertIn("ros::shutdown()", stop_body)
+
+    def test_signal_handler_does_not_touch_is_zero_before_shutdown(self):
+        error_handling = (
+            CONTROL_DIR / "src" / "moduan" / "error_handling.cpp"
+        ).read_text(encoding="utf-8")
+
+        handler_start = error_handling.index("void signalHandler(")
+        handler_body = error_handling[handler_start:]
+        self.assertNotIn("IS_ZERO", handler_body)
+        self.assertIn("ros::shutdown()", handler_body)
+
+    def test_short_pause_waits_without_is_zero_and_return_to_start_aborts_finishall_wait(self):
         executor = (
             CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
         ).read_text(encoding="utf-8")
@@ -414,11 +445,62 @@ class SinglePointBindChainTest(unittest.TestCase):
         self.assertIn("恢复当前末端执行等待", pause_wait_body)
         self.assertIn("return false;", wait_body[return_index:pause_index])
 
+        pause_start = callbacks.index("void pause_interrupt_Callback(")
+        pause_end = callbacks.index("\nvoid manual_area_takeover_callback", pause_start)
+        pause_body = callbacks[pause_start:pause_end]
+        self.assertNotIn("IS_ZERO", pause_body)
+        self.assertIn("PLC_Order_Write(IS_STOP, 1", pause_body)
+
         hand_start = callbacks.index("void handSolveWarnCallback(")
         hand_end = callbacks.index("\nvoid read_module_motor_state", hand_start)
         hand_body = callbacks[hand_start:hand_end]
         self.assertIn("warn_msg.data == 2.0", hand_body)
         self.assertIn("moduan_return_zero_ordered_requested.store(true", hand_body)
+        long_press_body = hand_body[hand_body.index("warn_msg.data == 2.0"):]
+        zero_index = long_press_body.index("PLC_Order_Write(IS_ZERO, 1")
+        zero_release_index = long_press_body.index("PLC_Order_Write(IS_ZERO, 0", zero_index)
+        stop_index = long_press_body.index("PLC_Order_Write(IS_STOP, 1")
+        self.assertLess(zero_index, stop_index)
+        self.assertLess(stop_index, zero_release_index)
+
+    def test_precomputed_bind_does_not_touch_is_zero_and_waits_for_finishall_clear_before_trigger(self):
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("bool wait_for_plc_finish_all_clear(", executor)
+        execute_start = executor.index("bool execute_bind_points(")
+        execute_body = executor[execute_start:]
+        clear_index = execute_body.index("clearFinishAll")
+        clear_wait_index = execute_body.index("wait_for_plc_finish_all_clear(")
+        write_points_index = execute_body.index("writeQueuedPoints")
+        trigger_index = execute_body.index("pulseExecutionEnable")
+        finish_wait_index = execute_body.index("wait_for_plc_finish_all(")
+        self.assertNotIn("setZeroRequest", execute_body)
+        self.assertNotIn("wait_for_plc_register_value", execute_body)
+        self.assertNotIn("IS_ZERO", execute_body)
+        self.assertLess(clear_index, clear_wait_index)
+        self.assertLess(clear_wait_index, write_points_index)
+        self.assertLess(write_points_index, trigger_index)
+        self.assertLess(trigger_index, finish_wait_index)
+
+    def test_moduan_driver_startup_keeps_default_lashing_disabled_in_plc(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+        runtime_state = (
+            CONTROL_DIR / "src" / "moduan" / "runtime_state.cpp"
+        ).read_text(encoding="utf-8")
+
+        init_start = callbacks.index("void initPLC()")
+        init_end = callbacks.index("\nvoid auto_zero_on_startup", init_start)
+        init_body = callbacks[init_start:init_end]
+
+        self.assertIn("bool enable_lashing = false;", runtime_state)
+        self.assertIn("enable_lashing = false;", init_body)
+        enable_index = init_body.index("PLC_Order_Write(IS_LASHING, 0")
+        speed_index = init_body.index("Set_Module_Speed(WX_SPEED")
+        self.assertLess(enable_index, speed_index)
 
     def test_split_moduan_nodes_receive_return_to_start_in_motion_controller(self):
         callbacks = (
@@ -437,9 +519,13 @@ class SinglePointBindChainTest(unittest.TestCase):
         hand_end = callbacks.index("\nvoid moduan_motion_controller_return_to_start_callback", hand_start)
         hand_body = callbacks[hand_start:hand_end]
         long_press_index = hand_body.index("warn_msg.data == 2.0")
+        zero_index = hand_body.index("PLC_Order_Write(IS_ZERO, 1", long_press_index)
+        zero_release_index = hand_body.index("PLC_Order_Write(IS_ZERO, 0", zero_index)
         stop_index = hand_body.index("PLC_Order_Write(IS_STOP, 1", long_press_index)
         flag_index = hand_body.index("moduan_return_zero_ordered_requested.store(true", long_press_index)
         self.assertLess(flag_index, stop_index)
+        self.assertLess(zero_index, stop_index)
+        self.assertLess(stop_index, zero_release_index)
 
         run_start = callbacks.index("int RunModuanNodeWithDefaultRole(")
         run_body = callbacks[run_start:]

@@ -21,6 +21,7 @@ export const MESSAGE_TYPES = Object.freeze({
 
 export const SERVICE_TYPES = Object.freeze({
   cabin: Object.freeze({
+    replanPseudoSlamBindPath: "tie_robot_msgs/ReplanPseudoSlamBindPath",
     singleMove: "tie_robot_msgs/SingleMove",
     setExecutionMode: "tie_robot_msgs/SetExecutionMode",
   }),
@@ -122,6 +123,7 @@ export const SERVICES = Object.freeze({
     driverStart: "/cabin/driver/start",
     driverStop: "/cabin/driver/stop",
     motionStop: "/cabin/motion/stop",
+    replanPseudoSlamBindPath: "/cabin/replan_pseudo_slam_bind_path",
     setExecutionMode: "/cabin/set_execution_mode",
     singleMove: "/cabin/driver/raw_move",
     incrementalMove: "/cabin/driver/incremental_move",
@@ -262,7 +264,7 @@ export const FRONTEND_DIRECT_TOPIC_REGISTRY = Object.freeze([
     sourceLabel: "扫描视觉层",
     ownerNode: "pointAINode",
     direction: "subscribe",
-    usage: "Surface-DP 当前选中扫描底图，叠加 DP 交点与梁筋候选诊断",
+    usage: "Surface-DP 当前选中扫描底图，叠加物理线族交点与梁筋候选诊断",
   },
   {
     key: "algorithm.executionRefineBaseImage",

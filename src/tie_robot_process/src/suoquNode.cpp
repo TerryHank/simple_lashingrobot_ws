@@ -199,9 +199,27 @@ float normalize_bind_execution_cabin_min_z_mm(float requested_min_z_mm)
         : kBindExecutionCabinMinZMm;
 }
 
+float normalize_bind_group_axis_threshold_mm(float requested_threshold_mm, float fallback_threshold_mm)
+{
+    return std::isfinite(requested_threshold_mm) && requested_threshold_mm > 0.0f
+        ? requested_threshold_mm
+        : fallback_threshold_mm;
+}
+
+tie_robot_process::planning::DynamicBindExecutionCabinZMode normalize_bind_execution_cabin_z_mode(
+    uint8_t requested_z_mode)
+{
+    return requested_z_mode == kBindExecutionCabinZModeMin
+        ? tie_robot_process::planning::DynamicBindExecutionCabinZMode::kMinimum
+        : tie_robot_process::planning::DynamicBindExecutionCabinZMode::kFixed;
+}
+
 tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner_config(
     int requested_group_point_count = 4,
-    float requested_bind_execution_cabin_min_z_mm = kBindExecutionCabinMinZMm)
+    float requested_bind_group_row_threshold_mm = kDynamicBindMatrixRowThresholdMm,
+    float requested_bind_group_column_threshold_mm = kDynamicBindMatrixColumnThresholdMm,
+    float requested_bind_execution_cabin_min_z_mm = kBindExecutionCabinMinZMm,
+    uint8_t requested_bind_execution_cabin_z_mode = kBindExecutionCabinZModeFixed)
 {
     tie_robot_process::planning::DynamicBindPlannerConfig config;
     config.tcp_max_x_mm = kTravelMaxXMm;
@@ -209,12 +227,18 @@ tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner
     config.tcp_max_z_mm = kTravelMaxZMm;
     config.bind_execution_cabin_min_z_mm =
         normalize_bind_execution_cabin_min_z_mm(requested_bind_execution_cabin_min_z_mm);
+    config.bind_execution_cabin_z_mode =
+        normalize_bind_execution_cabin_z_mode(requested_bind_execution_cabin_z_mode);
     config.template_center_x_mm = kDynamicBindTemplateCenterXMm;
     config.template_center_y_mm = kDynamicBindTemplateCenterYMm;
     config.template_center_z_mm = kDynamicBindTemplateCenterZMm;
     config.nominal_grid_spacing_mm = kDynamicBindNominalGridSpacingMm;
-    config.matrix_row_threshold_mm = 40.0f;
-    config.matrix_column_threshold_mm = 45.0f;
+    config.matrix_row_threshold_mm = normalize_bind_group_axis_threshold_mm(
+        requested_bind_group_row_threshold_mm,
+        kDynamicBindMatrixRowThresholdMm);
+    config.matrix_column_threshold_mm = normalize_bind_group_axis_threshold_mm(
+        requested_bind_group_column_threshold_mm,
+        kDynamicBindMatrixColumnThresholdMm);
     config.snake_row_tolerance_mm = kDynamicBindSnakeRowToleranceMm;
     config.seed_neighbor_count = kDynamicBindSeedNeighborCount;
     const bool adaptive_grouping_enabled =
@@ -223,6 +247,138 @@ tie_robot_process::planning::DynamicBindPlannerConfig build_dynamic_bind_planner
     config.requested_group_point_count =
         normalize_requested_bind_group_point_count(requested_group_point_count);
     return config;
+}
+
+bool read_pseudo_slam_points_for_pose_from_json(
+    const nlohmann::json& points_json,
+    int recognition_pose_index,
+    std::vector<tie_robot_msgs::PointCoords>& world_points,
+    std::string& message)
+{
+    world_points.clear();
+    const int normalized_pose_index = normalize_recognition_pose_index(recognition_pose_index);
+    const nlohmann::json* point_array = nullptr;
+    if (points_json.contains("scan_pose_groups") && points_json["scan_pose_groups"].is_array()) {
+        for (const auto& scan_pose_group : points_json["scan_pose_groups"]) {
+            if (!scan_pose_group.is_object()) {
+                continue;
+            }
+            const int group_pose_index = scan_pose_group.value(
+                "recognition_pose_index",
+                scan_pose_group.value("pose_index", 1));
+            if (group_pose_index != normalized_pose_index) {
+                continue;
+            }
+            if (scan_pose_group.contains("pseudo_slam_points") &&
+                scan_pose_group["pseudo_slam_points"].is_array()) {
+                point_array = &scan_pose_group["pseudo_slam_points"];
+            }
+            break;
+        }
+    }
+    if (point_array == nullptr &&
+        points_json.contains("pseudo_slam_points") &&
+        points_json["pseudo_slam_points"].is_array()) {
+        point_array = &points_json["pseudo_slam_points"];
+    }
+    if (point_array == nullptr) {
+        message = "pseudo_slam_points.json缺少可重规划的扫描点";
+        return false;
+    }
+
+    int fallback_idx = 1;
+    for (const auto& point_json : *point_array) {
+        if (!point_json.is_object()) {
+            fallback_idx++;
+            continue;
+        }
+        tie_robot_msgs::PointCoords point;
+        point.idx = point_json.value(
+            "global_idx",
+            point_json.value("idx", fallback_idx));
+        point.Pix_coord[0] = 0;
+        point.Pix_coord[1] = 0;
+        point.World_coord[0] = point_json.value("world_x", point_json.value("x", 0.0f));
+        point.World_coord[1] = point_json.value("world_y", point_json.value("y", 0.0f));
+        point.World_coord[2] = point_json.value("world_z", point_json.value("z", 0.0f));
+        point.Angle = point_json.value("angle", -45.0f);
+        point.is_shuiguan = false;
+        point.has_grid_index =
+            point_json.contains("global_row") &&
+            point_json.contains("global_col") &&
+            point_json.value("global_row", -1) >= 0 &&
+            point_json.value("global_col", -1) >= 0;
+        point.global_row = point_json.value("global_row", -1);
+        point.global_col = point_json.value("global_col", -1);
+        if (point.idx > 0) {
+            world_points.push_back(point);
+        }
+        fallback_idx++;
+    }
+
+    if (world_points.empty()) {
+        message = "pseudo_slam_points.json中没有可重规划的有效点";
+        return false;
+    }
+    return true;
+}
+
+BindExecutionPathOriginPose read_replan_path_origin_from_bind_path_json(
+    const nlohmann::json& bind_path_json,
+    float fallback_cabin_height)
+{
+    BindExecutionPathOriginPose path_origin;
+    path_origin.z = fallback_cabin_height;
+    if (bind_path_json.contains("path_origin") &&
+        bind_path_json["path_origin"].is_object()) {
+        const auto& origin_json = bind_path_json["path_origin"];
+        path_origin.x = origin_json.value("x", 0.0f);
+        path_origin.y = origin_json.value("y", 0.0f);
+        path_origin.z = origin_json.value("z", fallback_cabin_height);
+        return path_origin;
+    }
+    if (bind_path_json.contains("areas") &&
+        bind_path_json["areas"].is_array() &&
+        !bind_path_json["areas"].empty()) {
+        const auto& first_area = bind_path_json["areas"].front();
+        if (first_area.is_object() &&
+            first_area.contains("cabin_pose") &&
+            first_area["cabin_pose"].is_object()) {
+            const auto& cabin_pose = first_area["cabin_pose"];
+            path_origin.x = cabin_pose.value("x", 0.0f);
+            path_origin.y = cabin_pose.value("y", 0.0f);
+            path_origin.z = cabin_pose.value("z", fallback_cabin_height);
+        }
+    }
+    return path_origin;
+}
+
+std::unordered_map<int, PseudoSlamCheckerboardInfo> build_replanned_checkerboard_info_by_idx(
+    const std::vector<PseudoSlamGroupedAreaEntry>& bind_area_entries)
+{
+    std::unordered_map<int, PseudoSlamCheckerboardInfo> checkerboard_info_by_idx;
+    int fallback_row = 0;
+    for (const auto& area_entry : bind_area_entries) {
+        (void)area_entry;
+        for (const auto& bind_group : area_entry.bind_groups) {
+            for (const auto& point : bind_group.bind_points_world) {
+                if (point.idx <= 0) {
+                    continue;
+                }
+                PseudoSlamCheckerboardInfo info;
+                info.global_idx = point.idx;
+                info.global_row = point.global_row >= 0 ? point.global_row : fallback_row;
+                info.global_col = point.global_col >= 0 ? point.global_col : 0;
+                info.checkerboard_parity = (info.global_row + info.global_col) % 2;
+                info.jump_bind = is_jump_bind_target_parity(info.checkerboard_parity);
+                info.checkerboard_color = checkerboard_color_from_parity(info.checkerboard_parity);
+                info.is_checkerboard_member = true;
+                checkerboard_info_by_idx[point.idx] = info;
+            }
+        }
+        fallback_row++;
+    }
+    return checkerboard_info_by_idx;
 }
 
 std::atomic<int> global_execution_mode{static_cast<int>(GlobalExecutionMode::kLedgerWithRefine)};
@@ -3340,7 +3496,10 @@ bool run_pseudo_slam_scan(
     bool enable_capture_gate,
     std::string& message,
     int requested_bind_group_point_count,
+    float requested_bind_group_row_threshold_mm,
+    float requested_bind_group_column_threshold_mm,
     float requested_bind_execution_cabin_min_z_mm,
+    uint8_t requested_bind_execution_cabin_z_mode,
     const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override,
     int recognition_pose_index)
 {
@@ -3893,7 +4052,10 @@ bool run_pseudo_slam_scan(
     const auto dynamic_bind_planner_config =
         build_dynamic_bind_planner_config(
             requested_bind_group_point_count,
-            requested_bind_execution_cabin_min_z_mm);
+            requested_bind_group_row_threshold_mm,
+            requested_bind_group_column_threshold_mm,
+            requested_bind_execution_cabin_min_z_mm,
+            requested_bind_execution_cabin_z_mode);
     std::vector<tie_robot_msgs::PointCoords> bind_path_world_points;
     std::vector<tie_robot_process::planning::DynamicBindGridIndex> bind_path_grid_indices;
     bind_path_world_points.reserve(merged_world_points.size());
@@ -3965,7 +4127,7 @@ bool run_pseudo_slam_scan(
             bind_area_entries,
             {path_origin.x, path_origin.y},
             cabin_height,
-            dynamic_bind_planner_config.bind_execution_cabin_min_z_mm
+            dynamic_bind_planner_config
         );
     if (!bind_area_entries.empty()) {
         printCurrentTime();
@@ -4071,6 +4233,168 @@ bool run_pseudo_slam_scan(
         << "个点，pseudo_slam_bind_path.json=" << grouped_area_count
         << "个区域/" << bind_group_count << "个分组/" << bind_point_count << "个绑扎点";
     message = oss.str();
+    return true;
+}
+
+bool replan_pseudo_slam_bind_path_from_current_points(
+    std::string& message,
+    int requested_bind_group_point_count,
+    float requested_bind_group_row_threshold_mm,
+    float requested_bind_group_column_threshold_mm,
+    float requested_bind_execution_cabin_min_z_mm,
+    uint8_t requested_bind_execution_cabin_z_mode,
+    int recognition_pose_index,
+    int* area_count_out,
+    int* group_count_out,
+    int* point_count_out)
+{
+    std::lock_guard<std::mutex> pseudo_slam_workflow_lock(pseudo_slam_workflow_mutex);
+    if (area_count_out != nullptr) {
+        *area_count_out = 0;
+    }
+    if (group_count_out != nullptr) {
+        *group_count_out = 0;
+    }
+    if (point_count_out != nullptr) {
+        *point_count_out = 0;
+    }
+
+    nlohmann::json points_json;
+    std::string points_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_points_json_file,
+            "pseudo_slam_points.json",
+            points_json,
+            points_error)) {
+        message = points_error;
+        return false;
+    }
+    nlohmann::json bind_path_json;
+    std::string bind_path_error;
+    if (!load_scan_artifact_json(
+            pseudo_slam_bind_path_json_file,
+            "pseudo_slam_bind_path.json",
+            bind_path_json,
+            bind_path_error)) {
+        message = bind_path_error;
+        return false;
+    }
+
+    std::vector<tie_robot_msgs::PointCoords> scan_world_points;
+    if (!read_pseudo_slam_points_for_pose_from_json(
+            points_json,
+            recognition_pose_index,
+            scan_world_points,
+            message)) {
+        return false;
+    }
+
+    const float cabin_height = bind_path_json.value("cabin_height", kBindExecutionCabinMinZMm);
+    const float cabin_speed = bind_path_json.value("cabin_speed", get_global_cabin_move_speed_mm_per_sec());
+    const BindExecutionPathOriginPose previous_path_origin =
+        read_replan_path_origin_from_bind_path_json(bind_path_json, cabin_height);
+
+    tf2::Transform gripper_from_base_link;
+    if (!lookup_gripper_from_base_link_transform(gripper_from_base_link)) {
+        message = "无法获取base_link到gripper_frame的TF变换，阈值重规划失败";
+        return false;
+    }
+
+    auto dynamic_bind_planner_config =
+        build_dynamic_bind_planner_config(
+            requested_bind_group_point_count,
+            requested_bind_group_row_threshold_mm,
+            requested_bind_group_column_threshold_mm,
+            requested_bind_execution_cabin_min_z_mm,
+            requested_bind_execution_cabin_z_mode);
+    dynamic_bind_planner_config.force_axis_threshold_grouping = true;
+
+    std::vector<PseudoSlamGroupedAreaEntry> bind_area_entries =
+        tie_robot_process::planning::build_dynamic_bind_area_entries_from_scan_world(
+            scan_world_points,
+            {previous_path_origin.x, previous_path_origin.y},
+            cabin_height,
+            gripper_from_base_link,
+            dynamic_bind_planner_config,
+            std::vector<tie_robot_process::planning::DynamicBindGridIndex>{}
+        );
+    if (bind_area_entries.empty()) {
+        std::ostringstream oss;
+        oss << "阈值重规划失败：行阈="
+            << dynamic_bind_planner_config.matrix_row_threshold_mm
+            << "mm，列阈="
+            << dynamic_bind_planner_config.matrix_column_threshold_mm
+            << "mm 时无法形成可达成组";
+        message = oss.str();
+        return false;
+    }
+
+    BindExecutionPathOriginPose execution_path_origin =
+        tie_robot_process::planning::build_dynamic_bind_execution_path_origin(
+            bind_area_entries,
+            {previous_path_origin.x, previous_path_origin.y},
+            cabin_height,
+            dynamic_bind_planner_config
+        );
+    const std::unordered_map<int, PseudoSlamCheckerboardInfo> checkerboard_info_by_idx =
+        build_replanned_checkerboard_info_by_idx(bind_area_entries);
+    const std::string scan_session_id =
+        bind_path_json.value("scan_session_id", points_json.value("scan_session_id", std::string()));
+    const std::string path_signature =
+        bind_path_json.value("path_signature", points_json.value("path_signature", std::string()));
+    BindExecutionPathOriginPose merged_execution_path_origin = execution_path_origin;
+    std::string write_error;
+    if (!write_pseudo_slam_bind_path_json(
+            bind_area_entries,
+            checkerboard_info_by_idx,
+            execution_path_origin,
+            cabin_height,
+            cabin_speed,
+            scan_session_id.empty() ? std::to_string(ros::Time::now().toNSec()) : scan_session_id,
+            path_signature,
+            normalize_recognition_pose_index(recognition_pose_index),
+            &merged_execution_path_origin,
+            &write_error)) {
+        message = "阈值重规划写入pseudo_slam_bind_path.json失败：" + write_error;
+        return false;
+    }
+
+    int group_count = 0;
+    int point_count = 0;
+    for (const auto& area_entry : bind_area_entries) {
+        for (const auto& bind_group : area_entry.bind_groups) {
+            group_count++;
+            point_count += static_cast<int>(bind_group.bind_points_world.size());
+        }
+    }
+    if (area_count_out != nullptr) {
+        *area_count_out = static_cast<int>(bind_area_entries.size());
+    }
+    if (group_count_out != nullptr) {
+        *group_count_out = group_count;
+    }
+    if (point_count_out != nullptr) {
+        *point_count_out = point_count;
+    }
+
+    set_pseudo_slam_marker_path_origin(Cabin_Point{merged_execution_path_origin.x, merged_execution_path_origin.y});
+    publish_pseudo_slam_markers(scan_world_points);
+
+    std::ostringstream oss;
+    oss << "已按成行阈值 "
+        << dynamic_bind_planner_config.matrix_row_threshold_mm
+        << "mm、成列阈值 "
+        << dynamic_bind_planner_config.matrix_column_threshold_mm
+        << "mm 重新生成绑扎路径：区域"
+        << bind_area_entries.size()
+        << "个，组"
+        << group_count
+        << "个，点"
+        << point_count
+        << "个";
+    message = oss.str();
+    printCurrentTime();
+    ros_log_printf("Cabin_log: %s。\n", message.c_str());
     return true;
 }
 
@@ -6555,6 +6879,8 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
     ros::ServiceServer update_service_with_options;
     ros::ServiceServer pseudo_slam_scan_service;
     ros::ServiceServer pseudo_slam_scan_with_options_service;
+    ros::ServiceServer pseudo_slam_replan_bind_path_service;
+    ros::ServiceServer clear_pseudo_slam_markers_service;
     ros::ServiceServer current_area_bind_from_scan_service;
     ros::ServiceServer bind_path_direct_test_service_server;
     ros::ServiceServer cabin_driver_start_service;
@@ -6636,6 +6962,10 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
             nh.advertiseService("/cabin/start_pseudo_slam_scan", startPseudoSlamScan);
         pseudo_slam_scan_with_options_service =
             nh.advertiseService("/cabin/start_pseudo_slam_scan_with_options", startPseudoSlamScanWithOptions);
+        pseudo_slam_replan_bind_path_service =
+            nh.advertiseService("/cabin/replan_pseudo_slam_bind_path", replanPseudoSlamBindPath);
+        clear_pseudo_slam_markers_service =
+            nh.advertiseService("/cabin/clear_pseudo_slam_markers", clearPseudoSlamMarkersService);
         current_area_bind_from_scan_service =
             nh.advertiseService("/cabin/bind_current_area_from_scan", bind_current_area_from_scan_service);
         bind_path_direct_test_service_server =

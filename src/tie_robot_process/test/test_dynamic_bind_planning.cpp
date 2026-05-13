@@ -300,7 +300,8 @@ TEST(DynamicBindPlanningTest, InfersGridRowsFromStableWorldXWhenDpRowsMapToWorld
 TEST(DynamicBindPlanningTest, CentersTwoByTwoGroupInTcpWorkspaceAtPlannedHeight)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
-    const DynamicBindPlannerConfig config;
+    DynamicBindPlannerConfig config;
+    config.bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kMinimum;
 
     const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
         make_world_point(1, 1075.0f, 2075.0f, 430.0f),
@@ -331,6 +332,7 @@ TEST(DynamicBindPlanningTest, IgnoresLegacyTemplateOffsetWhenCenteringGroupInWor
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
     DynamicBindPlannerConfig config;
+    config.bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kMinimum;
     config.template_center_x_mm = 10.0f;
     config.template_center_y_mm = 20.0f;
     config.template_center_z_mm = 30.0f;
@@ -360,6 +362,7 @@ TEST(DynamicBindPlanningTest, KeepsTwoByTwoGroupWhenMinimumCabinHeightClampsPose
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
     DynamicBindPlannerConfig config;
+    config.bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kMinimum;
     config.bind_execution_cabin_min_z_mm = 485.0f;
 
     const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
@@ -379,6 +382,39 @@ TEST(DynamicBindPlanningTest, KeepsTwoByTwoGroupWhenMinimumCabinHeightClampsPose
     ASSERT_EQ(bind_area_entries.size(), 1u);
     EXPECT_EQ(collect_area_point_indices(bind_area_entries.front()), (std::vector<int>{1, 2, 3, 4}));
     EXPECT_FLOAT_EQ(bind_area_entries.front().cabin_z, config.bind_execution_cabin_min_z_mm);
+}
+
+TEST(DynamicBindPlanningTest, FixedCabinZModeForcesAllPlannedAreasToConfiguredHeight)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+    DynamicBindPlannerConfig config;
+    config.bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kFixed;
+    config.bind_execution_cabin_min_z_mm = 485.0f;
+
+    const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
+        make_world_point(1, 1075.0f, 2075.0f, 430.0f),
+        make_world_point(2, 1225.0f, 2075.0f, 430.0f),
+        make_world_point(3, 1075.0f, 2225.0f, 430.0f),
+        make_world_point(4, 1225.0f, 2225.0f, 430.0f),
+    };
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{1000.0f, 2000.0f},
+        500.0f,
+        gripper_from_base_link,
+        config);
+
+    ASSERT_EQ(bind_area_entries.size(), 1u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries.front()), (std::vector<int>{1, 2, 3, 4}));
+    EXPECT_FLOAT_EQ(bind_area_entries.front().cabin_z, config.bind_execution_cabin_min_z_mm);
+
+    const auto execution_path_origin = build_dynamic_bind_execution_path_origin(
+        bind_area_entries,
+        CabinPoint{1000.0f, 2000.0f},
+        500.0f,
+        config);
+    EXPECT_FLOAT_EQ(execution_path_origin.z, config.bind_execution_cabin_min_z_mm);
 }
 
 TEST(DynamicBindPlanningTest, TraversesGridAsTwoColumnBandsFromWorldMinimumPoint)
@@ -452,6 +488,122 @@ TEST(DynamicBindPlanningTest, UsesProvidedGridIndicesInsteadOfReclusteringTilted
         }
     }
     EXPECT_EQ(emitted_indices.size(), planning_world_points.size());
+}
+
+TEST(DynamicBindPlanningTest, ForceAxisThresholdGroupingIgnoresProvidedGridIndices)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
+        make_world_point(1, 100.0f, 200.0f, 430.0f),
+        make_world_point(2, 250.0f, 200.0f, 430.0f),
+        make_world_point(3, 100.0f, 350.0f, 430.0f),
+        make_world_point(4, 250.0f, 350.0f, 430.0f),
+    };
+    const std::vector<DynamicBindGridIndex> stale_grid_indices = {
+        make_grid_index(1, 0, 0),
+        make_grid_index(2, 2, 3),
+        make_grid_index(3, 4, 1),
+        make_grid_index(4, 7, 6),
+    };
+
+    DynamicBindPlannerConfig config;
+    config.force_axis_threshold_grouping = true;
+    config.matrix_row_threshold_mm = 50.0f;
+    config.matrix_column_threshold_mm = 50.0f;
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{100.0f, 200.0f},
+        500.0f,
+        gripper_from_base_link,
+        config,
+        stale_grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 1u);
+    ASSERT_EQ(bind_area_entries.front().bind_groups.size(), 1u);
+    const auto& bind_group = bind_area_entries.front().bind_groups.front();
+    EXPECT_EQ(bind_group.group_type, "matrix_2x2");
+    EXPECT_EQ(collect_unique_indices(bind_group), (std::set<int>{1, 2, 3, 4}));
+}
+
+TEST(DynamicBindPlanningTest, ForceAxisThresholdGroupingKeepsFixedTwoByTwoBlocks)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> stale_grid_indices;
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 4; ++col) {
+            const int idx = row * 4 + col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(col) * 150.0f,
+                static_cast<float>(row) * 150.0f,
+                430.0f));
+            stale_grid_indices.push_back(make_grid_index(idx, row * 3, col * 5));
+        }
+    }
+
+    DynamicBindPlannerConfig config;
+    config.force_axis_threshold_grouping = true;
+    config.matrix_row_threshold_mm = 50.0f;
+    config.matrix_column_threshold_mm = 50.0f;
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        config,
+        stale_grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 4u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 5, 6}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 4, 7, 8}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{11, 12, 15, 16}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[3]), (std::vector<int>{9, 10, 13, 14}));
+    for (const auto& area_entry : bind_area_entries) {
+        ASSERT_EQ(area_entry.bind_groups.size(), 1u);
+        EXPECT_EQ(area_entry.bind_groups.front().group_type, "matrix_2x2");
+    }
+}
+
+TEST(DynamicBindPlanningTest, ScanGroupingUsesXYReachabilityWithoutRejectingZOutOfRange)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+    const std::vector<tie_robot_msgs::PointCoords> planning_world_points = {
+        make_world_point(1, 100.0f, 200.0f, 250.0f),
+        make_world_point(2, 250.0f, 200.0f, 250.0f),
+        make_world_point(3, 100.0f, 350.0f, 250.0f),
+        make_world_point(4, 250.0f, 350.0f, 250.0f),
+    };
+    const std::vector<DynamicBindGridIndex> grid_indices = {
+        make_grid_index(1, 0, 0),
+        make_grid_index(2, 0, 1),
+        make_grid_index(3, 1, 0),
+        make_grid_index(4, 1, 1),
+    };
+
+    DynamicBindPlannerConfig config;
+    config.bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kFixed;
+    config.bind_execution_cabin_min_z_mm = 485.0f;
+    config.tcp_max_z_mm = 160.0f;
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        config,
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 1u);
+    ASSERT_EQ(bind_area_entries.front().bind_groups.size(), 1u);
+    const auto& bind_group = bind_area_entries.front().bind_groups.front();
+    EXPECT_EQ(bind_group.group_type, "matrix_2x2");
+    EXPECT_EQ(collect_unique_indices(bind_group), (std::set<int>{1, 2, 3, 4}));
+    EXPECT_EQ(bind_group.bind_points_world.front().World_coord[2], 250.0f);
 }
 
 TEST(DynamicBindPlanningTest, StartsProvidedGridTraversalFromMinimumWorldCoordinatePoint)
@@ -560,6 +712,42 @@ TEST(DynamicBindPlanningTest, PartitionsProvidedGridIntoRequestedTwoByThreeBlock
         ASSERT_EQ(area_entry.bind_groups.size(), 1u);
         EXPECT_EQ(area_entry.bind_groups.front().group_type, "matrix_2x3");
     }
+}
+
+TEST(DynamicBindPlanningTest, AdaptiveGroupingPrefersTwoByTwoBeforeLargerRectangles)
+{
+    const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
+
+    std::vector<tie_robot_msgs::PointCoords> planning_world_points;
+    std::vector<DynamicBindGridIndex> grid_indices;
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            const int idx = row * 3 + col + 1;
+            planning_world_points.push_back(make_world_point(
+                idx,
+                static_cast<float>(col) * 120.0f,
+                static_cast<float>(row) * 120.0f,
+                430.0f));
+            grid_indices.push_back(make_grid_index(idx, row, col));
+        }
+    }
+
+    DynamicBindPlannerConfig config;
+    config.adaptive_grouping_enabled = true;
+    config.requested_group_point_count = 6;
+
+    const auto bind_area_entries = build_dynamic_bind_area_entries_from_scan_world(
+        planning_world_points,
+        CabinPoint{0.0f, 0.0f},
+        500.0f,
+        gripper_from_base_link,
+        config,
+        grid_indices);
+
+    ASSERT_EQ(bind_area_entries.size(), 2u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 4, 5}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 6}));
+    EXPECT_EQ(bind_area_entries[0].bind_groups.front().group_type, "matrix_2x2");
 }
 
 TEST(DynamicBindPlanningTest, UsesSmallerGroupsInsteadOfSwitchingSixPointOrientation)
@@ -844,7 +1032,7 @@ TEST(DynamicBindPlanningTest, KeepsNinePointGroupWhenTfWorkspaceCanCoverCompress
     EXPECT_EQ(bind_area_entries.front().bind_groups.front().group_type, "matrix_3x3");
 }
 
-TEST(DynamicBindPlanningTest, AdaptiveGroupingKeepsCompressedThreeByThreeInSingleArea)
+TEST(DynamicBindPlanningTest, AdaptiveGroupingPrefersTwoByTwoWithinCompressedThreeByThree)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
 
@@ -874,10 +1062,11 @@ TEST(DynamicBindPlanningTest, AdaptiveGroupingKeepsCompressedThreeByThreeInSingl
         config,
         grid_indices);
 
-    ASSERT_EQ(bind_area_entries.size(), 1u);
-    ASSERT_EQ(bind_area_entries.front().bind_groups.size(), 1u);
-    EXPECT_EQ(collect_unique_indices(bind_area_entries.front().bind_groups.front()).size(), 9u);
-    EXPECT_EQ(bind_area_entries.front().bind_groups.front().group_type, "matrix_3x3");
+    ASSERT_EQ(bind_area_entries.size(), 3u);
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[0]), (std::vector<int>{1, 2, 4, 5}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[1]), (std::vector<int>{3, 6}));
+    EXPECT_EQ(collect_area_point_indices(bind_area_entries[2]), (std::vector<int>{7, 8, 9}));
+    EXPECT_EQ(bind_area_entries[0].bind_groups.front().group_type, "matrix_2x2");
 }
 
 TEST(DynamicBindPlanningTest, AdaptiveGroupingAvoidsSinglePointTailWithTwoPointEdgeGroups)
@@ -973,8 +1162,10 @@ TEST(DynamicBindPlanningTest, FallsBackAroundWorldMinimumBeforeLaterReachableNin
             planning_world_points.push_back(make_world_point(
                 idx,
                 static_cast<float>(col) * 150.0f,
-                static_cast<float>(row) * 150.0f,
-                bottom_left_block_row ? 250.0f : 430.0f));
+                bottom_left_block_row
+                    ? 600.0f
+                    : static_cast<float>(row) * 150.0f,
+                430.0f));
             grid_indices.push_back(make_grid_index(idx, row, col));
         }
     }
@@ -1074,7 +1265,8 @@ TEST(DynamicBindPlanningTest, KeepsProvidedOddGridRemainderPairsOnlyOnOuterEdges
 TEST(DynamicBindPlanningTest, CentersTwoPointEdgePairsInLinearModuleWorkspace)
 {
     const tf2::Transform gripper_from_base_link = make_gripper_from_base_link_transform();
-    const DynamicBindPlannerConfig config;
+    DynamicBindPlannerConfig config;
+    config.bind_execution_cabin_z_mode = DynamicBindExecutionCabinZMode::kMinimum;
 
     std::vector<tie_robot_msgs::PointCoords> planning_world_points;
     std::vector<DynamicBindGridIndex> grid_indices;

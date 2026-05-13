@@ -4,6 +4,7 @@ export const CONTROL_PANEL_TASK_SECTIONS = [
     title: "扫描区",
     tasks: [
       { id: "runSavedS2", label: "触发扫描\n视觉", tone: "blue" },
+      { id: "clearAllBindPoints", label: "清除所有\n绑扎点", tone: "red" },
     ],
   },
   {

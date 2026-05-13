@@ -31,6 +31,7 @@ def bind_image_processor_methods(cls):
     cls.transform_camera_point_to_map_frame = world_coord.transform_camera_point_to_map_frame
     cls.get_map_frame_xy_channels = world_coord.get_map_frame_xy_channels
     cls.image_raw_world_callback = world_coord.image_raw_world_callback
+    cls.apply_scan_linear_camera_compensation_to_channels = world_coord.apply_scan_linear_camera_compensation_to_channels
     cls.ensure_raw_world_channels = world_coord.ensure_raw_world_channels
     cls.get_valid_world_coord_near_pixel = world_coord.get_valid_world_coord_near_pixel
     cls.get_text_bbox = rendering.get_text_bbox

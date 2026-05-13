@@ -223,9 +223,11 @@ export class WorkspaceCanvasView {
     this.drawOverlay();
   }
 
-  setSelectedWorkspacePayload(payload) {
+  setSelectedWorkspacePayload(payload, { notify = true } = {}) {
     this.selectedPoints = parseWorkspaceQuadPayload(payload);
-    this.notifySelectionChanged();
+    if (notify) {
+      this.notifySelectionChanged();
+    }
     this.draw();
   }
 

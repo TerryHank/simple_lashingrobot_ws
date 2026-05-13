@@ -306,8 +306,11 @@ std::vector<GridRectangleShape> build_adaptive_group_rectangle_shapes(
         }
     };
 
-    std::vector<GridRectangleShape> shapes =
+    std::vector<GridRectangleShape> shapes;
+    append_unique_shape(shapes, GridRectangleShape{2, 2});
+    const std::vector<GridRectangleShape> requested_shapes =
         build_requested_group_rectangle_shapes(config, prefer_long_span_on_rows);
+    shapes.insert(shapes.end(), requested_shapes.begin(), requested_shapes.end());
     const std::vector<GridRectangleShape> smaller_shapes =
         build_smaller_group_rectangle_shapes(
             normalize_requested_group_point_count(config),
@@ -1586,7 +1589,7 @@ bool is_group_reachable_from_centered_dynamic_pose(
             world_points,
             gripper_from_base_link,
             config);
-    const float candidate_cabin_z = internal::clamp_bind_execution_cabin_z(
+    const float candidate_cabin_z = internal::resolve_bind_execution_cabin_z(
         candidate_pose.cabin_z > 0.0f ? candidate_pose.cabin_z : fallback_cabin_height,
         config);
     const CabinPoint candidate_cabin_point{candidate_pose.cabin_x, candidate_pose.cabin_y};
@@ -1598,7 +1601,7 @@ bool is_group_reachable_from_centered_dynamic_pose(
             candidate_cabin_z,
             gripper_from_base_link,
             local_point);
-        if (!internal::is_local_bind_point_in_range(local_point, config)) {
+        if (!internal::is_local_bind_point_xy_in_range(local_point, config)) {
             return false;
         }
     }
@@ -1869,7 +1872,8 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
         column_keys.push_back(grid_index.global_col);
     }
 
-    const bool has_provided_grid = !provided_grid_by_global_index.empty();
+    const bool has_provided_grid =
+        !config.force_axis_threshold_grouping && !provided_grid_by_global_index.empty();
     std::vector<float> column_centers;
     std::vector<float> row_centers;
     if (has_provided_grid) {
@@ -2046,7 +2050,7 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
         PseudoSlamGroupedAreaEntry area_entry;
         area_entry.area_index = area_index++;
         area_entry.cabin_point = {candidate_pose.cabin_x, candidate_pose.cabin_y};
-        area_entry.cabin_z = clamp_bind_execution_cabin_z(
+        area_entry.cabin_z = resolve_bind_execution_cabin_z(
             candidate_pose.cabin_z > 0.0f ? candidate_pose.cabin_z : cabin_height,
             config);
         area_entry.bind_groups.push_back(bind_group);
@@ -2077,7 +2081,7 @@ std::vector<PseudoSlamGroupedAreaEntry> build_dynamic_bind_area_entries_from_sca
                   gripper_from_base_link,
                   config,
                   prefer_long_span_on_rows)
-            : has_provided_grid
+            : (has_provided_grid || config.force_axis_threshold_grouping)
             ? select_grid_group_candidates_by_fixed_two_by_two_tiling(
                   point_refs_by_grid_cell,
                   static_cast<int>(row_keys.size()),
@@ -2165,12 +2169,12 @@ BindExecutionPathOriginPose build_dynamic_bind_execution_path_origin(
     const std::vector<PseudoSlamGroupedAreaEntry>& bind_area_entries,
     const CabinPoint& planning_reference_origin,
     float cabin_height,
-    float bind_execution_cabin_min_z_mm)
+    const DynamicBindPlannerConfig& config)
 {
     BindExecutionPathOriginPose execution_path_origin;
     execution_path_origin.x = planning_reference_origin.x;
     execution_path_origin.y = planning_reference_origin.y;
-    execution_path_origin.z = std::max(cabin_height, bind_execution_cabin_min_z_mm);
+    execution_path_origin.z = internal::resolve_bind_execution_cabin_z(cabin_height, config);
 
     if (bind_area_entries.empty()) {
         return execution_path_origin;

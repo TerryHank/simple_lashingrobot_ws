@@ -25,12 +25,14 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 import rospy
+from std_srvs.srv import Trigger
 import termios
 import tornado.httpserver
 import tornado.ioloop
@@ -70,6 +72,14 @@ PLANNING_BIND_PATH_FILE = (
 PLANNING_POINTS_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_process" / "data" / "pseudo_slam_points.json"
 )
+BIND_EXECUTION_MEMORY_FILE = (
+    WORKSPACE_ROOT / "src" / "tie_robot_process" / "data" / "bind_execution_memory.json"
+)
+CLEAR_PSEUDO_SLAM_MARKERS_SERVICE = "/cabin/clear_pseudo_slam_markers"
+FRONTEND_SHARED_STATE_FILE = (
+    WORKSPACE_ROOT / "src" / "tie_robot_web" / "data" / "frontend_state.json"
+)
+FRONTEND_SHARED_STATE_VERSION = 1
 GB28181_CONFIG_FILE = (
     WORKSPACE_ROOT / "src" / "tie_robot_gb28181" / "config" / "gb28181_device.yaml"
 )
@@ -321,6 +331,345 @@ def _scan_artifacts_aligned(bind_path, points_json):
         if bind_value and points_value and bind_value != points_value:
             return False
     return True
+
+
+def normalize_scan_pose_index(value):
+    try:
+        pose_index = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return pose_index if pose_index > 0 else 1
+
+
+def _infer_scan_pose_group_index(scan_pose_group):
+    if not isinstance(scan_pose_group, dict):
+        return 1
+    return normalize_scan_pose_index(
+        scan_pose_group.get(
+            "pose_index",
+            scan_pose_group.get("recognition_pose_index", 1),
+        )
+    )
+
+
+def _normalize_scan_pose_groups_by_pose_index(scan_pose_groups):
+    groups_by_pose_index = {}
+    for scan_pose_group in scan_pose_groups:
+        pose_index = _infer_scan_pose_group_index(scan_pose_group)
+        scan_pose_group["pose_index"] = pose_index
+        scan_pose_group["recognition_pose_index"] = pose_index
+        groups_by_pose_index[str(pose_index)] = scan_pose_group
+    return groups_by_pose_index
+
+
+def _remove_scan_pose_group(artifact_json, pose_index, payload_key):
+    if not isinstance(artifact_json, dict):
+        return {}, 0, 0
+    scan_pose_groups = [
+        dict(scan_pose_group)
+        for scan_pose_group in artifact_json.get("scan_pose_groups", [])
+        if isinstance(scan_pose_group, dict)
+    ]
+    kept_groups = [
+        scan_pose_group
+        for scan_pose_group in scan_pose_groups
+        if _infer_scan_pose_group_index(scan_pose_group) != pose_index
+    ]
+    removed_group_count = len(scan_pose_groups) - len(kept_groups)
+
+    next_artifact = dict(artifact_json)
+    next_artifact["scan_pose_groups"] = kept_groups
+    next_artifact["scan_pose_groups_by_pose_index"] = _normalize_scan_pose_groups_by_pose_index(kept_groups)
+    next_artifact["scan_pose_group_count"] = len(kept_groups)
+
+    flattened_payload = []
+    removed_payload_count = 0
+    for item in artifact_json.get(payload_key, []):
+        if not isinstance(item, dict):
+            continue
+        item_pose_index = normalize_scan_pose_index(
+            item.get("pose_index", item.get("recognition_pose_index", 1))
+        )
+        if item_pose_index == pose_index:
+            removed_payload_count += 1
+            continue
+        flattened_payload.append(item)
+
+    if kept_groups:
+        flattened_from_groups = []
+        for scan_pose_group in kept_groups:
+            payload_items = scan_pose_group.get(payload_key, [])
+            if isinstance(payload_items, list):
+                flattened_from_groups.extend(
+                    item for item in payload_items if isinstance(item, dict)
+                )
+        if flattened_from_groups:
+            flattened_payload = flattened_from_groups
+    next_artifact[payload_key] = flattened_payload
+
+    return next_artifact, removed_group_count, removed_payload_count
+
+
+def delete_scan_pose_artifacts_from_payloads(
+    pose_index,
+    points_json=None,
+    bind_path_json=None,
+    execution_memory_json=None,
+):
+    normalized_pose_index = normalize_scan_pose_index(pose_index)
+    next_points_json, removed_point_groups, removed_points = _remove_scan_pose_group(
+        points_json or {},
+        normalized_pose_index,
+        "pseudo_slam_points",
+    )
+    next_bind_path_json, removed_area_groups, removed_areas = _remove_scan_pose_group(
+        bind_path_json or {},
+        normalized_pose_index,
+        "areas",
+    )
+
+    next_execution_memory = dict(execution_memory_json or {})
+    executed_points = next_execution_memory.get("executed_points", [])
+    removed_execution_points = 0
+    if isinstance(executed_points, list):
+        kept_execution_points = []
+        for point in executed_points:
+            if not isinstance(point, dict):
+                continue
+            point_pose_index = normalize_scan_pose_index(
+                point.get("pose_index", point.get("recognition_pose_index", 1))
+            )
+            if point_pose_index == normalized_pose_index:
+                removed_execution_points += 1
+                continue
+            kept_execution_points.append(point)
+        next_execution_memory["executed_points"] = kept_execution_points
+    else:
+        next_execution_memory["executed_points"] = []
+
+    return {
+        "pose_index": normalized_pose_index,
+        "points_json": next_points_json,
+        "bind_path_json": next_bind_path_json,
+        "execution_memory_json": next_execution_memory,
+        "removed_point_groups": removed_point_groups,
+        "removed_area_groups": removed_area_groups,
+        "removed_points": removed_points,
+        "removed_areas": removed_areas,
+        "removed_execution_points": removed_execution_points,
+    }
+
+
+def _clear_scan_pose_groups(artifact_json, payload_key):
+    if not isinstance(artifact_json, dict):
+        return {
+            payload_key: [],
+            "scan_pose_groups": [],
+            "scan_pose_groups_by_pose_index": {},
+            "scan_pose_group_count": 0,
+        }, 0, 0
+
+    scan_pose_groups = [
+        dict(scan_pose_group)
+        for scan_pose_group in artifact_json.get("scan_pose_groups", [])
+        if isinstance(scan_pose_group, dict)
+    ]
+    removed_group_count = len(scan_pose_groups)
+    removed_payload_count = 0
+    for item in artifact_json.get(payload_key, []):
+        if isinstance(item, dict):
+            removed_payload_count += 1
+
+    next_artifact = dict(artifact_json)
+    next_artifact["scan_pose_groups"] = []
+    next_artifact["scan_pose_groups_by_pose_index"] = {}
+    next_artifact["scan_pose_group_count"] = 0
+    next_artifact[payload_key] = []
+    return next_artifact, removed_group_count, removed_payload_count
+
+
+def clear_bind_point_artifacts_from_payloads(
+    points_json=None,
+    bind_path_json=None,
+    execution_memory_json=None,
+):
+    next_points_json, removed_point_groups, removed_points = _clear_scan_pose_groups(
+        points_json or {},
+        "pseudo_slam_points",
+    )
+    next_bind_path_json, removed_area_groups, removed_areas = _clear_scan_pose_groups(
+        bind_path_json or {},
+        "areas",
+    )
+
+    next_execution_memory = dict(execution_memory_json or {})
+    executed_points = next_execution_memory.get("executed_points", [])
+    removed_execution_points = 0
+    if isinstance(executed_points, list):
+        removed_execution_points = sum(1 for point in executed_points if isinstance(point, dict))
+    next_execution_memory["executed_points"] = []
+
+    return {
+        "points_json": next_points_json,
+        "bind_path_json": next_bind_path_json,
+        "execution_memory_json": next_execution_memory,
+        "removed_point_groups": removed_point_groups,
+        "removed_area_groups": removed_area_groups,
+        "removed_points": removed_points,
+        "removed_areas": removed_areas,
+        "removed_execution_points": removed_execution_points,
+    }
+
+
+def _load_json_file_if_exists(path):
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json_file_atomically(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=str(path.parent),
+        delete=False,
+    ) as file_obj:
+        json.dump(payload, file_obj, ensure_ascii=False, indent=4)
+        temp_path = Path(file_obj.name)
+    temp_path.replace(path)
+
+
+def _frontend_shared_state_timestamp():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _normalize_frontend_shared_state_payload(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("前端共享状态必须是 JSON 对象。")
+    state = payload.get("state", payload)
+    if not isinstance(state, dict):
+        raise ValueError("前端共享状态 state 必须是 JSON 对象。")
+    version = payload.get("version", FRONTEND_SHARED_STATE_VERSION)
+    try:
+        version = int(version)
+    except (TypeError, ValueError):
+        version = FRONTEND_SHARED_STATE_VERSION
+    updated_at = str(payload.get("updated_at") or _frontend_shared_state_timestamp())
+    return {
+        "version": version if version > 0 else FRONTEND_SHARED_STATE_VERSION,
+        "updated_at": updated_at,
+        "state": state,
+    }
+
+
+def read_frontend_shared_state(path=FRONTEND_SHARED_STATE_FILE):
+    state_path = Path(path)
+    if not state_path.exists():
+        return {
+            "success": True,
+            "version": FRONTEND_SHARED_STATE_VERSION,
+            "updated_at": None,
+            "state": {},
+        }
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        normalized = _normalize_frontend_shared_state_payload(payload)
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"读取前端共享状态失败：{exc}",
+            "version": FRONTEND_SHARED_STATE_VERSION,
+            "updated_at": None,
+            "state": {},
+        }
+    return {
+        "success": True,
+        **normalized,
+    }
+
+
+def write_frontend_shared_state(path, payload):
+    try:
+        normalized = _normalize_frontend_shared_state_payload({
+            **payload,
+            "updated_at": _frontend_shared_state_timestamp(),
+        })
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": str(exc),
+        }
+    try:
+        if bool(payload.get("patch")):
+            current = read_frontend_shared_state(path)
+            current_state = current.get("state") if current.get("success") else {}
+            if not isinstance(current_state, dict):
+                current_state = {}
+            normalized["state"] = {
+                **current_state,
+                **normalized["state"],
+            }
+        _write_json_file_atomically(Path(path), normalized)
+    except Exception as exc:
+        return {
+            "success": False,
+            "message": f"写入前端共享状态失败：{exc}",
+        }
+    return {
+        "success": True,
+        "message": "前端共享状态已保存。",
+        **normalized,
+    }
+
+
+def delete_scan_pose_artifacts(pose_index):
+    points_json = _load_json_file_if_exists(PLANNING_POINTS_FILE)
+    bind_path_json = _load_json_file_if_exists(PLANNING_BIND_PATH_FILE)
+    execution_memory_json = _load_json_file_if_exists(BIND_EXECUTION_MEMORY_FILE)
+    result = delete_scan_pose_artifacts_from_payloads(
+        pose_index=pose_index,
+        points_json=points_json,
+        bind_path_json=bind_path_json,
+        execution_memory_json=execution_memory_json,
+    )
+    _write_json_file_atomically(PLANNING_POINTS_FILE, result["points_json"])
+    _write_json_file_atomically(PLANNING_BIND_PATH_FILE, result["bind_path_json"])
+    _write_json_file_atomically(BIND_EXECUTION_MEMORY_FILE, result["execution_memory_json"])
+    return result
+
+
+def clear_bind_point_artifacts():
+    points_json = _load_json_file_if_exists(PLANNING_POINTS_FILE)
+    bind_path_json = _load_json_file_if_exists(PLANNING_BIND_PATH_FILE)
+    execution_memory_json = _load_json_file_if_exists(BIND_EXECUTION_MEMORY_FILE)
+    result = clear_bind_point_artifacts_from_payloads(
+        points_json=points_json,
+        bind_path_json=bind_path_json,
+        execution_memory_json=execution_memory_json,
+    )
+    _write_json_file_atomically(PLANNING_POINTS_FILE, result["points_json"])
+    _write_json_file_atomically(PLANNING_BIND_PATH_FILE, result["bind_path_json"])
+    _write_json_file_atomically(BIND_EXECUTION_MEMORY_FILE, result["execution_memory_json"])
+    return result
+
+
+def clear_pseudo_slam_markers_service(timeout_sec=0.35):
+    try:
+        rospy.wait_for_service(CLEAR_PSEUDO_SLAM_MARKERS_SERVICE, timeout=timeout_sec)
+        service = rospy.ServiceProxy(CLEAR_PSEUDO_SLAM_MARKERS_SERVICE, Trigger)
+        response = service()
+        return {
+            "called": True,
+            "success": bool(getattr(response, "success", False)),
+            "message": str(getattr(response, "message", "") or ""),
+        }
+    except Exception as exc:
+        return {
+            "called": False,
+            "success": False,
+            "message": str(exc),
+        }
 
 
 def build_dp_bind_grid_points(points_json):
@@ -1635,6 +1984,9 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/system/demo_mode_status":
             self.handle_demo_mode_status_get()
             return
+        if parsed.path == "/api/frontend/state":
+            self.handle_frontend_shared_state_get()
+            return
         if parsed.path == "/api/planning/bind-path":
             self.handle_planning_bind_path_get()
             return
@@ -2049,6 +2401,9 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/network/ping":
             self.handle_network_ping_post()
             return
+        if parsed.path == "/api/frontend/state":
+            self.handle_frontend_shared_state_post()
+            return
         if parsed.path == "/api/system/toggle_demo_mode":
             self.handle_demo_mode_toggle(parsed.path)
             return
@@ -2102,6 +2457,15 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             "success": True,
             **payload,
         })
+
+    def handle_frontend_shared_state_get(self):
+        payload = read_frontend_shared_state(FRONTEND_SHARED_STATE_FILE)
+        self.send_json(payload, status_code=200 if payload.get("success") else 500)
+
+    def handle_frontend_shared_state_post(self):
+        payload = self.read_json_body()
+        result = write_frontend_shared_state(FRONTEND_SHARED_STATE_FILE, payload)
+        self.send_json(result, status_code=200 if result.get("success") else 400)
 
     def handle_demo_mode_toggle(self, api_path):
         if self._demo_mode_is_active():
@@ -2781,6 +3145,12 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self):
         parsed = urlsplit(self.path)
+        if parsed.path == "/api/planning/bind-points":
+            self.handle_planning_bind_points_delete()
+            return
+        if parsed.path.startswith("/api/planning/scan-pose/"):
+            self.handle_planning_scan_pose_delete(parsed)
+            return
         if parsed.path.startswith("/api/terminal/sessions/"):
             session_id = parsed.path.rsplit("/", 1)[-1]
             closed_session = self.terminal_manager.close_session(session_id) if self.terminal_manager else None
@@ -2806,6 +3176,73 @@ class NoCacheStaticHandler(SimpleHTTPRequestHandler):
             })
             return
         self.send_error(404, "unknown api endpoint")
+
+    def handle_planning_scan_pose_delete(self, parsed):
+        raw_pose_index = unquote(parsed.path.rsplit("/", 1)[-1])
+        try:
+            pose_index = int(raw_pose_index)
+        except (TypeError, ValueError):
+            self.send_json({
+                "success": False,
+                "message": "识别位姿序号无效，无法删除对应扫描账本。",
+            }, status_code=400)
+            return
+        if pose_index <= 0:
+            self.send_json({
+                "success": False,
+                "message": "识别位姿序号必须大于 0。",
+            }, status_code=400)
+            return
+
+        try:
+            result = delete_scan_pose_artifacts(pose_index)
+        except Exception as exc:
+            self.send_json({
+                "success": False,
+                "message": f"删除识别位姿 {pose_index} 对应扫描账本失败：{exc}",
+            }, status_code=500)
+            return
+
+        self.send_json({
+            "success": True,
+            "message": (
+                f"已删除识别位姿 {pose_index} 对应扫描账本："
+                f"点{result['removed_points']}个，区域{result['removed_areas']}个，"
+                f"执行记忆{result['removed_execution_points']}个。"
+            ),
+            "pose_index": result["pose_index"],
+            "removed_points": result["removed_points"],
+            "removed_areas": result["removed_areas"],
+            "removed_execution_points": result["removed_execution_points"],
+        })
+
+    def handle_planning_bind_points_delete(self):
+        try:
+            result = clear_bind_point_artifacts()
+            marker_clear_result = clear_pseudo_slam_markers_service()
+        except Exception as exc:
+            self.send_json({
+                "success": False,
+                "message": f"清除所有绑扎点失败：{exc}",
+            }, status_code=500)
+            return
+
+        marker_message = marker_clear_result.get("message") or "未连接到/cabin/clear_pseudo_slam_markers。"
+        marker_status_text = "Marker已清空" if marker_clear_result.get("success") else f"Marker清空未确认：{marker_message}"
+        self.send_json({
+            "success": True,
+            "message": (
+                "已清除所有识别位姿的绑扎点账本："
+                f"点{result['removed_points']}个，区域{result['removed_areas']}个，"
+                f"执行记忆{result['removed_execution_points']}个；{marker_status_text}。"
+            ),
+            "removed_point_groups": result["removed_point_groups"],
+            "removed_area_groups": result["removed_area_groups"],
+            "removed_points": result["removed_points"],
+            "removed_areas": result["removed_areas"],
+            "removed_execution_points": result["removed_execution_points"],
+            "marker_clear": marker_clear_result,
+        })
 
     def _run_control_script(self, script_path, api_path):
         try:

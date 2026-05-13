@@ -230,14 +230,55 @@ def image_raw_world_callback(self, msg):
     self.ensure_raw_world_channels()
 
 
+def apply_scan_linear_camera_compensation_to_channels(self, camera_x, camera_y, camera_z):
+    source_x = np.asarray(camera_x, dtype=np.float32)
+    source_y = np.asarray(camera_y, dtype=np.float32)
+    source_z = np.asarray(camera_z, dtype=np.float32)
+    if not getattr(self, "scan_linear_compensation_enabled", False):
+        return source_x, source_y, source_z
+
+    finite_mask = np.isfinite(source_x) & np.isfinite(source_y) & np.isfinite(source_z) & (source_z != 0.0)
+    try:
+        min_z_mm = float(getattr(self, "scan_linear_compensation_min_z_mm", 0.0))
+        reference_z_mm = float(getattr(self, "scan_linear_compensation_reference_z_mm", 1000.0))
+        x_per_mm = float(getattr(self, "scan_linear_compensation_x_per_mm", 0.0))
+        y_per_mm = float(getattr(self, "scan_linear_compensation_y_per_mm", 0.0))
+        x_shift_per_mm = float(getattr(self, "scan_linear_compensation_x_shift_per_mm", 0.0))
+        y_shift_per_mm = float(getattr(self, "scan_linear_compensation_y_shift_per_mm", 0.0))
+        max_abs_scale_delta = abs(float(getattr(self, "scan_linear_compensation_max_abs_scale_delta", 0.25)))
+    except (TypeError, ValueError):
+        return source_x, source_y, source_z
+
+    active_mask = finite_mask & (source_z >= min_z_mm)
+    if not np.any(active_mask):
+        return source_x, source_y, source_z
+
+    z_delta_mm = source_z - reference_z_mm
+    x_scale_delta = np.clip(x_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta).astype(np.float32)
+    y_scale_delta = np.clip(y_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta).astype(np.float32)
+    x_shift_mm = (x_shift_per_mm * z_delta_mm).astype(np.float32)
+    y_shift_mm = (y_shift_per_mm * z_delta_mm).astype(np.float32)
+    corrected_x = source_x.copy()
+    corrected_y = source_y.copy()
+    corrected_x[active_mask] = (source_x[active_mask] * (1.0 - x_scale_delta[active_mask])) + x_shift_mm[active_mask]
+    corrected_y[active_mask] = (source_y[active_mask] * (1.0 + y_scale_delta[active_mask])) + y_shift_mm[active_mask]
+    return corrected_x.astype(np.float32), corrected_y.astype(np.float32), source_z
+
+
 def ensure_raw_world_channels(self):
     if getattr(self, "image_raw_world", None) is None:
         return False
 
     image_raw_world_channels = self.cv2.split(self.image_raw_world)
-    self.x_channel = (image_raw_world_channels[0]).astype(np.float32)
-    self.y_channel = (image_raw_world_channels[1]).astype(np.float32)
-    self.depth_v = (image_raw_world_channels[2]).astype(np.float32)
+    source_x = (image_raw_world_channels[0]).astype(np.float32)
+    source_y = (image_raw_world_channels[1]).astype(np.float32)
+    source_z = (image_raw_world_channels[2]).astype(np.float32)
+    self.x_channel, self.y_channel, self.depth_v = apply_scan_linear_camera_compensation_to_channels(
+        self,
+        source_x,
+        source_y,
+        source_z,
+    )
     return True
 
 

@@ -253,6 +253,50 @@ npm install
 npm run build
 ```
 
+### Help 站部署
+
+Help 站源码在 `src/tie_robot_web/help`，支持 3 种构建目标：
+
+```bash
+cd src/tie_robot_web/help
+npm run build
+npm run build:github
+npm run build:cloudflare
+```
+
+- `npm run build`
+  生成本机静态服务使用的 `/help/` 版本，输出到 `src/tie_robot_web/web/help`
+- `npm run build:github`
+  生成 GitHub Pages 使用的仓库根路径版本，输出到 `.deploy/github-pages`
+- `npm run build:cloudflare`
+  生成 Cloudflare Pages 使用的站点根路径版本，输出到 `.deploy/cloudflare-pages`
+
+GitHub Pages：
+
+```bash
+./scripts/deploy_help_github_pages.sh
+```
+
+该脚本会构建 help 站、使用独立 `.worktrees/gh-pages` 发布分支推送静态文件，并通过 GitHub API 把 Pages 发布源切到 `gh-pages` 分支根目录。项目站点地址应为：
+
+```text
+https://terryhank.github.io/simple_lashingrobot_ws/
+```
+
+Cloudflare Pages：
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+export CLOUDFLARE_PAGES_PROJECT_NAME=tie-robot-help
+./scripts/deploy_help_cloudflare_pages.sh
+```
+
+Cloudflare 直传依赖 `wrangler pages deploy`。如果仓库里配置了以下 GitHub Actions 密钥和变量，推送到 `main` 时也会自动部署：
+
+- Secret：`CLOUDFLARE_API_TOKEN`
+- Secret：`CLOUDFLARE_ACCOUNT_ID`
+- Variable：`CLOUDFLARE_PAGES_PROJECT_NAME`
+
 ## 目录结构
 
 ```text

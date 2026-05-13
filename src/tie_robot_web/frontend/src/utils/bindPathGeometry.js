@@ -86,6 +86,40 @@ function normalizeBindGridPoint(rawPoint, fallbackIndex) {
   };
 }
 
+function normalizeToolCoordinateMm(rawPoint) {
+  const x = toFiniteNumber(rawPoint?.x ?? rawPoint?.tool_x ?? rawPoint?.tcp_x);
+  const y = toFiniteNumber(rawPoint?.y ?? rawPoint?.tool_y ?? rawPoint?.tcp_y);
+  const z = toFiniteNumber(rawPoint?.z ?? rawPoint?.tool_z ?? rawPoint?.tcp_z);
+  if (x === null || y === null || z === null) {
+    return null;
+  }
+  return { x, y, z };
+}
+
+function collectToolCoordinatesByGlobalIndex(areas) {
+  const toolCoordinatesByGlobalIndex = new Map();
+  const bindPathAreas = Array.isArray(areas) ? areas : [];
+
+  bindPathAreas.forEach((area) => {
+    const groups = Array.isArray(area?.groups) ? area.groups : [];
+    groups.forEach((group) => {
+      const groupPoints = Array.isArray(group?.points) ? group.points : [];
+      groupPoints.forEach((rawPoint) => {
+        const globalIdx = toFiniteNumber(rawPoint?.global_idx ?? rawPoint?.idx);
+        if (globalIdx === null || globalIdx <= 0 || toolCoordinatesByGlobalIndex.has(globalIdx)) {
+          return;
+        }
+        const toolMm = normalizeToolCoordinateMm(rawPoint);
+        if (toolMm) {
+          toolCoordinatesByGlobalIndex.set(globalIdx, toolMm);
+        }
+      });
+    });
+  });
+
+  return toolCoordinatesByGlobalIndex;
+}
+
 function collectRawAreaPoints(areas) {
   const bindPathAreas = Array.isArray(areas) ? areas : [];
   const rawPoints = [];
@@ -275,12 +309,14 @@ function pointMatchesSelectedCheckerboardParity(point, selectedParity) {
   return normalizedParity === 0;
 }
 
-function buildScenePointHoverEntry(point, label) {
+function buildScenePointHoverEntry(point, label, toolCoordinatesByGlobalIndex = null) {
+  const toolMm = toolCoordinatesByGlobalIndex?.get(point.globalIdx) || null;
   return {
     label,
     globalIdx: point.globalIdx,
     row: point.row,
     col: point.col,
+    ...(toolMm ? { toolMm } : {}),
     worldMm: {
       x: point.x * 1000.0,
       y: point.y * 1000.0,
@@ -295,13 +331,15 @@ function normalizeAreaIndex(area, fallbackIndex) {
 }
 
 export function buildBindPathPointHoverEntries(areas, gridPoints = []) {
+  const toolCoordinatesByGlobalIndex = collectToolCoordinatesByGlobalIndex(areas);
   return collectBindPathGridPoints(areas, gridPoints)
-    .map((point) => buildScenePointHoverEntry(point, "绑扎点"));
+    .map((point) => buildScenePointHoverEntry(point, "绑扎点", toolCoordinatesByGlobalIndex));
 }
 
 export function buildUnplannedBindPathPointHoverEntries(areas, gridPoints = []) {
+  const toolCoordinatesByGlobalIndex = collectToolCoordinatesByGlobalIndex(areas);
   return collectUnplannedBindPathGridPoints(areas, gridPoints)
-    .map((point) => buildScenePointHoverEntry(point, "未入组扫描点"));
+    .map((point) => buildScenePointHoverEntry(point, "未入组扫描点", toolCoordinatesByGlobalIndex));
 }
 
 export function buildJumpBindPointHoverEntries(
@@ -311,9 +349,10 @@ export function buildJumpBindPointHoverEntries(
   if (!enabled) {
     return [];
   }
+  const toolCoordinatesByGlobalIndex = collectToolCoordinatesByGlobalIndex(areas);
   return collectBindPathGridPoints(areas, gridPoints)
     .filter((point) => pointMatchesSelectedCheckerboardParity(point, selectedParity))
-    .map((point) => buildScenePointHoverEntry(point, "绑扎点"));
+    .map((point) => buildScenePointHoverEntry(point, "绑扎点", toolCoordinatesByGlobalIndex));
 }
 
 export function buildCabinPathPointHoverEntries(areas = []) {
@@ -346,12 +385,23 @@ export function formatScenePointWorldCoordinate(entry) {
       ? ` 区域${entry.areaIndex}`
       : "";
   const worldMm = entry?.worldMm || {};
-  return [
+  const lines = [
     `${entry?.label || "点"}${suffix}`,
+  ];
+  const toolMm = entry?.toolMm || null;
+  if (toolMm) {
+    lines.push(
+      `工具 X ${formatCoordinateMm(toolMm.x)} mm`,
+      `工具 Y ${formatCoordinateMm(toolMm.y)} mm`,
+      `工具 Z ${formatCoordinateMm(toolMm.z)} mm`,
+    );
+  }
+  lines.push(
     `世界 X ${formatCoordinateMm(worldMm.x)} mm`,
     `世界 Y ${formatCoordinateMm(worldMm.y)} mm`,
     `世界 Z ${formatCoordinateMm(worldMm.z)} mm`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 export function buildJumpBindPointPositions(

@@ -52,7 +52,8 @@
 - IR 图像：用于工作区确认、结果叠加和人工检查。
 - `/Scepter/worldCoord/raw_world_coord`：用于 rectified 深度、物理尺度估计和最终点位反查。
 - 手动工作区四边形：后端保存为 `corner_pixels`，用于确定透视展开范围。
-- 前端视觉调试设置：扫描底图、稳定放行帧数、梁筋过滤开关和梁筋过滤半径。
+- 前端视觉调试设置：扫描底图和稳定放行帧数。
+- 梁筋过滤设置：默认关闭；启用后使用梁筋候选扩张 mask 做点级过滤。
 
 执行微调分支依赖：
 
@@ -68,10 +69,11 @@
 4. 阈值化和骨架化只作为诊断，不直接把 skeleton junction 当绑扎点。
 5. 在响应图上按 120-160 mm 钢筋间距寻找横纵线族。
 6. 用统一物理网格评分校对线族：线数比例要匹配当前有效视野的物理长宽比，而不是强行要求横纵线数接近 `1:1`。
-7. 检测 `beam_candidate` 梁筋候选；只有视觉调试开关启用时，才按当前梁筋过滤半径对最终点做点级过滤。
-8. 使用 Surface-DP 沿响应图追踪曲线线族，处理轻微弯曲和局部响应弱化。
-9. 求两组曲线线族交点，通过 inverse H 投回原图。
-10. 从 `raw_world_coord` 查找相机系三维坐标并发布点、结果图和 TF。
+7. 使用 Surface-DP 沿响应图追踪曲线线族，处理轻微弯曲和局部响应弱化。
+8. 求两组物理线族交点，通过 inverse H 投回原图。
+9. 从 `raw_world_coord` 查找相机系三维坐标并发布点、结果图和 TF。
+
+梁筋候选会继续作为扫描诊断显示：`beam_candidate_bands` 在扫描底图上画成红色竖带。前端启用梁筋过滤后，PointAI 按设置半径扩张候选 mask，只删除落入该 mask 的交点；不会因为同一 X 位置有一个点命中，就连带移除其它普通钢筋交点。
 
 ## 校对方案
 
@@ -114,7 +116,7 @@ physical_prior_modes = [unified_physical_lattice, unified_physical_lattice]
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/node.py`：pointAI 节点实现。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`：视觉 topic、service 和 publisher 装配。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`：扫描入口，当前优先调用 Surface-DP。
-- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`：Surface-DP 单源底图、物理网格评分、梁筋候选和 DP 曲线交点。
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/scan_surface_dp.py`：Surface-DP 单源底图、物理网格评分和物理线族交点。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py`：执行微调 Hough 分支。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/rendering.py`：结果图渲染与发布。
 - `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`：`process_image` 主入口，按 `request_mode` 分流扫描和执行微调。

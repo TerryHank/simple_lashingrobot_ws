@@ -4,14 +4,32 @@ export class PanelManager {
     this.resizeObservers = new Map();
     this.onLayoutChange = typeof onLayoutChange === "function" ? onLayoutChange : null;
     this.suppressLayoutChange = false;
+    this.resizeObserverLayoutPersistenceEnabled = false;
+    this.suppressResizeObserverLayoutChange = false;
     this.handleWindowResize = this.handleWindowResize.bind(this);
   }
 
-  notifyLayoutChange() {
+  notifyLayoutChange({ source = "user" } = {}) {
     if (this.suppressLayoutChange) {
       return;
     }
+    if (
+      source === "resizeObserver"
+      && (!this.resizeObserverLayoutPersistenceEnabled || this.suppressResizeObserverLayoutChange)
+    ) {
+      return;
+    }
     this.onLayoutChange?.(this.getPanelLayoutSnapshot());
+  }
+
+  suppressResizeObserverLayoutPersistenceForFrame() {
+    this.suppressResizeObserverLayoutChange = true;
+    const schedule = typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame.bind(window)
+      : requestAnimationFrame;
+    schedule(() => {
+      this.suppressResizeObserverLayoutChange = false;
+    });
   }
 
   getCenteredPanelRect(width, height, verticalOffset = 0) {
@@ -355,7 +373,7 @@ export class PanelManager {
 
     if (panelId !== "imagePanel") {
       const observer = new ResizeObserver(() => {
-        this.notifyLayoutChange();
+        this.notifyLayoutChange({ source: "resizeObserver" });
       });
       observer.observe(panel);
       this.resizeObservers.set(panelId, observer);
@@ -441,6 +459,7 @@ export class PanelManager {
   }
 
   handleWindowResize() {
+    this.suppressResizeObserverLayoutPersistenceForFrame();
     this.panels.forEach((state) => {
       if (!state.maximized) {
         const rect = state.panel.getBoundingClientRect();
@@ -477,7 +496,6 @@ export class PanelManager {
       state.panel.style.bottom = "auto";
       state.panel.style.transform = "";
     });
-    this.notifyLayoutChange();
   }
 
   hasPanelLayout(panelId) {
@@ -488,6 +506,7 @@ export class PanelManager {
   applyPanelLayout(layout) {
     const layoutPanels = layout?.panels || {};
     this.suppressLayoutChange = true;
+    this.suppressResizeObserverLayoutPersistenceForFrame();
     Object.entries(layoutPanels).forEach(([panelId, panelLayout]) => {
       const state = this.panels.get(panelId);
       if (!state || !panelLayout?.rect) {
@@ -522,6 +541,10 @@ export class PanelManager {
       }
     });
     this.suppressLayoutChange = false;
+  }
+
+  enableResizeObserverLayoutPersistence() {
+    this.resizeObserverLayoutPersistenceEnabled = true;
   }
 
   getPanelLayoutSnapshot() {

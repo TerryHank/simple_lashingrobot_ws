@@ -9,7 +9,7 @@
 -> MODE_SCAN_ONLY / request_mode=3
 -> Surface-DP 单源底图
 -> 统一物理网格评分
--> Surface-DP 曲线交点
+-> 物理线族交点
 -> pseudo_slam_points.json / pseudo_slam_bind_path.json
 
 执行微调
@@ -60,17 +60,11 @@ physical_prior_modes = [unified_physical_lattice, unified_physical_lattice]
 physical_lattice_count_aspect_error <= physical_lattice_count_aspect_tolerance
 ```
 
-### 6. Surface-DP 曲线交点投回原图
+### 6. 物理线族交点投回原图
 
 ![Surface-DP 原图输出](/images/visual/current-visual-flow/05_surface_dp_runtime_original.png)
 
-通过校对的线族会进入 Surface-DP 曲线追踪。最终曲线交点通过 inverse H 投回原图，再从 `raw_world_coord` 查找相机系三维坐标，发布到 `/perception/lashing/points_camera`、`/coordinate_point` 和扫描账本。
-
-### 7. 梁筋候选诊断
-
-![梁筋候选诊断](/images/visual/current-visual-flow/06_surface_dp_beam_candidate.png)
-
-红色半透明竖带表示 `beam_candidate` 梁筋候选。默认情况下它是诊断图层；启用「梁筋过滤」后，才按当前过滤半径对最终点做点级过滤。当前运行态默认过滤半径为 150 mm。
+通过校对的线族会进入 Surface-DP 曲线追踪。最终物理线族交点通过 inverse H 投回原图，再从 `raw_world_coord` 查找相机系三维坐标，发布到 `/perception/lashing/points_camera`、`/coordinate_point` 和扫描账本。扫描底图会继续用红色竖带叠加 `beam_candidate` 梁筋候选；视觉调试启用梁筋过滤时，只删除落入梁筋扩张 mask 的点，不会连带移除同一 X 位置的其它交点。
 
 ## 执行微调流程
 
@@ -111,9 +105,9 @@ Hough 交点会聚类，再从 `raw_world_coord` 查相机坐标，并转换到 
 | 扫描视觉触发 | `/web/cabin/start_pseudo_slam_scan` | 前端「触发扫描视觉」使用的 action。 |
 | 直接视觉服务 | `/pointAI/process_image` | `request_mode=3` 为扫描，`request_mode=4` 为执行微调。 |
 | 扫描底图设置 | `/web/pointAI/set_scan_response_source` | 设置当前单源底图，默认 `depth_gradient`。 |
-| 梁筋过滤开关 | `/web/pointAI/set_scan_beam_exclusion` | 开启后按梁筋过滤半径删除最终点。 |
-| 梁筋过滤半径 | `/web/pointAI/set_scan_beam_exclusion_margin_mm` | 当前默认 150 mm。 |
-| 扫描诊断图 | `/perception/lashing/scan_surface_dp_base_image` | 当前底图、DP 点和梁筋候选。 |
+| 梁筋过滤开关 | `/web/pointAI/set_scan_beam_exclusion` | 启用后按梁筋候选扩张 mask 做点级过滤。 |
+| 梁筋过滤半径 | `/web/pointAI/set_scan_beam_exclusion_margin_mm` | 设置梁筋候选左右扩张半径，默认 150 mm。 |
+| 扫描诊断图 | `/perception/lashing/scan_surface_dp_base_image` | 当前底图、物理线族交点和梁筋候选红带。 |
 | 执行诊断图 | `/perception/lashing/execution_refine_base_image` | Hough 二值和执行候选诊断。 |
 | 结果图 | `/perception/lashing/result_image` | 当前视觉最终结果图。 |
 | 相机点 | `/perception/lashing/points_camera` | 原始相机坐标语义，下游再做 TF 转换。 |

@@ -24,8 +24,11 @@ struct DynamicBindPlanningCandidatePose
     float cabin_z = 0.0f;
 };
 
-float clamp_bind_execution_cabin_z(float planned_cabin_z, const DynamicBindPlannerConfig& config);
+float resolve_bind_execution_cabin_z(float planned_cabin_z, const DynamicBindPlannerConfig& config);
 bool is_local_bind_point_in_range(
+    const tie_robot_msgs::PointCoords& point,
+    const DynamicBindPlannerConfig& config);
+bool is_local_bind_point_xy_in_range(
     const tie_robot_msgs::PointCoords& point,
     const DynamicBindPlannerConfig& config);
 tf2::Transform build_cabin_from_base_link_transform(

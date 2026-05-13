@@ -19,8 +19,11 @@ tf2::Vector3 build_linear_workspace_center_in_gripper_frame(
 
 }  // namespace
 
-float clamp_bind_execution_cabin_z(float planned_cabin_z, const DynamicBindPlannerConfig& config)
+float resolve_bind_execution_cabin_z(float planned_cabin_z, const DynamicBindPlannerConfig& config)
 {
+    if (config.bind_execution_cabin_z_mode == DynamicBindExecutionCabinZMode::kFixed) {
+        return config.bind_execution_cabin_min_z_mm;
+    }
     return std::max(planned_cabin_z, config.bind_execution_cabin_min_z_mm);
 }
 
@@ -28,12 +31,19 @@ bool is_local_bind_point_in_range(
     const tie_robot_msgs::PointCoords& point,
     const DynamicBindPlannerConfig& config)
 {
+    return is_local_bind_point_xy_in_range(point, config) &&
+           point.World_coord[2] >= 0.0f &&
+           point.World_coord[2] <= config.tcp_max_z_mm;
+}
+
+bool is_local_bind_point_xy_in_range(
+    const tie_robot_msgs::PointCoords& point,
+    const DynamicBindPlannerConfig& config)
+{
     return point.World_coord[0] >= 0.0f &&
            point.World_coord[0] <= config.tcp_max_x_mm &&
            point.World_coord[1] >= 0.0f &&
-           point.World_coord[1] <= config.tcp_max_y_mm &&
-           point.World_coord[2] >= 0.0f &&
-           point.World_coord[2] <= config.tcp_max_z_mm;
+           point.World_coord[1] <= config.tcp_max_y_mm;
 }
 
 tf2::Transform build_cabin_from_base_link_transform(

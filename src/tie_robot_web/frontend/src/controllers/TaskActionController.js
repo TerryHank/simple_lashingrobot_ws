@@ -10,6 +10,10 @@ import { buildWorkspaceQuadPayload } from "../utils/irImageUtils.js";
 
 const WORKSPACE_QUAD_ACK_TIMEOUT_MS = 4000;
 const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
+const DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM = 40;
+const DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM = 45;
+const BIND_EXECUTION_CABIN_Z_MODE_FIXED = 0;
+const BIND_EXECUTION_CABIN_Z_MODE_MIN = 1;
 
 function buildWorkspaceQuadPayloadKey(payload) {
   if (!Array.isArray(payload) || payload.length !== 8) {
@@ -34,6 +38,19 @@ function normalizeBindExecutionCabinMinZ(value) {
     : DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM;
 }
 
+function normalizeBindGroupAxisThreshold(value, fallback) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0
+    ? numericValue
+    : fallback;
+}
+
+function normalizeBindExecutionCabinZMode(value) {
+  return value === "min" || Number(value) === BIND_EXECUTION_CABIN_Z_MODE_MIN
+    ? BIND_EXECUTION_CABIN_Z_MODE_MIN
+    : BIND_EXECUTION_CABIN_Z_MODE_FIXED;
+}
+
 function normalizeRecognitionPoseIndex(value) {
   const numericValue = Number(value);
   const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : 1;
@@ -54,7 +71,10 @@ export class TaskActionController {
     workspaceView,
     getExecutionMode = null,
     getAdaptiveBindGrouping = null,
+    getBindGroupRowThreshold = null,
+    getBindGroupColumnThreshold = null,
     getBindExecutionCabinMinZ = null,
+    getBindExecutionCabinZMode = null,
     getRecognitionPoseIndex = null,
     callbacks = {},
   }) {
@@ -62,7 +82,10 @@ export class TaskActionController {
     this.workspaceView = workspaceView;
     this.getExecutionMode = getExecutionMode;
     this.getAdaptiveBindGrouping = getAdaptiveBindGrouping;
+    this.getBindGroupRowThreshold = getBindGroupRowThreshold;
+    this.getBindGroupColumnThreshold = getBindGroupColumnThreshold;
     this.getBindExecutionCabinMinZ = getBindExecutionCabinMinZ;
+    this.getBindExecutionCabinZMode = getBindExecutionCabinZMode;
     this.getRecognitionPoseIndex = getRecognitionPoseIndex;
     this.callbacks = callbacks;
     this.pendingWorkspaceQuadSubmission = null;
@@ -96,7 +119,9 @@ export class TaskActionController {
     }
     const payload = buildWorkspaceQuadPayload(selectedPoints);
     this.workspaceView.setExecutionOverlayMessage(null);
-    this.setPendingWorkspaceQuadSubmission(payload);
+    this.setPendingWorkspaceQuadSubmission(payload, {
+      recognitionPoseIndex: normalizeRecognitionPoseIndex(this.getRecognitionPoseIndex?.()),
+    });
     resources.workspaceQuadPublisher.publish(new ROSLIB.Message({ data: payload }));
     this.callbacks.onResultMessage?.(`工作区域已发送，等待 pointAI 保存确认: [${payload.join(", ")}]`);
     this.callbacks.onLog?.(`已发送工作区域: [${payload.join(", ")}]`, "success");
@@ -109,9 +134,12 @@ export class TaskActionController {
   async triggerSurfaceDpRecognition({
     resultMessage = null,
     logMessage = null,
+    recognitionPoseIndex: explicitRecognitionPoseIndex = null,
   } = {}) {
     const resources = this.rosConnection.getResources();
-    const recognitionPoseIndex = normalizeRecognitionPoseIndex(this.getRecognitionPoseIndex?.());
+    const recognitionPoseIndex = normalizeRecognitionPoseIndex(
+      explicitRecognitionPoseIndex ?? this.getRecognitionPoseIndex?.(),
+    );
     const recognitionPoseLabel = `识别位姿 ${recognitionPoseIndex}`;
     const effectiveResultMessage =
       resultMessage ||
@@ -136,14 +164,30 @@ export class TaskActionController {
         recognition_pose_index: recognitionPoseIndex,
         bind_group_point_count:
           normalizeAdaptiveBindGrouping(this.getAdaptiveBindGrouping?.()) ? 0 : 4,
+        bind_group_row_threshold_mm:
+          normalizeBindGroupAxisThreshold(
+            this.getBindGroupRowThreshold?.(),
+            DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM,
+          ),
+        bind_group_column_threshold_mm:
+          normalizeBindGroupAxisThreshold(
+            this.getBindGroupColumnThreshold?.(),
+            DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+          ),
         bind_execution_cabin_min_z_mm:
           normalizeBindExecutionCabinMinZ(this.getBindExecutionCabinMinZ?.()),
+        bind_execution_cabin_z_mode:
+          normalizeBindExecutionCabinZMode(this.getBindExecutionCabinZMode?.()),
       },
       feedbackPrefix: "视觉识别建图进行中",
       successPrefix: "视觉识别建图完成",
       failurePrefix: `${FRONTEND_VISUAL_RECOGNITION_FULL_LABEL}失败`,
     });
-    return Boolean(result?.success);
+    const success = Boolean(result?.success);
+    if (success) {
+      this.callbacks.onSurfaceDpRecognitionFinished?.({ recognitionPoseIndex, result });
+    }
+    return success;
   }
 
   async triggerSinglePointBind() {
@@ -199,7 +243,15 @@ export class TaskActionController {
     return this.confirmPendingWorkspaceQuadSubmission(payload);
   }
 
-  setPendingWorkspaceQuadSubmission(payload) {
+  isPendingWorkspacePayload(payload) {
+    if (!this.pendingWorkspaceQuadSubmission) {
+      return false;
+    }
+    const payloadKey = buildWorkspaceQuadPayloadKey(payload);
+    return Boolean(payloadKey && payloadKey === this.pendingWorkspaceQuadSubmission.payloadKey);
+  }
+
+  setPendingWorkspaceQuadSubmission(payload, { recognitionPoseIndex = null } = {}) {
     this.clearPendingWorkspaceQuadSubmission();
     const payloadKey = buildWorkspaceQuadPayloadKey(payload);
     if (!payloadKey) {
@@ -216,6 +268,7 @@ export class TaskActionController {
 
     this.pendingWorkspaceQuadSubmission = {
       payloadKey,
+      recognitionPoseIndex: normalizeRecognitionPoseIndex(recognitionPoseIndex),
       timeoutId,
     };
   }
@@ -228,12 +281,13 @@ export class TaskActionController {
   }
 
   confirmPendingWorkspaceQuadSubmission(payload) {
-    if (!this.pendingWorkspaceQuadSubmission) {
+    const pendingSubmission = this.pendingWorkspaceQuadSubmission;
+    if (!pendingSubmission) {
       return false;
     }
 
     const payloadKey = buildWorkspaceQuadPayloadKey(payload);
-    if (!payloadKey || payloadKey !== this.pendingWorkspaceQuadSubmission.payloadKey) {
+    if (!payloadKey || payloadKey !== pendingSubmission.payloadKey) {
       return false;
     }
 
@@ -246,6 +300,7 @@ export class TaskActionController {
 
     this.clearPendingWorkspaceQuadSubmission();
     void this.triggerSurfaceDpRecognition({
+      recognitionPoseIndex: pendingSubmission.recognitionPoseIndex,
       resultMessage:
         `工作区已保存，正在自动触发当前画面无运动视觉记录的${FRONTEND_VISUAL_RECOGNITION_MODE_LABEL}视觉识别；` +
         "完成后会覆盖当前识别位姿的大组，并保留其他识别位姿数据。",

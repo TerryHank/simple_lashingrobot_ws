@@ -27,6 +27,7 @@
 #include "tie_robot_msgs/SingleMove.h"
 #include "tie_robot_msgs/StartGlobalWork.h"
 #include "tie_robot_msgs/StartPseudoSlamScan.h"
+#include "tie_robot_msgs/ReplanPseudoSlamBindPath.h"
 #include "tie_robot_process/planning/dynamic_bind_planning.hpp"
 #include <tie_robot_process/common.hpp>
 
@@ -145,6 +146,8 @@ constexpr float kTravelMaxXMm = 380.0f;
 constexpr float kTravelMaxYMm = 330.0f;
 constexpr float kTravelMaxZMm = 160.0f;
 constexpr float kBindExecutionCabinMinZMm = 485.0f;
+constexpr uint8_t kBindExecutionCabinZModeFixed = 0;
+constexpr uint8_t kBindExecutionCabinZModeMin = 1;
 constexpr float kPseudoSlamDedupDistanceMm = 100.0f;
 constexpr float kPseudoSlamClosePointClusterXYToleranceMm = 100.0f;
 constexpr float kPseudoSlamScanDuplicateXYToleranceMm = 10.0f;
@@ -170,6 +173,8 @@ constexpr float kDynamicBindTemplateCenterXMm = 190.0f;
 constexpr float kDynamicBindTemplateCenterYMm = 165.0f;
 constexpr float kDynamicBindTemplateCenterZMm = 70.0f;
 constexpr float kDynamicBindNominalGridSpacingMm = 150.0f;
+constexpr float kDynamicBindMatrixRowThresholdMm = 40.0f;
+constexpr float kDynamicBindMatrixColumnThresholdMm = 45.0f;
 constexpr float kDynamicBindSnakeRowToleranceMm = 90.0f;
 constexpr int kDynamicBindSeedNeighborCount = 8;
 constexpr int kPseudoSlamScanFrameCount = 2;
@@ -508,9 +513,24 @@ bool run_pseudo_slam_scan(
     bool enable_capture_gate,
     std::string& message,
     int requested_bind_group_point_count = 4,
+    float requested_bind_group_row_threshold_mm = kDynamicBindMatrixRowThresholdMm,
+    float requested_bind_group_column_threshold_mm = kDynamicBindMatrixColumnThresholdMm,
     float requested_bind_execution_cabin_min_z_mm = kBindExecutionCabinMinZMm,
+    uint8_t requested_bind_execution_cabin_z_mode = kBindExecutionCabinZModeFixed,
     const PseudoSlamFixedScanPoseOverride& fixed_scan_pose_override = PseudoSlamFixedScanPoseOverride{},
     int recognition_pose_index = 1
+);
+bool replan_pseudo_slam_bind_path_from_current_points(
+    std::string& message,
+    int requested_bind_group_point_count = 4,
+    float requested_bind_group_row_threshold_mm = kDynamicBindMatrixRowThresholdMm,
+    float requested_bind_group_column_threshold_mm = kDynamicBindMatrixColumnThresholdMm,
+    float requested_bind_execution_cabin_min_z_mm = kBindExecutionCabinMinZMm,
+    uint8_t requested_bind_execution_cabin_z_mode = kBindExecutionCabinZModeFixed,
+    int recognition_pose_index = 1,
+    int* area_count_out = nullptr,
+    int* group_count_out = nullptr,
+    int* point_count_out = nullptr
 );
 bool run_current_area_bind_from_scan_test(std::string& message);
 bool run_bind_path_direct_test(std::string& message);
@@ -523,9 +543,14 @@ bool cabinDriverStartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Res
 bool cabinDriverStopService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
 bool cabinDriverRestartService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
 bool cabinMotionStopService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
+bool clearPseudoSlamMarkersService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
 bool startPseudoSlamScanWithOptions(
     tie_robot_msgs::StartPseudoSlamScan::Request& req,
     tie_robot_msgs::StartPseudoSlamScan::Response& res
+);
+bool replanPseudoSlamBindPath(
+    tie_robot_msgs::ReplanPseudoSlamBindPath::Request& req,
+    tie_robot_msgs::ReplanPseudoSlamBindPath::Response& res
 );
 bool bind_current_area_from_scan_service(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);
 bool bind_path_direct_test_service(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);

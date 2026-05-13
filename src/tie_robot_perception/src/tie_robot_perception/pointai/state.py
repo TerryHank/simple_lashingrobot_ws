@@ -91,6 +91,12 @@ def initialize_processor_state(self):
     )
     self.scan_linear_compensation_x_per_mm = float(rospy.get_param("~scan_linear_compensation_x_per_mm", 0.0))
     self.scan_linear_compensation_y_per_mm = float(rospy.get_param("~scan_linear_compensation_y_per_mm", 0.0))
+    self.scan_linear_compensation_x_shift_per_mm = float(
+        rospy.get_param("~scan_linear_compensation_x_shift_per_mm", 0.0)
+    )
+    self.scan_linear_compensation_y_shift_per_mm = float(
+        rospy.get_param("~scan_linear_compensation_y_shift_per_mm", 0.0)
+    )
     self.scan_linear_compensation_min_z_mm = float(rospy.get_param("~scan_linear_compensation_min_z_mm", 1200.0))
     self.scan_linear_compensation_max_abs_scale_delta = float(
         rospy.get_param("~scan_linear_compensation_max_abs_scale_delta", 0.25)

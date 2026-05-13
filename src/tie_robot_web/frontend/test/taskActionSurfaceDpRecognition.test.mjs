@@ -88,6 +88,13 @@ const controller = new TaskActionController({
     onLog(message, level) {
       callbackEvents.push(["log", message, level]);
     },
+    onSurfaceDpRecognitionFinished(payload) {
+      callbackEvents.push([
+        "surfaceDpRecognitionFinished",
+        payload?.recognitionPoseIndex,
+        Boolean(payload?.result?.success),
+      ]);
+    },
   },
 });
 
@@ -100,7 +107,10 @@ assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   scan_strategy: 3,
   recognition_pose_index: 1,
   bind_group_point_count: 4,
+  bind_group_row_threshold_mm: 40,
+  bind_group_column_threshold_mm: 45,
   bind_execution_cabin_min_z_mm: 485,
+  bind_execution_cabin_z_mode: 0,
 });
 assert.equal(actionGoals.at(-1)?.actionClient, scanActionClient);
 assert.equal(actionGoals.at(-1)?.sent, true);
@@ -115,6 +125,14 @@ assert.equal(
 );
 assert.equal(
   callbackEvents.some((event) => event[0] === "result" && event[1].includes("保留其他识别位姿数据")),
+  true,
+);
+assert.equal(
+  callbackEvents.some((event) => (
+    event[0] === "surfaceDpRecognitionFinished"
+    && event[1] === 1
+    && event[2] === true
+  )),
   true,
 );
 
@@ -161,7 +179,10 @@ assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   scan_strategy: 3,
   recognition_pose_index: 1,
   bind_group_point_count: 4,
+  bind_group_row_threshold_mm: 40,
+  bind_group_column_threshold_mm: 45,
   bind_execution_cabin_min_z_mm: 485,
+  bind_execution_cabin_z_mode: 0,
 });
 assert.deepEqual(processImageCalls, []);
 
@@ -208,14 +229,20 @@ assert.deepEqual(
       scan_strategy: 3,
       recognition_pose_index: 1,
       bind_group_point_count: 4,
+      bind_group_row_threshold_mm: 40,
+      bind_group_column_threshold_mm: 45,
       bind_execution_cabin_min_z_mm: 485,
+      bind_execution_cabin_z_mode: 0,
     },
     {
       enable_capture_gate: false,
       scan_strategy: 3,
       recognition_pose_index: 1,
       bind_group_point_count: 4,
+      bind_group_row_threshold_mm: 40,
+      bind_group_column_threshold_mm: 45,
       bind_execution_cabin_min_z_mm: 485,
+      bind_execution_cabin_z_mode: 0,
     },
   ],
 );

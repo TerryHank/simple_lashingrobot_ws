@@ -1143,11 +1143,105 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         )
 
         self.assertEqual(points_array.count, 1)
+        self.assertEqual(display_points[0][2], [500.0, -250.0, 3000.0])
+        self.assertEqual(
+            list(points_array.PointCoordinatesArray[0].World_coord),
+            [500.0, -250.0, 3000.0],
+        )
+
+    def test_scan_linear_compensation_is_applied_to_raw_world_channels_once(self):
+        from tie_robot_perception.pointai import manual_workspace_s2, world_coord
+
+        class DummyCv2:
+            @staticmethod
+            def split(image):
+                return [image[:, :, 0], image[:, :, 1], image[:, :, 2]]
+
+        class DummyBridge:
+            @staticmethod
+            def imgmsg_to_cv2(msg):
+                return msg
+
+        class DummyProcessor:
+            cv2 = DummyCv2()
+            bridge = DummyBridge()
+            scan_linear_compensation_enabled = True
+            scan_linear_compensation_reference_z_mm = 1000.0
+            scan_linear_compensation_x_per_mm = 0.00001
+            scan_linear_compensation_y_per_mm = 0.00002
+            scan_linear_compensation_min_z_mm = 1200.0
+            scan_linear_compensation_max_abs_scale_delta = 0.5
+            world_image_seq = 0
+
+            def mark_visual_input(self, _name):
+                pass
+
+            def ensure_raw_world_channels(self):
+                return world_coord.ensure_raw_world_channels(self)
+
+            def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y, search_radius=6):
+                return world_coord.get_valid_world_coord_near_pixel(self, pixel_x, pixel_y, search_radius)
+
+        processor = DummyProcessor()
+        raw_world = np.zeros((2, 2, 3), dtype=np.float32)
+        raw_world[0, 0] = [500.0, -250.0, 3000.0]
+
+        world_coord.image_raw_world_callback(processor, raw_world)
+
+        self.assertAlmostEqual(float(processor.x_channel[0, 0]), 490.0)
+        self.assertAlmostEqual(float(processor.y_channel[0, 0]), -260.0)
+        self.assertAlmostEqual(float(processor.depth_v[0, 0]), 3000.0)
+        point, sample_pixel, used_fallback = world_coord.get_valid_world_coord_near_pixel(processor, 0, 0)
+        self.assertEqual(sample_pixel, [0, 0])
+        self.assertFalse(used_fallback)
+        self.assertEqual(point, [490.0, -260.0, 3000.0])
+
+        points_array, display_points = manual_workspace_s2.build_manual_workspace_s2_points_array(
+            processor,
+            [[0, 0]],
+            np.ones((2, 2), dtype=np.uint8),
+        )
+
+        self.assertEqual(points_array.count, 1)
         self.assertEqual(display_points[0][2], [490.0, -260.0, 3000.0])
         self.assertEqual(
             list(points_array.PointCoordinatesArray[0].World_coord),
             [490.0, -260.0, 3000.0],
         )
+
+    def test_scan_linear_compensation_can_translate_raw_world_channels_by_z(self):
+        from tie_robot_perception.pointai import world_coord
+
+        class DummyProcessor:
+            scan_linear_compensation_enabled = True
+            scan_linear_compensation_reference_z_mm = 1000.0
+            scan_linear_compensation_x_per_mm = 0.0
+            scan_linear_compensation_y_per_mm = 0.0
+            scan_linear_compensation_x_shift_per_mm = 0.01
+            scan_linear_compensation_y_shift_per_mm = -0.02
+            scan_linear_compensation_min_z_mm = 1200.0
+            scan_linear_compensation_max_abs_scale_delta = 0.5
+
+        camera_x = np.array([[0.0, 100.0], [-50.0, 25.0]], dtype=np.float32)
+        camera_y = np.array([[0.0, -80.0], [30.0, 10.0]], dtype=np.float32)
+        camera_z = np.array([[3000.0, 3000.0], [1100.0, 0.0]], dtype=np.float32)
+
+        corrected_x, corrected_y, corrected_z = world_coord.apply_scan_linear_camera_compensation_to_channels(
+            DummyProcessor(),
+            camera_x,
+            camera_y,
+            camera_z,
+        )
+
+        self.assertAlmostEqual(float(corrected_x[0, 0]), 20.0)
+        self.assertAlmostEqual(float(corrected_y[0, 0]), -40.0)
+        self.assertAlmostEqual(float(corrected_x[0, 1]), 120.0)
+        self.assertAlmostEqual(float(corrected_y[0, 1]), -120.0)
+        self.assertAlmostEqual(float(corrected_x[1, 0]), -50.0)
+        self.assertAlmostEqual(float(corrected_y[1, 0]), 30.0)
+        self.assertAlmostEqual(float(corrected_x[1, 1]), 25.0)
+        self.assertAlmostEqual(float(corrected_y[1, 1]), 10.0)
+        np.testing.assert_array_equal(corrected_z, camera_z)
 
     def test_manual_workspace_s2_carries_surface_dp_grid_indices(self):
         from tie_robot_perception.pointai import manual_workspace_s2
@@ -1561,7 +1655,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertAlmostEqual(log_args[7], 1201.041, places=2)
         self.assertEqual(len(log_args), 8)
 
-    def test_pointai_publishes_raw_camera_world_coord_and_does_not_project_to_cabin(self):
+    def test_pointai_publishes_bottom_compensated_camera_world_coord_and_does_not_project_to_cabin(self):
         world_coord_text = (
             WORKSPACE_ROOT
             / "tie_robot_perception"
@@ -1572,9 +1666,11 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("img[:, :, 0], img[:, :, 1]", world_coord_text)
         self.assertNotIn("img[:, :, 1] *= -1", world_coord_text)
-        self.assertIn("self.x_channel = (image_raw_world_channels[0]).astype(np.float32)", world_coord_text)
-        self.assertIn("self.y_channel = (image_raw_world_channels[1]).astype(np.float32)", world_coord_text)
-        self.assertIn("self.depth_v = (image_raw_world_channels[2]).astype(np.float32)", world_coord_text)
+        self.assertIn("def apply_scan_linear_camera_compensation_to_channels", world_coord_text)
+        self.assertIn("source_x = (image_raw_world_channels[0]).astype(np.float32)", world_coord_text)
+        self.assertIn("source_y = (image_raw_world_channels[1]).astype(np.float32)", world_coord_text)
+        self.assertIn("source_z = (image_raw_world_channels[2]).astype(np.float32)", world_coord_text)
+        self.assertIn("self.x_channel, self.y_channel, self.depth_v = apply_scan_linear_camera_compensation_to_channels", world_coord_text)
 
         manual_workspace_s2_text = (
             WORKSPACE_ROOT
@@ -2600,8 +2696,8 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("纵向周期=%d，横向周期=%d，点数=%d", fallback_body)
         self.assertNotIn("collect_stable_manual_workspace_s2_inputs", pipeline_body)
         self.assertNotIn("apply_manual_workspace_s2_phase_lock", pipeline_body)
-        self.assertIn('enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False))', surface_body)
-        self.assertIn('beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 150.0))', surface_body)
+        self.assertIn("scan_beam_exclusion_enabled", surface_body)
+        self.assertIn("beam_exclusion_margin_mm", surface_body)
         self.assertNotIn("expand_workspace_s2_exclusion_mask_by_metric_margin", pipeline_body)
 
     def test_pointai_scan_beam_exclusion_margin_is_hot_configurable(self):
@@ -2624,10 +2720,44 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("/web/pointAI/set_scan_beam_exclusion_margin_mm", ros_interfaces_text)
-        self.assertIn("Float32, self.set_scan_beam_exclusion_margin_callback", ros_interfaces_text)
+        self.assertIn("/web/pointAI/set_scan_beam_exclusion", ros_interfaces_text)
         self.assertIn("def set_scan_beam_exclusion_margin_callback(self, msg):", runtime_text)
         self.assertIn('rospy.set_param("~scan_beam_exclusion_margin_mm"', runtime_text)
         self.assertIn("cls.set_scan_beam_exclusion_margin_callback", processor_text)
+
+    def test_pointai_scan_path_keeps_beam_filter_runtime_controls(self):
+        ros_interfaces_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "ros_interfaces.py"
+        ).read_text(encoding="utf-8")
+        runtime_text = POINTAI_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        state_text = POINTAI_STATE_PATH.read_text(encoding="utf-8")
+        manual_workspace_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "manual_workspace_s2.py"
+        ).read_text(encoding="utf-8")
+
+        for text in (ros_interfaces_text, runtime_text, processor_text, state_text, manual_workspace_text):
+            self.assertIn("scan_beam_exclusion", text)
+        self.assertIn("beam_exclusion", manual_workspace_text)
+        self.assertIn("set_scan_beam_exclusion", ros_interfaces_text)
+        self.assertIn("梁筋过滤", runtime_text)
 
     def test_manual_workspace_s2_module_omits_later_stability_and_phase_lock_experiments(self):
         manual_workspace_s2_text = (
@@ -3019,8 +3149,49 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("Float32MultiArray, self.set_scan_linear_compensation_callback", ros_interfaces_text)
         self.assertIn("def set_scan_linear_compensation_callback(self, msg):", runtime_config_text)
         self.assertIn('rospy.set_param("~scan_linear_compensation_x_per_mm"', runtime_config_text)
+        self.assertIn("~scan_linear_compensation_x_shift_per_mm", runtime_config_text)
+        self.assertIn("~scan_linear_compensation_y_shift_per_mm", runtime_config_text)
         self.assertIn("scan_linear_compensation_max_abs_scale_delta", runtime_config_text)
         self.assertIn("cls.set_scan_linear_compensation_callback", processor_text)
+        self.assertIn("cls.apply_scan_linear_camera_compensation_to_channels", processor_text)
+
+    def test_scan_linear_compensation_callback_accepts_translation_offsets(self):
+        from tie_robot_perception.pointai import runtime_config
+
+        class DummyProcessor:
+            height_threshold = 10.0
+            scan_linear_compensation_enabled = False
+            scan_linear_compensation_reference_z_mm = 1000.0
+            scan_linear_compensation_x_per_mm = 0.0
+            scan_linear_compensation_y_per_mm = 0.0
+            scan_linear_compensation_x_shift_per_mm = 0.0
+            scan_linear_compensation_y_shift_per_mm = 0.0
+            scan_linear_compensation_min_z_mm = 1200.0
+            scan_linear_compensation_max_abs_scale_delta = 0.25
+
+            def save_runtime_config(self):
+                runtime_config.save_runtime_config(self)
+
+        saved_params = {}
+        original_set_param = runtime_config.rospy.set_param
+        original_loginfo = runtime_config.rospy.loginfo
+        try:
+            runtime_config.rospy.set_param = lambda key, value: saved_params.__setitem__(key, value)
+            runtime_config.rospy.loginfo = lambda *_args, **_kwargs: None
+            processor = DummyProcessor()
+            runtime_config.set_scan_linear_compensation_callback(
+                processor,
+                SimpleNamespace(data=[1, 1000, 0.000012, 0.000024, 1200, 0.25, 0.01, -0.02]),
+            )
+        finally:
+            runtime_config.rospy.set_param = original_set_param
+            runtime_config.rospy.loginfo = original_loginfo
+
+        self.assertTrue(processor.scan_linear_compensation_enabled)
+        self.assertAlmostEqual(processor.scan_linear_compensation_x_shift_per_mm, 0.01)
+        self.assertAlmostEqual(processor.scan_linear_compensation_y_shift_per_mm, -0.02)
+        self.assertAlmostEqual(saved_params["~scan_linear_compensation_x_shift_per_mm"], 0.01)
+        self.assertAlmostEqual(saved_params["~scan_linear_compensation_y_shift_per_mm"], -0.02)
 
     def test_colab_training_package_includes_full_non_rgb_modality_set(self):
         colab_script = WORKSPACE_ROOT.parent / "notebooks" / "pr_fprg_multimodal_segmentation_colab.py"

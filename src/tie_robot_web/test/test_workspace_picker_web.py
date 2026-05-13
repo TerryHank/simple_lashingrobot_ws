@@ -2,8 +2,10 @@
 
 import errno
 import importlib.util
+import json
 import socket
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -77,6 +79,331 @@ class WorkspacePickerWebTest(unittest.TestCase):
         self.assertTrue((FRONTEND_DIR / "help" / "index.html").exists())
         self.assertTrue(any(FRONTEND_DIR.glob("assets/app/index-*.js")))
         self.assertTrue(any(FRONTEND_DIR.glob("assets/app/index-*.css")))
+
+    def test_frontend_shared_state_file_round_trips_operator_preferences(self):
+        module = self.server_module
+        payload = {
+            "version": 1,
+            "updated_at": "2026-05-13T21:40:00+08:00",
+            "state": {
+                "tie_robot_frontend_visual_debug_settings": {
+                    "stableFrameCount": 5,
+                    "scanLinearCompensation": {
+                        "enabled": True,
+                        "mode": "translation",
+                        "xShiftMmPerMeter": 12,
+                    },
+                },
+                "tie_robot_frontend_layout_executionDebug": {
+                    "panels": {
+                        "settingsPanel": {
+                            "visible": True,
+                            "rect": {"left": 120, "top": 96, "width": 420, "height": 620},
+                        },
+                    },
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "frontend_state.json"
+            result = module.write_frontend_shared_state(state_path, payload)
+            loaded = module.read_frontend_shared_state(state_path)
+
+        self.assertEqual(result["success"], True)
+        self.assertEqual(loaded["success"], True)
+        self.assertEqual(loaded["state"]["tie_robot_frontend_visual_debug_settings"]["stableFrameCount"], 5)
+        self.assertEqual(
+            loaded["state"]["tie_robot_frontend_visual_debug_settings"]["scanLinearCompensation"]["mode"],
+            "translation",
+        )
+        self.assertEqual(
+            loaded["state"]["tie_robot_frontend_layout_executionDebug"]["panels"]["settingsPanel"]["rect"]["width"],
+            420,
+        )
+        self.assertEqual(loaded["version"], 1)
+
+    def test_frontend_shared_state_rejects_non_object_payload(self):
+        module = self.server_module
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "frontend_state.json"
+            result = module.write_frontend_shared_state(state_path, ["bad"])
+            exists_after_reject = state_path.exists()
+
+        self.assertEqual(result["success"], False)
+        self.assertEqual(exists_after_reject, False)
+
+    def test_frontend_shared_state_patch_merges_without_clobbering_other_browser_keys(self):
+        module = self.server_module
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state_path = Path(temp_dir) / "frontend_state.json"
+            module.write_frontend_shared_state(state_path, {
+                "version": 1,
+                "state": {
+                    "tie_robot_frontend_visual_debug_settings": {
+                        "stableFrameCount": 9,
+                    },
+                    "tie_robot_frontend_layout_executionDebug": {
+                        "panels": {
+                            "settingsPanel": {
+                                "rect": {"left": 120, "top": 88, "width": 340, "height": 610},
+                            },
+                        },
+                    },
+                },
+            })
+            result = module.write_frontend_shared_state(state_path, {
+                "version": 1,
+                "patch": True,
+                "state": {
+                    "tie_robot_frontend_layout_executionDebug": {
+                        "panels": {
+                            "settingsPanel": {
+                                "rect": {"left": 520, "top": 96, "width": 380, "height": 640},
+                            },
+                        },
+                    },
+                },
+            })
+            loaded = module.read_frontend_shared_state(state_path)
+
+        self.assertEqual(result["success"], True)
+        self.assertEqual(
+            loaded["state"]["tie_robot_frontend_visual_debug_settings"]["stableFrameCount"],
+            9,
+        )
+        self.assertEqual(
+            loaded["state"]["tie_robot_frontend_layout_executionDebug"]["panels"]["settingsPanel"]["rect"]["left"],
+            520,
+        )
+
+    def test_frontend_shared_state_api_is_exposed(self):
+        server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn('FRONTEND_SHARED_STATE_FILE = (', server_script)
+        self.assertIn('parsed.path == "/api/frontend/state"', server_script)
+        self.assertIn("handle_frontend_shared_state_get", server_script)
+        self.assertIn("handle_frontend_shared_state_post", server_script)
+        self.assertIn("read_frontend_shared_state(FRONTEND_SHARED_STATE_FILE)", server_script)
+        self.assertIn("write_frontend_shared_state(FRONTEND_SHARED_STATE_FILE, payload)", server_script)
+
+    def test_delete_scan_pose_artifacts_removes_pose_group_and_execution_memory(self):
+        module = self.server_module
+        artifacts = module.delete_scan_pose_artifacts_from_payloads(
+            pose_index=2,
+            points_json={
+                "scan_session_id": "scan-1",
+                "path_signature": "path-1",
+                "scan_pose_groups": [
+                    {
+                        "pose_index": 1,
+                        "recognition_pose_index": 1,
+                        "pseudo_slam_points": [
+                            {"idx": 1, "recognition_pose_index": 1},
+                        ],
+                    },
+                    {
+                        "pose_index": 2,
+                        "recognition_pose_index": 2,
+                        "pseudo_slam_points": [
+                            {"idx": 2, "recognition_pose_index": 2},
+                        ],
+                    },
+                ],
+                "pseudo_slam_points": [
+                    {"idx": 1, "recognition_pose_index": 1},
+                    {"idx": 2, "recognition_pose_index": 2},
+                ],
+            },
+            bind_path_json={
+                "scan_session_id": "scan-1",
+                "path_signature": "path-1",
+                "scan_pose_groups": [
+                    {
+                        "pose_index": 1,
+                        "recognition_pose_index": 1,
+                        "areas": [
+                            {"area_index": 1, "recognition_pose_index": 1},
+                        ],
+                    },
+                    {
+                        "pose_index": 2,
+                        "recognition_pose_index": 2,
+                        "areas": [
+                            {"area_index": 2, "recognition_pose_index": 2},
+                        ],
+                    },
+                ],
+                "areas": [
+                    {"area_index": 1, "recognition_pose_index": 1},
+                    {"area_index": 2, "recognition_pose_index": 2},
+                ],
+            },
+            execution_memory_json={
+                "scan_session_id": "scan-1",
+                "path_signature": "path-1",
+                "executed_points": [
+                    {"global_row": 1, "global_col": 1, "recognition_pose_index": 1},
+                    {"global_row": 2, "global_col": 2, "recognition_pose_index": 2},
+                ],
+            },
+        )
+
+        self.assertEqual(artifacts["removed_points"], 1)
+        self.assertEqual(artifacts["removed_areas"], 1)
+        self.assertEqual(artifacts["removed_execution_points"], 1)
+        self.assertEqual(artifacts["points_json"]["scan_pose_group_count"], 1)
+        self.assertNotIn("2", artifacts["points_json"]["scan_pose_groups_by_pose_index"])
+        self.assertEqual(
+            [
+                point["recognition_pose_index"]
+                for point in artifacts["points_json"]["pseudo_slam_points"]
+            ],
+            [1],
+        )
+        self.assertEqual(artifacts["bind_path_json"]["scan_pose_group_count"], 1)
+        self.assertEqual(
+            [
+                area["recognition_pose_index"]
+                for area in artifacts["bind_path_json"]["areas"]
+            ],
+            [1],
+        )
+        self.assertEqual(
+            [
+                point["recognition_pose_index"]
+                for point in artifacts["execution_memory_json"]["executed_points"]
+            ],
+            [1],
+        )
+        server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('parsed.path.startswith("/api/planning/scan-pose/")', server_script)
+        self.assertIn("handle_planning_scan_pose_delete", server_script)
+        self.assertIn("delete_scan_pose_artifacts(pose_index)", server_script)
+
+    def test_clear_bind_point_artifacts_clears_all_pose_groups_and_execution_memory(self):
+        module = self.server_module
+        artifacts = module.clear_bind_point_artifacts_from_payloads(
+            points_json={
+                "scan_session_id": "scan-1",
+                "path_signature": "path-1",
+                "scan_pose_groups": [
+                    {
+                        "pose_index": 1,
+                        "recognition_pose_index": 1,
+                        "pseudo_slam_points": [
+                            {"idx": 1, "recognition_pose_index": 1},
+                        ],
+                    },
+                    {
+                        "pose_index": 2,
+                        "recognition_pose_index": 2,
+                        "pseudo_slam_points": [
+                            {"idx": 2, "recognition_pose_index": 2},
+                        ],
+                    },
+                ],
+                "pseudo_slam_points": [
+                    {"idx": 1, "recognition_pose_index": 1},
+                    {"idx": 2, "recognition_pose_index": 2},
+                ],
+            },
+            bind_path_json={
+                "scan_session_id": "scan-1",
+                "path_signature": "path-1",
+                "path_origin": {"x": 10.0, "y": 20.0, "z": 485.0},
+                "scan_pose_groups": [
+                    {
+                        "pose_index": 1,
+                        "recognition_pose_index": 1,
+                        "areas": [
+                            {"area_index": 1, "recognition_pose_index": 1},
+                        ],
+                    },
+                    {
+                        "pose_index": 2,
+                        "recognition_pose_index": 2,
+                        "areas": [
+                            {"area_index": 2, "recognition_pose_index": 2},
+                        ],
+                    },
+                ],
+                "areas": [
+                    {"area_index": 1, "recognition_pose_index": 1},
+                    {"area_index": 2, "recognition_pose_index": 2},
+                ],
+            },
+            execution_memory_json={
+                "scan_session_id": "scan-1",
+                "path_signature": "path-1",
+                "path_origin": {"x": 10.0, "y": 20.0, "z": 0.0},
+                "executed_points": [
+                    {"global_row": 1, "global_col": 1, "recognition_pose_index": 1},
+                    {"global_row": 2, "global_col": 2, "recognition_pose_index": 2},
+                ],
+            },
+        )
+
+        self.assertEqual(artifacts["removed_point_groups"], 2)
+        self.assertEqual(artifacts["removed_area_groups"], 2)
+        self.assertEqual(artifacts["removed_points"], 2)
+        self.assertEqual(artifacts["removed_areas"], 2)
+        self.assertEqual(artifacts["removed_execution_points"], 2)
+        self.assertEqual(artifacts["points_json"]["scan_pose_group_count"], 0)
+        self.assertEqual(artifacts["points_json"]["scan_pose_groups"], [])
+        self.assertEqual(artifacts["points_json"]["scan_pose_groups_by_pose_index"], {})
+        self.assertEqual(artifacts["points_json"]["pseudo_slam_points"], [])
+        self.assertEqual(artifacts["bind_path_json"]["scan_pose_group_count"], 0)
+        self.assertEqual(artifacts["bind_path_json"]["scan_pose_groups"], [])
+        self.assertEqual(artifacts["bind_path_json"]["scan_pose_groups_by_pose_index"], {})
+        self.assertEqual(artifacts["bind_path_json"]["areas"], [])
+        self.assertEqual(
+            artifacts["bind_path_json"]["path_origin"],
+            {"x": 10.0, "y": 20.0, "z": 485.0},
+        )
+        self.assertEqual(artifacts["execution_memory_json"]["executed_points"], [])
+        self.assertEqual(
+            artifacts["execution_memory_json"]["path_origin"],
+            {"x": 10.0, "y": 20.0, "z": 0.0},
+        )
+        server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('parsed.path == "/api/planning/bind-points"', server_script)
+        self.assertIn("handle_planning_bind_points_delete", server_script)
+        self.assertIn("clear_bind_point_artifacts()", server_script)
+        self.assertIn('CLEAR_PSEUDO_SLAM_MARKERS_SERVICE = "/cabin/clear_pseudo_slam_markers"', server_script)
+        self.assertIn("clear_pseudo_slam_markers_service()", server_script)
+        self.assertIn('"marker_clear": marker_clear_result', server_script)
+
+    def test_clear_bind_points_clears_latched_pseudo_slam_markers(self):
+        server_script = SERVER_SCRIPT.read_text(encoding="utf-8")
+        process_header = (
+            WORKSPACE_SRC
+            / "tie_robot_process"
+            / "src"
+            / "suoqu"
+            / "suoqu_runtime_internal.hpp"
+        ).read_text(encoding="utf-8")
+        service_orchestration = (
+            WORKSPACE_SRC
+            / "tie_robot_process"
+            / "src"
+            / "suoqu"
+            / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+        suoqu_node = (
+            WORKSPACE_SRC
+            / "tie_robot_process"
+            / "src"
+            / "suoquNode.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("from std_srvs.srv import Trigger", server_script)
+        self.assertIn("rospy.ServiceProxy(CLEAR_PSEUDO_SLAM_MARKERS_SERVICE, Trigger)", server_script)
+        self.assertIn("bool clearPseudoSlamMarkersService", process_header)
+        self.assertIn("clear_pseudo_slam_markers();", service_orchestration)
+        self.assertIn(
+            'nh.advertiseService("/cabin/clear_pseudo_slam_markers", clearPseudoSlamMarkersService)',
+            suoqu_node,
+        )
 
     def test_gitnexus_project_graph_page_exists(self):
         project_graph_html = FRONTEND_PROJECT_GRAPH_HTML.read_text(encoding="utf-8")

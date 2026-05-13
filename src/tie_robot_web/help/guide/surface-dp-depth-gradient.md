@@ -19,12 +19,14 @@
 1. 读取手动工作区四边形和当前 `raw_world_coord` / 深度数据。
 2. 将工作区透视展开成 rectified 画幅。
 3. 根据「扫描底图」选择，只生成当前被激活的一张响应图。
-4. 对响应图做阈值、骨架和梁筋候选诊断；这些诊断不直接产出绑扎点。
+4. 对响应图做阈值和骨架诊断；这些诊断不直接产出绑扎点。
 5. 在当前响应图上按 120-160 mm 物理钢筋间距寻找横纵线族。
 6. 用统一物理网格评分校对线族，拒绝线数比例和可见物理视野长宽不一致的结果。
 7. 用 Surface-DP 沿当前响应图做曲线追踪，得到两组曲线线族。
 8. 求曲线交点，通过 inverse H 投回原图，再从 `raw_world_coord` 反查相机坐标。
 9. 发布扫描点、结果图、扫描底图诊断图和 `surface_dp_bind_point_*` TF。
+
+梁筋候选仍作为当前运行链路的一层诊断和可选过滤：`beam_candidate_bands` 会在扫描底图上显示为红色竖带；前端启用梁筋过滤后，PointAI 按设置半径扩张候选 mask，只删除落入 mask 的最终交点。它不会因为一个交点命中梁筋 mask，就连带移除同一 X 位置的其它交点。
 
 默认 `depth_gradient` 的构建步骤是：对填补后的深度图做轻量高斯平滑，用 Sobel 计算 X / Y 方向梯度，再取梯度幅值并归一化。
 
@@ -101,25 +103,6 @@ physical_lattice_count_aspect_error <= physical_lattice_count_aspect_tolerance
 
 成立时，候选网格的线数比例和当前可见物理视野一致；不成立时，说明线族更像局部杂线、梁筋、边缘反光或单轴假阳。
 
-## 梁筋候选与过滤
-
-Surface-DP 会在扫描底图上检测 `beam_candidate` 梁筋候选，并在 `/perception/lashing/scan_surface_dp_base_image` 上用红色半透明竖带显示。梁筋候选默认是诊断信息，不会删除普通钢筋线族。
-
-启用「梁筋过滤」后，流程才会使用当前过滤半径对最终绑扎点做点级排除。当前默认半径为 150 mm，对应诊断字段包括：
-
-```text
-beam_candidate_count
-beam_candidate_pixels
-beam_candidate_lattice_rejected_count
-beam_exclusion_enabled
-beam_exclusion_margin_mm
-beam_filtered_point_count
-beam_filtered_column_count
-beam_candidate_margin_pixels
-```
-
-这层过滤用于处理梁筋附近不应绑扎的区域；普通长方形钢筋面、局部小视野和正方形钢筋面仍共用同一套物理网格校对逻辑。
-
 ## 隐藏模态说明
 
 未选中的模态不进入扫描层运行主链，但保留在帮助文档和离线诊断工具中，便于对比哪一种底图更适合现场画面。
@@ -172,6 +155,10 @@ scan_runtime_response_source = depth_gradient       # 或当前下拉栏选择�
 scan_runtime_response_source_requested = depth_gradient
 base_physical_source = depth_gradient               # 与当前选中源一致
 completed_physical_source = depth_gradient          # 兼容字段，与当前选中源一致
+beam_candidate_count
+beam_candidate_margin_pixels
+beam_filter_mode = point_mask                       # 启用梁筋过滤时只做点级删除
+beam_filtered_point_count
 ```
 
 这里保留 `base_physical_source` 和 `completed_physical_source` 字段，是为了兼容已有日志和前端显示；在当前口径下，两者都应指向当前选中的同一个源。实际运行不再有第一轮多模态候选和第二轮补全面候选。

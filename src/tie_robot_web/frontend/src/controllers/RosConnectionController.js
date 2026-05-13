@@ -27,6 +27,50 @@ const AUTO_RECONNECT_MAX_ATTEMPTS = 3;
 const AUTO_RECONNECT_DELAY_MS = 1500;
 const GRIPPER_TF_SERVICE_TIMEOUT_MS = 1500;
 const IMAGE_HOVER_WORLD_COORD_THROTTLE_MS = 1000;
+const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
+const DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM = 40;
+const DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM = 45;
+const BIND_EXECUTION_CABIN_Z_MODE_FIXED = 0;
+const BIND_EXECUTION_CABIN_Z_MODE_MIN = 1;
+
+function sanitizePositiveNumber(value, fallback) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallback;
+}
+
+function sanitizeNonNegativeNumber(value, fallback) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue >= 0 ? numericValue : fallback;
+}
+
+function sanitizeRecognitionPoseIndex(value) {
+  const numericValue = Number(value);
+  const roundedValue = Number.isFinite(numericValue) ? Math.round(numericValue) : 1;
+  return roundedValue >= 1 ? roundedValue : 1;
+}
+
+function buildBindPlannerServiceRequest(settings = {}) {
+  return new ROSLIB.ServiceRequest({
+    bind_group_point_count: settings?.adaptiveBindGrouping ? 0 : 4,
+    bind_group_row_threshold_mm: sanitizePositiveNumber(
+      settings?.bindGroupRowThresholdMm,
+      DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM,
+    ),
+    bind_group_column_threshold_mm: sanitizePositiveNumber(
+      settings?.bindGroupColumnThresholdMm,
+      DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+    ),
+    bind_execution_cabin_min_z_mm: sanitizeNonNegativeNumber(
+      settings?.bindExecutionCabinMinZMm,
+      DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,
+    ),
+    bind_execution_cabin_z_mode: settings?.bindExecutionCabinZMode === "min"
+      || Number(settings?.bindExecutionCabinZMode) === BIND_EXECUTION_CABIN_Z_MODE_MIN
+      ? BIND_EXECUTION_CABIN_Z_MODE_MIN
+      : BIND_EXECUTION_CABIN_Z_MODE_FIXED,
+    recognition_pose_index: sanitizeRecognitionPoseIndex(settings?.recognitionPoseIndex),
+  });
+}
 
 export class RosConnectionController {
   constructor(callbacks = {}) {
@@ -266,6 +310,11 @@ export class RosConnectionController {
         ros,
         name: SERVICES.algorithm.processImage,
         serviceType: SERVICE_TYPES.algorithm.processImage,
+      }),
+      replanPseudoSlamBindPathService: new ROSLIB.Service({
+        ros,
+        name: SERVICES.cabin.replanPseudoSlamBindPath,
+        serviceType: SERVICE_TYPES.cabin.replanPseudoSlamBindPath,
       }),
       startPseudoSlamScanActionClient: new ROSLIB.ActionClient({
         ros,
@@ -826,9 +875,16 @@ export class RosConnectionController {
       return { success: false, message: "ROS 未连接，无法设置扫描线性补偿。" };
     }
     const enabled = Boolean(settings?.enabled);
+    const mode = settings?.mode === "translation" ? "translation" : "optical_axis";
     const referenceZMm = Number.isFinite(Number(settings?.referenceZMm)) ? Number(settings.referenceZMm) : 1000;
-    const xPercentPerMeter = Number.isFinite(Number(settings?.xPercentPerMeter)) ? Number(settings.xPercentPerMeter) : 0;
-    const yPercentPerMeter = Number.isFinite(Number(settings?.yPercentPerMeter)) ? Number(settings.yPercentPerMeter) : 0;
+    const rawXPercentPerMeter = Number.isFinite(Number(settings?.xPercentPerMeter)) ? Number(settings.xPercentPerMeter) : 0;
+    const rawYPercentPerMeter = Number.isFinite(Number(settings?.yPercentPerMeter)) ? Number(settings.yPercentPerMeter) : 0;
+    const rawXShiftMmPerMeter = Number.isFinite(Number(settings?.xShiftMmPerMeter)) ? Number(settings.xShiftMmPerMeter) : 0;
+    const rawYShiftMmPerMeter = Number.isFinite(Number(settings?.yShiftMmPerMeter)) ? Number(settings.yShiftMmPerMeter) : 0;
+    const xPercentPerMeter = mode === "optical_axis" ? rawXPercentPerMeter : 0;
+    const yPercentPerMeter = mode === "optical_axis" ? rawYPercentPerMeter : 0;
+    const xShiftMmPerMeter = mode === "translation" ? rawXShiftMmPerMeter : 0;
+    const yShiftMmPerMeter = mode === "translation" ? rawYShiftMmPerMeter : 0;
     const minZMm = Number.isFinite(Number(settings?.minZMm)) ? Number(settings.minZMm) : 1200;
     const maxScaleDelta = Number.isFinite(Number(settings?.maxScaleDelta)) && Number(settings.maxScaleDelta) >= 0
       ? Number(settings.maxScaleDelta)
@@ -840,15 +896,20 @@ export class RosConnectionController {
       yPercentPerMeter / 100000,
       minZMm,
       maxScaleDelta,
+      xShiftMmPerMeter / 1000,
+      yShiftMmPerMeter / 1000,
     ];
     this.resources.scanLinearCompensationPublisher.publish(new ROSLIB.Message({ data }));
     return {
       success: true,
       settings: {
         enabled,
+        mode,
         referenceZMm,
-        xPercentPerMeter,
-        yPercentPerMeter,
+        xPercentPerMeter: rawXPercentPerMeter,
+        yPercentPerMeter: rawYPercentPerMeter,
+        xShiftMmPerMeter: rawXShiftMmPerMeter,
+        yShiftMmPerMeter: rawYShiftMmPerMeter,
         minZMm,
         maxScaleDelta,
       },
@@ -913,6 +974,39 @@ export class RosConnectionController {
             requestMode: sanitizedRequestMode,
             serviceElapsedMs,
             singleFrameElapsedMs: null,
+          });
+        },
+      );
+    });
+  }
+
+  callReplanPseudoSlamBindPathService(settings = {}, overrides = {}) {
+    if (!this.ros?.isConnected || !this.resources?.replanPseudoSlamBindPathService) {
+      return Promise.resolve({ success: false, message: "ROS 未连接，无法按当前阈值重规划扫描路径。" });
+    }
+
+    const request = buildBindPlannerServiceRequest({ ...settings, ...overrides });
+    return new Promise((resolve) => {
+      this.resources.replanPseudoSlamBindPathService.callService(
+        request,
+        (response) => {
+          resolve({
+            success: Boolean(response?.success),
+            message: response?.message || "",
+            areaCount: Number(response?.area_count || 0),
+            groupCount: Number(response?.group_count || 0),
+            pointCount: Number(response?.point_count || 0),
+            request,
+          });
+        },
+        (error) => {
+          resolve({
+            success: false,
+            message: error?.message || String(error) || "扫描路径重规划服务调用失败。",
+            areaCount: 0,
+            groupCount: 0,
+            pointCount: 0,
+            request,
           });
         },
       );

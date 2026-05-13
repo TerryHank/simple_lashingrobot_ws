@@ -62,6 +62,18 @@ def load_runtime_config(self):
         self.scan_linear_compensation_y_per_mm = float(
             rospy.get_param("~scan_linear_compensation_y_per_mm", self.scan_linear_compensation_y_per_mm)
         )
+        self.scan_linear_compensation_x_shift_per_mm = float(
+            rospy.get_param(
+                "~scan_linear_compensation_x_shift_per_mm",
+                getattr(self, "scan_linear_compensation_x_shift_per_mm", 0.0),
+            )
+        )
+        self.scan_linear_compensation_y_shift_per_mm = float(
+            rospy.get_param(
+                "~scan_linear_compensation_y_shift_per_mm",
+                getattr(self, "scan_linear_compensation_y_shift_per_mm", 0.0),
+            )
+        )
         self.scan_linear_compensation_min_z_mm = float(
             rospy.get_param("~scan_linear_compensation_min_z_mm", self.scan_linear_compensation_min_z_mm)
         )
@@ -84,6 +96,14 @@ def save_runtime_config(self):
     )
     rospy.set_param("~scan_linear_compensation_x_per_mm", float(self.scan_linear_compensation_x_per_mm))
     rospy.set_param("~scan_linear_compensation_y_per_mm", float(self.scan_linear_compensation_y_per_mm))
+    rospy.set_param(
+        "~scan_linear_compensation_x_shift_per_mm",
+        float(getattr(self, "scan_linear_compensation_x_shift_per_mm", 0.0)),
+    )
+    rospy.set_param(
+        "~scan_linear_compensation_y_shift_per_mm",
+        float(getattr(self, "scan_linear_compensation_y_shift_per_mm", 0.0)),
+    )
     rospy.set_param("~scan_linear_compensation_min_z_mm", float(self.scan_linear_compensation_min_z_mm))
     rospy.set_param(
         "~scan_linear_compensation_max_abs_scale_delta",
@@ -176,6 +196,14 @@ def set_scan_linear_compensation_callback(self, msg):
             raw_data[3],
             float(getattr(self, "scan_linear_compensation_y_per_mm", 0.0)),
         )
+        x_shift_per_mm = _finite_float_or(
+            raw_data[6] if len(raw_data) > 6 else 0.0,
+            0.0,
+        )
+        y_shift_per_mm = _finite_float_or(
+            raw_data[7] if len(raw_data) > 7 else 0.0,
+            0.0,
+        )
         min_z_mm = _finite_float_or(
             raw_data[4],
             float(getattr(self, "scan_linear_compensation_min_z_mm", 1200.0)),
@@ -196,15 +224,19 @@ def set_scan_linear_compensation_callback(self, msg):
     self.scan_linear_compensation_reference_z_mm = reference_z_mm
     self.scan_linear_compensation_x_per_mm = x_per_mm
     self.scan_linear_compensation_y_per_mm = y_per_mm
+    self.scan_linear_compensation_x_shift_per_mm = x_shift_per_mm
+    self.scan_linear_compensation_y_shift_per_mm = y_shift_per_mm
     self.scan_linear_compensation_min_z_mm = min_z_mm
     self.scan_linear_compensation_max_abs_scale_delta = max_abs_scale_delta
     self.save_runtime_config()
     rospy.loginfo(
-        "pointAI: 扫描线性补偿已%s reference_z=%.1fmm x=%.8f/mm y=%.8f/mm min_z=%.1fmm max_delta=%.3f",
+        "pointAI: 扫描线性补偿已%s reference_z=%.1fmm x_scale=%.8f/mm y_scale=%.8f/mm x_shift=%.8fmm/mm y_shift=%.8fmm/mm min_z=%.1fmm max_delta=%.3f",
         "启用" if enabled else "关闭",
         reference_z_mm,
         x_per_mm,
         y_per_mm,
+        x_shift_per_mm,
+        y_shift_per_mm,
         min_z_mm,
         max_abs_scale_delta,
     )

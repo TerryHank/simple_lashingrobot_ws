@@ -43,10 +43,13 @@ class CurrentVisualRecognitionFlowReportTest(unittest.TestCase):
             "执行微调：平面分割 + Hough",
             "统一物理网格评分",
             "physical_lattice_count_aspect_error",
-            "Surface-DP 曲线交点",
-            "beam_candidate 梁筋候选",
+            "物理线族交点",
+            "beam_candidate",
+            "梁筋过滤",
+            "点级过滤",
         ):
             self.assertIn(required_text, report_html)
+        self.assertNotIn("整列" + "删除", report_html)
 
         parser = _ImageSourceParser()
         parser.feed(report_html)

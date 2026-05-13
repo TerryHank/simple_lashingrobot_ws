@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-12 01:48:59，当前 HEAD：`4ca8724`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-14 05:40:40，当前 HEAD：`79d2354`。
 
 ## Bootstrap Files
 
@@ -36,22 +36,19 @@
 
 ## Latest CHANGELOG Signals
 
-- 用户最新口径：设置页不再展示独立的“工作区选点”和“扫描动作”卡片；“确认工作区域”跟在“移动到选中位姿”右侧，仍在设置 / 工作区的扫描位姿卡片内。
-- “触发扫描视觉”重新放回控制面板“扫描区”，且扫描区只保留这个主动视觉触发入口；移动到位姿、记录识别位姿和确认工作区域不再作为控制面板任务按钮。
-- 工作区点选列表与“撤销最后一点 / 清空重选”保留在扫描位姿卡片内，避免现场误点后无法修正。
-- 当前工程状态已先保存并推送远端 tag `slam/v44`，作为本轮扫描线族语义修改前的恢复点。
-- Surface-DP 扫描线族不再使用横纵线数接近 `1:1` 的强平衡门槛；小视野、正方形和长方形钢筋面统一走同一套物理网格评分。
-- 新评分用候选横纵线数比例与当前 rectified 有效视野物理长宽比的一致性、线距物理先验、弱规则线召回和响应支持共同判断网格可信度；`34x21` 这类长方形全局网格可通过，正方形视野中的 `16x2` 线族假阳仍会被拒绝。
-- 运行态诊断新增 `physical_lattice_score`、`physical_lattice_count_aspect`、`physical_lattice_visible_aspect`、`physical_lattice_count_aspect_error` 和 tolerance 字段；旧 `full_workspace / visible_local` 分档标签收口为 `unified_physical_lattice`，避免后续按视野大小重新分支。
+- 用户最新口径：保留“梁筋候选 / 梁筋过滤 / 过滤半径”功能，保留扫描底图红色梁筋候选竖带和前端开关；只取消“某个梁筋 mask 命中点后连带移除同 X 位置其它交点”的逻辑。
+- Surface-DP 当前运行链路继续输出 `beam_candidate_*` 诊断，启用梁筋过滤时仍按前端半径扩张 `beam_candidate_margin_mask`，但最终过滤改为点级 `point_mask`：只删除自身落入梁筋 mask 的交点，不会连带移除同一 X 位置的其它普通钢筋交点。
+- pointAI ROS 继续订阅 `/web/pointAI/set_scan_beam_exclusion` 与 `/web/pointAI/set_scan_beam_exclusion_margin_mm`；前端视觉调试页继续提供梁筋过滤开关、半径输入、topic registry 和 localStorage 字段。
+- 运行态诊断保留 `beam_filtered_point_count`，`beam_filter_mode=point_mask` 表示点级过滤；当前入口不再使用列级过滤 helper，也不再输出列级过滤计数字段。
 
 ## Recent Session Memory
 
-- `2026-05-12 01:48 - 前端热调扫描线性补偿系数`：2026-05-12：视觉调试页新增扫描线性补偿控件，现场可直接增大/减小 X补偿(%/m)、Y补偿(%/m)、基准Z、生效Z和最大比例限幅。前端通过 /web/pointAI/set_scan_linear_compensation 发布 Float32MultiArray：[enabled, reference_z_mm, x_per_mm, y_per_mm, min_z_mm, max_abs_scale_delta]，其中 %/m 会除以 100000 转成后端 per-mm 系数；pointAI 订阅后热更新 scan_linear_compensation_* ROS 参数并影响后续扫描账本点。
-- `2026-05-12 01:46 - Surface-DP 弱线补齐物理网格`：2026-05-12：用户反馈扫描调试图像网格效果好但绑扎点只覆盖一小片，怀疑门限导致。根因定位为 Surface-DP 物理线族选择先按强候选峰接受 9x16/10x16 等局部网格，导致后续交点只覆盖强响应区域。现在 _select_physical_lattice_positions 在候选峰确定可信物理间距后，会沿同一物理网格向两侧补齐有局部凸起证据的弱线，避免强局部网格提前收敛；纯缺线场景仍保留 9/10/11x16 可见网格兼容，不凭空铺满。
-- `2026-05-12 01:00 - 视觉算法异常只让视觉按钮变黄`：2026-05-12：用户纠正前端告警口径：/diagnostics 中 tie_robot/visual_algorithm 的 DiagnosticStatus.ERROR（例如 Surface-DP失败：所选扫描底图横纵线族不足）表示视觉算法告警，但不要进入顶部连接报警横幅，也不要把视觉按钮文案改成‘视觉报警/重启’。前端应把原视觉状态按钮置为黄色 warn，保留原按钮文案/启动动作；详细错误只写入前端日志。
-- `2026-05-12 00:54 - 扫描账本按识别位姿分组续传`：2026-05-12：扫描 action/service 新增 recognition_pose_index，前端从设置/工作区的当前扫描位姿下拉框传入序号。pseudo_slam_points.json 与 pseudo_slam_bind_path.json 写入 scan_pose_groups 和 scan_pose_groups_by_pose_index，重扫同一识别位姿只替换该位姿大组，其他位姿组保留；顶层 pseudo_slam_points/areas 仍保留为汇总扁平结构供执行层和前端兼容。每个点/区域带 pose_index、recognition_pose_index 和 pose_local_* 字段，执行记忆去重也包含 recognition_pose_index，避免不同位姿相同行列互相吞掉。
-- `2026-05-12 00:48 - Surface-DP 继续放宽到 10x16 现场线族`：2026-05-12：用户要求继续放宽扫描底图线族门限。基于前一轮确认 11x16 通过后，新增 10x16 回归并验证当前实现仍失败，随后将 PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE 再从 0.40 提到 0.55。修改后 11x16、10x16 都通过，9x16 仍被 count_aspect_mismatch 拦住，2x16 仍失败。失败消息继续保留中文原因映射。
-- `2026-05-12 00:47 - 视觉算法异常显示为报警态`：2026-05-12：前端状态胶囊语义修正。/diagnostics 中 tie_robot/visual_algorithm 的 DiagnosticStatus.ERROR（例如 Surface-DP失败：所选扫描底图横纵线族不足）表示视觉算法报警，不表示视觉节点关闭；前端应把 detail 纳入报警汇总，视觉胶囊显示‘视觉报警/重启’，只有 OK 运行态才显示‘关闭’动作，WARN 未上报/超时仍按启动语义处理。
+- `2026-05-14 05:40 - 扫描完成后只刷新规划显示`：2026-05-14：去掉前端阈值热重规划后，扫描 action 成功时仍必须刷新前端规划组显示。TieRobotFrontApp 的 onSurfaceDpRecognitionFinished 现在只调用 requestPlanningAreaRefresh() 重新读取 /api/planning/bind-path，不调用 /cabin/replan_pseudo_slam_bind_path，也不做第二次规划；这样 pseudo_slam_bind_path.json 写完后 3D Scene 能看到新规划组。
+- `2026-05-14 05:27 - 扫描阈值只随一次扫描规划生效`：2026-05-14：用户撤回前端阈值热重规划口径。成行/成列阈值仍由 StartPseudoSlamScan action goal 传入后端，并在 run_pseudo_slam_scan 的一次扫描规划中生成 pseudo_slam_points.json 和 pseudo_slam_bind_path.json；前端不再在阈值变化、扫描完成回调或确认工作区自动视觉完成后调用 /cabin/replan_pseudo_slam_bind_path。replan service 先保留为手动/诊断能力，不作为正常扫描链路第二次规划。
+- `2026-05-14 05:03 - 扫描规划优先 2x2 四点分组`：2026-05-14：用户明确扫描账本点规划要优先考虑 2x2 分组。动态规划自适应分组候选形状现在先尝试 2x2，再考虑显式 requested_group_point_count 对应的大矩形和更小补组；默认 4 点与阈值重规划继续保持 slam/v35 固定 2x2 切块口径。只有显式非自适应请求 6/9 等点数时才优先按对应大组规划。
+- `2026-05-14 04:52 - 阈值重规划保持 v35 默认 2x2 固定切块`：2026-05-14：修正扫描账本阈值重规划的默认 4 点成组口径。/cabin/replan_pseudo_slam_bind_path 为了让行/列阈值生效会设置 force_axis_threshold_grouping=true、忽略旧 global_row/global_col 并按世界 XY 阈值重聚类；但默认 bind_group_point_count=4 时仍必须和 slam/v35 一样从起点固定 2x2 切块，形成 (1,1)(1,2)(2,2)(2,1) 这类四点组，不走邻接匹配大量生成 matrix_2x2_edge_pair 短线。当前 planner 在 force_axis_threshold_grouping && requested_group_point_count==4 时改走 select_grid_group_candidates_by_fixed_two_by_two_tiling；Z 可达性仍只看 XY，真实 Z 保留。
+- `2026-05-14 04:34 - 扫描账本成组可达性改为只看 XY`：2026-05-14：按现场口径，pseudo_slam_bind_path 动态成组的可达性不再用局部 Z 拦截；is_group_reachable_from_centered_dynamic_pose 只检查规划姿态下局部 X/Y 是否落在线模工作盒内，真实点位 Z 仍保留在 bind_points_world 和后续执行 JSON 中。这样扫描层散点只要 XY 可覆盖就能排成组，Z 不再导致规划阶段丢组。
+- `2026-05-14 03:55 - 扫描层阈值重规划不覆盖微调层视觉`：2026-05-14：用户确认行/列阈值只属于扫描层 pseudo_slam_bind_path 成组规划，不属于执行/微调层视觉。TieRobotFrontApp 现在在任务按钮触发视觉调试参数同步时传 scheduleBindPathReplan=false，避免 executionVisionOnly、triggerSingleBind、startExecution/startExecutionKeepMemory 因同步参数而触发 /cabin/replan_pseudo_slam_bind_path。扫描层 runSavedS2 与确认工作区后的自动 Surface-DP 扫描仍在扫描 action 成功后通过 onSurfaceDpRecognitionFinished 调用重规划；视觉调试页直接改阈值仍可防抖重规划已有扫描账本。
 
 ## Handoff Documents
 

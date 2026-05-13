@@ -96,6 +96,8 @@ const controlPanelCatalogText = readFileSync(
 assert.match(controlPanelCatalogText, /title: "扫描区"/);
 assert.match(controlPanelCatalogText, /id: "runSavedS2"/);
 assert.match(controlPanelCatalogText, /触发扫描\\n视觉/);
+assert.match(controlPanelCatalogText, /id: "clearAllBindPoints"/);
+assert.match(controlPanelCatalogText, /清除所有\\n绑扎点/);
 for (const scanActionId of ["moveToPosition", "setRecognitionPose", "submitQuad"]) {
   assert.doesNotMatch(controlPanelCatalogText, new RegExp(`id: "${scanActionId}"`));
 }
@@ -140,6 +142,15 @@ assert.match(appText, /saveRecognitionPoseLibrary/);
 assert.match(appText, /onWorkspaceScanAction/);
 assert.match(appText, /handleAddRecognitionPose/);
 assert.match(appText, /handleDeleteRecognitionPose/);
+assert.match(appText, /deleteRecognitionPoseArtifacts/);
+assert.match(appText, /\/api\/planning\/scan-pose\/\$\{normalizedPoseIndex\}/);
+assert.match(appText, /handleClearAllBindPoints/);
+assert.match(appText, /\/api\/planning\/bind-points/);
+assert.match(appText, /taskAction === "clearAllBindPoints"/);
+assert.match(appText, /bindPointVisualsSuppressed/);
+assert.match(appText, /shouldSuppressBindPointVisualMessage/);
+assert.match(appText, /this\.bindPointVisualsSuppressed = true/);
+assert.match(appText, /this\.bindPointVisualsSuppressed = false/);
 assert.match(appText, /handleSetRecognitionPose/);
 assert.match(appText, /handleMoveToPosition/);
 assert.match(appText, /this\.taskActionController\.handle\(workspaceAction\)/);
@@ -150,3 +161,7 @@ assert.match(appText, /selectedId: pose\.id/);
 assert.match(appText, /deleteRecognitionPose:\s*this\.recognitionPoseLibrary\.poses\.length > 1/);
 assert.match(appText, /applySelectedRecognitionPoseWorkspace/);
 assert.match(appText, /saveCurrentRecognitionPoseWorkspace/);
+assert.match(appText, /shouldAcceptSavedWorkspacePayload/);
+assert.match(appText, /nextPose\.workspace = selectedPose\.workspace/);
+assert.match(uiControllerText, /已保存工作区/);
+assert.match(uiControllerText, /已点选工作区，待确认/);

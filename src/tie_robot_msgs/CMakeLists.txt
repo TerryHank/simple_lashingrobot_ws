@@ -24,6 +24,7 @@ add_service_files(
   MotionControl.srv
   StartGlobalWork.srv
   StartPseudoSlamScan.srv
+  ReplanPseudoSlamBindPath.srv
   SetExecutionMode.srv
   SetGripperTfCalibration.srv
   RobotHomeCalibration.srv

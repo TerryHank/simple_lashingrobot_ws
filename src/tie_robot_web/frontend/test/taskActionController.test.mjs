@@ -49,12 +49,15 @@ ROSLIB.Goal = class {
 
 const executionVisionOnlyTask = CONTROL_PANEL_TASKS.find((task) => task.id === "executionVisionOnly");
 const startExecutionTask = CONTROL_PANEL_TASKS.find((task) => task.id === "startExecution");
+const clearAllBindPointsTask = CONTROL_PANEL_TASKS.find((task) => task.id === "clearAllBindPoints");
 const taskIds = CONTROL_PANEL_TASKS.map((task) => task.id);
 assert.equal(executionVisionOnlyTask?.label, "单点视觉\n测试");
 assert.equal(startExecutionTask?.label, "执行全局\n绑扎");
+assert.equal(clearAllBindPointsTask?.label, "清除所有\n绑扎点");
 assert.deepEqual(CONTROL_PANEL_TASK_SECTIONS.map((section) => section.title), ["扫描区", "执行层", "区域切换"]);
 assert.deepEqual(taskIds, [
   "runSavedS2",
+  "clearAllBindPoints",
   "startExecution",
   "triggerSingleBind",
   "executionVisionOnly",
@@ -75,6 +78,7 @@ const singlePointBindCalls = [];
 const executionModeCalls = [];
 const scanActionClient = { name: "start_pseudo_slam_scan" };
 const startGlobalWorkActionClient = { name: "start_global_work" };
+let recognitionPoseIndex = 2;
 
 const workspaceView = {
   savedPoints: [],
@@ -124,11 +128,23 @@ const rosConnection = {
 const controller = new TaskActionController({
   rosConnection,
   workspaceView,
+  getRecognitionPoseIndex() {
+    return recognitionPoseIndex;
+  },
   getAdaptiveBindGrouping() {
     return true;
   },
   getBindExecutionCabinMinZ() {
     return 420;
+  },
+  getBindExecutionCabinZMode() {
+    return "fixed";
+  },
+  getBindGroupRowThreshold() {
+    return 52;
+  },
+  getBindGroupColumnThreshold() {
+    return 58;
   },
   callbacks: {
     onResultMessage: (message) => resultMessages.push(message),
@@ -138,9 +154,13 @@ const controller = new TaskActionController({
 
 controller.publishWorkspaceQuad();
 assert.deepEqual(publishedMessages.at(-1).data, payload);
+assert.equal(controller.isPendingWorkspacePayload(payload), true);
+assert.equal(controller.isPendingWorkspacePayload([1, 2, 3, 4, 5, 6, 7, 8]), false);
 
 workspaceView.savedPoints = workspaceView.getSelectedPoints();
+recognitionPoseIndex = 5;
 assert.equal(controller.handleSavedWorkspacePayload(payload), true);
+assert.equal(controller.isPendingWorkspacePayload(payload), false);
 await new Promise((resolve) => setTimeout(resolve, 0));
 
 assert.deepEqual(processImageCalls, []);
@@ -149,9 +169,12 @@ assert.equal(actionGoals.at(-1)?.actionClient, scanActionClient);
 assert.deepEqual(actionGoals.at(-1)?.goalMessage, {
   enable_capture_gate: false,
   scan_strategy: 3,
-  recognition_pose_index: 1,
+  recognition_pose_index: 2,
   bind_group_point_count: 0,
+  bind_group_row_threshold_mm: 52,
+  bind_group_column_threshold_mm: 58,
   bind_execution_cabin_min_z_mm: 420,
+  bind_execution_cabin_z_mode: 0,
 });
 assert.equal(actionGoals.at(-1)?.sent, true);
 assert.match(resultMessages.at(-1), /Surface-DP|视觉识别/);

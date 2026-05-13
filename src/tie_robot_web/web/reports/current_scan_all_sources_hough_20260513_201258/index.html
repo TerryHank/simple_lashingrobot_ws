@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>扫描全底图 Hough 交点实验</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #d9e1dc;
+      background: #111613;
+      font-family: "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.5;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 14px clamp(12px, 2vw, 26px) 12px;
+      background: #151b18;
+      border-bottom: 1px solid #2a342f;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+    }
+    .topline { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: clamp(20px, 2.4vw, 30px); letter-spacing: 0; }
+    .subline { margin: 4px 0 0; color: #8fa098; font-size: 13px; }
+    main { max-width: 1780px; margin: 0 auto; padding: 14px clamp(10px, 2vw, 26px) 34px; }
+    .source-switcher {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 12px 0 2px;
+      scrollbar-width: thin;
+    }
+    .source-tab {
+      flex: 0 0 auto;
+      min-width: 176px;
+      border: 1px solid #35423c;
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #1d2521;
+      color: #d9e1dc;
+      text-align: left;
+      cursor: pointer;
+    }
+    .source-tab span { display: block; font-size: 13px; white-space: nowrap; }
+    .source-tab b { display: block; margin-top: 3px; color: #98b8aa; font-size: 12px; font-weight: 600; }
+    .source-tab.active {
+      background: #23382f;
+      border-color: #6fb395;
+      color: #f2faf6;
+    }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+      gap: 10px;
+      margin: 0 0 14px;
+    }
+    .fact {
+      border: 1px solid #2d3933;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #161d1a;
+      min-width: 0;
+    }
+    .fact span { display: block; color: #899990; font-size: 12px; }
+    .fact b { display: block; font-size: 18px; overflow-wrap: anywhere; }
+    h2 { margin: 0 0 4px; font-size: 22px; letter-spacing: 0; }
+    .note {
+      border-left: 4px solid #6fb395;
+      background: #18221e;
+      padding: 10px 12px;
+      border-radius: 0 8px 8px 0;
+      color: #b8c7c0;
+    }
+    .overview {
+      display: grid;
+      grid-template-columns: minmax(240px, 360px) 1fr;
+      gap: 14px;
+      align-items: stretch;
+      margin-bottom: 14px;
+    }
+    .source-panel {
+      display: block;
+      border: 1px solid #2d3933;
+      border-radius: 8px;
+      background: #151b18;
+      padding: 14px;
+    }
+    .source-panel[hidden] { display: none; }
+    .source-head {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) minmax(360px, 520px);
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+    .source-head p { margin: 0; color: #8fa098; }
+    .source-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .source-metrics div {
+      border: 1px solid #2d3933;
+      border-radius: 8px;
+      padding: 8px 9px;
+      background: #111613;
+      min-width: 0;
+    }
+    .source-metrics span { display: block; color: #7f9187; font-size: 12px; }
+    .source-metrics b { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .image-card {
+      margin: 0;
+      border: 1px solid #2d3933;
+      border-radius: 8px;
+      background: #111613;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .image-card img {
+      display: block;
+      width: 100%;
+      max-height: min(44vh, 520px);
+      object-fit: contain;
+      background: #10140f;
+    }
+    figcaption { padding: 8px 9px; color: #b7c6bf; border-top: 1px solid #2d3933; font-size: 13px; }
+    @media (max-width: 760px) {
+      header { padding: 12px; }
+      main { padding: 10px; }
+      .topline, .overview, .source-head { display: block; }
+      .overview .image-card { margin-bottom: 10px; }
+      .source-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
+      .flow-grid { grid-template-columns: 1fr; }
+      .image-card img { max-height: 70vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topline">
+      <div>
+        <h1>扫描全底图 Hough 交点实验</h1>
+        <p class="subline">帧来源：snapshot:rebar_instance_segmentation_modalities_20260430_112028；生成时间：2026-05-13 21:01:14。本报告只做离线诊断，不改 Surface-DP 主链。</p>
+      </div>
+      <div class="fact"><span>rectified</span><b>442 x 586</b></div>
+    </div>
+    <nav class="source-switcher" aria-label="底图切换">
+      
+            <button class="source-tab active" type="button" data-source-id="depth_gradient" aria-pressed="true">
+              <span>深度梯度边缘</span>
+              <b>[6, 13] / 78点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="frangi_like" aria-pressed="false">
+              <span>多尺度 Frangi-like 脊线</span>
+              <b>[11, 13] / 143点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="hessian_ridge" aria-pressed="false">
+              <span>Hessian ridge 脊线</span>
+              <b>[12, 13] / 156点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="infrared_response" aria-pressed="false">
+              <span>红外暗线响应</span>
+              <b>[13, 10] / 130点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="combined_response" aria-pressed="false">
+              <span>深度 + 红外组合响应</span>
+              <b>[10, 12] / 120点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="depth_response" aria-pressed="false">
+              <span>深度暗线响应</span>
+              <b>[10, 12] / 120点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="fused_instance_response" aria-pressed="false">
+              <span>融合实例响应</span>
+              <b>[10, 12] / 120点</b>
+            </button>
+            
+            <button class="source-tab" type="button" data-source-id="completed_surface_response" aria-pressed="false">
+              <span>补全钢筋面响应</span>
+              <b>[10, 12] / 120点</b>
+            </button>
+            
+    </nav>
+  </header>
+  <main>
+    <div class="overview">
+      <figure class="image-card">
+        <img src="images/00_input_workspace.png" alt="当前输入工作区">
+        <figcaption>当前输入工作区</figcaption>
+      </figure>
+      <div>
+        <div class="facts">
+          <div class="fact"><span>底图数量</span><b>8</b></div>
+          <div class="fact"><span>Hough 阈值百分位</span><b>86.0</b></div>
+          <div class="fact"><span>总耗时</span><b>8411.9 ms</b></div>
+        </div>
+        <p class="note">点击顶部底图标签切换。每页只显示当前底图的「响应底图 → 二值化 → 骨架 → Hough 线段 → 聚类横纵线 → 最终交点」。黄色点是 Hough 横纵线交点；绿线偏竖向，蓝黄线偏横向。</p>
+      </div>
+    </div>
+    
+            <section class="source-panel active" data-source-id="depth_gradient">
+              <div class="source-head">
+                <div>
+                  <h2>深度梯度边缘</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[6, 13]</b></div>
+                  <div><span>交点</span><b>78</b></div>
+                  <div><span>原始线段</span><b>96</b></div>
+                  <div><span>保留线段</span><b>96</b></div>
+                  <div><span>二值像素</span><b>41593</b></div>
+                  <div><span>阈值</span><b>0.631</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/depth_gradient_01_response.png" alt="深度梯度边缘 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_gradient_02_binary.png" alt="深度梯度边缘 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_gradient_03_skeleton.png" alt="深度梯度边缘 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_gradient_04_hough_segments.png" alt="深度梯度边缘 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_gradient_05_clustered_lines.png" alt="深度梯度边缘 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_gradient_06_intersections.png" alt="深度梯度边缘 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="frangi_like" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>多尺度 Frangi-like 脊线</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[11, 13]</b></div>
+                  <div><span>交点</span><b>143</b></div>
+                  <div><span>原始线段</span><b>140</b></div>
+                  <div><span>保留线段</span><b>140</b></div>
+                  <div><span>二值像素</span><b>36450</b></div>
+                  <div><span>阈值</span><b>0.624</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/frangi_like_01_response.png" alt="多尺度 Frangi-like 脊线 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/frangi_like_02_binary.png" alt="多尺度 Frangi-like 脊线 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/frangi_like_03_skeleton.png" alt="多尺度 Frangi-like 脊线 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/frangi_like_04_hough_segments.png" alt="多尺度 Frangi-like 脊线 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/frangi_like_05_clustered_lines.png" alt="多尺度 Frangi-like 脊线 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/frangi_like_06_intersections.png" alt="多尺度 Frangi-like 脊线 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="hessian_ridge" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>Hessian ridge 脊线</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[12, 13]</b></div>
+                  <div><span>交点</span><b>156</b></div>
+                  <div><span>原始线段</span><b>134</b></div>
+                  <div><span>保留线段</span><b>134</b></div>
+                  <div><span>二值像素</span><b>36922</b></div>
+                  <div><span>阈值</span><b>0.420</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/hessian_ridge_01_response.png" alt="Hessian ridge 脊线 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/hessian_ridge_02_binary.png" alt="Hessian ridge 脊线 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/hessian_ridge_03_skeleton.png" alt="Hessian ridge 脊线 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/hessian_ridge_04_hough_segments.png" alt="Hessian ridge 脊线 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/hessian_ridge_05_clustered_lines.png" alt="Hessian ridge 脊线 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/hessian_ridge_06_intersections.png" alt="Hessian ridge 脊线 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="infrared_response" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>红外暗线响应</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[13, 10]</b></div>
+                  <div><span>交点</span><b>130</b></div>
+                  <div><span>原始线段</span><b>127</b></div>
+                  <div><span>保留线段</span><b>127</b></div>
+                  <div><span>二值像素</span><b>37185</b></div>
+                  <div><span>阈值</span><b>0.706</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/infrared_response_01_response.png" alt="红外暗线响应 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/infrared_response_02_binary.png" alt="红外暗线响应 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/infrared_response_03_skeleton.png" alt="红外暗线响应 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/infrared_response_04_hough_segments.png" alt="红外暗线响应 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/infrared_response_05_clustered_lines.png" alt="红外暗线响应 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/infrared_response_06_intersections.png" alt="红外暗线响应 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="combined_response" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>深度 + 红外组合响应</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[10, 12]</b></div>
+                  <div><span>交点</span><b>120</b></div>
+                  <div><span>原始线段</span><b>122</b></div>
+                  <div><span>保留线段</span><b>122</b></div>
+                  <div><span>二值像素</span><b>36801</b></div>
+                  <div><span>阈值</span><b>0.722</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/combined_response_01_response.png" alt="深度 + 红外组合响应 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/combined_response_02_binary.png" alt="深度 + 红外组合响应 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/combined_response_03_skeleton.png" alt="深度 + 红外组合响应 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/combined_response_04_hough_segments.png" alt="深度 + 红外组合响应 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/combined_response_05_clustered_lines.png" alt="深度 + 红外组合响应 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/combined_response_06_intersections.png" alt="深度 + 红外组合响应 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="depth_response" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>深度暗线响应</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[10, 12]</b></div>
+                  <div><span>交点</span><b>120</b></div>
+                  <div><span>原始线段</span><b>110</b></div>
+                  <div><span>保留线段</span><b>110</b></div>
+                  <div><span>二值像素</span><b>36895</b></div>
+                  <div><span>阈值</span><b>0.628</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/depth_response_01_response.png" alt="深度暗线响应 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_response_02_binary.png" alt="深度暗线响应 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_response_03_skeleton.png" alt="深度暗线响应 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_response_04_hough_segments.png" alt="深度暗线响应 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_response_05_clustered_lines.png" alt="深度暗线响应 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/depth_response_06_intersections.png" alt="深度暗线响应 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="fused_instance_response" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>融合实例响应</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[10, 12]</b></div>
+                  <div><span>交点</span><b>120</b></div>
+                  <div><span>原始线段</span><b>126</b></div>
+                  <div><span>保留线段</span><b>126</b></div>
+                  <div><span>二值像素</span><b>36841</b></div>
+                  <div><span>阈值</span><b>0.708</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/fused_instance_response_01_response.png" alt="融合实例响应 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/fused_instance_response_02_binary.png" alt="融合实例响应 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/fused_instance_response_03_skeleton.png" alt="融合实例响应 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/fused_instance_response_04_hough_segments.png" alt="融合实例响应 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/fused_instance_response_05_clustered_lines.png" alt="融合实例响应 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/fused_instance_response_06_intersections.png" alt="融合实例响应 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+            <section class="source-panel" data-source-id="completed_surface_response" hidden>
+              <div class="source-head">
+                <div>
+                  <h2>补全钢筋面响应</h2>
+                  <p>当前底图独立完成二值化、骨架、Hough 线段、横纵线聚类和交点生成；下方是该底图流程效果图。</p>
+                </div>
+                <div class="source-metrics">
+                  <div><span>线数</span><b>[10, 12]</b></div>
+                  <div><span>交点</span><b>120</b></div>
+                  <div><span>原始线段</span><b>121</b></div>
+                  <div><span>保留线段</span><b>121</b></div>
+                  <div><span>二值像素</span><b>36931</b></div>
+                  <div><span>阈值</span><b>0.806</b></div>
+                </div>
+              </div>
+              <div class="flow-grid">
+                <figure class="image-card">
+                  <img src="images/completed_surface_response_01_response.png" alt="补全钢筋面响应 响应底图">
+                  <figcaption>响应底图</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/completed_surface_response_02_binary.png" alt="补全钢筋面响应 二值化">
+                  <figcaption>二值化</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/completed_surface_response_03_skeleton.png" alt="补全钢筋面响应 骨架">
+                  <figcaption>骨架</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/completed_surface_response_04_hough_segments.png" alt="补全钢筋面响应 Hough 线段">
+                  <figcaption>Hough 线段</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/completed_surface_response_05_clustered_lines.png" alt="补全钢筋面响应 聚类横纵线">
+                  <figcaption>聚类横纵线</figcaption>
+                </figure>
+                
+                <figure class="image-card">
+                  <img src="images/completed_surface_response_06_intersections.png" alt="补全钢筋面响应 最终交点">
+                  <figcaption>最终交点</figcaption>
+                </figure>
+                </div>
+            </section>
+            
+  </main>
+  <script>
+    const tabs = Array.from(document.querySelectorAll('.source-tab'));
+    const panels = Array.from(document.querySelectorAll('.source-panel'));
+    function activateSource(sourceId) {
+      tabs.forEach((tab) => {
+        const active = tab.dataset.sourceId === sourceId;
+        tab.classList.toggle('active', active);
+        tab.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+      panels.forEach((panel) => {
+        const active = panel.dataset.sourceId === sourceId;
+        panel.classList.toggle('active', active);
+        panel.hidden = !active;
+      });
+    }
+    tabs.forEach((tab) => {
+      tab.addEventListener('click', () => activateSource(tab.dataset.sourceId));
+    });
+  </script>
+</body>
+</html>

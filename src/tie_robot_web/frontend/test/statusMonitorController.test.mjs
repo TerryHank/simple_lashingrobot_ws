@@ -80,7 +80,28 @@ telemetryTopic.emit({
   motor_error_flag: 1,
 });
 
-assert.deepEqual(alarmStates.at(-1), ["X轴异常", "Y轴异常", "旋转电机异常"]);
+assert.deepEqual(alarmStates, [], "线性模组报警不应进入顶部连接报警汇总");
+assert.deepEqual(
+  statusChanges.filter((change) => change.statusId === "moduan").at(-1),
+  {
+    statusId: "moduan",
+    level: "warn",
+    detail: "末端报警：X轴异常、Y轴异常、旋转电机异常",
+  },
+  "线性模组报警应让末端状态胶囊变黄",
+);
+assert.deepEqual(
+  logs.filter((entry) => entry.message.includes("状态变化 moduan")).at(-1),
+  {
+    message: "状态变化 moduan -> 末端报警：X轴异常、Y轴异常、旋转电机异常",
+    level: "warn",
+  },
+  "线性模组报警详情应写入前端日志",
+);
+
+logs.length = 0;
+statusChanges.length = 0;
+alarmStates.length = 0;
 
 const diagnosticsTopic = topicInstances.find((topic) => topic.name === TOPICS.process.diagnostics);
 assert.ok(diagnosticsTopic, "diagnostics topic should be subscribed");
@@ -111,14 +132,26 @@ diagnosticsTopic.emit({
   ],
 });
 
-assert.deepEqual(alarmStates.at(-1), [
-  "X轴异常",
-  "Y轴异常",
-  "旋转电机异常",
-  "索驱设备报警",
-  "Z轴异常",
-  "绑扎枪报警",
-]);
+assert.deepEqual(alarmStates, [], "诊断报警不应进入顶部连接报警汇总");
+assert.deepEqual(
+  statusChanges.filter((change) => change.statusId === "chassis").at(-1),
+  {
+    statusId: "chassis",
+    level: "warn",
+    detail: "索驱报警：索驱设备报警",
+  },
+  "索驱诊断报警应让索驱状态胶囊变黄",
+);
+assert.equal(
+  statusChanges.filter((change) => change.statusId === "moduan").at(-1)?.level,
+  "warn",
+  "末端诊断报警应让末端状态胶囊保持黄色",
+);
+assert.match(
+  logs.filter((entry) => entry.message.includes("状态变化 chassis")).at(-1)?.message || "",
+  /索驱报警：索驱设备报警/,
+  "索驱诊断报警详情应写入前端日志",
+);
 
 const originalDateNow = Date.now;
 try {
@@ -244,7 +277,7 @@ assert.deepEqual(
   "视觉算法诊断 ERROR 应让原视觉按钮变黄，详情只保留给日志",
 );
 assert.deepEqual(
-  alarmStates.at(-1),
+  alarmStates,
   [],
   "视觉算法异常不应进入顶部连接报警汇总",
 );
@@ -272,7 +305,7 @@ visualAlarmDiagnosticsTopic.emit({
 });
 
 assert.deepEqual(
-  alarmStates.at(-1),
+  alarmStates,
   [],
   "视觉算法恢复 OK 后应继续保持顶部报警汇总为空",
 );

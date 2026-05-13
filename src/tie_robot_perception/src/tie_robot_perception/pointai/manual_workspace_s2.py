@@ -230,13 +230,17 @@ def apply_scan_linear_camera_compensation(self, camera_coord):
     reference_z_mm = float(getattr(self, "scan_linear_compensation_reference_z_mm", 1000.0))
     x_per_mm = float(getattr(self, "scan_linear_compensation_x_per_mm", 0.0))
     y_per_mm = float(getattr(self, "scan_linear_compensation_y_per_mm", 0.0))
+    x_shift_per_mm = float(getattr(self, "scan_linear_compensation_x_shift_per_mm", 0.0))
+    y_shift_per_mm = float(getattr(self, "scan_linear_compensation_y_shift_per_mm", 0.0))
     max_abs_scale_delta = abs(float(getattr(self, "scan_linear_compensation_max_abs_scale_delta", 0.25)))
     z_delta_mm = camera_z - reference_z_mm
     x_scale_delta = float(np.clip(x_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta))
     y_scale_delta = float(np.clip(y_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta))
+    x_shift_mm = x_shift_per_mm * z_delta_mm
+    y_shift_mm = y_shift_per_mm * z_delta_mm
     return [
-        camera_x * (1.0 - x_scale_delta),
-        camera_y * (1.0 + y_scale_delta),
+        (camera_x * (1.0 - x_scale_delta)) + x_shift_mm,
+        (camera_y * (1.0 + y_scale_delta)) + y_shift_mm,
         camera_z,
     ]
 
@@ -505,7 +509,7 @@ def build_manual_workspace_s2_points_array(
         raw_camera_coord, _, _ = self.get_valid_world_coord_near_pixel(pixel_x, pixel_y)
         if not is_valid_manual_workspace_s2_camera_coord(raw_camera_coord):
             continue
-        camera_coord = apply_scan_linear_camera_compensation(self, raw_camera_coord)
+        camera_coord = raw_camera_coord
         log_manual_workspace_s2_camera_distance(
             self,
             len(point_records) + 1,
@@ -633,7 +637,7 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
     if points_array_msg.count <= 0:
         return {
             "success": False,
-            "message": "Surface-DP曲线交点未能匹配到有效相机原始坐标",
+            "message": "Surface-DP物理线族交点未能匹配到有效相机原始坐标",
             "point_coords": None,
             "result_image": None,
             "surface_dp_diagnostics": surface_result.get("diagnostics", {}),
@@ -670,7 +674,7 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
         "point_coords": points_array_msg,
         "result_image": result_image,
         "single_frame_elapsed_ms": elapsed_ms,
-        "algorithm": "surface_dp_curve",
+        "algorithm": surface_result.get("variant_id", "surface_dp_lattice_intersection"),
         "surface_dp_diagnostics": surface_result.get("diagnostics", {}),
     }
 

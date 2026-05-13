@@ -14,10 +14,12 @@ __pycache__/
 .idea/
 .codex
 .worktrees/
+.deploy/
 
 # Data captures and local runtime files
 .debug_frames/
 .ros/
+src/tie_robot_web/data/frontend_state.json
 *.bag
 *.log
 *.tmp

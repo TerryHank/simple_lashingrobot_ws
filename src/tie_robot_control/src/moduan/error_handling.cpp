@@ -44,9 +44,8 @@ void signalHandler(int signum)
 {
     (void)signum;
     try {
-        std::lock_guard<std::mutex> lock2(plc_mutex);
         printCurrentTime();
-        ros_log_printf("Moduan_log:ctrl+c已被触发,关闭末端节点。\n");
+        ros_log_printf("Moduan_log:ctrl+c已被触发，随后关闭末端节点。\n");
         ros::shutdown();
         _exit(2);
     } catch (const std::exception&) {

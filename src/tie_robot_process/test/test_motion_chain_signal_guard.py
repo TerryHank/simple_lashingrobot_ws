@@ -364,6 +364,37 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         callbacks = (CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp").read_text(encoding="utf-8")
         self.assertIn("先抬升Z轴回0，再回X/Y到0", callbacks)
 
+    def test_cabin_stop_and_move_do_not_trigger_moduan_is_zero(self):
+        transport = (PROCESS_DIR / "src" / "suoqu" / "cabin_transport.cpp").read_text(encoding="utf-8")
+
+        self.assertNotIn("trigger_moduan_is_zero_before_cabin_motion", transport)
+        self.assertNotIn('"/moduan/request_is_zero"', transport)
+        self.assertNotIn("末端IS_ZERO前置服务", transport)
+
+        stop_start = transport.index("bool stop_cabin_motion_via_driver(")
+        stop_end = transport.index("\nbool move_cabin_pose_via_driver", stop_start)
+        stop_body = transport[stop_start:stop_end]
+        stop_remote_index = stop_body.index("if (::use_remote_cabin_driver")
+        stop_enabled_index = stop_body.index("if (!::cabin_driver_enabled")
+        self.assertLess(stop_remote_index, stop_enabled_index)
+
+        move_start = transport.index("bool move_cabin_pose_via_driver(")
+        move_end = transport.index("\nbool move_cabin_incremental_via_driver", move_start)
+        move_body = transport[move_start:move_end]
+        safe_index = move_body.index("reject_cabin_move_if_moduan_not_safe")
+        raw_move_index = move_body.index('"/cabin/driver/raw_move"')
+        direct_move_index = move_body.index("::g_cabin_driver->moveToPose")
+        self.assertLess(safe_index, raw_move_index)
+        self.assertLess(safe_index, direct_move_index)
+
+        incremental_start = transport.index("bool move_cabin_incremental_via_driver(")
+        incremental_body = transport[incremental_start:]
+        incremental_safe_index = incremental_body.index("reject_cabin_move_if_moduan_not_safe")
+        incremental_remote_index = incremental_body.index('"/cabin/driver/incremental_move"')
+        incremental_direct_index = incremental_body.index("::g_cabin_driver->moveByOffset")
+        self.assertLess(incremental_safe_index, incremental_remote_index)
+        self.assertLess(incremental_safe_index, incremental_direct_index)
+
     def test_recover_pause_command_falls_back_to_bind_path_origin(self):
         node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 

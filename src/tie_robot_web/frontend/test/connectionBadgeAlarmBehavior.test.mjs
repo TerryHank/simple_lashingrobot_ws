@@ -121,6 +121,32 @@ assert.equal(connectionBadge.listenerCount("pointerleave"), 1);
 assert.equal(connectionBadge.listenerCount("pointercancel"), 1);
 assert.equal(connectionBadge.listenerCount("click"), 1);
 
+UIController.prototype.setConnectionInfo.call(context, "ws://127.0.0.1:9090", "开始连接 ROSBridge", "info");
+assert.equal(connectionBadge.labelNode.textContent, "连接中");
+assert.equal(connectionBadge.actionNode.textContent, "立即重连");
+assert.equal(connectionBadge.dataset.connectionAction, "manualRosReconnect");
+assert.equal(connectionBadge.dataset.connectionLongAction, "");
+assert.equal(connectionBadge.dataset.hasAction, "true");
+assert.match(connectionBadge.title, /短按立即重连/);
+connectionBadge.dispatch("click", {
+  preventDefault() {},
+  stopPropagation() {},
+});
+assert.deepEqual(calls, ["manualRosReconnect"]);
+calls.length = 0;
+
+UIController.prototype.setConnectionInfo.call(context, "ws://127.0.0.1:9090", "自动重连中", "reconnecting");
+assert.equal(connectionBadge.labelNode.textContent, "重连中");
+assert.equal(connectionBadge.actionNode.textContent, "立即重连");
+assert.equal(connectionBadge.dataset.connectionAction, "manualRosReconnect");
+connectionBadge.dispatch("click", {
+  preventDefault() {},
+  stopPropagation() {},
+});
+assert.deepEqual(calls, ["manualRosReconnect"]);
+calls.length = 0;
+
+UIController.prototype.setConnectionInfo.call(context, "ws://127.0.0.1:9090", "连接成功", "success");
 connectionBadge.dispatch("click", {
   preventDefault() {},
   stopPropagation() {},
@@ -159,17 +185,17 @@ assert.equal(connectionBadge.actionNode.textContent, "长按重启");
 assert.equal(connectionBadge.attributes.has("aria-busy"), false);
 
 UIController.prototype.setConnectionAlarmState.call(context, ["X轴异常", "Y轴异常"]);
-assert.equal(connectionBadge.labelNode.textContent, "X轴异常等2项报警");
-assert.equal(connectionBadge.actionNode.textContent, "报警复位");
-assert.equal(connectionBadge.classList.contains("warn"), true);
-assert.equal(connectionBadge.dataset.connectionAction, "resetAllAlarms");
+assert.equal(connectionBadge.labelNode.textContent, "连接成功");
+assert.equal(connectionBadge.actionNode.textContent, "长按重启");
+assert.equal(connectionBadge.classList.contains("success"), true);
+assert.equal(connectionBadge.dataset.connectionAction, "");
 assert.equal(connectionBadge.dataset.connectionLongAction, "restartRosStack");
-assert.match(connectionBadge.title, /X轴异常、Y轴异常/);
+assert.doesNotMatch(connectionBadge.title, /X轴异常|Y轴异常|报警复位/);
 connectionBadge.dispatch("click", {
   preventDefault() {},
   stopPropagation() {},
 });
-assert.deepEqual(calls, ["resetAllAlarms"]);
+assert.deepEqual(calls, []);
 
 calls.length = 0;
 scheduledTimers.length = 0;

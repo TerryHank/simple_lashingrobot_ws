@@ -48,6 +48,12 @@ FRONTEND_VISUAL_MODE_PATH = (
     / "config"
     / "visualRecognitionMode.js"
 )
+SCAN_SURFACE_DP_PATH = (
+    PERCEPTION_SRC
+    / "tie_robot_perception"
+    / "pointai"
+    / "scan_surface_dp.py"
+)
 
 
 def _function_source(path, function_name):
@@ -260,7 +266,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         for message in user_messages:
             self.assertRegex(message, r"[\u4e00-\u9fff]")
 
-    def test_surface_dp_outputs_curve_intersections_on_synthetic_grid(self):
+    def test_surface_dp_outputs_lattice_intersections_on_synthetic_grid(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         result = scan_surface_dp.build_scan_surface_dp_result(
@@ -269,10 +275,43 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         )
 
         self.assertTrue(result["success"], result.get("message"))
-        self.assertEqual(result["variant_id"], "surface_dp_curve")
+        self.assertEqual(result["variant_id"], "surface_dp_lattice_intersection")
         self.assertEqual(result["line_counts"], [4, 4])
         self.assertEqual(len(result["rectified_intersections"]), 16)
         self.assertGreaterEqual(result["mean_completed_surface_score"], 0.65)
+
+    def test_surface_dp_final_points_stay_on_lattice_lines_when_dp_curve_is_pulled_by_adjacent_response(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        base_result = _build_synthetic_rectified_grid()
+        rectified_depth = np.asarray(base_result["rectified_depth"], dtype=np.float32).copy()
+        rectified_ir = np.asarray(base_result["rectified_ir"], dtype=np.float32).copy()
+
+        # Keep the physical lattice peaks at x=40, but add a stronger nearby ridge
+        # inside the DP search radius.  Final scan points should still be the
+        # green lattice-line intersections, not the pulled DP centerline.
+        rectified_depth[:, 48:51] -= 90.0
+        rectified_ir[:, 48:51] -= 120.0
+        base_result["rectified_depth"] = rectified_depth
+        base_result["filled_depth"] = rectified_depth.copy()
+        base_result["rectified_ir"] = rectified_ir
+
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            base_result,
+            threshold_percentile=78.0,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["primary_point_source"], "physical_lattice_intersections")
+        expected_lattice_points = [
+            [float(x_value), float(y_value)]
+            for x_value in result["vertical_lines"]
+            for y_value in result["horizontal_lines"]
+        ]
+        self.assertEqual(result["rectified_intersections"], expected_lattice_points)
+        for point in result["rectified_intersections"]:
+            self.assertIn(round(float(point[0])), result["vertical_lines"])
+            self.assertIn(round(float(point[1])), result["horizontal_lines"])
 
     def test_instance_graph_junctions_are_diagnostic_only_under_depth_gradient_runtime(self):
         from tie_robot_perception.pointai import scan_surface_dp
@@ -283,7 +322,7 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         )
 
         diagnostics = result["diagnostics"]
-        self.assertEqual(result["primary_point_source"], "dp_curve_intersections")
+        self.assertEqual(result["primary_point_source"], "physical_lattice_intersections")
         self.assertEqual(diagnostics["scan_runtime_response_policy"], "single_selected_response")
         self.assertEqual(diagnostics["scan_runtime_response_source"], "depth_gradient")
         self.assertIn("instance_graph_junction_count", diagnostics)
@@ -1282,134 +1321,59 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         self.assertGreaterEqual(int(refined_band["end"]), 335)
         self.assertGreater(float(refined_band["height_delta"]), 0.055)
 
-    def test_surface_dp_beam_exclusion_is_noop_without_depth_gradient_beam_candidate(self):
+    def test_surface_dp_beam_exclusion_filters_only_points_inside_margin_mask(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
-        result = scan_surface_dp.build_scan_surface_dp_result(
-            _build_synthetic_rectified_grid_with_beam_band(),
-            threshold_percentile=78.0,
-            enable_beam_exclusion=True,
-        )
-
-        self.assertTrue(result["success"], result.get("message"))
-        self.assertEqual(result["line_counts"], [16, 16])
-        self.assertEqual(len(result["rectified_intersections"]), 256)
-        self.assertEqual(result["diagnostics"]["beam_exclusion_enabled"], True)
-        self.assertEqual(result["diagnostics"]["beam_exclusion_margin_mm"], 150.0)
-        self.assertEqual(result["diagnostics"]["beam_candidate_margin_pixels"], 0)
-        beam_margin_mask = np.asarray(result["beam_candidate_margin_mask"], dtype=bool)
-        final_points_inside_beam_mask = 0
-        for point in result.get("rectified_intersections", []):
-            x_index = int(round(float(point[0])))
-            y_index = int(round(float(point[1])))
-            if x_index < 0 or y_index < 0:
-                continue
-            if y_index >= beam_margin_mask.shape[0] or x_index >= beam_margin_mask.shape[1]:
-                continue
-            if beam_margin_mask[y_index, x_index]:
-                final_points_inside_beam_mask += 1
-        self.assertEqual(final_points_inside_beam_mask, 0)
-
-    def test_surface_dp_beam_exclusion_keeps_curve_tracing_outside_beam_margin_mask(self):
-        from tie_robot_perception.pointai import scan_surface_dp
-
-        result = scan_surface_dp.build_scan_surface_dp_result(
-            _build_synthetic_rectified_grid_with_beam_band(),
-            threshold_percentile=78.0,
-            enable_beam_exclusion=True,
-        )
-
-        self.assertTrue(result["success"], result.get("message"))
-        beam_margin_mask = np.asarray(result["beam_candidate_margin_mask"], dtype=bool)
-        traced_points_inside_beam_mask = 0
-        traced_points_sampled = 0
-        for family in result.get("curved_families", []):
-            for curved_line in family.get("curved_lines", []):
-                for point in curved_line.get("polyline_points", []):
-                    x_index = int(round(float(point[0])))
-                    y_index = int(round(float(point[1])))
-                    if x_index < 0 or y_index < 0:
-                        continue
-                    if y_index >= beam_margin_mask.shape[0] or x_index >= beam_margin_mask.shape[1]:
-                        continue
-                    traced_points_sampled += 1
-                    if beam_margin_mask[y_index, x_index]:
-                        traced_points_inside_beam_mask += 1
-
-        self.assertGreater(traced_points_sampled, 0)
-        self.assertEqual(traced_points_inside_beam_mask, 0)
-
-    def test_surface_dp_beam_exclusion_removes_entire_column_when_one_point_is_masked(self):
-        from tie_robot_perception.pointai import scan_surface_dp
-
+        beam_margin_mask = np.zeros((80, 80), dtype=bool)
+        beam_margin_mask[10, 30] = True
         rectified_points = [
-            (10.0, 10.0),
-            (10.0, 30.0),
-            (10.0, 50.0),
-            (30.0, 10.0),
-            (30.0, 30.0),
-            (30.0, 50.0),
-            (50.0, 10.0),
-            (50.0, 30.0),
-            (50.0, 50.0),
+            [30.0, 10.0],
+            [30.0, 30.0],
+            [30.0, 50.0],
+            [10.0, 10.0],
+            [50.0, 10.0],
         ]
-        beam_margin_mask = np.zeros((64, 64), dtype=bool)
-        beam_margin_mask[9:12, 29:32] = True
-        vertical_lines = [10.0, 30.0, 50.0]
 
-        filtered_points, removed_columns = scan_surface_dp._filter_beam_excluded_intersection_columns(
+        filtered_points, removed_count = scan_surface_dp._filter_beam_excluded_intersection_points(
             rectified_points,
             beam_margin_mask,
-            vertical_lines,
         )
 
-        self.assertEqual(removed_columns, 1)
-        self.assertEqual(
-            filtered_points,
-            [
-                (10.0, 10.0),
-                (10.0, 30.0),
-                (10.0, 50.0),
-                (50.0, 10.0),
-                (50.0, 30.0),
-                (50.0, 50.0),
-            ],
-        )
+        self.assertEqual(removed_count, 1)
+        self.assertNotIn([30.0, 10.0], filtered_points)
+        self.assertIn([30.0, 30.0], filtered_points)
+        self.assertIn([30.0, 50.0], filtered_points)
+        self.assertEqual(len(filtered_points), 4)
 
-    def test_surface_dp_beam_exclusion_removes_column_when_expected_grid_point_is_masked(self):
+    def test_surface_dp_beam_exclusion_does_not_remove_column_when_expected_grid_point_is_masked(self):
         from tie_robot_perception.pointai import scan_surface_dp
 
         rectified_points = [
-            (10.0, 10.0),
-            (10.0, 30.0),
-            (10.0, 50.0),
-            (30.0, 30.0),
-            (30.0, 50.0),
-            (50.0, 10.0),
-            (50.0, 30.0),
-            (50.0, 50.0),
+            [10.0, 10.0],
+            [10.0, 30.0],
+            [10.0, 50.0],
+            [30.0, 30.0],
+            [30.0, 50.0],
+            [50.0, 10.0],
+            [50.0, 30.0],
+            [50.0, 50.0],
         ]
         beam_margin_mask = np.zeros((64, 64), dtype=bool)
         beam_margin_mask[9:12, 29:32] = True
 
-        filtered_points, removed_columns = scan_surface_dp._filter_beam_excluded_intersection_columns(
+        filtered_points, removed_count = scan_surface_dp._filter_beam_excluded_intersection_points(
             rectified_points,
             beam_margin_mask,
-            vertical_lines=[10.0, 30.0, 50.0],
-            horizontal_lines=[10.0, 30.0, 50.0],
         )
 
-        self.assertEqual(removed_columns, 1)
-        self.assertEqual(
-            filtered_points,
-            [
-                (10.0, 10.0),
-                (10.0, 30.0),
-                (10.0, 50.0),
-                (50.0, 10.0),
-                (50.0, 30.0),
-                (50.0, 50.0),
-            ],
+        self.assertEqual(removed_count, 0)
+        self.assertEqual(filtered_points, rectified_points)
+        removed_column_helper_name = "_filter_beam_excluded_intersection_" + "columns"
+        column_count_diagnostic_key = "beam_filtered_" + "column_count"
+        self.assertFalse(hasattr(scan_surface_dp, removed_column_helper_name))
+        self.assertNotIn(
+            column_count_diagnostic_key,
+            SCAN_SURFACE_DP_PATH.read_text(encoding="utf-8"),
         )
 
     def test_surface_dp_debug_base_images_overlay_rectified_intersections(self):

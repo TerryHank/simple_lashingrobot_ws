@@ -59,6 +59,29 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
         self.assertIn("PseudoSlamScanStrategy::kFixedManualWorkspace", start_service_body)
         self.assertNotIn("PseudoSlamScanStrategy::kSingleCenter", start_service_body)
 
+    def test_clear_bind_points_exposes_marker_deleteall_service(self):
+        header = (PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp").read_text(encoding="utf-8")
+        service_orchestration = (
+            PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        web_server = (
+            WEB_DIR / "scripts" / "workspace_picker_web_server.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "bool clearPseudoSlamMarkersService(std_srvs::Trigger::Request&, std_srvs::Trigger::Response& res);",
+            header,
+        )
+        self.assertIn("bool clearPseudoSlamMarkersService", service_orchestration)
+        self.assertIn("clear_pseudo_slam_markers();", service_orchestration)
+        self.assertIn(
+            'nh.advertiseService("/cabin/clear_pseudo_slam_markers", clearPseudoSlamMarkersService)',
+            suoqu_node,
+        )
+        self.assertIn('CLEAR_PSEUDO_SLAM_MARKERS_SERVICE = "/cabin/clear_pseudo_slam_markers"', web_server)
+        self.assertIn("clear_pseudo_slam_markers_service()", web_server)
+
     def test_fixed_recognition_pose_defaults_to_490_and_accepts_frontend_override(self):
         header = (PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp").read_text(encoding="utf-8")
         suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -100,20 +123,73 @@ class ScanArtifactWriteGuardTest(unittest.TestCase):
 
         self.assertIn("uint16 bind_group_point_count", srv)
         self.assertIn("float32 bind_execution_cabin_min_z_mm", srv)
+        self.assertIn("uint8 BIND_EXECUTION_CABIN_Z_MODE_FIXED=0", srv)
+        self.assertIn("uint8 BIND_EXECUTION_CABIN_Z_MODE_MIN=1", srv)
+        self.assertIn("uint8 bind_execution_cabin_z_mode", srv)
         self.assertIn("uint16 bind_group_point_count", action)
         self.assertIn("float32 bind_execution_cabin_min_z_mm", action)
+        self.assertIn("uint8 BIND_EXECUTION_CABIN_Z_MODE_FIXED=0", action)
+        self.assertIn("uint8 BIND_EXECUTION_CABIN_Z_MODE_MIN=1", action)
+        self.assertIn("uint8 bind_execution_cabin_z_mode", action)
         self.assertIn("scan_srv.request.bind_group_point_count = goal->bind_group_point_count", action_bridge)
         self.assertIn("scan_srv.request.bind_execution_cabin_min_z_mm = goal->bind_execution_cabin_min_z_mm", action_bridge)
+        self.assertIn("scan_srv.request.bind_execution_cabin_z_mode = goal->bind_execution_cabin_z_mode", action_bridge)
         self.assertIn("req.bind_group_point_count", service_orchestration)
         self.assertIn("req.bind_execution_cabin_min_z_mm", service_orchestration)
+        self.assertIn("req.bind_execution_cabin_z_mode", service_orchestration)
         self.assertIn("requested_group_point_count", suoqu_node)
         self.assertIn("requested_bind_execution_cabin_min_z_mm", suoqu_node)
+        self.assertIn("requested_bind_execution_cabin_z_mode", suoqu_node)
         self.assertIn("normalize_bind_execution_cabin_min_z_mm", suoqu_node)
+        self.assertIn("normalize_bind_execution_cabin_z_mode", suoqu_node)
         self.assertIn("is_adaptive_bind_grouping_requested", suoqu_node)
         self.assertIn("config.adaptive_grouping_enabled = adaptive_grouping_enabled;", suoqu_node)
         self.assertIn("adaptive_bind_grouping", suoqu_node)
         self.assertIn("自适应", suoqu_node)
         self.assertIn("无法规划", suoqu_node)
+
+    def test_scan_action_carries_visual_debug_grouping_axis_thresholds(self):
+        srv = (WORKSPACE_ROOT / "tie_robot_msgs" / "srv" / "StartPseudoSlamScan.srv").read_text(encoding="utf-8")
+        action = (
+            WORKSPACE_ROOT / "tie_robot_msgs" / "action" / "StartPseudoSlamScanTask.action"
+        ).read_text(encoding="utf-8")
+        action_bridge = (
+            WORKSPACE_ROOT / "tie_robot_web" / "src" / "web_bridge" / "action_bridge.cpp"
+        ).read_text(encoding="utf-8")
+        service_orchestration = (
+            PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+        header = (PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp").read_text(encoding="utf-8")
+        suoqu_node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("float32 bind_group_row_threshold_mm", srv)
+        self.assertIn("float32 bind_group_column_threshold_mm", srv)
+        self.assertIn("float32 bind_group_row_threshold_mm", action)
+        self.assertIn("float32 bind_group_column_threshold_mm", action)
+        self.assertIn("scan_srv.request.bind_group_row_threshold_mm = goal->bind_group_row_threshold_mm", action_bridge)
+        self.assertIn("scan_srv.request.bind_group_column_threshold_mm = goal->bind_group_column_threshold_mm", action_bridge)
+        self.assertIn("req.bind_group_row_threshold_mm", service_orchestration)
+        self.assertIn("req.bind_group_column_threshold_mm", service_orchestration)
+        self.assertIn("kDynamicBindMatrixRowThresholdMm = 40.0f", header)
+        self.assertIn("kDynamicBindMatrixColumnThresholdMm = 45.0f", header)
+        self.assertIn("normalize_bind_group_axis_threshold_mm", suoqu_node)
+        self.assertIn("requested_bind_group_row_threshold_mm", suoqu_node)
+        self.assertIn("requested_bind_group_column_threshold_mm", suoqu_node)
+        self.assertIn("config.matrix_row_threshold_mm =", suoqu_node)
+        self.assertIn("config.matrix_column_threshold_mm =", suoqu_node)
+
+    def test_replan_service_logs_received_axis_thresholds(self):
+        service_orchestration = (
+            PROCESS_DIR / "src" / "suoqu" / "service_orchestration.cpp"
+        ).read_text(encoding="utf-8")
+
+        start = service_orchestration.index("bool replanPseudoSlamBindPath(")
+        end = service_orchestration.index("\nbool bind_current_area_from_scan_service", start)
+        body = service_orchestration[start:end]
+        self.assertIn("Cabin_log: 收到阈值重规划请求", body)
+        self.assertIn("req.bind_group_row_threshold_mm", body)
+        self.assertIn("req.bind_group_column_threshold_mm", body)
+        self.assertIn("req.recognition_pose_index", body)
 
     def test_scan_action_carries_recognition_pose_index_and_artifacts_group_by_pose(self):
         srv = (WORKSPACE_ROOT / "tie_robot_msgs" / "srv" / "StartPseudoSlamScan.srv").read_text(encoding="utf-8")

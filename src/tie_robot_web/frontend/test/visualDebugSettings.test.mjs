@@ -196,13 +196,8 @@ assert.deepEqual(
 const beamExclusionResult = controller.publishScanBeamExclusion(true);
 assert.equal(beamExclusionResult.success, true);
 assert.equal(controller.resources.scanBeamExclusionPublisher.published.at(-1).data, true);
-assert.match(beamExclusionResult.message, /扫描梁筋过滤已启用/);
-const beamMarginResult = controller.publishScanBeamExclusionMargin(180);
-assert.equal(beamMarginResult.success, true);
-assert.equal(controller.resources.scanBeamExclusionMarginPublisher.published.at(-1).data, 180);
-assert.match(beamMarginResult.message, /扫描梁筋过滤半径已设置为 180 mm/);
-const invalidBeamMarginResult = controller.publishScanBeamExclusionMargin(-5);
-assert.equal(invalidBeamMarginResult.marginMm, 150);
+const beamExclusionMarginResult = controller.publishScanBeamExclusionMargin(150);
+assert.equal(beamExclusionMarginResult.success, true);
 assert.equal(controller.resources.scanBeamExclusionMarginPublisher.published.at(-1).data, 150);
 
 const scanSourceResult = controller.publishScanResponseSource("frangi_like");
@@ -213,18 +208,37 @@ assert.equal(invalidScanSourceResult.source, DEFAULT_SCAN_RESPONSE_SOURCE);
 assert.equal(controller.resources.scanResponseSourcePublisher.published.at(-1).data, DEFAULT_SCAN_RESPONSE_SOURCE);
 const scanLinearCompensationResult = controller.publishScanLinearCompensation({
   enabled: true,
+  mode: "optical_axis",
   referenceZMm: 1000,
   xPercentPerMeter: 1.2,
   yPercentPerMeter: 2.4,
+  xShiftMmPerMeter: 10,
+  yShiftMmPerMeter: -20,
   minZMm: 1200,
   maxScaleDelta: 0.25,
 });
 assert.equal(scanLinearCompensationResult.success, true);
 assert.deepEqual(
   controller.resources.scanLinearCompensationPublisher.published.at(-1).data,
-  [1, 1000, 0.000012, 0.000024, 1200, 0.25],
+  [1, 1000, 0.000012, 0.000024, 1200, 0.25, 0, 0],
 );
 assert.match(scanLinearCompensationResult.message, /扫描线性补偿已启用/);
+const scanTranslationCompensationResult = controller.publishScanLinearCompensation({
+  enabled: true,
+  mode: "translation",
+  referenceZMm: 1000,
+  xPercentPerMeter: 1.2,
+  yPercentPerMeter: 2.4,
+  xShiftMmPerMeter: 10,
+  yShiftMmPerMeter: -20,
+  minZMm: 1200,
+  maxScaleDelta: 0.25,
+});
+assert.equal(scanTranslationCompensationResult.success, true);
+assert.deepEqual(
+  controller.resources.scanLinearCompensationPublisher.published.at(-1).data,
+  [1, 1000, 0, 0, 1200, 0.25, 0.01, -0.02],
+);
 
 const cameraSdkResult = await controller.callScepterCameraReconfigure({
   FrameRate: 8,
@@ -249,16 +263,22 @@ assert.deepEqual(loadVisualDebugSettings().linearModuleBindRangeMm, {
   z: { min: 0, max: 160 },
 });
 assert.equal(loadVisualDebugSettings().bindExecutionCabinMinZMm, 485);
+assert.equal(loadVisualDebugSettings().bindExecutionCabinZMode, "fixed");
 assert.equal(loadVisualDebugSettings().adaptiveBindGrouping, false);
 assert.equal(loadVisualDebugSettings().enableBeamExclusion, false);
 assert.equal(loadVisualDebugSettings().beamExclusionMarginMm, 150);
+assert.equal(loadVisualDebugSettings().bindGroupRowThresholdMm, 40);
+assert.equal(loadVisualDebugSettings().bindGroupColumnThresholdMm, 45);
 assert.equal(loadVisualDebugSettings().executionMode, GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE);
 assert.equal(loadVisualDebugSettings().scanResponseSource, DEFAULT_SCAN_RESPONSE_SOURCE);
 assert.deepEqual(loadVisualDebugSettings().scanLinearCompensation, {
   enabled: false,
+  mode: "optical_axis",
   referenceZMm: 1000,
   xPercentPerMeter: 0,
   yPercentPerMeter: 0,
+  xShiftMmPerMeter: 0,
+  yShiftMmPerMeter: 0,
   minZMm: 1200,
   maxScaleDelta: 0.25,
 });
@@ -272,16 +292,22 @@ localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify({
   scanResponseSource: "hessian_ridge",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
-  beamExclusionMarginMm: 175,
+  beamExclusionMarginMm: 165,
+  bindGroupRowThresholdMm: 52,
+  bindGroupColumnThresholdMm: 58,
   scanLinearCompensation: {
     enabled: true,
+    mode: "translation",
     referenceZMm: 900,
     xPercentPerMeter: 1.5,
     yPercentPerMeter: 2.5,
+    xShiftMmPerMeter: 8,
+    yShiftMmPerMeter: -6,
     minZMm: 1300,
     maxScaleDelta: 0.3,
   },
   bindExecutionCabinMinZMm: 420,
+  bindExecutionCabinZMode: "min",
   linearModuleBindRangeMm: {
     x: { min: 30, max: 180 },
     y: { min: 40, max: 280 },
@@ -295,16 +321,22 @@ assert.deepEqual(loadVisualDebugSettings(), {
   scanResponseSource: "hessian_ridge",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
-  beamExclusionMarginMm: 175,
+  beamExclusionMarginMm: 165,
+  bindGroupRowThresholdMm: 52,
+  bindGroupColumnThresholdMm: 58,
   scanLinearCompensation: {
     enabled: true,
+    mode: "translation",
     referenceZMm: 900,
     xPercentPerMeter: 1.5,
     yPercentPerMeter: 2.5,
+    xShiftMmPerMeter: 8,
+    yShiftMmPerMeter: -6,
     minZMm: 1300,
     maxScaleDelta: 0.3,
   },
   bindExecutionCabinMinZMm: 420,
+  bindExecutionCabinZMode: "min",
   linearModuleBindRangeMm: {
     x: { min: 30, max: 180 },
     y: { min: 40, max: 280 },
@@ -318,16 +350,22 @@ saveVisualDebugSettings({
   scanResponseSource: "infrared_response",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
-  beamExclusionMarginMm: 180,
+  beamExclusionMarginMm: 175,
+  bindGroupRowThresholdMm: 61,
+  bindGroupColumnThresholdMm: 67,
   scanLinearCompensation: {
     enabled: true,
+    mode: "translation",
     referenceZMm: 1000,
     xPercentPerMeter: 1.2,
     yPercentPerMeter: 2.4,
+    xShiftMmPerMeter: 10,
+    yShiftMmPerMeter: -20,
     minZMm: 1200,
     maxScaleDelta: 0.25,
   },
   bindExecutionCabinMinZMm: 430,
+  bindExecutionCabinZMode: "fixed",
   linearModuleBindRangeMm: {
     x: { min: 150, max: 20 },
     y: { min: 25, max: 225 },
@@ -341,16 +379,22 @@ assert.deepEqual(JSON.parse(localStorage.getItem(VISUAL_DEBUG_SETTINGS_KEY)), {
   scanResponseSource: "infrared_response",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
-  beamExclusionMarginMm: 180,
+  beamExclusionMarginMm: 175,
+  bindGroupRowThresholdMm: 61,
+  bindGroupColumnThresholdMm: 67,
   scanLinearCompensation: {
     enabled: true,
+    mode: "translation",
     referenceZMm: 1000,
     xPercentPerMeter: 1.2,
     yPercentPerMeter: 2.4,
+    xShiftMmPerMeter: 10,
+    yShiftMmPerMeter: -20,
     minZMm: 1200,
     maxScaleDelta: 0.25,
   },
   bindExecutionCabinMinZMm: 430,
+  bindExecutionCabinZMode: "fixed",
   linearModuleBindRangeMm: {
     x: { min: 20, max: 150 },
     y: { min: 25, max: 225 },
@@ -400,6 +444,8 @@ assert.equal(controller.resources.processImageService.calls.at(-1).request_mode,
 
 const uiControllerText = readFileSync(resolve(frontendRoot, "src/ui/UIController.js"), "utf-8");
 const appText = readFileSync(resolve(frontendRoot, "src/app/TieRobotFrontApp.js"), "utf-8");
+const rosConnectionText = readFileSync(resolve(frontendRoot, "src/controllers/RosConnectionController.js"), "utf-8");
+const topicRegistryText = readFileSync(resolve(frontendRoot, "src/config/topicRegistry.js"), "utf-8");
 assert.match(uiControllerText, /id: "visualDebug", label: "视觉调试"/);
 assert.match(uiControllerText, /id: "cameraSdkDebug", label: "相机底层 SDK 调试"/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugTrigger"/);
@@ -409,17 +455,29 @@ assert.match(uiControllerText, /id="visualDebugScanResponseSource"/);
 assert.match(uiControllerText, /扫描底图/);
 assert.match(uiControllerText, /SCAN_RESPONSE_SOURCE_OPTIONS\.map/);
 assert.match(uiControllerText, /id="visualDebugBindExecutionCabinMinZ"/);
-assert.match(uiControllerText, /索驱规划 Z 下限/);
+assert.match(uiControllerText, /索驱规划 Z \(mm\)/);
+assert.match(uiControllerText, /name="visualDebugBindExecutionCabinZMode"/);
+assert.match(uiControllerText, /固定 Z/);
+assert.match(uiControllerText, /Z 下限/);
 assert.match(uiControllerText, /id="visualDebugAdaptiveBindGrouping"/);
 assert.match(uiControllerText, /自适应每组绑扎点数/);
 assert.match(uiControllerText, /id="visualDebugBeamExclusionToggle"/);
-assert.match(uiControllerText, /启用梁筋过滤/);
 assert.match(uiControllerText, /id="visualDebugBeamExclusionMargin"/);
+assert.match(uiControllerText, /id="visualDebugBindGroupRowThreshold"/);
+assert.match(uiControllerText, /id="visualDebugBindGroupColumnThreshold"/);
+assert.match(uiControllerText, /启用梁筋过滤/);
 assert.match(uiControllerText, /梁筋过滤半径 \(mm\)/);
+assert.match(uiControllerText, /成行阈值 \(mm\)/);
+assert.match(uiControllerText, /成列阈值 \(mm\)/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationToggle"/);
-assert.match(uiControllerText, /扫描线性补偿/);
+assert.match(uiControllerText, /底层坐标线性补偿/);
+assert.match(uiControllerText, /name="visualDebugScanLinearCompensationMode"/);
+assert.match(uiControllerText, /光轴偏移/);
+assert.match(uiControllerText, /整体平移/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationX"/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationY"/);
+assert.match(uiControllerText, /id="visualDebugScanLinearCompensationXShift"/);
+assert.match(uiControllerText, /id="visualDebugScanLinearCompensationYShift"/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationReferenceZ"/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationMinZ"/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationMaxDelta"/);
@@ -437,7 +495,10 @@ assert.match(uiControllerText, /相机底层 SDK 调试/);
 assert.match(uiControllerText, /CAMERA_SDK_PARAMETER_DEFINITIONS\.map\(renderCameraSdkParameterControl\)/);
 assert.match(uiControllerText, /data-camera-sdk-param/);
 assert.match(uiControllerText, /热修改服务：\/scepter_manager\/set_parameters/);
-assert.match(uiControllerText, /Z下限=/);
+assert.match(uiControllerText, /Z模式=/);
+assert.match(uiControllerText, /固定Z/);
+assert.match(uiControllerText, /行阈=/);
+assert.match(uiControllerText, /列阈=/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugRequestMode"/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugBindGroupPointCount"/);
 assert.doesNotMatch(uiControllerText, /每组点数/);
@@ -469,6 +530,7 @@ assert.match(cameraSdkPageMarkup, /CAMERA_SDK_PARAMETER_DEFINITIONS\.map\(render
 
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS/);
 assert.match(appText, /applyVisualDebugBeamExclusionSettings/);
+assert.match(appText, /publishScanBeamExclusion/);
 const visualDebugSettingsChangeStart = appText.indexOf("this.ui.onVisualDebugSettingsChange((settings) => {");
 const visualDebugSettingsChangeEnd = appText.indexOf("this.ui.onLegacyCommand", visualDebugSettingsChangeStart);
 assert.notEqual(visualDebugSettingsChangeStart, -1);
@@ -478,7 +540,36 @@ const visualDebugSettingsChangeBlock = appText.slice(
   visualDebugSettingsChangeEnd,
 );
 assert.match(visualDebugSettingsChangeBlock, /this\.applyVisualDebugRuntimeSettings\(settings, \{ suppressLog: true \}\)/);
-const visualDebugRuntimeSettingsStart = appText.indexOf("applyVisualDebugRuntimeSettings(");
+const taskActionBlockStart = appText.indexOf("this.ui.onTaskAction((taskAction) => {");
+const taskActionBlockEnd = appText.indexOf("this.ui.onWorkspaceAction", taskActionBlockStart);
+assert.notEqual(taskActionBlockStart, -1);
+assert.notEqual(taskActionBlockEnd, -1);
+const taskActionBlock = appText.slice(taskActionBlockStart, taskActionBlockEnd);
+assert.match(taskActionBlock, /VISUAL_FRAME_SYNC_TASK_ACTIONS\.has\(taskAction\)/);
+assert.doesNotMatch(taskActionBlock, /scheduleBindPathReplan/);
+const workspaceScanActionBlockStart = appText.indexOf("this.ui.onWorkspaceScanAction((workspaceAction, detail = {}) => {");
+const workspaceScanActionBlockEnd = appText.indexOf("this.ui.onDisplaySettingsChange", workspaceScanActionBlockStart);
+assert.notEqual(workspaceScanActionBlockStart, -1);
+assert.notEqual(workspaceScanActionBlockEnd, -1);
+const workspaceScanActionBlock = appText.slice(workspaceScanActionBlockStart, workspaceScanActionBlockEnd);
+assert.match(workspaceScanActionBlock, /workspaceAction === "runSavedS2"/);
+assert.match(workspaceScanActionBlock, /workspaceAction === "submitQuad"/);
+assert.doesNotMatch(workspaceScanActionBlock, /scheduleBindPathReplan/);
+assert.match(appText, /onSurfaceDpRecognitionFinished/);
+assert.doesNotMatch(appText, /onSurfaceDpRecognitionFinished:[\s\S]*?replanPseudoSlamBindPath/);
+assert.match(appText, /onSurfaceDpRecognitionFinished:\s*\(\)\s*=>\s*this\.requestPlanningAreaRefresh\(\)/);
+const taskActionControllerText = readFileSync(resolve(frontendRoot, "src/controllers/TaskActionController.js"), "utf-8");
+const surfaceDpRecognitionStart = taskActionControllerText.indexOf("async triggerSurfaceDpRecognition(");
+const surfaceDpRecognitionEnd = taskActionControllerText.indexOf("\n  async triggerSinglePointBind", surfaceDpRecognitionStart);
+assert.notEqual(surfaceDpRecognitionStart, -1);
+assert.notEqual(surfaceDpRecognitionEnd, -1);
+const surfaceDpRecognitionBlock = taskActionControllerText.slice(
+  surfaceDpRecognitionStart,
+  surfaceDpRecognitionEnd,
+);
+assert.match(surfaceDpRecognitionBlock, /this\.callbacks\.onSurfaceDpRecognitionFinished/);
+assert.match(surfaceDpRecognitionBlock, /recognitionPoseIndex/);
+const visualDebugRuntimeSettingsStart = appText.indexOf("\n  applyVisualDebugRuntimeSettings(");
 const visualDebugRuntimeSettingsEnd = appText.indexOf("applyVisualDebugStableFrameCount", visualDebugRuntimeSettingsStart);
 assert.notEqual(visualDebugRuntimeSettingsStart, -1);
 assert.notEqual(visualDebugRuntimeSettingsEnd, -1);
@@ -489,10 +580,16 @@ const visualDebugRuntimeSettingsBlock = appText.slice(
 assert.match(visualDebugRuntimeSettingsBlock, /saveVisualDebugSettings\(nextSettings\)/);
 assert.match(visualDebugRuntimeSettingsBlock, /this\.applyVisualDebugBindRangeSettings\(nextSettings\)/);
 assert.match(visualDebugRuntimeSettingsBlock, /publishStableFrameCount\(nextSettings\.stableFrameCount\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /publishScanBeamExclusionMargin\(\s*nextSettings\.beamExclusionMarginMm/s);
+assert.match(visualDebugRuntimeSettingsBlock, /applyVisualDebugBeamExclusionSettings\(nextSettings/);
 assert.match(visualDebugRuntimeSettingsBlock, /publishScanResponseSource\(nextSettings\.scanResponseSource\)/);
 assert.match(visualDebugRuntimeSettingsBlock, /publishScanLinearCompensation\(nextSettings\.scanLinearCompensation\)/);
-assert.match(visualDebugRuntimeSettingsBlock, /publishScanBeamExclusionMargin\(\s*nextSettings\.beamExclusionMarginMm,\s*\)/);
-assert.match(visualDebugRuntimeSettingsBlock, /this\.applyVisualDebugBeamExclusionSettings\(nextSettings, \{ suppressLog \}\)/);
+assert.doesNotMatch(visualDebugRuntimeSettingsBlock, /scheduleBindPathReplan/);
+assert.doesNotMatch(appText, /schedulePseudoSlamBindPathReplan/);
+assert.doesNotMatch(appText, /callReplanPseudoSlamBindPathService\(nextSettings/);
+assert.match(rosConnectionText, /replanPseudoSlamBindPathService/);
+assert.match(topicRegistryText, /replanPseudoSlamBindPath: "tie_robot_msgs\/ReplanPseudoSlamBindPath"/);
+assert.match(topicRegistryText, /replanPseudoSlamBindPath: "\/cabin\/replan_pseudo_slam_bind_path"/);
 assert.match(appText, /this\.applyCameraSdkSettings\(this\.cameraSdkSettings, \{ suppressLog: true \}\)/);
 assert.match(appText, /this\.ui\.onCameraSdkSettingsChange/);
 assert.match(appText, /saveCameraSdkSettings\(nextSettings\)/);
@@ -507,4 +604,5 @@ assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS\.has\(taskAction\)/);
 assert.match(appText, /this\.applyVisualDebugRuntimeSettings\(this\.visualDebugSettings, \{ suppressLog: true \}\)/);
 assert.match(appText, /adaptiveBindGrouping/);
 assert.match(appText, /getBindExecutionCabinMinZ/);
+assert.match(appText, /getBindExecutionCabinZMode/);
 assert.doesNotMatch(appText, /bindGroupPointCount/);
