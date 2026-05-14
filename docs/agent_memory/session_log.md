@@ -2,6 +2,55 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-15 00:49 - 绑扎点分类 shadow 接入
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：新增 pointAI 绑扎点已绑/未绑三态规则分类。分类器基于局部 IR、深度高度差、中心/环形深度差、脊线破坏和证据质量打分；默认 mode=shadow 只写 bind_classification_events.jsonl，不阻断执行，也不把 is_shuiguan 置 true。只有 mode=advisory 或 blocking 且高置信 bound 时才把 PointCoords.is_shuiguan 写 true，保持未绑/不确定不跳过。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/bind_point_classification.py;src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py;src/tie_robot_perception/config/bind_point_classification.yaml;src/tie_robot_bringup/launch/algorithm_stack.launch`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && source /home/hyq-/simple_lashingrobot_ws/devel/setup.bash 后，分类单测7项、PointAIScanOnlyPrFrpgTest 125项、ScanSurfaceDpRuntimeTest 43项、test_single_point_bind_chain 21项、py_compile 均通过`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 00:27 - 直接全局执行首区FINISHALL误置位需重发启动脉冲
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：复查直接点击执行全局绑扎首区被跳过。日志显示 slam_precomputed/bind_from_scan 区域1在EN_DISABLE启动脉冲后FINISHALL立即为1且线性模组仍在(0,0,0)，随后索驱进入区域2；直接路径仍是首区假完成时序。当前linear_module_executor的wait_for_plc_finish_all已要求观察真实运动，并在FINISHALL早到且未运动时清零、等待清零后重发一次EN_DISABLE启动脉冲，再继续等真实运动；补充了前置声明，确保moduan_driver_node和moduan_motion_controller_node可编译。现场更新后必须重启moduan driver/motion_controller节点，否则旧二进制仍会跳首区。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py src/tie_robot_process/test/test_motion_chain_signal_guard.py; make -C build -f tie_robot_control/CMakeFiles/moduan_driver_node.dir/build.make tie_robot_control/CMakeFiles/moduan_driver_node.dir/build; make -C build -f tie_robot_control/CMakeFiles/moduan_motion_controller_node.dir/build.make tie_robot_control/CMakeFiles/moduan_motion_controller_node.dir/build`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-14 16:56 - FINISHALL需观察末端真实运动后才放行
 
 <!-- AGENT-MEMORY: entry -->
