@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-05-15 00:56:20",
+  "event_log_path": "/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_classification_events.jsonl",
+  "event_stats": {
+    "total": 0,
+    "bound": 0,
+    "unbound": 0,
+    "uncertain": 0,
+    "avg_score": 0.0
+  },
+  "synthetic_summary": {
+    "bound": 1,
+    "unbound": 1,
+    "uncertain": 1
+  },
+  "post_bind_decision": {
+    "label": "success",
+    "score": 1.0,
+    "reason": "after_has_new_bound_evidence"
+  },
+  "report_url_path": "/reports/bind_point_classification_current/index.html"
+}

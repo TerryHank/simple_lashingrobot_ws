@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>绑扎点分类效果报告</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101113;
+      --panel: #181a1f;
+      --panel-2: #20232a;
+      --line: #333842;
+      --text: #eef1f3;
+      --muted: #9ca6ad;
+      --red: #ff5757;
+      --green: #72d36a;
+      --amber: #e4b84e;
+      --cyan: #7bd7ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 14% 0%, #1f242b 0, #101113 36rem);
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+    main { max-width: 1360px; margin: 0 auto; padding: 28px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: end; border-bottom: 1px solid var(--line); padding-bottom: 18px; }
+    h1 { margin: 0; font-size: 30px; letter-spacing: 0; }
+    h2 { margin: 30px 0 14px; font-size: 18px; letter-spacing: 0; }
+    p { color: var(--muted); line-height: 1.62; }
+    .stamp { color: var(--muted); font-size: 13px; text-align: right; }
+    .stats { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; margin-top: 20px; }
+    .stat { background: linear-gradient(180deg, var(--panel), #15171b); border: 1px solid var(--line); padding: 16px; border-radius: 8px; }
+    .stat span { display: block; color: var(--muted); font-size: 12px; }
+    .stat strong { display: block; margin-top: 8px; font-size: 28px; }
+    .notice { border: 1px solid #6d5a2a; background: #211d13; padding: 14px 16px; border-radius: 8px; color: #f5d887; }
+    .cases { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)); gap: 14px; }
+    .case-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .case-card.red { border-color: rgba(255, 87, 87, .55); }
+    .case-card.green { border-color: rgba(114, 211, 106, .55); }
+    .case-card.amber { border-color: rgba(228, 184, 78, .6); }
+    .case-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+    .case-head span { color: var(--muted); font-size: 13px; }
+    .case-head strong { font-size: 14px; }
+    img { display: block; width: 100%; image-rendering: pixelated; background: #050607; }
+    dl { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; margin: 0; border-top: 1px solid var(--line); }
+    dl div { padding: 10px; border-right: 1px solid var(--line); }
+    dt { color: var(--muted); font-size: 11px; }
+    dd { margin: 4px 0 0; font-weight: 700; font-size: 13px; }
+    .case-card p { margin: 0; padding: 12px 14px; min-height: 54px; }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+    th { color: var(--muted); background: var(--panel-2); font-weight: 600; }
+    .pill { display: inline-flex; align-items: center; min-width: 74px; justify-content: center; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .pill.red { color: #fff; background: rgba(255, 87, 87, .24); border: 1px solid rgba(255, 87, 87, .5); }
+    .pill.green { color: #eaffea; background: rgba(114, 211, 106, .18); border: 1px solid rgba(114, 211, 106, .5); }
+    .pill.amber { color: #fff3c6; background: rgba(228, 184, 78, .18); border: 1px solid rgba(228, 184, 78, .55); }
+    .empty { color: var(--muted); text-align: center; padding: 22px; }
+    .flow { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .flow-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+    code { color: var(--cyan); }
+    @media (max-width: 960px) {
+      header, .flow { display: block; }
+      .stats, .cases { grid-template-columns: 1fr; }
+      .stamp { text-align: left; margin-top: 12px; }
+      dl { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>绑扎点已绑 / 未绑分类效果报告</h1>
+      <p>规则版分类器：局部 IR + 深度高度差 + 中心/环形差分 + 脊线破坏 + 证据质量。当前默认 <code>mode=shadow</code>，只记录，不阻断。</p>
+    </div>
+    <div class="stamp">生成时间<br>2026-05-15 00:56:20</div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><span>现场事件数</span><strong>0</strong></div>
+    <div class="stat"><span>已绑扎 bound</span><strong>0</strong></div>
+    <div class="stat"><span>未绑扎 unbound</span><strong>0</strong></div>
+    <div class="stat"><span>不确定 uncertain</span><strong>0</strong></div>
+    <div class="stat"><span>平均分</span><strong>0.000</strong></div>
+  </section>
+
+  <h2>当前效果结论</h2>
+  <p class="notice">当前事件日志 <code>/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_classification_events.jsonl</code> 为空，因此还不能统计真实现场精度、召回率或红/绿框准确率。下面展示的是分类器 sanity 实验：它能按设计把干净交点判为绿框未绑、把中心结节/凸起判为红框已绑、把证据不足判为不确定。真实效果需要现场跑一次 <code>MODE_BIND_CHECK</code> 后再刷新本报告。</p>
+
+  <h2>合成 sanity 样本</h2>
+  <section class="cases">
+    
+        <article class="case-card green">
+          <div class="case-head">
+            <span>绿框样例：平滑规则交点</span>
+            <strong>未绑扎</strong>
+          </div>
+          <img src="images/unbound_clean_cross.png" alt="绿框样例：平滑规则交点">
+          <dl>
+            <div><dt>score</dt><dd>0.000</dd></div>
+            <div><dt>quality</dt><dd>1.000</dd></div>
+            <div><dt>height</dt><dd>0.00 mm</dd></div>
+            <div><dt>texture</dt><dd>0.00</dd></div>
+            <div><dt>ridge break</dt><dd>0.00</dd></div>
+          </dl>
+          <p>clean_flat_crossing</p>
+        </article>
+        
+        <article class="case-card red">
+          <div class="case-head">
+            <span>红框样例：中心结节/凸起</span>
+            <strong>已绑扎</strong>
+          </div>
+          <img src="images/bound_center_knot.png" alt="红框样例：中心结节/凸起">
+          <dl>
+            <div><dt>score</dt><dd>1.000</dd></div>
+            <div><dt>quality</dt><dd>1.000</dd></div>
+            <div><dt>height</dt><dd>7.50 mm</dd></div>
+            <div><dt>texture</dt><dd>61.30</dd></div>
+            <div><dt>ridge break</dt><dd>1.00</dd></div>
+          </dl>
+          <p>center_bump_texture_or_ridge_break</p>
+        </article>
+        
+        <article class="case-card amber">
+          <div class="case-head">
+            <span>不确定样例：有效深度不足</span>
+            <strong>不确定</strong>
+          </div>
+          <img src="images/uncertain_low_depth.png" alt="不确定样例：有效深度不足">
+          <dl>
+            <div><dt>score</dt><dd>0.000</dd></div>
+            <div><dt>quality</dt><dd>0.097</dd></div>
+            <div><dt>height</dt><dd>0.00 mm</dd></div>
+            <div><dt>texture</dt><dd>0.00</dd></div>
+            <div><dt>ridge break</dt><dd>0.00</dd></div>
+          </dl>
+          <p>valid_depth_ratio_too_low</p>
+        </article>
+        
+  </section>
+
+  <h2>绑后差分复检</h2>
+  <section class="flow">
+    <div class="flow-card">
+      <strong class="pill green">绑后成功</strong>
+      <p>before 为干净交点，after 加入中心凸起和纹理，复检输出 <strong>success</strong>，score=1.000，reason=after_has_new_bound_evidence。</p>
+    </div>
+    <div class="flow-card">
+      <p>上线顺序建议：先保持 shadow 收集现场红/绿样本；人工核对后再调阈值；最后只在高置信 bound 时进入 advisory 或 blocking。</p>
+    </div>
+  </section>
+
+  <h2>现场事件记录</h2>
+  <table>
+    <thead><tr><th>点位</th><th>分类</th><th>score</th><th>quality</th><th>reason</th></tr></thead>
+    <tbody><tr><td colspan="5" class="empty">当前还没有现场分类事件。先运行 pointAI 的 MODE_BIND_CHECK 后，本表会显示真实点位记录。</td></tr></tbody>
+  </table>
+</main>
+</body>
+</html>
