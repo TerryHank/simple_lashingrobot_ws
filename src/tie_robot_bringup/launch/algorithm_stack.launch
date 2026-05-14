@@ -13,6 +13,7 @@
         <param name="scan_linear_compensation_y_per_mm" value="0.0" />
         <param name="scan_linear_compensation_min_z_mm" value="1200.0" />
         <param name="scan_linear_compensation_max_abs_scale_delta" value="0.25" />
+        <param name="bind_classification_config_path" value="$(find tie_robot_perception)/config/bind_point_classification.yaml" />
     </node>
 
     <node name="bind_map_builder"

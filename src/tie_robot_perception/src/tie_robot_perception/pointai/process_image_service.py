@@ -44,6 +44,14 @@ from tie_robot_perception.perception.workspace_s2 import (
     sort_polygon_points_clockwise,
 )
 from .constants import *
+from .bind_point_classification import (
+    append_classification_event,
+    classify_pre_bind_rule,
+    decisions_to_summary,
+    extract_evidence_bundle,
+    iter_point_messages,
+    should_mark_point_as_bound,
+)
 
 def has_detected_points(self, point_coords):
     return (
@@ -70,6 +78,69 @@ def build_coordinate_snapshot(self, point_coords):
         )
         for point in point_coords.PointCoordinatesArray
     )
+
+
+def classify_bind_check_points(self, point_coords):
+    config = getattr(self, "bind_classification_config", None)
+    if config is None or getattr(config, "mode", "shadow") == "off":
+        self.latest_bind_classification_decisions = []
+        return point_coords
+    if not self.has_detected_points(point_coords):
+        self.latest_bind_classification_decisions = []
+        return point_coords
+
+    ir_image = getattr(self, "image_infrared", None)
+    if ir_image is None:
+        ir_image = getattr(self, "image_infrared_copy", None)
+    depth_image = getattr(self, "Depth_image_Raw", None)
+    raw_world_image = getattr(self, "image_raw_world", None)
+    if depth_image is None and raw_world_image is not None:
+        raw_world_channels = self.cv2.split(raw_world_image)
+        if len(raw_world_channels) >= 3:
+            depth_image = raw_world_channels[2]
+
+    decisions = []
+    for point in iter_point_messages(point_coords):
+        bundle = extract_evidence_bundle(
+            ir_image=ir_image,
+            depth_image=depth_image,
+            raw_world_image=raw_world_image,
+            point_idx=int(point.idx),
+            pix_coord=point.Pix_coord,
+            world_coord=point.World_coord,
+            phase="before",
+            config=config,
+        )
+        decision = classify_pre_bind_rule(bundle, config)
+        decisions.append(decision)
+        point.is_shuiguan = bool(should_mark_point_as_bound(decision, config))
+        append_classification_event(
+            config.event_log_path,
+            {
+                "phase": "before",
+                "point_idx": int(point.idx),
+                "pix_coord": [int(point.Pix_coord[0]), int(point.Pix_coord[1])],
+                "world_coord": [float(value) for value in point.World_coord[:3]],
+                "mode": config.mode,
+                "bind_state": decision.label,
+                "bind_score": float(decision.score),
+                "evidence_quality": float(decision.quality),
+                "decision_reason": decision.reason,
+                "metrics": decision.metrics,
+                "wire_is_shuiguan": bool(point.is_shuiguan),
+            },
+        )
+
+    self.latest_bind_classification_decisions = decisions
+    summary = decisions_to_summary(decisions)
+    rospy.loginfo(
+        "pointAI绑扎点分类: mode=%s bound=%d unbound=%d uncertain=%d",
+        config.mode,
+        int(summary.get("bound", 0)),
+        int(summary.get("unbound", 0)),
+        int(summary.get("uncertain", 0)),
+    )
+    return point_coords
 
 
 def is_stable_z_window(self, z_snapshots, frame_count=None, tolerance_mm=None):
@@ -312,6 +383,7 @@ def evaluate_point_coords_for_mode(self, point_coords, request_mode):
         return result
 
     if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:
+        point_coords = self.classify_bind_check_points(point_coords)
         out_of_height_points = self.find_out_of_height_points(point_coords)
         result["out_of_height_count"] = len(out_of_height_points)
         result["out_of_height_point_indices"] = [point_idx for point_idx, _ in out_of_height_points]

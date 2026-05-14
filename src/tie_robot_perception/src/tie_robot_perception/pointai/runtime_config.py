@@ -43,9 +43,15 @@ from tie_robot_perception.perception.workspace_s2 import (
     sort_polygon_points_clockwise,
 )
 from .constants import *
+from .bind_point_classification import load_classification_config
 
 def load_runtime_config(self):
     try:
+        self.bind_classification_config_path = rospy.get_param(
+            "~bind_classification_config_path",
+            self.bind_classification_config_path,
+        )
+        self.bind_classification_config = load_classification_config(self.bind_classification_config_path)
         self.height_threshold = float(rospy.get_param("~height_threshold", self.height_threshold))
         self.scan_linear_compensation_enabled = bool(
             rospy.get_param("~scan_linear_compensation_enabled", self.scan_linear_compensation_enabled)

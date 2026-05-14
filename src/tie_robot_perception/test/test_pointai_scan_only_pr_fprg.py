@@ -124,6 +124,14 @@ POINTAI_STATE_PATH = (
     / "pointai"
     / "state.py"
 )
+BIND_CLASSIFICATION_PATH = (
+    WORKSPACE_ROOT
+    / "tie_robot_perception"
+    / "src"
+    / "tie_robot_perception"
+    / "pointai"
+    / "bind_point_classification.py"
+)
 
 
 def _draw_synthetic_line_family(response, line_angle_deg, rhos, sigma_px=1.25, amp=1.0):
@@ -334,6 +342,33 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertNotIn("self.run_manual_workspace_s2()", manual_callback_text)
         self.assertNotIn("self.run_manual_workspace_s2()", recognize_text)
         self.assertIn("run_visual_detection_with_release_frames", direct_trigger_text)
+
+    def test_bind_check_runs_shadow_classification_before_response(self):
+        service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        state_text = POINTAI_STATE_PATH.read_text(encoding="utf-8")
+        runtime_config_text = POINTAI_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")
+        processor_text = POINTAI_NODE_PATH.parent.joinpath("processor.py").read_text(encoding="utf-8")
+        classification_text = BIND_CLASSIFICATION_PATH.read_text(encoding="utf-8")
+        launch_text = ALGORITHM_STACK_LAUNCH_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("self.bind_classification_config_path", state_text)
+        self.assertIn("self.bind_classification_config", state_text)
+        self.assertIn("load_classification_config", runtime_config_text)
+        self.assertIn("cls.classify_bind_check_points = process_image_service.classify_bind_check_points", processor_text)
+        self.assertIn("def should_mark_point_as_bound(decision, config):", classification_text)
+        self.assertIn('mode in {"advisory", "blocking"}', classification_text)
+        self.assertIn("bind_classification_config_path", launch_text)
+        self.assertIn("bind_point_classification.yaml", launch_text)
+
+        bind_branch_start = service_text.index("if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:")
+        bind_branch_end = service_text.index("out_of_height_points = self.find_out_of_height_points", bind_branch_start)
+        bind_branch_text = service_text[bind_branch_start:bind_branch_end]
+        self.assertIn(
+            "point_coords = self.classify_bind_check_points(point_coords)",
+            bind_branch_text,
+        )
+        self.assertIn("append_classification_event", service_text)
+        self.assertIn("should_mark_point_as_bound", service_text)
 
     def test_scan_only_no_points_returns_current_frame_failure_without_waiting_next_frame(self):
         service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")

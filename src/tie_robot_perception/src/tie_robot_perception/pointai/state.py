@@ -11,6 +11,7 @@ from cv_bridge import CvBridge
 from tie_robot_msgs.msg import motion
 
 from .constants import PROCESS_IMAGE_MODE_DEFAULT
+from .bind_point_classification import load_classification_config
 
 
 PERCEPTION_PACKAGE_ROOT = Path(__file__).resolve().parents[3]
@@ -64,6 +65,12 @@ def initialize_processor_state(self):
         "data",
         "manual_workspace_quad.json",
     )
+    self.bind_classification_config_path = rospy.get_param(
+        "~bind_classification_config_path",
+        os.path.join(str(PERCEPTION_PACKAGE_ROOT), "config", "bind_point_classification.yaml"),
+    )
+    self.bind_classification_config = load_classification_config(self.bind_classification_config_path)
+    self.latest_bind_classification_decisions = []
 
     self.image_infrared_copy = np.zeros((480, 640), dtype=np.uint8)
     self.image_infrared = None

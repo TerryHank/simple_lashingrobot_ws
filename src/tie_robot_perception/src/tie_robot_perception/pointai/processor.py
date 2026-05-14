@@ -130,6 +130,7 @@ def bind_image_processor_methods(cls):
     cls.has_detected_points = process_image_service.has_detected_points
     cls.build_z_snapshot = process_image_service.build_z_snapshot
     cls.build_coordinate_snapshot = process_image_service.build_coordinate_snapshot
+    cls.classify_bind_check_points = process_image_service.classify_bind_check_points
     cls.is_stable_z_window = process_image_service.is_stable_z_window
     cls.is_stable_coordinate_window = process_image_service.is_stable_coordinate_window
     cls.get_request_mode = process_image_service.get_request_mode
