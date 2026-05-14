@@ -5,12 +5,14 @@
 - 查看当前主包职责
 - 查看工程设计、架构图与 ROS graph
 - 查看动作链与数据链
+- 查看浏览器前端全功能图文手册
 - 查看重构后的文件结构
 - 查看开发与调试入口
 
 ## 常用入口
 
 - [进入工程总览](./guide/overview)
+- [查看浏览器前端全功能图文手册](./guide/operator-manual)
 - [查看工程设计与架构图](./guide/system-design)
 - [查看 ROS Graph](./guide/ros-graph)
 - [查看运行主链](./guide/runtime-flows)
