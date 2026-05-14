@@ -8,6 +8,7 @@ export default {
     nav: [
       { text: "总览", link: "/" },
       { text: "工程说明", link: "/guide/overview" },
+      { text: "前端手册", link: "/guide/operator-manual" },
       { text: "系统设计", link: "/guide/system-design" },
       { text: "ROS Graph", link: "/guide/ros-graph" },
       { text: "视觉原理", link: "/guide/visual-principles" },
@@ -28,6 +29,7 @@ export default {
         text: "工程说明",
         items: [
           { text: "工程总览", link: "/guide/overview" },
+          { text: "浏览器前端全功能手册", link: "/guide/operator-manual" },
           { text: "工程设计与架构图", link: "/guide/system-design" },
           { text: "ROS Graph", link: "/guide/ros-graph" },
           { text: "运行主链", link: "/guide/runtime-flows" },
