@@ -91,6 +91,8 @@ constexpr double kLinearModuleAxisArrivalPollSec = 0.02;
 constexpr auto kFinishAllPollInterval = std::chrono::milliseconds(150);
 constexpr auto kFinishAllTimeout = std::chrono::seconds(kFinishAllTimeoutSec);
 constexpr auto kFinishAllClearTimeout = std::chrono::seconds(2);
+constexpr double kFinishAllObservedMotionSpeedEpsilonMmPerSec = 1.0;
+constexpr double kFinishAllObservedMotionDeltaMm = 1.0;
 
 class ScopedPlcExecutionState
 {
@@ -194,6 +196,44 @@ struct LinearModuleAxisSnapshot
     int error_flag = 0;
     const char* name = "unknown";
 };
+
+struct LinearModuleMotionSnapshot
+{
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    double x_speed = 0.0;
+    double y_speed = 0.0;
+    double z_speed = 0.0;
+};
+
+LinearModuleMotionSnapshot read_linear_module_motion_snapshot()
+{
+    LinearModuleMotionSnapshot snapshot;
+    std::lock_guard<std::mutex> lock(module_state_mutex);
+    snapshot.x = module_state.X;
+    snapshot.y = module_state.Y;
+    snapshot.z = module_state.Z;
+    snapshot.x_speed = module_state.X_SPEED;
+    snapshot.y_speed = module_state.Y_SPEED;
+    snapshot.z_speed = module_state.Z_SPEED;
+    return snapshot;
+}
+
+bool has_observed_linear_module_motion_since_start(
+    const LinearModuleMotionSnapshot& start_snapshot,
+    const LinearModuleMotionSnapshot& current_snapshot)
+{
+    const bool speed_motion =
+        std::fabs(current_snapshot.x_speed) > kFinishAllObservedMotionSpeedEpsilonMmPerSec ||
+        std::fabs(current_snapshot.y_speed) > kFinishAllObservedMotionSpeedEpsilonMmPerSec ||
+        std::fabs(current_snapshot.z_speed) > kFinishAllObservedMotionSpeedEpsilonMmPerSec;
+    const bool position_motion =
+        std::fabs(current_snapshot.x - start_snapshot.x) > kFinishAllObservedMotionDeltaMm ||
+        std::fabs(current_snapshot.y - start_snapshot.y) > kFinishAllObservedMotionDeltaMm ||
+        std::fabs(current_snapshot.z - start_snapshot.z) > kFinishAllObservedMotionDeltaMm;
+    return speed_motion || position_motion;
+}
 
 LinearModuleAxisSnapshot read_linear_module_axis_snapshot(int Axis)
 {
@@ -410,27 +450,32 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
 {
     auto active_wait_start_time = std::chrono::steady_clock::now();
     auto last_log_time = active_wait_start_time;
+    const auto motion_start_snapshot = read_linear_module_motion_snapshot();
+    bool motion_observed = false;
+    bool premature_finishall_logged = false;
+    bool rearmed_after_premature_finishall = false;
     while (true)
     {
         int finishall_flag = 0;
-        double cur_x = 0.0;
-        double cur_y = 0.0;
-        double cur_z = 0.0;
+        LinearModuleMotionSnapshot motion_snapshot;
         {
             std::lock_guard<std::mutex> lock2(module_state_mutex);
             finishall_flag = static_cast<int>(module_state.FINISH_ALL_FLAG);
-            cur_x = module_state.X;
-            cur_y = module_state.Y;
-            cur_z = module_state.Z;
+            motion_snapshot.x = module_state.X;
+            motion_snapshot.y = module_state.Y;
+            motion_snapshot.z = module_state.Z;
+            motion_snapshot.x_speed = module_state.X_SPEED;
+            motion_snapshot.y_speed = module_state.Y_SPEED;
+            motion_snapshot.z_speed = module_state.Z_SPEED;
         }
 
         if (moduan_return_zero_ordered_requested.load(std::memory_order_acquire)) {
             printCurrentTime();
             ros_log_printf(
                 "Moduan_Warn: 等待FINISHALL期间收到长按停止并回起点请求，停止本轮末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
-                cur_x,
-                cur_y,
-                cur_z
+                motion_snapshot.x,
+                motion_snapshot.y,
+                motion_snapshot.z
             );
             return false;
         }
@@ -438,9 +483,9 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
             printCurrentTime();
             ros_log_printf(
                 "Moduan_Warn: 等待FINISHALL期间收到人工切区接管请求，停止本轮末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
-                cur_x,
-                cur_y,
-                cur_z
+                motion_snapshot.x,
+                motion_snapshot.y,
+                motion_snapshot.z
             );
             return false;
         }
@@ -449,9 +494,9 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
             printCurrentTime();
             ros_log_printf(
                 "Moduan_Warn: 等待FINISHALL期间收到人工暂停，暂停当前末端执行等待，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
-                cur_x,
-                cur_y,
-                cur_z
+                motion_snapshot.x,
+                motion_snapshot.y,
+                motion_snapshot.z
             );
             while (
                 handle_pause_interrupt &&
@@ -475,7 +520,53 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
             ros_log_printf("Moduan_log: 人工暂停已解除，恢复当前末端执行等待。\n");
         }
 
-        if (finishall_flag) break;
+        if (!motion_observed) {
+            motion_observed = has_observed_linear_module_motion_since_start(
+                motion_start_snapshot,
+                motion_snapshot
+            );
+        }
+        if (finishall_flag) {
+            if (motion_observed) {
+                break;
+            }
+            if (!premature_finishall_logged) {
+                printCurrentTime();
+                ros_log_printf(
+                    "Moduan_Warn: FINISHALL已置位但尚未观察到线性模组真实运动，忽略本次完成信号并等待真实运动；当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)，速度(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
+                    motion_snapshot.x,
+                    motion_snapshot.y,
+                    motion_snapshot.z,
+                    motion_snapshot.x_speed,
+                    motion_snapshot.y_speed,
+                    motion_snapshot.z_speed
+                );
+                premature_finishall_logged = true;
+            }
+            {
+                std::lock_guard<std::mutex> lock2(plc_mutex);
+                PLC_Order_Write(FINISHALL, 0, plc);
+            }
+            if (!rearmed_after_premature_finishall) {
+                if (!wait_for_plc_finish_all_clear(poll_interval, kFinishAllClearTimeout)) {
+                    return false;
+                }
+                std::string rearm_message;
+                if (!trigger_linear_module_motion_execution("FINISHALL误置位清零后重发EN_DISABLE启动脉冲", rearm_message)) {
+                    printCurrentTime();
+                    ros_log_printf(
+                        "Moduan_Error: FINISHALL误置位清零后重发EN_DISABLE启动脉冲失败：%s。\n",
+                        rearm_message.c_str()
+                    );
+                    return false;
+                }
+                printCurrentTime();
+                ros_log_printf(
+                    "Moduan_log: FINISHALL误置位清零后重发EN_DISABLE启动脉冲，继续等待真实运动。\n"
+                );
+                rearmed_after_premature_finishall = true;
+            }
+        }
 
         const auto now = std::chrono::steady_clock::now();
         const auto elapsed_sec =
@@ -486,9 +577,9 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
                 "Moduan_Error: 等待FINISHALL标志超时，超时=%ds，当前FINISH_ALL_FLAG=%d，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
                 static_cast<int>(timeout.count()),
                 finishall_flag,
-                cur_x,
-                cur_y,
-                cur_z
+                motion_snapshot.x,
+                motion_snapshot.y,
+                motion_snapshot.z
             );
             return false;
         }
@@ -501,9 +592,9 @@ bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chron
                 "Moduan_log: 等待FINISHALL标志中，当前FINISH_ALL_FLAG=%d，已等待%lds，当前位置(X,Y,Z)=(%.2f,%.2f,%.2f)。\n",
                 finishall_flag,
                 static_cast<long>(elapsed_sec),
-                cur_x,
-                cur_y,
-                cur_z
+                motion_snapshot.x,
+                motion_snapshot.y,
+                motion_snapshot.z
             );
             last_log_time = now;
         }

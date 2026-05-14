@@ -1,6 +1,6 @@
 # Agent Memory Current Snapshot
 
-> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-14 05:40:40，当前 HEAD：`79d2354`。
+> 由 `scripts/agent_memory.py refresh` 生成。刷新时间：2026-05-14 16:56:11，当前 HEAD：`8922c91`。
 
 ## Bootstrap Files
 
@@ -43,12 +43,12 @@
 
 ## Recent Session Memory
 
+- `2026-05-14 16:56 - FINISHALL需观察末端真实运动后才放行`：2026-05-14：修复首区被秒判完成的问题。线性模组 execute_bind_points 的 wait_for_plc_finish_all 现在记录 EN_DISABLE 启动等待时的位置/速度，只有观察到 X/Y/Z 速度超过阈值或位置相对启动点变化后才接受 FINISHALL=1；若 FINISHALL 在未运动前置位，会清零并继续等待，最终按未确认完成失败阻止上层索驱进入下一区域。
 - `2026-05-14 05:40 - 扫描完成后只刷新规划显示`：2026-05-14：去掉前端阈值热重规划后，扫描 action 成功时仍必须刷新前端规划组显示。TieRobotFrontApp 的 onSurfaceDpRecognitionFinished 现在只调用 requestPlanningAreaRefresh() 重新读取 /api/planning/bind-path，不调用 /cabin/replan_pseudo_slam_bind_path，也不做第二次规划；这样 pseudo_slam_bind_path.json 写完后 3D Scene 能看到新规划组。
 - `2026-05-14 05:27 - 扫描阈值只随一次扫描规划生效`：2026-05-14：用户撤回前端阈值热重规划口径。成行/成列阈值仍由 StartPseudoSlamScan action goal 传入后端，并在 run_pseudo_slam_scan 的一次扫描规划中生成 pseudo_slam_points.json 和 pseudo_slam_bind_path.json；前端不再在阈值变化、扫描完成回调或确认工作区自动视觉完成后调用 /cabin/replan_pseudo_slam_bind_path。replan service 先保留为手动/诊断能力，不作为正常扫描链路第二次规划。
 - `2026-05-14 05:03 - 扫描规划优先 2x2 四点分组`：2026-05-14：用户明确扫描账本点规划要优先考虑 2x2 分组。动态规划自适应分组候选形状现在先尝试 2x2，再考虑显式 requested_group_point_count 对应的大矩形和更小补组；默认 4 点与阈值重规划继续保持 slam/v35 固定 2x2 切块口径。只有显式非自适应请求 6/9 等点数时才优先按对应大组规划。
 - `2026-05-14 04:52 - 阈值重规划保持 v35 默认 2x2 固定切块`：2026-05-14：修正扫描账本阈值重规划的默认 4 点成组口径。/cabin/replan_pseudo_slam_bind_path 为了让行/列阈值生效会设置 force_axis_threshold_grouping=true、忽略旧 global_row/global_col 并按世界 XY 阈值重聚类；但默认 bind_group_point_count=4 时仍必须和 slam/v35 一样从起点固定 2x2 切块，形成 (1,1)(1,2)(2,2)(2,1) 这类四点组，不走邻接匹配大量生成 matrix_2x2_edge_pair 短线。当前 planner 在 force_axis_threshold_grouping && requested_group_point_count==4 时改走 select_grid_group_candidates_by_fixed_two_by_two_tiling；Z 可达性仍只看 XY，真实 Z 保留。
 - `2026-05-14 04:34 - 扫描账本成组可达性改为只看 XY`：2026-05-14：按现场口径，pseudo_slam_bind_path 动态成组的可达性不再用局部 Z 拦截；is_group_reachable_from_centered_dynamic_pose 只检查规划姿态下局部 X/Y 是否落在线模工作盒内，真实点位 Z 仍保留在 bind_points_world 和后续执行 JSON 中。这样扫描层散点只要 XY 可覆盖就能排成组，Z 不再导致规划阶段丢组。
-- `2026-05-14 03:55 - 扫描层阈值重规划不覆盖微调层视觉`：2026-05-14：用户确认行/列阈值只属于扫描层 pseudo_slam_bind_path 成组规划，不属于执行/微调层视觉。TieRobotFrontApp 现在在任务按钮触发视觉调试参数同步时传 scheduleBindPathReplan=false，避免 executionVisionOnly、triggerSingleBind、startExecution/startExecutionKeepMemory 因同步参数而触发 /cabin/replan_pseudo_slam_bind_path。扫描层 runSavedS2 与确认工作区后的自动 Surface-DP 扫描仍在扫描 action 成功后通过 onSurfaceDpRecognitionFinished 调用重规划；视觉调试页直接改阈值仍可防抖重规划已有扫描账本。
 
 ## Handoff Documents
 

@@ -2,6 +2,31 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-14 16:56 - FINISHALL需观察末端真实运动后才放行
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-14：修复首区被秒判完成的问题。线性模组 execute_bind_points 的 wait_for_plc_finish_all 现在记录 EN_DISABLE 启动等待时的位置/速度，只有观察到 X/Y/Z 速度超过阈值或位置相对启动点变化后才接受 FINISHALL=1；若 FINISHALL 在未运动前置位，会清零并继续等待，最终按未确认完成失败阻止上层索驱进入下一区域。
+
+### 影响范围
+
+- `src/tie_robot_control/src/moduan/linear_module_executor.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py；make -C build；make -C build/tie_robot_control src/moduan/linear_module_executor.o`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-14 05:40 - 扫描完成后只刷新规划显示
 
 <!-- AGENT-MEMORY: entry -->

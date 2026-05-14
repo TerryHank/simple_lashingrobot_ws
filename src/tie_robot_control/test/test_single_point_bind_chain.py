@@ -436,7 +436,7 @@ class SinglePointBindChainTest(unittest.TestCase):
         self.assertIn("moduan_return_zero_ordered_requested", wait_body)
         return_index = wait_body.index("moduan_return_zero_ordered_requested")
         pause_index = wait_body.index("handle_pause_interrupt", return_index)
-        finish_index = wait_body.index("if (finishall_flag) break;")
+        finish_index = wait_body.index("if (finishall_flag)")
         self.assertLess(pause_index, finish_index)
         self.assertIn("人工暂停", wait_body)
         pause_wait_body = wait_body[pause_index:finish_index]
@@ -477,12 +477,60 @@ class SinglePointBindChainTest(unittest.TestCase):
         trigger_index = execute_body.index("pulseExecutionEnable")
         finish_wait_index = execute_body.index("wait_for_plc_finish_all(")
         self.assertNotIn("setZeroRequest", execute_body)
+        self.assertNotIn("enableLinearModuleLashingStart", execute_body)
         self.assertNotIn("wait_for_plc_register_value", execute_body)
         self.assertNotIn("IS_ZERO", execute_body)
         self.assertLess(clear_index, clear_wait_index)
         self.assertLess(clear_wait_index, write_points_index)
         self.assertLess(write_points_index, trigger_index)
         self.assertLess(trigger_index, finish_wait_index)
+
+    def test_finishall_wait_requires_motion_observed_before_accepting_finishall(self):
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("bool has_observed_linear_module_motion_since_start(", executor)
+        wait_start = executor.index("bool wait_for_plc_finish_all(")
+        wait_end = executor.index("\nvoid moveLinearModule", wait_start)
+        wait_body = executor[wait_start:wait_end]
+
+        self.assertIn("const auto motion_start_snapshot", wait_body)
+        self.assertIn("motion_observed", wait_body)
+        self.assertIn("has_observed_linear_module_motion_since_start(", wait_body)
+        finish_index = wait_body.index("if (finishall_flag)")
+        motion_check_index = wait_body.index("has_observed_linear_module_motion_since_start(")
+        self.assertLess(motion_check_index, finish_index)
+        finish_gate_body = wait_body[finish_index:wait_body.index("const auto now", finish_index)]
+        self.assertIn("if (motion_observed)", finish_gate_body)
+        self.assertIn("FINISHALL已置位但尚未观察到线性模组真实运动", finish_gate_body)
+        self.assertNotIn("if (finishall_flag) break;", wait_body)
+
+    def test_premature_finishall_rearms_execution_enable_after_clearing_stale_flag(self):
+        executor = (
+            CONTROL_DIR / "src" / "moduan" / "linear_module_executor.cpp"
+        ).read_text(encoding="utf-8")
+
+        wait_start = executor.index("bool wait_for_plc_finish_all(")
+        wait_end = executor.index("\nvoid moveLinearModule", wait_start)
+        wait_body = executor[wait_start:wait_end]
+
+        finish_index = wait_body.index("if (finishall_flag)")
+        finish_gate_body = wait_body[finish_index:wait_body.index("const auto now", finish_index)]
+        clear_index = finish_gate_body.index("PLC_Order_Write(FINISHALL, 0, plc);")
+        self.assertIn("wait_for_plc_finish_all_clear(", finish_gate_body)
+        clear_wait_index = finish_gate_body.index("wait_for_plc_finish_all_clear(")
+        self.assertIn("trigger_linear_module_motion_execution(", finish_gate_body)
+        rearm_index = finish_gate_body.index("trigger_linear_module_motion_execution(")
+        self.assertLess(clear_index, clear_wait_index)
+        self.assertLess(clear_wait_index, rearm_index)
+        self.assertIn("rearmed_after_premature_finishall", finish_gate_body)
+        self.assertIn("FINISHALL误置位清零后重发EN_DISABLE启动脉冲", finish_gate_body)
+
+        helper_start = executor.index("bool trigger_linear_module_motion_execution(")
+        helper_end = executor.index("\n}  // namespace", helper_start)
+        helper_body = executor[helper_start:helper_end]
+        self.assertIn("pulseExecutionEnable", helper_body)
 
     def test_moduan_driver_startup_keeps_default_lashing_disabled_in_plc(self):
         callbacks = (
