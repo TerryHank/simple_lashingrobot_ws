@@ -1,6 +1,0 @@
-string command
-bool clear_execution_memory
-bool use_execution_memory
----
-bool success
-string message

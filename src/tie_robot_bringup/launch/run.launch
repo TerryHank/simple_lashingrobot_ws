@@ -1,3 +1,0 @@
-<launch>
-    <include file="$(find tie_robot_bringup)/launch/algorithm_stack.launch" />
-</launch>

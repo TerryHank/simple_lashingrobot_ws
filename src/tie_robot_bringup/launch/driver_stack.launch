@@ -1,5 +1,0 @@
-<launch>
-    <include file="$(find tie_robot_bringup)/launch/driver_suoqu.launch" />
-    <include file="$(find tie_robot_bringup)/launch/driver_moduan.launch" />
-    <include file="$(find tie_robot_bringup)/launch/driver_camera.launch" />
-</launch>

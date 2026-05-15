@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 860" role="img" aria-labelledby="title desc">
+  <title id="title">深度学习绑扎点分类链路</title>
+  <desc id="desc">展示从执行层候选点、红外局部块、深度掩膜、CLAHE 增强到 YOLO 分类和执行过滤的流程。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f7faf8"/>
+      <stop offset="0.48" stop-color="#eef4f2"/>
+      <stop offset="1" stop-color="#e6eee9"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" x2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f5f8f6"/>
+    </linearGradient>
+    <linearGradient id="imageGrad" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#222"/>
+      <stop offset="0.45" stop-color="#747474"/>
+      <stop offset="1" stop-color="#151515"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#1f2a25" flood-opacity="0.16"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+      <path d="M2,2 L12,7 L2,12 Z" fill="#41645a"/>
+    </marker>
+    <style>
+      .title { font: 700 44px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #13221d; }
+      .sub { font: 500 22px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #59675f; }
+      .h { font: 700 24px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #17251f; }
+      .body { font: 500 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #56615c; }
+      .mono { font: 700 17px "JetBrains Mono", "Consolas", monospace; fill: #2c5248; }
+      .small { font: 500 14px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #68756f; }
+      .chipText { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #10231c; }
+      .panel { fill: url(#panel); stroke: #cedbd4; stroke-width: 2; filter: url(#shadow); }
+      .line { stroke: #41645a; stroke-width: 5; fill: none; marker-end: url(#arrow); }
+      .miniLine { stroke: #b7c8c0; stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="860" fill="url(#bg)"/>
+  <path d="M0 690 C260 620 410 735 620 660 C865 573 984 670 1210 605 C1365 560 1475 575 1600 520 L1600 860 L0 860 Z" fill="#dce9e1"/>
+  <path d="M110 170 H1490" stroke="#d2dfd7" stroke-width="2"/>
+  <text x="110" y="95" class="title">深度学习分类：局部证据块进 YOLO</text>
+  <text x="110" y="135" class="sub">用于执行层分类过滤，class 0 表示已绑扎并过滤，class 1 表示未绑扎并继续下发。</text>
+
+  <rect x="96" y="222" width="270" height="310" rx="10" class="panel"/>
+  <text x="126" y="270" class="h">1. 执行候选点</text>
+  <text x="126" y="306" class="body">来自 request_mode=4</text>
+  <text x="126" y="334" class="mono">MODE_EXECUTION_REFINE</text>
+  <rect x="126" y="368" width="210" height="124" rx="8" fill="#17201d"/>
+  <line x1="150" y1="430" x2="312" y2="430" stroke="#7fd3b1" stroke-width="8"/>
+  <line x1="232" y1="388" x2="232" y2="472" stroke="#7fd3b1" stroke-width="8"/>
+  <circle cx="232" cy="430" r="18" fill="#ffffff"/>
+  <circle cx="232" cy="430" r="9" fill="#ffcc4d"/>
+  <text x="126" y="520" class="small">每个候选点都有像素坐标、相机坐标和 raw_z。</text>
+
+  <path class="line" d="M380 377 H468"/>
+
+  <rect x="492" y="222" width="270" height="310" rx="10" class="panel"/>
+  <text x="522" y="270" class="h">2. 红外局部块</text>
+  <text x="522" y="306" class="body">以候选点为中心裁剪</text>
+  <text x="522" y="334" class="mono">half_size = 30/32 px</text>
+  <rect x="522" y="368" width="210" height="124" rx="8" fill="url(#imageGrad)"/>
+  <path d="M542 455 C592 395 646 463 706 405" stroke="#cfd7d1" stroke-width="11" fill="none" opacity="0.82"/>
+  <path d="M624 383 C603 430 659 441 631 485" stroke="#ecefe9" stroke-width="10" fill="none" opacity="0.80"/>
+  <circle cx="626" cy="431" r="15" fill="#131a17" opacity="0.7"/>
+  <text x="522" y="520" class="small">输入图来自 Scepter IR，不直接用结果覆盖图。</text>
+
+  <path class="line" d="M776 377 H864"/>
+
+  <rect x="888" y="222" width="270" height="310" rx="10" class="panel"/>
+  <text x="918" y="270" class="h">3. 深度掩膜</text>
+  <text x="918" y="306" class="body">只保留同一深度带</text>
+  <text x="918" y="334" class="mono">raw_z +/- 75 mm</text>
+  <rect x="918" y="368" width="210" height="124" rx="8" fill="#111815"/>
+  <path d="M945 424 L1128 424" stroke="#7ce0ba" stroke-width="12" fill="none"/>
+  <path d="M1028 384 L1028 472" stroke="#7ce0ba" stroke-width="12" fill="none"/>
+  <circle cx="1028" cy="424" r="19" fill="#f4f6ed"/>
+  <path d="M925 386 H1140 M925 466 H1140" stroke="#f4c542" stroke-width="3" stroke-dasharray="10 10"/>
+  <text x="918" y="520" class="small">去掉背景和远近错层，减少 YOLO 输入污染。</text>
+
+  <path class="line" d="M1172 377 H1260"/>
+
+  <rect x="1284" y="222" width="220" height="310" rx="10" class="panel"/>
+  <text x="1314" y="270" class="h">4. 标准化输入</text>
+  <text x="1314" y="306" class="body">缩放并增强对比度</text>
+  <text x="1314" y="334" class="mono">128 x 128 + CLAHE</text>
+  <rect x="1324" y="368" width="140" height="124" rx="8" fill="#1a221f"/>
+  <path d="M1339 452 C1370 399 1419 462 1451 405" stroke="#f5f7f2" stroke-width="9" fill="none"/>
+  <path d="M1395 383 C1384 431 1423 439 1396 485" stroke="#89f0bf" stroke-width="8" fill="none"/>
+  <text x="1314" y="520" class="small">这一步对应 `build_deep_learning_patch()`。</text>
+
+  <path class="line" d="M342 602 H610"/>
+  <rect x="640" y="570" width="320" height="150" rx="10" class="panel"/>
+  <text x="674" y="621" class="h">YOLO 分类模型</text>
+  <text x="674" y="658" class="mono">best.pt / confidence 0.2</text>
+  <text x="674" y="688" class="body">运行时延迟加载，分类关闭时不加载模型。</text>
+  <path class="miniLine" d="M700 704 H900"/>
+
+  <path class="line" d="M982 620 H1118"/>
+  <rect x="1142" y="570" width="362" height="150" rx="10" class="panel"/>
+  <text x="1176" y="619" class="h">输出语义</text>
+  <rect x="1176" y="646" width="138" height="38" rx="19" fill="#ffe9ea" stroke="#ff6a70"/>
+  <text x="1202" y="671" class="chipText">class 0 已绑扎</text>
+  <rect x="1330" y="646" width="138" height="38" rx="19" fill="#e8f8ed" stroke="#4bbd68"/>
+  <text x="1357" y="671" class="chipText">class 1 未绑扎</text>
+  <text x="1176" y="710" class="body">blocking 模式下，已绑扎点会从执行点中移除。</text>
+
+  <text x="110" y="786" class="small">配置入口：`src/tie_robot_perception/config/bind_point_classification.yaml`。当前默认 method=deep_learning、mode=off，前端「开启分类」后切到 blocking。</text>
+</svg>

@@ -1,4 +1,0 @@
-tie_robot_msgs/PointCoords[] points
----
-bool success
-string message
