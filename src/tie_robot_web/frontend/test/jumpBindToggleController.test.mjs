@@ -48,6 +48,28 @@ assert.equal(initialState.selectedParity, 0);
 assert.equal(initialState.selectedColor, "black");
 assert.equal(initialState.label, "长按开启跳绑黑棋");
 
+const initialClassificationState = controller.getToggleStateSnapshot().bindClassificationEnabled;
+assert.equal(initialClassificationState.value, false);
+assert.equal(initialClassificationState.label, "开启分类");
+
+const classificationEnabledState = controller.handleToggle("bindClassificationEnabled", {});
+assert.equal(classificationEnabledState.value, true);
+assert.equal(classificationEnabledState.label, "关闭分类");
+assert.deepEqual(FakeTopic.published.at(-1), {
+  name: TOPICS.algorithm.setBindClassificationEnabled,
+  messageType: "std_msgs/Bool",
+  message: { data: true },
+});
+
+const classificationDisabledState = controller.handleToggle("bindClassificationEnabled", {});
+assert.equal(classificationDisabledState.value, false);
+assert.equal(classificationDisabledState.label, "开启分类");
+assert.deepEqual(FakeTopic.published.at(-1), {
+  name: TOPICS.algorithm.setBindClassificationEnabled,
+  messageType: "std_msgs/Bool",
+  message: { data: false },
+});
+
 const whiteState = controller.handleToggle("jumpBindEnabled", {});
 assert.equal(whiteState.value, false);
 assert.equal(whiteState.selectedParity, 1);

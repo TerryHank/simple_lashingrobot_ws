@@ -22,6 +22,8 @@
 http://127.0.0.1:8080/index.html
 ```
 
+![顶部状态与系统入口](/images/operator-manual/frontend-status-capsules.svg)
+
 顶部工具条从左到右分为 4 类：
 
 | 区域 | 用途 | 操作说明 |
@@ -46,6 +48,8 @@ http://127.0.0.1:8080/index.html
 
 控制面板是日常操作主入口，分为「扫描区」「执行层」「区域切换」。
 
+![控制面板主流程](/images/operator-manual/frontend-control-panel.svg)
+
 | 分组 | 按钮 | 什么时候用 | 后端链路 |
 | --- | --- | --- | --- |
 | 扫描区 | 触发扫描视觉 | 工作区已确认后，重新识别当前识别位姿的绑扎点账本。 | `/web/cabin/start_pseudo_slam_scan` |
@@ -69,6 +73,8 @@ http://127.0.0.1:8080/index.html
 
 底部快速控制区用于现场高频开关，和控制面板主流程按钮不同，它们通常只改变运行状态或发布控制话题。
 
+![底部快速控制区](/images/operator-manual/frontend-quick-controls.svg)
+
 | 按钮 | 用途 | 操作方式 | 说明 |
 | --- | --- | --- | --- |
 | 暂停作业 / 恢复作业 | 暂停或恢复执行链 | 长按暂停，短按或状态切换恢复 | 暂停后可继续当前流程；长按停止并回起点会结束当前自动链。 |
@@ -88,6 +94,8 @@ http://127.0.0.1:8080/index.html
 ## 4. 得到账本：从工作区到扫描产物
 
 账本是全局绑扎的前置条件。当前工程主要使用 3 个产物：
+
+![从工作区到账本的流程](/images/operator-manual/frontend-ledger-workflow.svg)
 
 | 文件 | 生成时机 | 用途 |
 | --- | --- | --- |
@@ -119,6 +127,8 @@ http://127.0.0.1:8080/index.html
 
 全局执行前建议确认：
 
+![执行全局绑扎与记忆续跑](/images/operator-manual/frontend-execution-workflow.svg)
+
 - `pseudo_slam_bind_path.json` 已存在。
 - 索驱、末端、视觉胶囊在线。
 - 「视觉调试」中的执行模式符合现场目标。
@@ -147,6 +157,8 @@ http://127.0.0.1:8080/index.html
 
 图像面板用于看相机图像和视觉覆盖层。右上角可切换话题：
 
+![图像面板与话题切换](/images/operator-manual/frontend-image-panel.svg)
+
 | 图像话题 | 用途 |
 | --- | --- |
 | 红外图像 | 工作区 4 点选点、识别覆盖层、现场主视图。 |
@@ -168,6 +180,8 @@ http://127.0.0.1:8080/index.html
 
 设置面板顶部「当前页」可切换不同配置页，并支持调整页面顺序。
 
+![设置页全景](/images/operator-manual/frontend-settings-map.svg)
+
 ### 7.1 话题总览
 
 显示前端已知和运行时发现的话题，帮助判断数据是否到达。适合排查：
@@ -188,6 +202,8 @@ http://127.0.0.1:8080/index.html
 ### 7.3 视觉调试
 
 这是现场算法和执行口径的核心设置页。
+
+![视觉调试设置](/images/operator-manual/frontend-visual-debug.svg)
 
 | 设置 | 用途 |
 | --- | --- |
@@ -212,6 +228,8 @@ http://127.0.0.1:8080/index.html
 
 用于热更新相机 SDK 参数，常见项包括：
 
+![相机 SDK 调试](/images/operator-manual/frontend-camera-sdk.svg)
+
 - 帧率。
 - 红外增益。
 - 彩色分辨率。
@@ -223,6 +241,8 @@ http://127.0.0.1:8080/index.html
 ### 7.5 国标接入
 
 填写 GB28181 上级平台参数：
+
+![国标接入与网络配置](/images/operator-manual/frontend-integration-network.svg)
 
 - 上级平台 SIP IP / 端口。
 - 平台国标 ID。
@@ -245,6 +265,8 @@ http://127.0.0.1:8080/index.html
 ### 7.7 工作区选点
 
 用于生成扫描账本，详见「得到账本」章节。关键按钮：
+
+![工作区选点和识别位姿](/images/operator-manual/frontend-workspace-picker.svg)
 
 - 新增位姿。
 - 删除位姿。
@@ -273,6 +295,8 @@ http://127.0.0.1:8080/index.html
 
 用于索驱 Home 标定：
 
+![Home 点位标定](/images/operator-manual/frontend-home-position.svg)
+
 - 「刷新」读取当前 Home。
 - 「当前位置设为 Home」把当前索驱位置写入输入框。
 - 「保存」保存 Home 标定。
@@ -283,6 +307,8 @@ http://127.0.0.1:8080/index.html
 ### 7.10 索驱遥控
 
 用于手动移动索驱。
+
+![索驱和 TCP 线模遥控](/images/operator-manual/frontend-remote-controls.svg)
 
 | 控件 | 用途 |
 | --- | --- |
@@ -313,6 +339,8 @@ http://127.0.0.1:8080/index.html
 
 3D Scene 是整个页面背景层，不是单独小卡片。它显示：
 
+![3D Scene 与图层控制](/images/operator-manual/frontend-3d-layers.svg)
+
 - 机器模型。
 - TF 坐标轴。
 - 原始或滤波点云。
@@ -333,6 +361,8 @@ http://127.0.0.1:8080/index.html
 ### 日志面板
 
 日志面板可切换来源：
+
+![日志和终端面板](/images/operator-manual/frontend-logs-terminal.svg)
 
 - 全部终端。
 - 算法层。

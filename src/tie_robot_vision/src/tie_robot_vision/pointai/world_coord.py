@@ -1,0 +1,327 @@
+"""pointAI 拆分后的职责模块。"""
+import json
+import math
+import os
+import time
+import yaml
+
+import cv2
+import numpy as np
+import rospy
+import torch
+from cv2 import ximgproc
+from cv2.ppf_match_3d import Pose3D
+from cv_bridge import CvBridge
+from geometry_msgs.msg import Pose, Vector3
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
+from sklearn.cluster import DBSCAN
+from std_msgs.msg import Bool, Float32, Float32MultiArray, Int32
+from std_srvs.srv import Trigger, TriggerResponse
+
+from tie_robot_vision.msg import PointCoords, PointsArray, motion
+from tie_robot_vision.srv import (
+    PlaneDetection,
+    PlaneDetectionResponse,
+    ProcessImage,
+    ProcessImageResponse,
+    SingleMove,
+    SingleMoveRequest,
+    linear_module_move,
+    linear_module_moveRequest,
+    linear_module_moveResponse,
+)
+from tie_robot_vision.perception.workspace_s2 import (
+    build_workspace_s2_axis_profile,
+    build_workspace_s2_bbox,
+    build_workspace_s2_line_positions,
+    build_workspace_s2_projective_line_segments,
+    build_workspace_s2_rectified_geometry,
+    estimate_workspace_s2_period_and_phase,
+    map_workspace_s2_rectified_points_to_image,
+    normalize_workspace_s2_response,
+    smooth_workspace_s2_profile,
+    sort_polygon_indices_clockwise,
+    sort_polygon_points_clockwise,
+)
+from .constants import *
+
+def quaternion_to_rotation_matrix(quaternion):
+    x_value = float(getattr(quaternion, "x", 0.0))
+    y_value = float(getattr(quaternion, "y", 0.0))
+    z_value = float(getattr(quaternion, "z", 0.0))
+    w_value = float(getattr(quaternion, "w", 1.0))
+    norm = math.sqrt(
+        x_value * x_value
+        + y_value * y_value
+        + z_value * z_value
+        + w_value * w_value
+    )
+    if norm <= 1e-9:
+        return np.eye(3, dtype=np.float32)
+
+    x_value /= norm
+    y_value /= norm
+    z_value /= norm
+    w_value /= norm
+    return np.array(
+        [
+            [
+                1.0 - 2.0 * (y_value * y_value + z_value * z_value),
+                2.0 * (x_value * y_value - z_value * w_value),
+                2.0 * (x_value * z_value + y_value * w_value),
+            ],
+            [
+                2.0 * (x_value * y_value + z_value * w_value),
+                1.0 - 2.0 * (x_value * x_value + z_value * z_value),
+                2.0 * (y_value * z_value - x_value * w_value),
+            ],
+            [
+                2.0 * (x_value * z_value - y_value * w_value),
+                2.0 * (y_value * z_value + x_value * w_value),
+                1.0 - 2.0 * (x_value * x_value + y_value * y_value),
+            ],
+        ],
+        dtype=np.float32,
+    )
+
+
+def lookup_scepter_to_map_transform(self):
+    tf_buffer = getattr(self, "tf_buffer", None)
+    if tf_buffer is None:
+        return None
+
+    source_frame = getattr(self, "raw_bind_point_tf_source_frame", "Scepter_depth_frame")
+    try:
+        return tf_buffer.lookup_transform(
+            "map",
+            source_frame,
+            rospy.Time(0),
+            rospy.Duration(0.05),
+        )
+    except Exception as exc:
+        rospy.logwarn_throttle(
+            2.0,
+            "pointAI无法获取%s->map TF，工作区世界坐标投影暂停: %s",
+            source_frame,
+            exc,
+        )
+        return None
+
+
+def transform_camera_point_to_map_frame(self, camera_point):
+    if not isinstance(camera_point, (list, tuple, np.ndarray)) or len(camera_point) < 3:
+        return None
+
+    try:
+        camera_xyz_mm = np.array(
+            [float(camera_point[0]), float(camera_point[1]), float(camera_point[2])],
+            dtype=np.float32,
+        )
+    except (TypeError, ValueError):
+        return None
+    if not np.all(np.isfinite(camera_xyz_mm)):
+        return None
+
+    transform_stamped = lookup_scepter_to_map_transform(self)
+    if transform_stamped is None:
+        return None
+
+    transform = getattr(transform_stamped, "transform", transform_stamped)
+    translation = getattr(transform, "translation", None)
+    rotation = getattr(transform, "rotation", None)
+    if translation is None or rotation is None:
+        return None
+
+    rotation_matrix = quaternion_to_rotation_matrix(rotation)
+    translation_mm = np.array(
+        [
+            float(getattr(translation, "x", 0.0)) * 1000.0,
+            float(getattr(translation, "y", 0.0)) * 1000.0,
+            float(getattr(translation, "z", 0.0)) * 1000.0,
+        ],
+        dtype=np.float32,
+    )
+    map_xyz_mm = rotation_matrix.dot(camera_xyz_mm) + translation_mm
+    if not np.all(np.isfinite(map_xyz_mm)):
+        return None
+    return [float(map_xyz_mm[0]), float(map_xyz_mm[1]), float(map_xyz_mm[2])]
+
+
+def get_map_frame_xy_channels(self):
+    if not self.ensure_raw_world_channels():
+        return None
+
+    transform_stamped = lookup_scepter_to_map_transform(self)
+    if transform_stamped is None:
+        return None
+
+    transform = getattr(transform_stamped, "transform", transform_stamped)
+    translation = getattr(transform, "translation", None)
+    rotation = getattr(transform, "rotation", None)
+    if translation is None or rotation is None:
+        return None
+
+    rotation_matrix = quaternion_to_rotation_matrix(rotation)
+    translation_mm = np.array(
+        [
+            float(getattr(translation, "x", 0.0)) * 1000.0,
+            float(getattr(translation, "y", 0.0)) * 1000.0,
+            float(getattr(translation, "z", 0.0)) * 1000.0,
+        ],
+        dtype=np.float32,
+    )
+
+    camera_x = self.x_channel.astype(np.float32)
+    camera_y = self.y_channel.astype(np.float32)
+    camera_z = self.depth_v.astype(np.float32)
+    valid_mask = (
+        np.isfinite(camera_x)
+        & np.isfinite(camera_y)
+        & np.isfinite(camera_z)
+        & (camera_z != 0.0)
+    )
+    map_x = (
+        rotation_matrix[0, 0] * camera_x
+        + rotation_matrix[0, 1] * camera_y
+        + rotation_matrix[0, 2] * camera_z
+        + translation_mm[0]
+    )
+    map_y = (
+        rotation_matrix[1, 0] * camera_x
+        + rotation_matrix[1, 1] * camera_y
+        + rotation_matrix[1, 2] * camera_z
+        + translation_mm[1]
+    )
+    return {
+        "x": map_x.astype(np.float32),
+        "y": map_y.astype(np.float32),
+        "valid_mask": valid_mask.astype(bool),
+    }
+
+
+def get_camera_frame_xy_channels(self):
+    if not self.ensure_raw_world_channels():
+        return None
+
+    cached_seq = getattr(self, "_cached_camera_frame_xy_seq", None)
+    current_seq = getattr(self, "world_image_seq", 0)
+    if cached_seq == current_seq:
+        return getattr(self, "_cached_camera_frame_xy_channels", None)
+
+    source_x = self.x_channel.astype(np.float32)
+    source_y = self.y_channel.astype(np.float32)
+    valid_mask = self.depth_v.astype(np.float32) != 0.0
+
+    cached_channels = {
+        "x": source_x,
+        "y": source_y,
+        "valid_mask": valid_mask.astype(bool),
+    }
+    self._cached_camera_frame_xy_seq = current_seq
+    self._cached_camera_frame_xy_channels = cached_channels
+    return cached_channels
+
+
+def image_raw_world_callback(self, msg):
+    img = self.bridge.imgmsg_to_cv2(msg)
+    img = np.array(img, copy=True)
+    self.image_raw_world = img
+    self.mark_visual_input("raw_world_coord")
+    self.ensure_raw_world_channels()
+
+
+def apply_scan_linear_camera_compensation_to_channels(self, camera_x, camera_y, camera_z):
+    source_x = np.asarray(camera_x, dtype=np.float32)
+    source_y = np.asarray(camera_y, dtype=np.float32)
+    source_z = np.asarray(camera_z, dtype=np.float32)
+    if not getattr(self, "scan_linear_compensation_enabled", False):
+        return source_x, source_y, source_z
+
+    finite_mask = np.isfinite(source_x) & np.isfinite(source_y) & np.isfinite(source_z) & (source_z != 0.0)
+    try:
+        min_z_mm = float(getattr(self, "scan_linear_compensation_min_z_mm", 0.0))
+        reference_z_mm = float(getattr(self, "scan_linear_compensation_reference_z_mm", 1000.0))
+        x_per_mm = float(getattr(self, "scan_linear_compensation_x_per_mm", 0.0))
+        y_per_mm = float(getattr(self, "scan_linear_compensation_y_per_mm", 0.0))
+        x_shift_per_mm = float(getattr(self, "scan_linear_compensation_x_shift_per_mm", 0.0))
+        y_shift_per_mm = float(getattr(self, "scan_linear_compensation_y_shift_per_mm", 0.0))
+        max_abs_scale_delta = abs(float(getattr(self, "scan_linear_compensation_max_abs_scale_delta", 0.25)))
+    except (TypeError, ValueError):
+        return source_x, source_y, source_z
+
+    active_mask = finite_mask & (source_z >= min_z_mm)
+    if not np.any(active_mask):
+        return source_x, source_y, source_z
+
+    z_delta_mm = source_z - reference_z_mm
+    x_scale_delta = np.clip(x_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta).astype(np.float32)
+    y_scale_delta = np.clip(y_per_mm * z_delta_mm, -max_abs_scale_delta, max_abs_scale_delta).astype(np.float32)
+    x_shift_mm = (x_shift_per_mm * z_delta_mm).astype(np.float32)
+    y_shift_mm = (y_shift_per_mm * z_delta_mm).astype(np.float32)
+    corrected_x = source_x.copy()
+    corrected_y = source_y.copy()
+    corrected_x[active_mask] = (source_x[active_mask] * (1.0 - x_scale_delta[active_mask])) + x_shift_mm[active_mask]
+    corrected_y[active_mask] = (source_y[active_mask] * (1.0 + y_scale_delta[active_mask])) + y_shift_mm[active_mask]
+    return corrected_x.astype(np.float32), corrected_y.astype(np.float32), source_z
+
+
+def ensure_raw_world_channels(self):
+    if getattr(self, "image_raw_world", None) is None:
+        return False
+
+    image_raw_world_channels = self.cv2.split(self.image_raw_world)
+    source_x = (image_raw_world_channels[0]).astype(np.float32)
+    source_y = (image_raw_world_channels[1]).astype(np.float32)
+    source_z = (image_raw_world_channels[2]).astype(np.float32)
+    self.x_channel, self.y_channel, self.depth_v = apply_scan_linear_camera_compensation_to_channels(
+        self,
+        source_x,
+        source_y,
+        source_z,
+    )
+    return True
+
+
+def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y, search_radius=6):
+    height, width = self.x_channel.shape
+    pixel_x = int(np.clip(pixel_x, 0, width - 1))
+    pixel_y = int(np.clip(pixel_y, 0, height - 1))
+
+    raw_world_coord = [
+        float(self.x_channel[pixel_y, pixel_x]),
+        float(self.y_channel[pixel_y, pixel_x]),
+        float(self.depth_v[pixel_y, pixel_x]),
+    ]
+    if raw_world_coord[0] != 0 and raw_world_coord[1] != 0 and raw_world_coord[2] != 0:
+        return raw_world_coord, [pixel_x, pixel_y], False
+
+    best_world_coord = None
+    best_sample_pixel = None
+    best_distance = None
+
+    for radius in range(1, search_radius + 1):
+        min_y = max(0, pixel_y - radius)
+        max_y = min(height - 1, pixel_y + radius)
+        min_x = max(0, pixel_x - radius)
+        max_x = min(width - 1, pixel_x + radius)
+
+        for sample_y in range(min_y, max_y + 1):
+            for sample_x in range(min_x, max_x + 1):
+                sample_world_coord = [
+                    float(self.x_channel[sample_y, sample_x]),
+                    float(self.y_channel[sample_y, sample_x]),
+                    float(self.depth_v[sample_y, sample_x]),
+                ]
+                if sample_world_coord[0] == 0 or sample_world_coord[1] == 0 or sample_world_coord[2] == 0:
+                    continue
+
+                distance = (sample_x - pixel_x) ** 2 + (sample_y - pixel_y) ** 2
+                if best_distance is None or distance < best_distance:
+                    best_distance = distance
+                    best_world_coord = sample_world_coord
+                    best_sample_pixel = [sample_x, sample_y]
+
+        if best_world_coord is not None:
+            return best_world_coord, best_sample_pixel, True
+
+    return raw_world_coord, [pixel_x, pixel_y], False

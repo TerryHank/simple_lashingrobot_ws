@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">顶部状态与系统入口</title>
+  <desc id="desc">展示浏览器顶部工具条、ROS 连接、电压和索驱、末端、视觉、演示模式胶囊的位置与含义。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef4fb"/>
+      <stop offset="1" stop-color="#dfe8f4"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.24"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#3b82f6"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 600 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .mono { font: 600 14px "JetBrains Mono", "Consolas", monospace; fill: #334155; }
+      .panel { fill: rgba(255,255,255,0.90); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .chip { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+      .note { fill: #0f172a; }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">先看顶部状态，再看子系统胶囊</text>
+  <text x="68" y="116" class="sub">这个区域决定当前浏览器是否在线、哪一层可以单独启停、以及现场是正常运行还是演示模式。</text>
+
+  <rect x="70" y="156" width="1260" height="82" rx="22" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="98" y="206" class="body">绑扎机器人</text>
+  <rect x="236" y="176" width="90" height="40" rx="18" class="blue"/><text x="259" y="201" class="tiny">控制面板</text>
+  <rect x="336" y="176" width="74" height="40" rx="18" class="blue"/><text x="357" y="201" class="tiny">图像</text>
+  <rect x="420" y="176" width="74" height="40" rx="18" class="blue"/><text x="441" y="201" class="tiny">设置</text>
+  <rect x="504" y="176" width="74" height="40" rx="18" class="chip"/><text x="526" y="201" class="tiny">终端</text>
+  <rect x="588" y="176" width="74" height="40" rx="18" class="chip"/><text x="610" y="201" class="tiny">日志</text>
+
+  <rect x="810" y="176" width="124" height="40" rx="18" class="amber"/>
+  <text x="835" y="201" class="tiny">ROS 连接</text>
+  <rect x="944" y="176" width="110" height="40" rx="18" class="amber"/>
+  <text x="971" y="201" class="tiny">电压 --V</text>
+  <rect x="1064" y="176" width="84" height="40" rx="18" class="green"/>
+  <text x="1087" y="201" class="tiny">索驱</text>
+  <rect x="1158" y="176" width="84" height="40" rx="18" class="green"/>
+  <text x="1181" y="201" class="tiny">末端</text>
+  <rect x="1252" y="176" width="84" height="40" rx="18" class="red"/>
+  <text x="1275" y="201" class="tiny">视觉</text>
+
+  <rect x="70" y="286" width="740" height="338" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="326" class="body">胶囊读法</text>
+  <text x="96" y="356" class="sub">绿色表示在线，黄色表示告警，红色或灰色时可短按启停、长按 0.5 秒重启。</text>
+
+  <rect x="96" y="388" width="180" height="60" rx="20" class="green"/><text x="148" y="423" class="body">索驱</text>
+  <rect x="292" y="388" width="180" height="60" rx="20" class="green"/><text x="346" y="423" class="body">末端</text>
+  <rect x="488" y="388" width="180" height="60" rx="20" class="green"/><text x="542" y="423" class="body">视觉</text>
+  <rect x="684" y="388" width="104" height="60" rx="20" class="red"/><text x="701" y="423" class="body">演示模式</text>
+
+  <rect x="96" y="474" width="692" height="114" rx="20" class="chip"/>
+  <text x="120" y="510" class="body">常见动作</text>
+  <text x="120" y="540" class="tiny">• 索驱胶囊只管 `tie-robot-driver-suoqu.service`。</text>
+  <text x="120" y="564" class="tiny">• 末端胶囊只管 `tie-robot-driver-moduan.service`。</text>
+  <text x="120" y="588" class="tiny">• 视觉胶囊管相机驱动 + pointAI 算法层。</text>
+
+  <rect x="852" y="286" width="478" height="338" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="878" y="326" class="body">现场优先顺序</text>
+  <rect x="882" y="356" width="414" height="50" rx="16" class="blue"/>
+  <text x="906" y="387" class="tiny">1. 先看 ROS 是否连接</text>
+  <rect x="882" y="418" width="414" height="50" rx="16" class="blue"/>
+  <text x="906" y="449" class="tiny">2. 再看索驱 / 末端 / 视觉状态</text>
+  <rect x="882" y="480" width="414" height="50" rx="16" class="amber"/>
+  <text x="906" y="511" class="tiny">3. 黄色只表示该层级有告警，不要看成顶部连接故障</text>
+  <rect x="882" y="542" width="414" height="50" rx="16" class="red"/>
+  <text x="906" y="573" class="tiny">4. 演示模式只管本工程静默开关，不影响浏览器本身</text>
+
+  <rect x="70" y="650" width="1260" height="70" rx="22" fill="#ffffff" stroke="#d7e0ef" stroke-width="2"/>
+  <text x="96" y="694" class="mono">顶部连接只表达 ROS / rosbridge；子系统告警看各自胶囊和日志。</text>
+
+  <path d="M904 156 C900 136, 900 124, 900 118" stroke="#3b82f6" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1140 226 C1130 260, 1100 284, 1070 294" stroke="#3b82f6" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M720 388 C760 362, 810 332, 860 320" stroke="#3b82f6" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M740 444 C782 472, 820 506, 860 520" stroke="#ef4444" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+</svg>

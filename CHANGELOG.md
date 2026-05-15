@@ -3,6 +3,28 @@
 本文档记录 `simple_lashingrobot_ws` 的项目级变更约定和近期关键调整。  
 开始修改代码前，先读最新日期的记录，再进入具体包目录。
 
+## 2026-05-15
+
+### 执行层视觉算法可切换
+
+- “视觉调试”新增“执行层视觉”选择，默认 `Hough微调`，可切到 `扫描同款Surface-DP`；设置会持久化，并热发布到 `/web/pointAI/set_execution_refine_algorithm`。
+- 后端保持 `/pointAI/process_image request_mode=4` 与控制层调用口径不变，pointAI 内部按运行态参数分发到 Hough 或 Surface-DP 执行分支，非法值和旧缓存均回退 Hough。
+- Surface-DP 执行分支复用扫描层 `run_manual_workspace_surface_dp_pipeline()` 的算法结果，但只发布执行层过滤后的点；输出继续套 TCP 执行盒、全局工作区过滤、TCP 蛇形排序和执行层分类过滤。
+- 前端图像层把原“执行底图 Hough二值”改为“执行视觉底图”，用于显示当前执行层视觉算法的诊断底图，支持 Hough / Surface-DP 两套输出；执行 Surface-DP 使用扫描同款 `runtime_response` 作为原始响应底图，并投回原始相机画幅后发布，方便继续叠加执行点和分类标记。
+- 开启分类后，执行层分类结果也会重新叠加到“执行视觉底图”：`BND` 表示已绑扎会被 blocking 过滤，`UNB` 表示未绑扎会继续下发，`UNC` 表示不确定；Hough 与 Surface-DP 执行分支共用这套分类诊断覆盖。
+
+### 账本+微调 XY 归格阈值可配置
+
+- 视觉调试页新增“账本微调 XY 阈值 (mm)”输入框，默认 80 mm；输入变化会保存到前端共享设置，并热发布到 `/web/cabin/set_ledger_refine_axis_threshold_mm`。
+- `ledger_with_refine` / `live_visual` 的微调接纳门槛从写死的 `kPseudoSlamCheckerboardAxisThresholdMm=80mm` 改为运行时热更新值，用于视觉点按全局棋盘行 / 列中心归格时的 XY 轴向阈值。
+- 该阈值只控制账本+微调的 XY 归格接纳；Z 不参与该接纳阈值。视觉点的 `world_z` 仍会随微调结果进入执行点，TCP 执行盒的 `X/Y/Z` 范围仍由“绑扎 X/Y/Z min/max”控制。
+
+### 执行微调按全局工作区过滤后整组输出
+
+- 用户最新口径：执行层视觉微调看到全局工作区外的点时，工作区外点直接排除，不再参与当前区域执行。
+- `MODE_EXECUTION_REFINE` 保留 TCP 执行盒作为 Hough 二值图 ROI；Hough 候选点生成后，新增按手动确认工作区的 `corner_world_map_frame` 多边形过滤。缺少 map 多边形时回退相机坐标多边形；再缺少手动工作区时才回退 `path_points.json` 规划工作区边界。
+- 执行微调输出口径从“必须组成完整 2x2 且选择离 TCP 原点最近的一组”改为“全局工作区过滤后，剩余当前区域点按 TCP 蛇形顺序作为一组输出”。剩余 1/2/3/4 个点都会下发；剩 0 个点则沿用当前无点跳过区域逻辑。
+
 ## 2026-05-13
 
 ### 扫描 Surface-DP 梁筋过滤改为点级过滤

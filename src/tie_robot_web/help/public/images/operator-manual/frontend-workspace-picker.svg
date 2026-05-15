@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">工作区选点和识别位姿</title>
+  <desc id="desc">展示新增位姿、删除位姿、记录当前位姿、移动到选中位姿、确认工作区域、撤销最后一点和清空重选的使用关系。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .tile { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">工作区选点把“当前画面”变成可扫描账本</text>
+  <text x="68" y="116" class="sub">先处理识别位姿，再在图像里点 4 个角，最后确认工作区域。</text>
+
+  <rect x="70" y="160" width="438" height="540" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">识别位姿</text>
+  <rect x="96" y="228" width="170" height="54" rx="16" class="blue"/><text x="130" y="262" class="tiny">新增位姿</text>
+  <rect x="278" y="228" width="170" height="54" rx="16" class="red"/><text x="312" y="262" class="tiny">删除位姿</text>
+  <rect x="96" y="300" width="352" height="62" rx="18" class="green"/><text x="122" y="338" class="tiny">记录当前位姿：把现在的索驱位置保存为识别位姿</text>
+  <rect x="96" y="380" width="352" height="62" rx="18" class="amber"/><text x="122" y="418" class="tiny">移动到选中位姿：让索驱回到目标识别位置</text>
+  <rect x="96" y="486" width="352" height="86" rx="18" class="tile"/>
+  <text x="122" y="520" class="tiny">识别位姿不是工作区角点；</text>
+  <text x="122" y="544" class="tiny">它是相机拍这块钢筋网时的索驱位置。</text>
+
+  <rect x="540" y="160" width="360" height="540" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="566" y="200" class="body">图像 4 点</text>
+  <rect x="588" y="246" width="250" height="250" rx="24" fill="#08111f" stroke="#334155" stroke-width="2"/>
+  <path d="M646 310 L786 292 L810 420 L620 448 Z" fill="rgba(96,165,250,0.16)" stroke="#60a5fa" stroke-width="4"/>
+  <circle cx="646" cy="310" r="9" fill="#f59e0b"/>
+  <circle cx="786" cy="292" r="9" fill="#f59e0b"/>
+  <circle cx="810" cy="420" r="9" fill="#f59e0b"/>
+  <circle cx="620" cy="448" r="9" fill="#f59e0b"/>
+  <text x="566" y="542" class="tiny">在红外图像里按工作区四角点选；</text>
+  <text x="566" y="568" class="tiny">点错了用「撤销最后一点」或「清空重选」。</text>
+
+  <rect x="932" y="160" width="398" height="540" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="958" y="200" class="body">确认与修正</text>
+  <rect x="958" y="228" width="320" height="58" rx="18" class="green"/><text x="986" y="264" class="tiny">确认工作区域</text>
+  <rect x="958" y="302" width="152" height="56" rx="18" class="amber"/><text x="988" y="337" class="tiny">撤销最后一点</text>
+  <rect x="1126" y="302" width="152" height="56" rx="18" class="red"/><text x="1162" y="337" class="tiny">清空重选</text>
+  <rect x="958" y="398" width="320" height="126" rx="18" class="tile"/>
+  <text x="982" y="432" class="tiny">确认成功后，前端会让 pointAI 保存工作区，</text>
+  <text x="982" y="456" class="tiny">并自动触发当前画面的 Surface-DP 扫描识别。</text>
+  <text x="982" y="494" class="tiny">如果没看到扫描结果，先看图像面板和算法日志。</text>
+</svg>

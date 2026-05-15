@@ -1,0 +1,2560 @@
+{
+  "generated_at": "2026-05-15 04:11:10",
+  "evaluation_mode": "unlabeled_proxy",
+  "label_source": null,
+  "point_source": "execution_refine_hough_tcp_roi",
+  "snapshot_dir": ".debug_frames/execution_bind_classification_live_20260515_041030",
+  "arrays_dir": ".debug_frames/execution_bind_classification_live_20260515_041030/arrays",
+  "point_count": 4,
+  "modality_count": 16,
+  "execution_roi": {
+    "roi_frame": "gripper_frame_tcp_tool_workspace",
+    "bounds_mm": {
+      "min_x": 0.0,
+      "max_x": 380.0,
+      "min_y": 0.0,
+      "max_y": 330.0,
+      "min_z": 0.0,
+      "max_z": 160.0
+    },
+    "tcp_config_path": "/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/config/gripper_tf.yaml",
+    "note": "执行层使用 TCP 工具坐标/线性模组工作范围，不使用手动画的像素工作区作为执行 ROI"
+  },
+  "hough_diagnostics": {
+    "valid_camera_coord_pixels": 307195,
+    "tcp_range_mask_pixels": 44068,
+    "tcp_range_mask_bbox_px": [
+      189,
+      56,
+      384,
+      321
+    ],
+    "binary_error": "",
+    "binary_foreground_pixels": 4057,
+    "binary_depth_min_threshold": 11.0,
+    "binary_depth_max_threshold": 888.0,
+    "hough_lines": 7,
+    "axis_aligned_lines": 7,
+    "intersections": 12,
+    "centers": 4,
+    "world_fallback": 0,
+    "zero_world": 0,
+    "candidate_points": 4,
+    "in_tcp_range_candidates": 4,
+    "selected_points": 4
+  },
+  "best_modality": {
+    "id": "depth_height_response",
+    "label": "深度高度差",
+    "note": "局部背景深度减当前深度，凸显高出平面的结构。",
+    "point_count": 4,
+    "counts": {
+      "bound": 4,
+      "unbound": 0,
+      "uncertain": 0
+    },
+    "mean_score": 0.9500000476837158,
+    "median_score": 0.949999988079071,
+    "score_spread_p90_p10": 0.10000002384185791,
+    "mean_quality": 1.0,
+    "confident_ratio": 1.0,
+    "uncertain_ratio": 0.0,
+    "mean_center_delta": 0.5020010992884636,
+    "margin_score": 0.8999999761581421,
+    "proxy_score": 0.8579999947547913,
+    "image": "images/01_depth_height_response.png"
+  },
+  "modalities": [
+    {
+      "id": "depth_height_response",
+      "label": "深度高度差",
+      "note": "局部背景深度减当前深度，凸显高出平面的结构。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.9500000476837158,
+      "median_score": 0.949999988079071,
+      "score_spread_p90_p10": 0.10000002384185791,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.5020010992884636,
+      "margin_score": 0.8999999761581421,
+      "proxy_score": 0.8579999947547913,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7479634881019592,
+            "ring_mean": 0.23251613974571228,
+            "center_delta": 0.515447348356247,
+            "center_std": 0.27388569712638855,
+            "patch_std": 0.28077930212020874,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.740426242351532,
+            "ring_mean": 0.21934039890766144,
+            "center_delta": 0.5210858434438705,
+            "center_std": 0.28497663140296936,
+            "patch_std": 0.28553545475006104,
+            "ridge_break_ratio": 0.8383838383838383,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6955676078796387,
+            "ring_mean": 0.21679596602916718,
+            "center_delta": 0.4787716418504715,
+            "center_std": 0.30939340591430664,
+            "patch_std": 0.2638494074344635,
+            "ridge_break_ratio": 1.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.7320813536643982,
+            "ring_mean": 0.2393817901611328,
+            "center_delta": 0.4926995635032654,
+            "center_std": 0.27386558055877686,
+            "patch_std": 0.2743802070617676,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/01_depth_height_response.png"
+    },
+    {
+      "id": "depth_gradient_response",
+      "label": "深度梯度边缘",
+      "note": "Sobel 深度梯度，凸显高度突变边界。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.949999988079071,
+      "median_score": 0.949999988079071,
+      "score_spread_p90_p10": 0.10000002384185791,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.322174072265625,
+      "margin_score": 0.8999999761581421,
+      "proxy_score": 0.8579999947547913,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6553235054016113,
+            "ring_mean": 0.32148271799087524,
+            "center_delta": 0.3338407874107361,
+            "center_std": 0.26643919944763184,
+            "patch_std": 0.32288938760757446,
+            "ridge_break_ratio": 0.7324973876698014,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6785227656364441,
+            "ring_mean": 0.3220997154712677,
+            "center_delta": 0.3564230501651764,
+            "center_std": 0.2499316781759262,
+            "patch_std": 0.324180543422699,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6100011467933655,
+            "ring_mean": 0.29505565762519836,
+            "center_delta": 0.3149454891681671,
+            "center_std": 0.26368817687034607,
+            "patch_std": 0.3056477904319763,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.6027082204818726,
+            "ring_mean": 0.31922125816345215,
+            "center_delta": 0.2834869623184204,
+            "center_std": 0.2618125379085541,
+            "patch_std": 0.3164229094982147,
+            "ridge_break_ratio": 0.4181818181818182,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        }
+      ],
+      "image": "images/02_depth_gradient_response.png"
+    },
+    {
+      "id": "depth_image_height_response",
+      "label": "原始 depth 高度差",
+      "note": "直接使用 /Scepter/depth/image_raw 的局部高度差。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.9500000476837158,
+      "median_score": 0.949999988079071,
+      "score_spread_p90_p10": 0.10000002384185791,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.5030996575951576,
+      "margin_score": 0.8999999761581421,
+      "proxy_score": 0.8579999947547913,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7490408420562744,
+            "ring_mean": 0.2324763983488083,
+            "center_delta": 0.5165644437074661,
+            "center_std": 0.27250760793685913,
+            "patch_std": 0.2803329527378082,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7439331412315369,
+            "ring_mean": 0.21937048435211182,
+            "center_delta": 0.524562656879425,
+            "center_std": 0.28086546063423157,
+            "patch_std": 0.28483712673187256,
+            "ridge_break_ratio": 0.806060606060606,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6996952295303345,
+            "ring_mean": 0.2183941900730133,
+            "center_delta": 0.48130103945732117,
+            "center_std": 0.30724912881851196,
+            "patch_std": 0.2645851671695709,
+            "ridge_break_ratio": 0.806060606060606,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.7304366230964661,
+            "ring_mean": 0.2404661327600479,
+            "center_delta": 0.48997049033641815,
+            "center_std": 0.2790892720222473,
+            "patch_std": 0.27474072575569153,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/03_depth_image_height_response.png"
+    },
+    {
+      "id": "depth_image_gradient_response",
+      "label": "原始 depth 梯度",
+      "note": "直接使用 /Scepter/depth/image_raw 的深度梯度。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.949999988079071,
+      "median_score": 0.949999988079071,
+      "score_spread_p90_p10": 0.10000002384185791,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.32194530963897705,
+      "margin_score": 0.8999999761581421,
+      "proxy_score": 0.8579999947547913,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6575769186019897,
+            "ring_mean": 0.32028722763061523,
+            "center_delta": 0.3372896909713745,
+            "center_std": 0.26449140906333923,
+            "patch_std": 0.32270410656929016,
+            "ridge_break_ratio": 0.7414141414141414,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6742814779281616,
+            "ring_mean": 0.3200916051864624,
+            "center_delta": 0.3541898727416992,
+            "center_std": 0.2503712475299835,
+            "patch_std": 0.32260462641716003,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6040033102035522,
+            "ring_mean": 0.29640787839889526,
+            "center_delta": 0.307595431804657,
+            "center_std": 0.2621353566646576,
+            "patch_std": 0.30569398403167725,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.6057144403457642,
+            "ring_mean": 0.31700819730758667,
+            "center_delta": 0.2887062430381775,
+            "center_std": 0.26074081659317017,
+            "patch_std": 0.3158325254917145,
+            "ridge_break_ratio": 0.4666666666666667,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        }
+      ],
+      "image": "images/04_depth_image_gradient_response.png"
+    },
+    {
+      "id": "ir_dark_response",
+      "label": "红外暗线响应",
+      "note": "局部背景减 IR，凸显钢筋暗线和结节阴影。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.9249999523162842,
+      "median_score": 0.8999999761581421,
+      "score_spread_p90_p10": 0.07000001668930056,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.29061131924390793,
+      "margin_score": 0.8499999642372131,
+      "proxy_score": 0.8373999898433686,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.5954002141952515,
+            "ring_mean": 0.37429022789001465,
+            "center_delta": 0.22110998630523682,
+            "center_std": 0.2669921815395355,
+            "patch_std": 0.2148583084344864,
+            "ridge_break_ratio": 0.5345454545454545,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6073877811431885,
+            "ring_mean": 0.3643442392349243,
+            "center_delta": 0.24304354190826416,
+            "center_std": 0.207850843667984,
+            "patch_std": 0.23289638757705688,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7137770056724548,
+            "ring_mean": 0.36106130480766296,
+            "center_delta": 0.35271570086479187,
+            "center_std": 0.20332172513008118,
+            "patch_std": 0.22641010582447052,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.7205650210380554,
+            "ring_mean": 0.37498897314071655,
+            "center_delta": 0.34557604789733887,
+            "center_std": 0.18643930554389954,
+            "patch_std": 0.27153998613357544,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/05_ir_dark_response.png"
+    },
+    {
+      "id": "hessian_ridge_response",
+      "label": "Hessian 脊线",
+      "note": "在组合响应上提二阶亮脊。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.9229297637939453,
+      "median_score": 0.8999999761581421,
+      "score_spread_p90_p10": 0.07579679489135749,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.4482123516499996,
+      "margin_score": 0.8458594083786011,
+      "proxy_score": 0.8366878142356873,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.891718892516761,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.557128369808197,
+            "ring_mean": 0.1851930469274521,
+            "center_delta": 0.37193532288074493,
+            "center_std": 0.28786125779151917,
+            "patch_std": 0.32301652431488037,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 0.960566154841719,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6411820650100708,
+            "ring_mean": 0.17894549667835236,
+            "center_delta": 0.46223656833171844,
+            "center_std": 0.325131356716156,
+            "patch_std": 0.3260546028614044,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.9999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6788504123687744,
+            "ring_mean": 0.16817916929721832,
+            "center_delta": 0.5106712430715561,
+            "center_std": 0.3502195179462433,
+            "patch_std": 0.32463547587394714,
+            "ridge_break_ratio": 0.5151515151515151,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.6394338607788086,
+            "ring_mean": 0.1914275884628296,
+            "center_delta": 0.448006272315979,
+            "center_std": 0.29080089926719666,
+            "patch_std": 0.336617112159729,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/06_hessian_ridge_response.png"
+    },
+    {
+      "id": "ir_clahe_dark_response",
+      "label": "CLAHE 红外暗线",
+      "note": "先做局部对比度增强，再提暗线响应。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.9158730506896973,
+      "median_score": 0.9043290019035339,
+      "score_spread_p90_p10": 0.04098126292228699,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.302903950214386,
+      "margin_score": 0.831745982170105,
+      "proxy_score": 0.82771138548851,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9548340548340548,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6283751130104065,
+            "ring_mean": 0.3784715235233307,
+            "center_delta": 0.2499035894870758,
+            "center_std": 0.27411237359046936,
+            "patch_std": 0.2485874742269516,
+            "ridge_break_ratio": 0.19191919191919193,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.5483405483405485
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.6465150713920593,
+            "ring_mean": 0.3659544587135315,
+            "center_delta": 0.28056061267852783,
+            "center_std": 0.22599609196186066,
+            "patch_std": 0.26699504256248474,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.712935745716095,
+            "ring_mean": 0.3665268123149872,
+            "center_delta": 0.3464089334011078,
+            "center_std": 0.1705525666475296,
+            "patch_std": 0.2404329627752304,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.9086580086580086,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.7205843329429626,
+            "ring_mean": 0.3858416676521301,
+            "center_delta": 0.3347426652908325,
+            "center_std": 0.1478039026260376,
+            "patch_std": 0.28225061297416687,
+            "ridge_break_ratio": 0.030303030303030276,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.08658008658008651
+          }
+        }
+      ],
+      "image": "images/07_ir_clahe_dark_response.png"
+    },
+    {
+      "id": "combined_ir_depth_response",
+      "label": "红外 + 深度组合",
+      "note": "深度高度差和红外暗线加权融合。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.8999999761581421,
+      "median_score": 0.8999999761581421,
+      "score_spread_p90_p10": 0.0,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.5322558768093586,
+      "margin_score": 0.7999999523162842,
+      "proxy_score": 0.8119999837875366,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7816093564033508,
+            "ring_mean": 0.26726919412612915,
+            "center_delta": 0.5143401622772217,
+            "center_std": 0.17498977482318878,
+            "patch_std": 0.29220864176750183,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7809032201766968,
+            "ring_mean": 0.2533721923828125,
+            "center_delta": 0.5275310277938843,
+            "center_std": 0.2317310869693756,
+            "patch_std": 0.29686570167541504,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7808648347854614,
+            "ring_mean": 0.2463737279176712,
+            "center_delta": 0.5344911068677902,
+            "center_std": 0.28514230251312256,
+            "patch_std": 0.2896186113357544,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.8224295973777771,
+            "ring_mean": 0.2697683870792389,
+            "center_delta": 0.5526612102985382,
+            "center_std": 0.21690969169139862,
+            "patch_std": 0.3109033703804016,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/08_combined_ir_depth_response.png"
+    },
+    {
+      "id": "frangi_like_response",
+      "label": "Frangi-like 脊线",
+      "note": "多尺度线状结构增强。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.8999999761581421,
+      "median_score": 0.8999999761581421,
+      "score_spread_p90_p10": 0.0,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.5491477064788342,
+      "margin_score": 0.7999999523162842,
+      "proxy_score": 0.8119999837875366,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7540854215621948,
+            "ring_mean": 0.23534615337848663,
+            "center_delta": 0.5187392681837082,
+            "center_std": 0.24892227351665497,
+            "patch_std": 0.35004907846450806,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7893078923225403,
+            "ring_mean": 0.22661092877388,
+            "center_delta": 0.5626969635486603,
+            "center_std": 0.2906956672668457,
+            "patch_std": 0.34967875480651855,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.773464024066925,
+            "ring_mean": 0.2112741768360138,
+            "center_delta": 0.5621898472309113,
+            "center_std": 0.3343922197818756,
+            "patch_std": 0.3408464789390564,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.7943660616874695,
+            "ring_mean": 0.2414013147354126,
+            "center_delta": 0.5529647469520569,
+            "center_std": 0.2658805549144745,
+            "patch_std": 0.3603832423686981,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/09_frangi_like_response.png"
+    },
+    {
+      "id": "gradient_ridge_fusion",
+      "label": "梯度 + 脊线融合",
+      "note": "深度梯度、Hessian 和 Frangi 的保守融合。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.8999999761581421,
+      "median_score": 0.8999999761581421,
+      "score_spread_p90_p10": 0.0,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.4927389845252037,
+      "margin_score": 0.7999999523162842,
+      "proxy_score": 0.8119999837875366,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7446737289428711,
+            "ring_mean": 0.2858891785144806,
+            "center_delta": 0.4587845504283905,
+            "center_std": 0.17417316138744354,
+            "patch_std": 0.32808300852775574,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7971993684768677,
+            "ring_mean": 0.2797170579433441,
+            "center_delta": 0.5174823105335236,
+            "center_std": 0.176823228597641,
+            "patch_std": 0.32898858189582825,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.7764990925788879,
+            "ring_mean": 0.25901830196380615,
+            "center_delta": 0.5174807906150818,
+            "center_std": 0.20524561405181885,
+            "patch_std": 0.3202557861804962,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.8999999999999999,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.7647234201431274,
+            "ring_mean": 0.28751513361930847,
+            "center_delta": 0.47720828652381897,
+            "center_std": 0.14800281822681427,
+            "patch_std": 0.33223262429237366,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 1.0,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/10_gradient_ridge_fusion.png"
+    },
+    {
+      "id": "transformed_color_luma_dark_response",
+      "label": "对齐彩色亮度暗线",
+      "note": "从 transformedColor 亮度提暗线，作为对齐可见光对照。",
+      "point_count": 4,
+      "counts": {
+        "bound": 4,
+        "unbound": 0,
+        "uncertain": 0
+      },
+      "mean_score": 0.8593097925186157,
+      "median_score": 0.8601806163787842,
+      "score_spread_p90_p10": 0.16106448173522947,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.16821663826704025,
+      "margin_score": 0.7186195254325867,
+      "proxy_score": 0.7984213267962138,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.7562715421736925,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.4388274550437927,
+            "ring_mean": 0.3413764238357544,
+            "center_delta": 0.09745103120803833,
+            "center_std": 0.3179023265838623,
+            "patch_std": 0.24699336290359497,
+            "ridge_break_ratio": 0.4458874458874459,
+            "delta_score": 0.5413946178224351,
+            "texture_score": 1.0,
+            "peak_score": 0.7565990604203323,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8301303294814867,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.48868343234062195,
+            "ring_mean": 0.3244577646255493,
+            "center_delta": 0.16422566771507263,
+            "center_std": 0.2358795553445816,
+            "patch_std": 0.27546966075897217,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.9123648206392925,
+            "texture_score": 1.0,
+            "peak_score": 0.8425576419665897,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "bound",
+          "score": 0.8902308831132691,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.5530186295509338,
+            "ring_mean": 0.3352687656879425,
+            "center_delta": 0.21774986386299133,
+            "center_std": 0.20507559180259705,
+            "patch_std": 0.2689697742462158,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 0.9534803957774722,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "bound",
+          "score": 0.9606062595041066,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.5412849187850952,
+            "ring_mean": 0.3478449285030365,
+            "center_delta": 0.19343999028205872,
+            "center_std": 0.26258063316345215,
+            "patch_std": 0.2554193139076233,
+            "ridge_break_ratio": 0.2611832611832612,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 0.9332498599743022,
+            "ridge_score": 0.746237889095032
+          }
+        }
+      ],
+      "image": "images/11_transformed_color_luma_dark_response.png"
+    },
+    {
+      "id": "transformed_depth_height_response",
+      "label": "对齐深度高度差",
+      "note": "使用 transformedDepth 的局部高度差。",
+      "point_count": 4,
+      "counts": {
+        "bound": 2,
+        "unbound": 2,
+        "uncertain": 0
+      },
+      "mean_score": 0.5786764025688171,
+      "median_score": 0.5619379281997681,
+      "score_spread_p90_p10": 0.5603608578443529,
+      "mean_quality": 1.0,
+      "confident_ratio": 1.0,
+      "uncertain_ratio": 0.0,
+      "mean_center_delta": 0.11540482565760612,
+      "margin_score": 0.5435224771499634,
+      "proxy_score": 0.7633319787979126,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.812651204165371,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.3954034149646759,
+            "ring_mean": 0.26705145835876465,
+            "center_delta": 0.12835195660591125,
+            "center_std": 0.41672614216804504,
+            "patch_std": 0.27588990330696106,
+            "ridge_break_ratio": 0.569023569023569,
+            "delta_score": 0.7130664255883958,
+            "texture_score": 1.0,
+            "peak_score": 0.6817300258011654,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.8882240234983378,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.5474758744239807,
+            "ring_mean": 0.21420852839946747,
+            "center_delta": 0.33326734602451324,
+            "center_std": 0.42219415307044983,
+            "patch_std": 0.29008713364601135,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 0.9439239214206565,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "unbound",
+          "score": 0.31122463690823526,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.11385852098464966,
+            "ring_mean": 0.25966009497642517,
+            "center_delta": 0.0,
+            "center_std": 0.047915104776620865,
+            "patch_std": 0.27336543798446655,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 1.0,
+            "peak_score": 0.19630779480112012,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "unbound",
+          "score": 0.30260560410803766,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.09005357325077057,
+            "ring_mean": 0.2938169836997986,
+            "center_delta": 0.0,
+            "center_std": 0.05446916073560715,
+            "patch_std": 0.27511683106422424,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 1.0,
+            "peak_score": 0.15526478146684583,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/12_transformed_depth_height_response.png"
+    },
+    {
+      "id": "color_luma_dark_response",
+      "label": "彩色亮度暗线",
+      "note": "从彩色图亮度提暗线，作为可见光对照。",
+      "point_count": 4,
+      "counts": {
+        "bound": 2,
+        "unbound": 1,
+        "uncertain": 1
+      },
+      "mean_score": 0.6543335914611816,
+      "median_score": 0.6704990863800049,
+      "score_spread_p90_p10": 0.6040676593780517,
+      "mean_quality": 1.0,
+      "confident_ratio": 0.75,
+      "uncertain_ratio": 0.25,
+      "mean_center_delta": 0.11981607973575592,
+      "margin_score": 0.7139248251914978,
+      "proxy_score": 0.7584741506841447,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.932539370807742,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.5366433262825012,
+            "ring_mean": 0.32247740030288696,
+            "center_delta": 0.21416592597961426,
+            "center_std": 0.21773691475391388,
+            "patch_std": 0.2314777374267578,
+            "ridge_break_ratio": 0.16883116883116878,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 0.9252471142801746,
+            "ridge_score": 0.48237476808905366
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "bound",
+          "score": 0.9573421040103446,
+          "quality": 1.0,
+          "reason": "center_response_texture_or_ridge_break",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.5444157123565674,
+            "ring_mean": 0.27931731939315796,
+            "center_delta": 0.2650983929634094,
+            "center_std": 0.26868951320648193,
+            "patch_std": 0.25826191902160645,
+            "ridge_break_ratio": 0.24579124579124578,
+            "delta_score": 1.0,
+            "texture_score": 1.0,
+            "peak_score": 0.9386477799251163,
+            "ridge_score": 0.7022607022607023
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "unbound",
+          "score": 0.3189942256746621,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.1353173851966858,
+            "ring_mean": 0.36681702733039856,
+            "center_delta": 0.0,
+            "center_std": 0.13259641826152802,
+            "patch_std": 0.27031180262565613,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 1.0,
+            "peak_score": 0.23330583654601,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "uncertain",
+          "score": 0.40845883141930356,
+          "quality": 1.0,
+          "reason": "score_between_thresholds",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.14980576932430267,
+            "ring_mean": 0.3920617401599884,
+            "center_delta": 0.0,
+            "center_std": 0.0526309572160244,
+            "patch_std": 0.2465418130159378,
+            "ridge_break_ratio": 0.29476584022038566,
+            "delta_score": 0.0,
+            "texture_score": 1.0,
+            "peak_score": 0.25828580917983224,
+            "ridge_score": 0.8421881149153876
+          }
+        }
+      ],
+      "image": "images/13_color_luma_dark_response.png"
+    },
+    {
+      "id": "raw_ir_response",
+      "label": "红外原图归一化",
+      "note": "直接使用 IR 灰度，观察材质纹理。",
+      "point_count": 4,
+      "counts": {
+        "bound": 0,
+        "unbound": 3,
+        "uncertain": 1
+      },
+      "mean_score": 0.2965400815010071,
+      "median_score": 0.2740901708602905,
+      "score_spread_p90_p10": 0.14926648288965227,
+      "mean_quality": 1.0,
+      "confident_ratio": 0.75,
+      "uncertain_ratio": 0.25,
+      "mean_center_delta": 0.0,
+      "margin_score": 0.4915452003479004,
+      "proxy_score": 0.5750373460650444,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "uncertain",
+          "score": 0.42347809908718903,
+          "quality": 1.0,
+          "reason": "score_between_thresholds",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.20713303983211517,
+            "ring_mean": 0.44330450892448425,
+            "center_delta": 0.0,
+            "center_std": 0.14724838733673096,
+            "patch_std": 0.16685661673545837,
+            "ridge_break_ratio": 0.47107438016528924,
+            "delta_score": 0.0,
+            "texture_score": 0.9203024208545685,
+            "peak_score": 0.3571259307450262,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "unbound",
+          "score": 0.27906203520452155,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.20610423386096954,
+            "ring_mean": 0.4224318563938141,
+            "center_delta": 0.0,
+            "center_std": 0.1211484968662262,
+            "patch_std": 0.17423544824123383,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 0.7571781054139137,
+            "peak_score": 0.35535212734649924,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "unbound",
+          "score": 0.21450187065638604,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.06721536815166473,
+            "ring_mean": 0.3473532199859619,
+            "center_delta": 0.0,
+            "center_std": 0.10195601731538773,
+            "patch_std": 0.17337004840373993,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 0.7043158216401935,
+            "peak_score": 0.11588856577873231,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "unbound",
+          "score": 0.26911829040899615,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.08076132088899612,
+            "ring_mean": 0.4282363951206207,
+            "center_delta": 0.0,
+            "center_std": 0.09272395074367523,
+            "patch_std": 0.2186913937330246,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 0.8884337870404124,
+            "peak_score": 0.13924365670516575,
+            "ridge_score": 0.0
+          }
+        }
+      ],
+      "image": "images/14_raw_ir_response.png"
+    },
+    {
+      "id": "pointai_result_dark_response",
+      "label": "pointAI 底图暗线",
+      "note": "使用 pointAI/result_image_raw 的暗线响应，通常接近 IR 输入。",
+      "point_count": 4,
+      "counts": {
+        "bound": 0,
+        "unbound": 1,
+        "uncertain": 3
+      },
+      "mean_score": 0.4393462836742401,
+      "median_score": 0.43131357431411743,
+      "score_spread_p90_p10": 0.08886860907077793,
+      "mean_quality": 1.0,
+      "confident_ratio": 0.25,
+      "uncertain_ratio": 0.75,
+      "mean_center_delta": 0.0061464086174964905,
+      "margin_score": 0.23145049810409546,
+      "proxy_score": 0.34208913960721754,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "world": [
+            59.0074577331543,
+            -195.68197631835938,
+            800.0
+          ],
+          "tcp": [
+            79.31802368164062,
+            45.99254226684571,
+            110.0
+          ],
+          "label": "uncertain",
+          "score": 0.5104831847925296,
+          "quality": 1.0,
+          "reason": "score_between_thresholds",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.3341905474662781,
+            "ring_mean": 0.32584062218666077,
+            "center_delta": 0.00834992527961731,
+            "center_std": 0.2627195119857788,
+            "patch_std": 0.20403532683849335,
+            "ridge_break_ratio": 0.5382395382395382,
+            "delta_score": 0.04638847377565172,
+            "texture_score": 1.0,
+            "peak_score": 0.5761905990797899,
+            "ridge_score": 1.0
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "world": [
+            -99.8843765258789,
+            -189.3738555908203,
+            800.0
+          ],
+          "tcp": [
+            85.62614440917967,
+            204.8843765258789,
+            110.0
+          ],
+          "label": "unbound",
+          "score": 0.3842747412467825,
+          "quality": 1.0,
+          "reason": "flat_clean_low_response",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.3156159520149231,
+            "ring_mean": 0.3325074017047882,
+            "center_delta": 0.0,
+            "center_std": 0.24487116932868958,
+            "patch_std": 0.19090217351913452,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.0,
+            "texture_score": 1.0,
+            "peak_score": 0.5441654345084881,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "world": [
+            -94.0096435546875,
+            -22.403152465820312,
+            807.0
+          ],
+          "tcp": [
+            252.5968475341797,
+            199.00964355468753,
+            117.0
+          ],
+          "label": "uncertain",
+          "score": 0.43044241207084444,
+          "quality": 1.0,
+          "reason": "score_between_thresholds",
+          "metrics": {
+            "valid_ratio": 1.0,
+            "center_mean": 0.33849653601646423,
+            "ring_mean": 0.3222608268260956,
+            "center_delta": 0.016235709190368652,
+            "center_std": 0.26375535130500793,
+            "patch_std": 0.19428622722625732,
+            "ridge_break_ratio": 0.0,
+            "delta_score": 0.09019838439093696,
+            "texture_score": 1.0,
+            "peak_score": 0.583614717269766,
+            "ridge_score": 0.0
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "world": [
+            62.58637237548828,
+            -27.04093360900879,
+            803.0
+          ],
+          "tcp": [
+            247.9590663909912,
+            42.41362762451173,
+            113.0
+          ],
+          "label": "uncertain",
+          "score": 0.4321847354150349,
+          "quality": 1.0,
+          "reason": "score_between_thresholds",
+          "metrics": {
+            "valid_ratio": 0.9808413161182841,
+            "center_mean": 0.32837581634521484,
+            "ring_mean": 0.42370352149009705,
+            "center_delta": 0.0,
+            "center_std": 0.3021702766418457,
+            "patch_std": 0.3360082507133484,
+            "ridge_break_ratio": 0.1515151515151515,
+            "delta_score": 0.0,
+            "texture_score": 1.0,
+            "peak_score": 0.566165200595198,
+            "ridge_score": 0.43290043290043284
+          }
+        }
+      ],
+      "image": "images/15_pointai_result_dark_response.png"
+    },
+    {
+      "id": "world_coord_z_height_response",
+      "label": "world_coord Z 高度差",
+      "note": "使用去平面后的 world_coord Z 做高度差对照。",
+      "point_count": 4,
+      "counts": {
+        "bound": 0,
+        "unbound": 0,
+        "uncertain": 4
+      },
+      "mean_score": 0.0,
+      "median_score": 0.0,
+      "score_spread_p90_p10": 0.0,
+      "mean_quality": 0.5286487936973572,
+      "confident_ratio": 0.0,
+      "uncertain_ratio": 1.0,
+      "mean_center_delta": 0.0,
+      "margin_score": 0.0,
+      "proxy_score": 0.09515678286552429,
+      "samples": [
+        {
+          "idx": 1,
+          "pix": [
+            357.0,
+            132.0
+          ],
+          "label": "uncertain",
+          "score": 0.0,
+          "quality": 0.5319212232998156,
+          "reason": "valid_ratio_too_low",
+          "metrics": {
+            "valid_ratio": 0.18617242815493545
+          }
+        },
+        {
+          "idx": 2,
+          "pix": [
+            262.0,
+            136.0
+          ],
+          "label": "uncertain",
+          "score": 0.0,
+          "quality": 0.5224013803772238,
+          "reason": "valid_ratio_too_low",
+          "metrics": {
+            "valid_ratio": 0.18284048313202833
+          }
+        },
+        {
+          "idx": 3,
+          "pix": [
+            266.0,
+            242.0
+          ],
+          "label": "uncertain",
+          "score": 0.0,
+          "quality": 0.5081216159933362,
+          "reason": "valid_ratio_too_low",
+          "metrics": {
+            "valid_ratio": 0.17784256559766765
+          }
+        },
+        {
+          "idx": 4,
+          "pix": [
+            359.0,
+            239.0
+          ],
+          "label": "uncertain",
+          "score": 0.0,
+          "quality": 0.5521508895103231,
+          "reason": "valid_ratio_too_low",
+          "metrics": {
+            "valid_ratio": 0.19325281132861308
+          }
+        }
+      ],
+      "image": "images/16_world_coord_z_height_response.png"
+    }
+  ],
+  "images": {
+    "best_overview": "images/00_best_overview.png",
+    "depth_height_response": "images/01_depth_height_response.png",
+    "depth_gradient_response": "images/02_depth_gradient_response.png",
+    "depth_image_height_response": "images/03_depth_image_height_response.png",
+    "depth_image_gradient_response": "images/04_depth_image_gradient_response.png",
+    "ir_dark_response": "images/05_ir_dark_response.png",
+    "hessian_ridge_response": "images/06_hessian_ridge_response.png",
+    "ir_clahe_dark_response": "images/07_ir_clahe_dark_response.png",
+    "combined_ir_depth_response": "images/08_combined_ir_depth_response.png",
+    "frangi_like_response": "images/09_frangi_like_response.png",
+    "gradient_ridge_fusion": "images/10_gradient_ridge_fusion.png",
+    "transformed_color_luma_dark_response": "images/11_transformed_color_luma_dark_response.png",
+    "transformed_depth_height_response": "images/12_transformed_depth_height_response.png",
+    "color_luma_dark_response": "images/13_color_luma_dark_response.png",
+    "raw_ir_response": "images/14_raw_ir_response.png",
+    "pointai_result_dark_response": "images/15_pointai_result_dark_response.png",
+    "world_coord_z_height_response": "images/16_world_coord_z_height_response.png"
+  },
+  "read_only_guard_paths": [
+    "/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/data/pseudo_slam_points.json",
+    "/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/data/pseudo_slam_bind_path.json",
+    "/home/hyq-/simple_lashingrobot_ws/src/tie_robot_process/data/bind_execution_memory.json",
+    "/home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_classification_events.jsonl"
+  ],
+  "report_url_path": "/reports/bind_point_classification_modalities_current/index.html",
+  "note": "无标注代理评分不是红 / 绿框真实准确率；点源来自执行层 TCP ROI + Hough 交点，不再使用 perception_lashing_points_camera.txt 扫描候选点。perception_lashing_result_image 是渲染覆盖图，为避免把输出颜色泄漏进分类输入，不作为候选模态参与排名。拿到人工标注 JSON 后可用 --labels-json 复跑。"
+}

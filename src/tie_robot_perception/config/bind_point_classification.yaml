@@ -1,6 +1,12 @@
-mode: shadow
+mode: off
+method: deep_learning
 event_log_path: /home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_classification_events.jsonl
 evidence_root: /home/hyq-/simple_lashingrobot_ws/src/tie_robot_perception/data/bind_evidence
+deep_learning_model_path: /home/hyq-/simple_lashingrobot_ws/best.pt
+deep_learning_confidence: 0.2
+deep_learning_depth_tolerance_mm: 75.0
+deep_learning_bound_class_id: 0
+deep_learning_unbound_class_id: 1
 patch_half_size_px: 32
 height_band_mm: 15.0
 min_valid_depth_ratio: 0.35

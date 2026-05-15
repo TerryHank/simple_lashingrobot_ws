@@ -322,6 +322,18 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("return false;", failure_branch[:failure_branch.index("continue;")])
         self.assertIn("停止并回起点请求", body)
 
+    def test_live_visual_waits_for_moduan_idle_before_next_cabin_move(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        start = node.index("bool run_live_visual_global_work(")
+        end = node.index("\nbool run_planned_path_refine_only_global_work", start)
+        body = node[start:end]
+
+        execution_index = body.index("execute_moduan_bind_points_via_action")
+        wait_index = body.index("wait_for_moduan_post_bind_idle_guard", execution_index)
+        success_count_index = body.index("executed_area_count++;", execution_index)
+        self.assertLess(wait_index, success_count_index)
+
     def test_recover_pause_command_zeroes_moduan_before_returning_cabin_to_start(self):
         node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
 
@@ -460,6 +472,122 @@ class MotionChainSignalGuardTest(unittest.TestCase):
         self.assertIn("kPlannedPathNoPointsRetrySettleMs", helper_body)
         self.assertIn("sg_live_visual_client.call", helper_body)
         self.assertGreaterEqual(helper_body.count("sg_live_visual_client.call"), 2)
+
+    def test_execution_chain_logs_missing_vision_service_dependency(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        self.assertIn("bool call_execution_refine_vision_service(", node)
+        helper_start = node.index("bool call_execution_refine_vision_service(")
+        helper_end = node.index("\nbool is_execution_refine_no_points_response", helper_start)
+        helper_body = node[helper_start:helper_end]
+        self.assertIn("/pointAI/process_image", helper_body)
+        self.assertIn("pointAINode", helper_body)
+        self.assertIn("AI_client.exists()", helper_body)
+        self.assertIn("Cabin_Error", helper_body)
+
+        live_start = node.index("bool run_live_visual_global_work(")
+        live_end = node.index("\nbool run_planned_path_refine_only_global_work", live_start)
+        live_body = node[live_start:live_end]
+        self.assertIn("call_execution_refine_vision_service", live_body)
+        self.assertNotIn("AI_client.call(scan_srv)", live_body)
+
+        planned_start = node.index("bool run_planned_path_refine_only_global_work(")
+        planned_end = node.index("\nbool run_bind_from_scan(", planned_start)
+        planned_body = node[planned_start:planned_end]
+        self.assertIn("call_execution_refine_vision_service", planned_body)
+        self.assertNotIn("AI_client.call(scan_srv)", planned_body)
+
+    def test_planned_path_refine_only_logs_moduan_sg_vision_dependency_when_service_missing(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        helper_start = node.index("bool call_sg_live_visual_with_no_points_retry(")
+        helper_end = node.index("\nstd::vector<uint8_t> build_pseudo_slam_ir_roi_frame", helper_start)
+        helper_body = node[helper_start:helper_end]
+        self.assertIn("/moduan/sg", helper_body)
+        self.assertIn("/pointAI/process_image", helper_body)
+        self.assertIn("pointAINode", helper_body)
+        self.assertIn("sg_live_visual_client.exists()", helper_body)
+        self.assertIn("Cabin_Error", helper_body)
+
+    def test_execution_chain_keeps_progress_when_vision_service_dependency_is_missing(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+
+        live_start = node.index("bool run_live_visual_global_work(")
+        live_end = node.index("\nbool run_planned_path_refine_only_global_work", live_start)
+        live_body = node[live_start:live_end]
+        live_call_failure_start = live_body.index("if (!call_execution_refine_vision_service")
+        live_call_failure_end = live_body.index(
+            "\n        if (!scan_srv.response.success)",
+            live_call_failure_start,
+        )
+        live_call_failure_block = live_body[live_call_failure_start:live_call_failure_end]
+        self.assertIn("Cabin_Error", live_call_failure_block)
+        self.assertIn("视觉依赖不可用", live_call_failure_block)
+        self.assertIn("skipped_area_count++", live_call_failure_block)
+        self.assertIn("continue;", live_call_failure_block)
+        live_error_log_index = live_call_failure_block.index("Cabin_Error")
+        live_continue_index = live_call_failure_block.index("continue;", live_error_log_index)
+        self.assertLess(live_error_log_index, live_continue_index)
+
+        planned_start = node.index("bool run_planned_path_refine_only_global_work(")
+        planned_end = node.index("\nbool run_bind_from_scan(", planned_start)
+        planned_body = node[planned_start:planned_end]
+
+        sg_call_failure_start = planned_body.index("if (!call_sg_live_visual_with_no_points_retry")
+        sg_call_failure_end = planned_body.index(
+            "\n            if (!bind_srv.response.success)",
+            sg_call_failure_start,
+        )
+        sg_call_failure_block = planned_body[sg_call_failure_start:sg_call_failure_end]
+        self.assertIn("Cabin_Error", sg_call_failure_block)
+        self.assertIn("单点绑扎/视觉依赖不可用", sg_call_failure_block)
+        self.assertIn("skipped_area_count++", sg_call_failure_block)
+        self.assertIn("continue;", sg_call_failure_block)
+        sg_error_log_index = sg_call_failure_block.index("Cabin_Error")
+        sg_continue_index = sg_call_failure_block.index("continue;", sg_error_log_index)
+        self.assertLess(sg_error_log_index, sg_continue_index)
+
+        jump_call_failure_start = planned_body.index("if (!call_execution_refine_vision_service")
+        jump_call_failure_end = planned_body.index(
+            "\n        } else if (!scan_srv.response.success)",
+            jump_call_failure_start,
+        )
+        jump_call_failure_block = planned_body[jump_call_failure_start:jump_call_failure_end]
+        self.assertIn("refine_failure_reason = vision_call_message;", jump_call_failure_block)
+        self.assertNotIn("return false;", jump_call_failure_block)
+
+    def test_ledger_refine_axis_threshold_is_hot_configurable(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        runtime_header = (
+            PROCESS_DIR / "src" / "suoqu" / "suoqu_runtime_internal.hpp"
+        ).read_text(encoding="utf-8")
+        scan_processing = (
+            PROCESS_DIR / "src" / "suoqu" / "pseudo_slam_scan_processing.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "std::atomic<float> live_visual_refine_axis_threshold_mm",
+            runtime_header,
+        )
+        self.assertIn(
+            "std::atomic<float> live_visual_refine_axis_threshold_mm{kPseudoSlamCheckerboardAxisThresholdMm};",
+            node,
+        )
+        self.assertIn(
+            'nh.subscribe("/web/cabin/set_ledger_refine_axis_threshold_mm"',
+            node,
+        )
+        self.assertIn("void ledger_refine_axis_threshold_callback", node)
+
+        classify_start = scan_processing.index("bool classify_live_visual_point_into_checkerboard(")
+        classify_end = scan_processing.index(
+            "\nstd::vector<tie_robot_msgs::PointCoords> filter_pseudo_slam_non_checkerboard_points",
+            classify_start,
+        )
+        classify_body = scan_processing[classify_start:classify_end]
+        self.assertIn("live_visual_refine_axis_threshold_mm.load", classify_body)
+        self.assertIn("axis_threshold_mm", classify_body)
+        self.assertNotIn("> kPseudoSlamCheckerboardAxisThresholdMm", classify_body)
 
     def test_planned_path_refine_only_stops_after_unsafe_moduan_failure(self):
         node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
@@ -1129,6 +1257,15 @@ class MotionChainSignalGuardTest(unittest.TestCase):
 
         self.assertIn("execute_bind_points(req.points, res.message)", service_body)
         self.assertNotIn("execute_bind_points(req.points, res.message,", service_body)
+
+    def test_live_visual_refine_filters_bound_classification_points_before_ledger_matching(self):
+        node = (PROCESS_DIR / "src" / "suoquNode.cpp").read_text(encoding="utf-8")
+        refine_start = node.index("if (!call_execution_refine_vision_service(")
+        refine_end = node.index("area_world_points = dedupe_world_points(area_world_points);", refine_start)
+        refine_block = node[refine_start:refine_end]
+
+        self.assertIn("if (point.is_shuiguan)", refine_block)
+        self.assertIn("跳过已绑扎视觉点", refine_block)
 
     def test_moduan_control_layer_has_no_legacy_idx_based_jump_bind_filter(self):
         action = (

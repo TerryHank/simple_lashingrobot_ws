@@ -19,6 +19,8 @@ import {
 } from "../config/topicRegistry.js";
 import {
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
+  normalizeBindClassificationMethod,
+  normalizeExecutionRefineAlgorithm,
   normalizeScanResponseSource,
 } from "../config/visualRecognitionMode.js";
 import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
@@ -30,6 +32,7 @@ const IMAGE_HOVER_WORLD_COORD_THROTTLE_MS = 1000;
 const DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM = 485;
 const DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM = 40;
 const DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM = 45;
+const DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM = 80;
 const BIND_EXECUTION_CABIN_Z_MODE_FIXED = 0;
 const BIND_EXECUTION_CABIN_Z_MODE_MIN = 1;
 
@@ -152,6 +155,10 @@ export class RosConnectionController {
       this.resources.scanResponseSourcePublisher.advertise();
       this.resources.scanLinearCompensationPublisher.advertise();
       this.resources.executionRefineTcpRoiPublisher.advertise();
+      this.resources.executionRefineAlgorithmPublisher.advertise();
+      this.resources.ledgerRefineAxisThresholdPublisher.advertise();
+      this.resources.bindClassificationEnabledPublisher.advertise();
+      this.resources.bindClassificationMethodPublisher.advertise();
       this.resources.linearModuleInterruptStopPublisher.advertise();
       this.bindSubscriptions();
       this.applySettingsLogSubscription();
@@ -300,6 +307,26 @@ export class RosConnectionController {
         ros,
         name: TOPICS.algorithm.setExecutionRefineTcpRoi,
         messageType: MESSAGE_TYPES.float32MultiArray,
+      }),
+      executionRefineAlgorithmPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setExecutionRefineAlgorithm,
+        messageType: MESSAGE_TYPES.string,
+      }),
+      ledgerRefineAxisThresholdPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.process.setLedgerRefineAxisThreshold,
+        messageType: MESSAGE_TYPES.float32,
+      }),
+      bindClassificationEnabledPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setBindClassificationEnabled,
+        messageType: MESSAGE_TYPES.bool,
+      }),
+      bindClassificationMethodPublisher: new ROSLIB.Topic({
+        ros,
+        name: TOPICS.algorithm.setBindClassificationMethod,
+        messageType: MESSAGE_TYPES.string,
       }),
       scepterCameraReconfigureService: new ROSLIB.Service({
         ros,
@@ -870,6 +897,19 @@ export class RosConnectionController {
     };
   }
 
+  publishExecutionRefineAlgorithm(algorithm) {
+    if (!this.ros?.isConnected || !this.resources?.executionRefineAlgorithmPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置执行层视觉算法。" };
+    }
+    const normalizedAlgorithm = normalizeExecutionRefineAlgorithm(algorithm);
+    this.resources.executionRefineAlgorithmPublisher.publish(new ROSLIB.Message({ data: normalizedAlgorithm }));
+    return {
+      success: true,
+      algorithm: normalizedAlgorithm,
+      message: `执行层视觉已切换为 ${normalizedAlgorithm}。`,
+    };
+  }
+
   publishScanLinearCompensation(settings = {}) {
     if (!this.ros?.isConnected || !this.resources?.scanLinearCompensationPublisher) {
       return { success: false, message: "ROS 未连接，无法设置扫描线性补偿。" };
@@ -936,6 +976,48 @@ export class RosConnectionController {
       success: true,
       range: normalizedRange,
       message: "线性模组绑扎范围已下发到视觉服务。",
+    };
+  }
+
+  publishLedgerRefineAxisThreshold(thresholdMm) {
+    if (!this.ros?.isConnected || !this.resources?.ledgerRefineAxisThresholdPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置账本微调XY阈值。" };
+    }
+    const numericThreshold = Number(thresholdMm);
+    const sanitizedThreshold = Number.isFinite(numericThreshold) && numericThreshold > 0
+      ? numericThreshold
+      : DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM;
+    this.resources.ledgerRefineAxisThresholdPublisher.publish(new ROSLIB.Message({ data: sanitizedThreshold }));
+    return {
+      success: true,
+      thresholdMm: sanitizedThreshold,
+      message: `账本微调XY阈值已设置为 ${sanitizedThreshold} mm。`,
+    };
+  }
+
+  publishBindClassificationEnabled(enabled) {
+    if (!this.ros?.isConnected || !this.resources?.bindClassificationEnabledPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置绑扎点分类开关。" };
+    }
+    const enabledValue = Boolean(enabled);
+    this.resources.bindClassificationEnabledPublisher.publish(new ROSLIB.Message({ data: enabledValue }));
+    return {
+      success: true,
+      enabled: enabledValue,
+      message: `绑扎点分类已${enabledValue ? "开启" : "关闭"}。`,
+    };
+  }
+
+  publishBindClassificationMethod(method) {
+    if (!this.ros?.isConnected || !this.resources?.bindClassificationMethodPublisher) {
+      return { success: false, message: "ROS 未连接，无法设置绑扎点分类方法。" };
+    }
+    const normalizedMethod = normalizeBindClassificationMethod(method);
+    this.resources.bindClassificationMethodPublisher.publish(new ROSLIB.Message({ data: normalizedMethod }));
+    return {
+      success: true,
+      method: normalizedMethod,
+      message: `绑扎点分类方法已切换为 ${normalizedMethod}。`,
     };
   }
 

@@ -13,11 +13,13 @@ from . import bind_point_tf
 def bind_image_processor_methods(cls):
     cls.load_runtime_config = runtime_config.load_runtime_config
     cls.save_runtime_config = runtime_config.save_runtime_config
-    cls.fixed_z_value_callback = runtime_config.fixed_z_value_callback
     cls.set_stable_frame_count_callback = runtime_config.set_stable_frame_count_callback
     cls.set_scan_beam_exclusion_callback = runtime_config.set_scan_beam_exclusion_callback
     cls.set_scan_beam_exclusion_margin_callback = runtime_config.set_scan_beam_exclusion_margin_callback
     cls.set_scan_response_source_callback = runtime_config.set_scan_response_source_callback
+    cls.set_execution_refine_algorithm_callback = runtime_config.set_execution_refine_algorithm_callback
+    cls.set_bind_classification_enabled_callback = runtime_config.set_bind_classification_enabled_callback
+    cls.set_bind_classification_method_callback = runtime_config.set_bind_classification_method_callback
     cls.set_scan_linear_compensation_callback = runtime_config.set_scan_linear_compensation_callback
     cls.set_execution_refine_tcp_roi_bounds = runtime_config.set_execution_refine_tcp_roi_bounds
     cls.set_execution_refine_tcp_roi_callback = runtime_config.set_execution_refine_tcp_roi_callback
@@ -64,6 +66,7 @@ def bind_image_processor_methods(cls):
     cls.get_execution_refine_tcp_roi_bounds = workspace_masks.get_execution_refine_tcp_roi_bounds
     cls.get_execution_refine_tcp_range_pixel_mask = workspace_masks.get_execution_refine_tcp_range_pixel_mask
     cls.is_camera_world_coord_in_execution_refine_tcp_range = workspace_masks.is_camera_world_coord_in_execution_refine_tcp_range
+    cls.is_camera_world_coord_in_global_workspace = workspace_masks.is_camera_world_coord_in_global_workspace
     cls.get_travel_range_pixel_mask = workspace_masks.get_travel_range_pixel_mask
     cls.is_point_in_matrix_selection_pixel_mask = workspace_masks.is_point_in_matrix_selection_pixel_mask
     cls.is_point_in_travel_range = workspace_masks.is_point_in_travel_range
@@ -81,6 +84,13 @@ def bind_image_processor_methods(cls):
     cls.manual_workspace_s2_callback = manual_workspace_s2.manual_workspace_s2_callback
     cls.handle_lashing_recognize_once = manual_workspace_s2.handle_lashing_recognize_once
     cls.run_execution_refine_hough_pipeline = execution_refine_hough.run_execution_refine_hough_pipeline
+    cls.cache_execution_refine_base_image_for_classification = (
+        execution_refine_hough.cache_execution_refine_base_image_for_classification
+    )
+    cls.publish_execution_refine_classified_base_image = (
+        execution_refine_hough.publish_execution_refine_classified_base_image
+    )
+    cls.run_execution_refine_surface_dp_pipeline = manual_workspace_s2.run_execution_refine_surface_dp_pipeline
     cls.smooth_workspace_s2_profile = staticmethod(manual_workspace_s2.smooth_workspace_s2_profile)
     cls.estimate_workspace_s2_period_and_phase = staticmethod(manual_workspace_s2.estimate_workspace_s2_period_and_phase)
     cls.build_workspace_s2_line_positions = staticmethod(manual_workspace_s2.build_workspace_s2_line_positions)
@@ -130,11 +140,18 @@ def bind_image_processor_methods(cls):
     cls.has_detected_points = process_image_service.has_detected_points
     cls.build_z_snapshot = process_image_service.build_z_snapshot
     cls.build_coordinate_snapshot = process_image_service.build_coordinate_snapshot
+    cls.classify_points_for_phase = process_image_service.classify_points_for_phase
     cls.classify_bind_check_points = process_image_service.classify_bind_check_points
+    cls.classify_execution_refine_points = process_image_service.classify_execution_refine_points
+    cls.build_execution_refine_classification_diagnostic_points = (
+        process_image_service.build_execution_refine_classification_diagnostic_points
+    )
     cls.is_stable_z_window = process_image_service.is_stable_z_window
     cls.is_stable_coordinate_window = process_image_service.is_stable_coordinate_window
     cls.get_request_mode = process_image_service.get_request_mode
     cls.get_request_mode_name = process_image_service.get_request_mode_name
+    cls.get_execution_refine_algorithm = process_image_service.get_execution_refine_algorithm
+    cls.get_execution_refine_algorithm_label = process_image_service.get_execution_refine_algorithm_label
     cls.build_process_image_timing_message = process_image_service.build_process_image_timing_message
     cls.log_process_image_timing = process_image_service.log_process_image_timing
     cls.build_detection_summary_log = process_image_service.build_detection_summary_log
@@ -142,6 +159,7 @@ def bind_image_processor_methods(cls):
     cls.format_out_of_height_message = process_image_service.format_out_of_height_message
     cls.evaluate_point_coords_for_mode = process_image_service.evaluate_point_coords_for_mode
     cls.build_process_image_response = process_image_service.build_process_image_response
+    cls.run_execution_refine_visual_pipeline = process_image_service.run_execution_refine_visual_pipeline
     cls.wait_for_stable_point_coords = process_image_service.wait_for_stable_point_coords
     cls.run_visual_detection_with_release_frames = process_image_service.run_visual_detection_with_release_frames
     cls.handle_process_image = process_image_service.handle_process_image

@@ -25,10 +25,12 @@ def register_ros_interfaces(self):
     rospy.Subscriber('/web/pointAI/set_scan_beam_exclusion', Bool, self.set_scan_beam_exclusion_callback)
     rospy.Subscriber('/web/pointAI/set_scan_beam_exclusion_margin_mm', Float32, self.set_scan_beam_exclusion_margin_callback)
     rospy.Subscriber('/web/pointAI/set_scan_response_source', String, self.set_scan_response_source_callback)
+    rospy.Subscriber('/web/pointAI/set_execution_refine_algorithm', String, self.set_execution_refine_algorithm_callback)
+    rospy.Subscriber('/web/pointAI/set_bind_classification_enabled', Bool, self.set_bind_classification_enabled_callback)
+    rospy.Subscriber('/web/pointAI/set_bind_classification_method', String, self.set_bind_classification_method_callback)
     rospy.Subscriber('/web/pointAI/set_scan_linear_compensation', Float32MultiArray, self.set_scan_linear_compensation_callback)
     rospy.Subscriber('/web/pointAI/set_execution_refine_tcp_roi', Float32MultiArray, self.set_execution_refine_tcp_roi_callback)
     rospy.Subscriber('/web/pointAI/move_to_workspace_center_scan_pose', Bool, self.workspace_center_scan_pose_callback)
-    rospy.Subscriber('/web/pointAI/set_height_threshold', Float32, self.fixed_z_value_callback)
     rospy.Subscriber('/web/moduan/send_odd_points', Bool, self.jump_bind_callback)
     rospy.Subscriber('/moduan/moduan_gesture_data', linear_module_upload, self.linear_module_state_callback)
 

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">索驱和 TCP 线模遥控</title>
+  <desc id="desc">展示索驱遥控和 TCP 线模遥控两个面板，以及绝对点动、相对点动、键盘遥控、步距和暂停按钮。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .btn { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">遥控入口分两层：索驱管大位置，TCP 线模管虎口</text>
+  <text x="68" y="116" class="sub">一个适合改整体位置，一个适合改末端细节；都只是手动点动入口，不会自动进入执行链。</text>
+
+  <rect x="70" y="160" width="592" height="530" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">索驱遥控</text>
+  <rect x="96" y="226" width="144" height="42" rx="14" class="blue"/><text x="120" y="252" class="tiny">开启键盘遥控</text>
+  <rect x="248" y="226" width="120" height="42" rx="14" class="btn"/><text x="268" y="252" class="tiny">单次点击步距</text>
+  <rect x="376" y="226" width="118" height="42" rx="14" class="btn"/><text x="392" y="252" class="tiny">绝对点动</text>
+  <rect x="504" y="226" width="118" height="42" rx="14" class="btn"/><text x="520" y="252" class="tiny">相对点动</text>
+
+  <rect x="120" y="286" width="92" height="62" rx="18" class="gray"/><text x="154" y="323" class="body">X+</text>
+  <rect x="220" y="286" width="92" height="62" rx="18" class="gray"/><text x="254" y="323" class="body">X-</text>
+  <rect x="320" y="286" width="92" height="62" rx="18" class="gray"/><text x="354" y="323" class="body">Y+</text>
+  <rect x="420" y="286" width="92" height="62" rx="18" class="gray"/><text x="454" y="323" class="body">Y-</text>
+  <rect x="520" y="286" width="92" height="62" rx="18" class="amber"/><text x="547" y="323" class="body">Z+</text>
+  <rect x="620" y="286" width="92" height="62" rx="18" class="amber"/><text x="647" y="323" class="body">Z-</text>
+
+  <rect x="96" y="372" width="544" height="112" rx="20" class="btn"/>
+  <text x="120" y="406" class="tiny">• `Q/W/E` = `Z+/X+/Z-`，`A/S/D` = `Y+/X-/Y-`，空格暂停。</text>
+  <text x="120" y="432" class="tiny">• 绝对点动按当前坐标计算目标；相对点动按增量移动。</text>
+  <text x="120" y="458" class="tiny">• 急停或停止移动时，先确认当前区域没有卡住。</text>
+
+  <rect x="96" y="504" width="544" height="126" rx="20" class="green"/>
+  <text x="120" y="538" class="body">常见按钮</text>
+  <text x="120" y="566" class="tiny">索驱停止移动 / 绝对目标位姿 / 移动到绝对位姿</text>
+  <text x="120" y="592" class="tiny">把 X/Y/Z 填好以后再点，不要把它当成自动任务按钮。</text>
+
+  <rect x="690" y="160" width="640" height="530" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="716" y="200" class="body">TCP 线模遥控</text>
+  <rect x="716" y="226" width="120" height="42" rx="14" class="blue"/><text x="744" y="252" class="tiny">Z+ / Z-</text>
+  <rect x="844" y="226" width="120" height="42" rx="14" class="blue"/><text x="872" y="252" class="tiny">X+ / X-</text>
+  <rect x="972" y="226" width="120" height="42" rx="14" class="blue"/><text x="1000" y="252" class="tiny">Y+ / Y-</text>
+  <rect x="1100" y="226" width="120" height="42" rx="14" class="amber"/><text x="1118" y="252" class="tiny">角度+ / -</text>
+
+  <rect x="716" y="286" width="176" height="56" rx="18" class="red"/>
+  <text x="760" y="321" class="body">运动暂停</text>
+  <rect x="904" y="286" width="174" height="56" rx="18" class="btn"/>
+  <text x="934" y="321" class="tiny">单次线性步距</text>
+  <rect x="1090" y="286" width="174" height="56" rx="18" class="btn"/>
+  <text x="1120" y="321" class="tiny">单次角度步距</text>
+
+  <rect x="716" y="372" width="548" height="126" rx="20" class="btn"/>
+  <text x="740" y="406" class="tiny">• 线模默认行程提示是 X 0-380 mm、Y 0-330 mm、Z 0-160 mm。</text>
+  <text x="740" y="432" class="tiny">• 线模遥控适合调末端位置，不要拿来替代执行链。</text>
+  <text x="740" y="458" class="tiny">• 暂停后继续移动前，先看末端周围有没有干涉。</text>
+
+  <rect x="716" y="522" width="548" height="102" rx="20" class="green"/>
+  <text x="740" y="556" class="body">一个简单区分</text>
+  <text x="740" y="584" class="tiny">索驱管全局位置，TCP 线模管末端细节；前者大，后者精。</text>
+</svg>

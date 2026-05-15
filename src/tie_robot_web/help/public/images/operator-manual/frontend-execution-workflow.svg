@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">执行全局绑扎与记忆续跑</title>
+  <desc id="desc">展示执行全局绑扎、记忆续跑、人工切区、单点视觉测试和触发单点绑扎之间的关系。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#3b82f6"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .box { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">执行全局绑扎时，账本和记忆文件一起工作</text>
+  <text x="68" y="116" class="sub">全局绑扎、记忆续跑、人工切区和单点调试都从同一条执行链分出来。</text>
+
+  <rect x="70" y="166" width="192" height="210" rx="22" class="box"/>
+  <text x="94" y="204" class="body">输入账本</text>
+  <rect x="100" y="230" width="130" height="38" rx="12" class="blue"/><text x="115" y="255" class="tiny">pseudo_slam_bind_path.json</text>
+  <rect x="100" y="278" width="130" height="38" rx="12" class="green"/><text x="107" y="303" class="tiny">bind_execution_memory.json</text>
+  <text x="94" y="346" class="tiny">一个管分区路径，一个管已成功点。</text>
+
+  <rect x="290" y="166" width="212" height="210" rx="22" class="box"/>
+  <text x="314" y="204" class="body">执行按钮</text>
+  <rect x="322" y="230" width="148" height="46" rx="16" class="green"/><text x="354" y="259" class="tiny">执行全局绑扎</text>
+  <rect x="322" y="286" width="148" height="46" rx="16" class="amber"/><text x="348" y="315" class="tiny">记忆续跑开始</text>
+  <text x="314" y="346" class="tiny">续跑会跳过已成功点。</text>
+
+  <rect x="532" y="166" width="206" height="210" rx="22" class="box"/>
+  <text x="556" y="204" class="body">区域动作</text>
+  <rect x="564" y="230" width="142" height="46" rx="16" class="blue"/><text x="599" y="259" class="tiny">上一个区域</text>
+  <rect x="564" y="286" width="142" height="46" rx="16" class="blue"/><text x="599" y="315" class="tiny">下一个区域</text>
+  <text x="556" y="346" class="tiny">人工接管时先回零，再切区。</text>
+
+  <rect x="766" y="166" width="260" height="210" rx="22" class="box"/>
+  <text x="790" y="204" class="body">单点调试</text>
+  <rect x="798" y="230" width="188" height="46" rx="16" class="blue"/><text x="835" y="259" class="tiny">单点视觉测试</text>
+  <rect x="798" y="286" width="188" height="46" rx="16" class="red"/><text x="838" y="315" class="tiny">触发单点绑扎</text>
+  <text x="790" y="346" class="tiny">一个只看视觉，一个会真的下发。</text>
+
+  <rect x="1044" y="166" width="286" height="210" rx="22" class="box"/>
+  <text x="1068" y="204" class="body">执行前后会发生什么</text>
+  <text x="1068" y="238" class="tiny">• 索驱到每个区域的 `cabin_pose`。</text>
+  <text x="1068" y="262" class="tiny">• 线模执行 `group.points[].x/y/z`。</text>
+  <text x="1068" y="286" class="tiny">• 成功点回写 `bind_execution_memory.json`。</text>
+  <text x="1068" y="310" class="tiny">• 失败时看日志和执行视觉底图。</text>
+
+  <path d="M262 271 L286 271" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M502 271 L526 271" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M738 271 L762 271" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M1028 271 L1040 271" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="86" y="420" width="1228" height="254" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="112" y="460" class="body">建议理解成四条分支</text>
+  <rect x="112" y="500" width="238" height="118" rx="20" class="green"/>
+  <text x="150" y="542" class="body">全局绑扎</text>
+  <text x="138" y="568" class="tiny">从账本首区开始跑。</text>
+  <rect x="370" y="500" width="238" height="118" rx="20" class="amber"/>
+  <text x="408" y="542" class="body">记忆续跑</text>
+  <text x="392" y="568" class="tiny">从未完成点继续。</text>
+  <rect x="628" y="500" width="238" height="118" rx="20" class="blue"/>
+  <text x="658" y="542" class="body">人工切区</text>
+  <text x="652" y="568" class="tiny">先回零再移动。</text>
+  <rect x="886" y="500" width="238" height="118" rx="20" class="red"/>
+  <text x="914" y="542" class="body">单点调试</text>
+  <text x="906" y="568" class="tiny">先看点数，再下发。</text>
+
+  <text x="112" y="652" class="tiny">如果现场只想快速判断执行是否正常，先看执行视觉底图，再看记忆文件是否在回写。</text>
+</svg>

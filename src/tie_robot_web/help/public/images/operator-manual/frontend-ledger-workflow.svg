@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">从工作区到账本的流程</title>
+  <desc id="desc">展示工作区选点、确认工作区域、自动扫描视觉以及生成 pseudo_slam_points.json、pseudo_slam_bind_path.json 和 bind_execution_memory.json 的过程。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#3b82f6"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .mono { font: 600 14px "JetBrains Mono", "Consolas", monospace; fill: #334155; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .step { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">账本从工作区选点开始</text>
+  <text x="68" y="116" class="sub">先选工作区，再确认区域，随后自动跑扫描视觉，最后落到三个可执行文件。</text>
+
+  <rect x="70" y="160" width="170" height="220" rx="22" class="step"/>
+  <text x="94" y="196" class="body">1. 工作区选点</text>
+  <circle cx="112" cy="238" r="10" fill="#60a5fa"/>
+  <circle cx="156" cy="238" r="10" fill="#60a5fa"/>
+  <circle cx="112" cy="282" r="10" fill="#60a5fa"/>
+  <circle cx="156" cy="282" r="10" fill="#60a5fa"/>
+  <circle cx="134" cy="260" r="22" fill="none" stroke="#93c5fd" stroke-width="3"/>
+  <text x="92" y="330" class="tiny">新增 / 删除位姿</text>
+  <text x="92" y="350" class="tiny">记录当前位姿</text>
+
+  <rect x="262" y="160" width="170" height="220" rx="22" class="step"/>
+  <text x="286" y="196" class="body">2. 确认工作区</text>
+  <rect x="294" y="228" width="100" height="80" rx="18" fill="#f0f9ff" stroke="#93c5fd"/>
+  <path d="M314 244 L374 244 L374 294 L314 294 Z" fill="none" stroke="#60a5fa" stroke-width="3"/>
+  <circle cx="328" cy="258" r="4" fill="#60a5fa"/><circle cx="360" cy="258" r="4" fill="#60a5fa"/><circle cx="328" cy="282" r="4" fill="#60a5fa"/><circle cx="360" cy="282" r="4" fill="#60a5fa"/>
+  <text x="282" y="330" class="tiny">点满 4 个角后确认</text>
+  <text x="282" y="350" class="tiny">自动触发扫描</text>
+
+  <rect x="454" y="160" width="170" height="220" rx="22" class="step"/>
+  <text x="478" y="196" class="body">3. 扫描视觉</text>
+  <rect x="486" y="228" width="106" height="80" rx="18" fill="#fff5db" stroke="#fcd34d"/>
+  <path d="M494 236 C516 252, 538 250, 578 292" stroke="#f59e0b" stroke-width="3" fill="none"/>
+  <path d="M494 292 C520 268, 538 262, 578 236" stroke="#ef4444" stroke-width="3" fill="none"/>
+  <text x="476" y="330" class="tiny">Surface-DP 扫描底图</text>
+  <text x="476" y="350" class="tiny">输出绑扎点与路径</text>
+
+  <rect x="646" y="160" width="220" height="220" rx="22" class="step"/>
+  <text x="670" y="196" class="body">4. 产出文件</text>
+  <rect x="678" y="230" width="156" height="38" rx="12" class="blue"/><text x="696" y="255" class="tiny">pseudo_slam_points.json</text>
+  <rect x="678" y="276" width="156" height="38" rx="12" class="green"/><text x="690" y="301" class="tiny">pseudo_slam_bind_path.json</text>
+  <rect x="678" y="322" width="156" height="38" rx="12" class="amber"/><text x="690" y="347" class="tiny">bind_execution_memory.json</text>
+  <text x="670" y="370" class="tiny">执行时会先重置，再回写</text>
+
+  <rect x="894" y="160" width="436" height="220" rx="22" class="step"/>
+  <text x="918" y="196" class="body">5. 观察结果</text>
+  <text x="918" y="232" class="tiny">• 图像面板出现扫描覆盖层。</text>
+  <text x="918" y="256" class="tiny">• 3D Scene 出现规划点和索驱路径。</text>
+  <text x="918" y="280" class="tiny">• 日志里出现建图完成与写入信息。</text>
+  <text x="918" y="314" class="tiny">• 未找到 `pseudo_slam_bind_path.json` 时，不能直接执行全局绑扎。</text>
+
+  <path d="M240 270 L258 270" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M432 270 L450 270" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M624 270 L642 270" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <path d="M866 270 L884 270" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <rect x="86" y="440" width="1228" height="220" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="112" y="482" class="body">推荐动作顺序</text>
+  <text x="112" y="514" class="tiny">先在设置里确认工作区，再在图像面板点角点，确认后让系统自己跑扫描。</text>
+  <text x="112" y="542" class="tiny">如果只是想重跑当前画面，可以直接点击控制面板的「触发扫描视觉」。</text>
+
+  <rect x="112" y="572" width="170" height="60" rx="18" class="blue"/>
+  <text x="147" y="608" class="tiny">设置 / 工作区选点</text>
+  <rect x="300" y="572" width="170" height="60" rx="18" class="blue"/>
+  <text x="339" y="608" class="tiny">图像面板点 4 角</text>
+  <rect x="488" y="572" width="170" height="60" rx="18" class="green"/>
+  <text x="518" y="608" class="tiny">确认工作区域</text>
+  <rect x="676" y="572" width="170" height="60" rx="18" class="amber"/>
+  <text x="711" y="608" class="tiny">自动扫描视觉</text>
+  <rect x="864" y="572" width="170" height="60" rx="18" class="gray"/>
+  <text x="897" y="608" class="tiny">生成账本与路径</text>
+  <rect x="1052" y="572" width="170" height="60" rx="18" class="red"/>
+  <text x="1088" y="608" class="tiny">开始全局绑扎</text>
+</svg>

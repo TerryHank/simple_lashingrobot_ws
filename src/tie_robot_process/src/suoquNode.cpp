@@ -733,6 +733,7 @@ std::atomic<bool> execution_return_to_start_requested{false};
 std::atomic<bool> execution_manual_takeover_requested{false};
 std::atomic<bool> checkerboard_jump_bind_enabled{false};
 std::atomic<int> checkerboard_jump_bind_selected_parity{0};
+std::atomic<float> live_visual_refine_axis_threshold_mm{kPseudoSlamCheckerboardAxisThresholdMm};
 
 Cabin_State cabin_state;
 
@@ -1263,6 +1264,33 @@ bool wait_for_planned_path_pre_bind_settle(
     return wait_for_planned_path_settle_duration(context, settle_ms, message);
 }
 
+bool call_execution_refine_vision_service(
+    const std::string& context,
+    tie_robot_msgs::ProcessImage& scan_srv,
+    std::string& message)
+{
+    scan_srv.request.request_mode = kProcessImageModeExecutionRefine;
+    if (!AI_client.exists()) {
+        message =
+            context +
+            "缺少执行微调视觉服务 /pointAI/process_image，疑似 pointAINode 未启动或已掉线";
+        printCurrentTime();
+        ros_log_printf("Cabin_Error: %s\n", message.c_str());
+        return false;
+    }
+
+    if (!AI_client.call(scan_srv)) {
+        message =
+            context +
+            "调用执行微调视觉服务 /pointAI/process_image 失败，疑似 pointAINode 掉线或服务异常";
+        printCurrentTime();
+        ros_log_printf("Cabin_Error: %s\n", message.c_str());
+        return false;
+    }
+
+    return true;
+}
+
 bool is_execution_refine_no_points_response(const std_srvs::Trigger& bind_srv)
 {
     return !bind_srv.response.success &&
@@ -1274,8 +1302,23 @@ bool call_sg_live_visual_with_no_points_retry(
     std_srvs::Trigger& bind_srv,
     std::string& message)
 {
+    if (!sg_live_visual_client.exists()) {
+        message =
+            "planned_path_refine_only区域" + std::to_string(area_index) +
+            "缺少单点绑扎服务 /moduan/sg；该服务内部依赖执行微调视觉服务 "
+            "/pointAI/process_image，疑似 moduan_motion_controller_node 或 pointAINode 未启动/掉线";
+        printCurrentTime();
+        ros_log_printf("Cabin_Error: %s\n", message.c_str());
+        return false;
+    }
+
     if (!sg_live_visual_client.call(bind_srv)) {
-        message = "调用/moduan/sg失败";
+        message =
+            "planned_path_refine_only区域" + std::to_string(area_index) +
+            "调用单点绑扎服务 /moduan/sg 失败；该服务内部依赖执行微调视觉服务 "
+            "/pointAI/process_image，疑似 moduan_motion_controller_node 或 pointAINode 掉线/异常";
+        printCurrentTime();
+        ros_log_printf("Cabin_Error: %s\n", message.c_str());
         return false;
     }
     if (!is_execution_refine_no_points_response(bind_srv)) {
@@ -1297,7 +1340,12 @@ bool call_sg_live_visual_with_no_points_retry(
 
     bind_srv = std_srvs::Trigger{};
     if (!sg_live_visual_client.call(bind_srv)) {
-        message = "重试调用/moduan/sg失败";
+        message =
+            "planned_path_refine_only区域" + std::to_string(area_index) +
+            "重试调用单点绑扎服务 /moduan/sg 失败；该服务内部依赖执行微调视觉服务 "
+            "/pointAI/process_image，疑似 moduan_motion_controller_node 或 pointAINode 掉线/异常";
+        printCurrentTime();
+        ros_log_printf("Cabin_Error: %s\n", message.c_str());
         return false;
     }
     return true;
@@ -2815,6 +2863,21 @@ void checkerboard_jump_bind_parity_callback(const std_msgs::Int32 &debug_mes)
     ros_log_printf(
         "Cabin_log: 棋盘格跳绑目标已切换为checkerboard_color=%s。\n",
         checkerboard_color_from_parity(selected_parity).c_str()
+    );
+}
+
+void ledger_refine_axis_threshold_callback(const std_msgs::Float32 &debug_mes)
+{
+    const float requested_threshold_mm = debug_mes.data;
+    const float sanitized_threshold_mm =
+        std::isfinite(requested_threshold_mm) && requested_threshold_mm > 0.0f
+            ? requested_threshold_mm
+            : kPseudoSlamCheckerboardAxisThresholdMm;
+    live_visual_refine_axis_threshold_mm.store(sanitized_threshold_mm, std::memory_order_release);
+    printCurrentTime();
+    ros_log_printf(
+        "Cabin_log: 账本+微调XY归格阈值已设置为%.2fmm。\n",
+        sanitized_threshold_mm
     );
 }
 
@@ -5699,19 +5762,23 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
             return false;
         }
         tie_robot_msgs::ProcessImage scan_srv;
-        scan_srv.request.request_mode = kProcessImageModeExecutionRefine;
-        if (!AI_client.call(scan_srv)) {
+        std::string vision_call_message;
+        if (!call_execution_refine_vision_service(
+                "live_visual区域" + std::to_string(area_index),
+                scan_srv,
+                vision_call_message)) {
             if (fail_if_execution_return_to_start_requested(
                     "live_visual区域" + std::to_string(area_index) + "视觉微调后",
                     message)) {
                 return false;
             }
-            skipped_area_count++;
             printCurrentTime();
             ros_log_printf(
-                "Cabin_Warn: live_visual区域%d调用/pointAI/process_image失败，跳过当前区域。\n",
-                area_index
+                "Cabin_Error: live_visual区域%d视觉依赖不可用，跳过当前区域并继续后续区域。消息：%s\n",
+                area_index,
+                vision_call_message.c_str()
             );
+            skipped_area_count++;
             publish_area_progress(
                 area_order_index + 1 < total_area_count ? area_order_index + 2 : area_order_index + 1,
                 total_area_count,
@@ -5753,6 +5820,15 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
         std::vector<tie_robot_msgs::PointCoords> area_world_points;
         int point_index = 1;
         for (const auto& point : scan_srv.response.PointCoordinatesArray) {
+            if (point.is_shuiguan) {
+                printCurrentTime();
+                ros_log_printf(
+                    "Cabin_log: live_visual区域%d跳过已绑扎视觉点idx=%d。\n",
+                    area_index,
+                    point.idx
+                );
+                continue;
+            }
             tie_robot_msgs::PointCoords world_point;
             if (build_world_point_from_scan_response(point, point_index, world_point)) {
                 area_world_points.push_back(world_point);
@@ -5867,6 +5943,15 @@ bool run_live_visual_global_work(std::string& message, bool use_execution_memory
                 false
             );
             continue;
+        }
+
+        std::string post_bind_idle_guard_message;
+        if (!wait_for_moduan_post_bind_idle_guard(
+                "live_visual区域" + std::to_string(area_index),
+                post_bind_idle_guard_message)) {
+            set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
+            message = post_bind_idle_guard_message;
+            return false;
         }
 
         set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
@@ -6099,18 +6184,14 @@ bool run_planned_path_refine_only_global_work(std::string& message, bool use_exe
             std_srvs::Trigger bind_srv;
             std::string bind_call_message;
             if (!call_sg_live_visual_with_no_points_retry(area_index, bind_srv, bind_call_message)) {
-                if (is_execution_return_to_start_requested() || is_execution_manual_takeover_requested()) {
-                    message = bind_call_message;
-                    return false;
-                }
-                skipped_area_count++;
                 set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
                 printCurrentTime();
                 ros_log_printf(
-                    "Cabin_Warn: planned_path_refine_only区域%d调用/moduan/sg失败，跳过当前区域。消息：%s\n",
+                    "Cabin_Error: planned_path_refine_only区域%d单点绑扎/视觉依赖不可用，跳过当前区域并继续后续区域。消息：%s\n",
                     area_index,
                     bind_call_message.c_str()
                 );
+                skipped_area_count++;
                 publish_area_progress(
                     area_index < total_area_count ? area_index + 1 : area_index,
                     total_area_count,
@@ -6193,15 +6274,34 @@ bool run_planned_path_refine_only_global_work(std::string& message, bool use_exe
 
         std::string refine_failure_reason;
         tie_robot_msgs::ProcessImage scan_srv;
-        scan_srv.request.request_mode = kProcessImageModeExecutionRefine;
-        if (!AI_client.call(scan_srv)) {
-            refine_failure_reason = "调用/pointAI/process_image失败";
+        std::string vision_call_message;
+        if (!call_execution_refine_vision_service(
+                "planned_path_refine_only区域" + std::to_string(area_index) + "跳绑微调",
+                scan_srv,
+                vision_call_message)) {
+            set_pseudo_slam_marker_execution_state(area_index, area_global_indices, {});
+            printCurrentTime();
+            ros_log_printf(
+                "Cabin_Error: planned_path_refine_only区域%d跳绑微调视觉依赖不可用，跳过当前区域并继续后续区域。消息：%s\n",
+                area_index,
+                vision_call_message.c_str()
+            );
+            refine_failure_reason = vision_call_message;
         } else if (!scan_srv.response.success) {
             refine_failure_reason = "视觉未返回完整2x2矩阵：" + scan_srv.response.message;
         } else {
             std::vector<tie_robot_msgs::PointCoords> camera_points;
             int point_index = 1;
             for (const auto& point : scan_srv.response.PointCoordinatesArray) {
+                if (point.is_shuiguan) {
+                    printCurrentTime();
+                    ros_log_printf(
+                        "Cabin_log: planned_path_refine_only区域%d跳过已绑扎视觉点idx=%d。\n",
+                        area_index,
+                        point.idx
+                    );
+                    continue;
+                }
                 tie_robot_msgs::PointCoords camera_point = point;
                 camera_point.idx = point_index++;
                 camera_points.push_back(camera_point);
@@ -6901,6 +7001,7 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
     ros::Subscriber moduan_state_sub;
     ros::Subscriber jump_bind_enabled_sub;
     ros::Subscriber jump_bind_parity_sub;
+    ros::Subscriber ledger_refine_axis_threshold_sub;
     ros::Subscriber cabin_state_sub;
 
     ros::Timer cabin_diagnostic_timer;
@@ -6988,6 +7089,8 @@ int RunSuoquNodeWithDefaultRole(int argc, char** argv, const std::string& defaul
             nh.subscribe("/web/moduan/jump_bind_enabled", 5, &checkerboard_jump_bind_callback);
         jump_bind_parity_sub =
             nh.subscribe("/web/moduan/jump_bind_parity", 5, &checkerboard_jump_bind_parity_callback);
+        ledger_refine_axis_threshold_sub =
+            nh.subscribe("/web/cabin/set_ledger_refine_axis_threshold_mm", 5, &ledger_refine_axis_threshold_callback);
     }
     
     ros::MultiThreadedSpinner spinner(4);

@@ -16,7 +16,9 @@ import {
   saveVisualDebugSettings,
 } from "../src/utils/storage.js";
 import {
+  DEFAULT_EXECUTION_REFINE_ALGORITHM,
   DEFAULT_SCAN_RESPONSE_SOURCE,
+  EXECUTION_REFINE_ALGORITHM_OPTIONS,
   GLOBAL_EXECUTION_MODES,
   SCAN_RESPONSE_SOURCE_OPTIONS,
 } from "../src/config/visualRecognitionMode.js";
@@ -137,13 +139,22 @@ assert.equal(SERVICE_TYPES.algorithm.processImage, "tie_robot_msgs/ProcessImage"
 assert.equal(SERVICE_TYPES.camera.dynamicReconfigure, "dynamic_reconfigure/Reconfigure");
 assert.equal(TOPICS.algorithm.setStableFrameCount, "/web/pointAI/set_stable_frame_count");
 assert.equal(TOPICS.algorithm.setExecutionRefineTcpRoi, "/web/pointAI/set_execution_refine_tcp_roi");
+assert.equal(TOPICS.algorithm.setExecutionRefineAlgorithm, "/web/pointAI/set_execution_refine_algorithm");
 assert.equal(TOPICS.algorithm.setScanBeamExclusion, "/web/pointAI/set_scan_beam_exclusion");
+assert.equal(TOPICS.algorithm.setBindClassificationEnabled, "/web/pointAI/set_bind_classification_enabled");
+assert.equal(TOPICS.algorithm.setBindClassificationMethod, "/web/pointAI/set_bind_classification_method");
 assert.equal(TOPICS.algorithm.setScanBeamExclusionMargin, "/web/pointAI/set_scan_beam_exclusion_margin_mm");
 assert.equal(TOPICS.algorithm.setScanResponseSource, "/web/pointAI/set_scan_response_source");
 assert.equal(TOPICS.algorithm.setScanLinearCompensation, "/web/pointAI/set_scan_linear_compensation");
+assert.equal(TOPICS.process.setLedgerRefineAxisThreshold, "/web/cabin/set_ledger_refine_axis_threshold_mm");
 assert.equal(TOPICS.camera.scepterParameterUpdates, "/scepter_manager/parameter_updates");
 assert.equal(TOPICS.camera.scepterParameterDescriptions, "/scepter_manager/parameter_descriptions");
+assert.equal(DEFAULT_EXECUTION_REFINE_ALGORITHM, "hough");
 assert.equal(DEFAULT_SCAN_RESPONSE_SOURCE, "depth_gradient");
+assert.deepEqual(EXECUTION_REFINE_ALGORITHM_OPTIONS.map((option) => option.label), [
+  "Hough微调",
+  "扫描同款Surface-DP",
+]);
 assert.deepEqual(SCAN_RESPONSE_SOURCE_OPTIONS.map((option) => option.label), [
   "融合实例响应",
   "Frangi-like 脊线",
@@ -199,6 +210,28 @@ assert.equal(controller.resources.scanBeamExclusionPublisher.published.at(-1).da
 const beamExclusionMarginResult = controller.publishScanBeamExclusionMargin(150);
 assert.equal(beamExclusionMarginResult.success, true);
 assert.equal(controller.resources.scanBeamExclusionMarginPublisher.published.at(-1).data, 150);
+const bindClassificationEnabledResult = controller.publishBindClassificationEnabled(true);
+assert.equal(bindClassificationEnabledResult.success, true);
+assert.equal(controller.resources.bindClassificationEnabledPublisher.published.at(-1).data, true);
+const bindClassificationMethodResult = controller.publishBindClassificationMethod("white_box");
+assert.equal(bindClassificationMethodResult.success, true);
+assert.equal(controller.resources.bindClassificationMethodPublisher.published.at(-1).data, "white_box");
+const invalidBindClassificationMethodResult = controller.publishBindClassificationMethod("mystery");
+assert.equal(invalidBindClassificationMethodResult.method, "deep_learning");
+assert.equal(controller.resources.bindClassificationMethodPublisher.published.at(-1).data, "deep_learning");
+const publishAlgorithmResult = controller.publishExecutionRefineAlgorithm("surface_dp");
+assert.equal(publishAlgorithmResult.success, true);
+assert.equal(publishAlgorithmResult.algorithm, "surface_dp");
+assert.equal(
+  controller.resources.executionRefineAlgorithmPublisher.published.at(-1).data,
+  "surface_dp",
+);
+const fallbackAlgorithmResult = controller.publishExecutionRefineAlgorithm("bad-value");
+assert.equal(fallbackAlgorithmResult.algorithm, "hough");
+assert.equal(
+  controller.resources.executionRefineAlgorithmPublisher.published.at(-1).data,
+  "hough",
+);
 
 const scanSourceResult = controller.publishScanResponseSource("frangi_like");
 assert.equal(scanSourceResult.success, true);
@@ -239,6 +272,12 @@ assert.deepEqual(
   controller.resources.scanLinearCompensationPublisher.published.at(-1).data,
   [1, 1000, 0, 0, 1200, 0.25, 0.01, -0.02],
 );
+const ledgerRefineThresholdResult = controller.publishLedgerRefineAxisThreshold(86);
+assert.equal(ledgerRefineThresholdResult.success, true);
+assert.equal(controller.resources.ledgerRefineAxisThresholdPublisher.published.at(-1).data, 86);
+const invalidLedgerRefineThresholdResult = controller.publishLedgerRefineAxisThreshold(-5);
+assert.equal(invalidLedgerRefineThresholdResult.thresholdMm, 80);
+assert.equal(controller.resources.ledgerRefineAxisThresholdPublisher.published.at(-1).data, 80);
 
 const cameraSdkResult = await controller.callScepterCameraReconfigure({
   FrameRate: 8,
@@ -262,6 +301,7 @@ assert.deepEqual(loadVisualDebugSettings().linearModuleBindRangeMm, {
   y: { min: 0, max: 330 },
   z: { min: 0, max: 160 },
 });
+assert.equal(loadVisualDebugSettings().bindClassificationMethod, "deep_learning");
 assert.equal(loadVisualDebugSettings().bindExecutionCabinMinZMm, 485);
 assert.equal(loadVisualDebugSettings().bindExecutionCabinZMode, "fixed");
 assert.equal(loadVisualDebugSettings().adaptiveBindGrouping, false);
@@ -269,6 +309,8 @@ assert.equal(loadVisualDebugSettings().enableBeamExclusion, false);
 assert.equal(loadVisualDebugSettings().beamExclusionMarginMm, 150);
 assert.equal(loadVisualDebugSettings().bindGroupRowThresholdMm, 40);
 assert.equal(loadVisualDebugSettings().bindGroupColumnThresholdMm, 45);
+assert.equal(loadVisualDebugSettings().ledgerRefineAxisThresholdMm, 80);
+assert.equal(loadVisualDebugSettings().executionRefineAlgorithm, "hough");
 assert.equal(loadVisualDebugSettings().executionMode, GLOBAL_EXECUTION_MODES.LEDGER_WITH_REFINE);
 assert.equal(loadVisualDebugSettings().scanResponseSource, DEFAULT_SCAN_RESPONSE_SOURCE);
 assert.deepEqual(loadVisualDebugSettings().scanLinearCompensation, {
@@ -289,12 +331,15 @@ assert.equal(loadCameraSdkSettings().DepthCloudPoint, true);
 localStorage.setItem(VISUAL_DEBUG_SETTINGS_KEY, JSON.stringify({
   stableFrameCount: 5,
   executionMode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
+  executionRefineAlgorithm: "surface_dp",
+  bindClassificationMethod: "white_box",
   scanResponseSource: "hessian_ridge",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
   beamExclusionMarginMm: 165,
   bindGroupRowThresholdMm: 52,
   bindGroupColumnThresholdMm: 58,
+  ledgerRefineAxisThresholdMm: 88,
   scanLinearCompensation: {
     enabled: true,
     mode: "translation",
@@ -318,12 +363,15 @@ assert.deepEqual(loadVisualDebugSettings(), {
   stableFrameCount: 5,
   requestMode: 3,
   executionMode: GLOBAL_EXECUTION_MODES.PLANNED_PATH_REFINE_ONLY,
+  executionRefineAlgorithm: "surface_dp",
+  bindClassificationMethod: "white_box",
   scanResponseSource: "hessian_ridge",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
   beamExclusionMarginMm: 165,
   bindGroupRowThresholdMm: 52,
   bindGroupColumnThresholdMm: 58,
+  ledgerRefineAxisThresholdMm: 88,
   scanLinearCompensation: {
     enabled: true,
     mode: "translation",
@@ -347,12 +395,14 @@ assert.deepEqual(loadVisualDebugSettings(), {
 saveVisualDebugSettings({
   stableFrameCount: 2,
   executionMode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
+  executionRefineAlgorithm: "bad-value",
   scanResponseSource: "infrared_response",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
   beamExclusionMarginMm: 175,
   bindGroupRowThresholdMm: 61,
   bindGroupColumnThresholdMm: 67,
+  ledgerRefineAxisThresholdMm: 92,
   scanLinearCompensation: {
     enabled: true,
     mode: "translation",
@@ -376,12 +426,15 @@ assert.deepEqual(JSON.parse(localStorage.getItem(VISUAL_DEBUG_SETTINGS_KEY)), {
   stableFrameCount: 2,
   requestMode: 3,
   executionMode: GLOBAL_EXECUTION_MODES.SLAM_PRECOMPUTED,
+  executionRefineAlgorithm: "hough",
+  bindClassificationMethod: "deep_learning",
   scanResponseSource: "infrared_response",
   adaptiveBindGrouping: true,
   enableBeamExclusion: true,
   beamExclusionMarginMm: 175,
   bindGroupRowThresholdMm: 61,
   bindGroupColumnThresholdMm: 67,
+  ledgerRefineAxisThresholdMm: 92,
   scanLinearCompensation: {
     enabled: true,
     mode: "translation",
@@ -446,6 +499,9 @@ const uiControllerText = readFileSync(resolve(frontendRoot, "src/ui/UIController
 const appText = readFileSync(resolve(frontendRoot, "src/app/TieRobotFrontApp.js"), "utf-8");
 const rosConnectionText = readFileSync(resolve(frontendRoot, "src/controllers/RosConnectionController.js"), "utf-8");
 const topicRegistryText = readFileSync(resolve(frontendRoot, "src/config/topicRegistry.js"), "utf-8");
+const visualRecognitionModeText = readFileSync(resolve(frontendRoot, "src/config/visualRecognitionMode.js"), "utf-8");
+assert.match(topicRegistryText, /执行视觉底图/);
+assert.match(topicRegistryText, /Hough \/ Surface-DP/);
 assert.match(uiControllerText, /id: "visualDebug", label: "视觉调试"/);
 assert.match(uiControllerText, /id: "cameraSdkDebug", label: "相机底层 SDK 调试"/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugTrigger"/);
@@ -454,6 +510,16 @@ assert.match(uiControllerText, /id="visualDebugStableFrameCount"/);
 assert.match(uiControllerText, /id="visualDebugScanResponseSource"/);
 assert.match(uiControllerText, /扫描底图/);
 assert.match(uiControllerText, /SCAN_RESPONSE_SOURCE_OPTIONS\.map/);
+assert.match(uiControllerText, /id="visualDebugExecutionRefineAlgorithm"/);
+assert.match(uiControllerText, /执行层视觉/);
+assert.match(uiControllerText, /EXECUTION_REFINE_ALGORITHM_OPTIONS\.map/);
+assert.match(uiControllerText, /id="visualDebugBindClassificationMethod"/);
+assert.match(uiControllerText, /分类方法/);
+assert.match(uiControllerText, /BIND_CLASSIFICATION_METHODS\.map/);
+assert.match(visualRecognitionModeText, /深度学习/);
+assert.match(visualRecognitionModeText, /白盒算法/);
+assert.match(visualRecognitionModeText, /Hough微调/);
+assert.match(visualRecognitionModeText, /扫描同款Surface-DP/);
 assert.match(uiControllerText, /id="visualDebugBindExecutionCabinMinZ"/);
 assert.match(uiControllerText, /索驱规划 Z \(mm\)/);
 assert.match(uiControllerText, /name="visualDebugBindExecutionCabinZMode"/);
@@ -465,10 +531,12 @@ assert.match(uiControllerText, /id="visualDebugBeamExclusionToggle"/);
 assert.match(uiControllerText, /id="visualDebugBeamExclusionMargin"/);
 assert.match(uiControllerText, /id="visualDebugBindGroupRowThreshold"/);
 assert.match(uiControllerText, /id="visualDebugBindGroupColumnThreshold"/);
+assert.match(uiControllerText, /id="visualDebugLedgerRefineAxisThreshold"/);
 assert.match(uiControllerText, /启用梁筋过滤/);
 assert.match(uiControllerText, /梁筋过滤半径 \(mm\)/);
 assert.match(uiControllerText, /成行阈值 \(mm\)/);
 assert.match(uiControllerText, /成列阈值 \(mm\)/);
+assert.match(uiControllerText, /账本微调 XY阈值 \(mm\)/);
 assert.match(uiControllerText, /id="visualDebugScanLinearCompensationToggle"/);
 assert.match(uiControllerText, /底层坐标线性补偿/);
 assert.match(uiControllerText, /name="visualDebugScanLinearCompensationMode"/);
@@ -499,6 +567,7 @@ assert.match(uiControllerText, /Z模式=/);
 assert.match(uiControllerText, /固定Z/);
 assert.match(uiControllerText, /行阈=/);
 assert.match(uiControllerText, /列阈=/);
+assert.match(uiControllerText, /微调XY阈=/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugRequestMode"/);
 assert.doesNotMatch(uiControllerText, /id="visualDebugBindGroupPointCount"/);
 assert.doesNotMatch(uiControllerText, /每组点数/);
@@ -531,6 +600,7 @@ assert.match(cameraSdkPageMarkup, /CAMERA_SDK_PARAMETER_DEFINITIONS\.map\(render
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS/);
 assert.match(appText, /applyVisualDebugBeamExclusionSettings/);
 assert.match(appText, /publishScanBeamExclusion/);
+assert.match(appText, /publishBindClassificationMethod/);
 const visualDebugSettingsChangeStart = appText.indexOf("this.ui.onVisualDebugSettingsChange((settings) => {");
 const visualDebugSettingsChangeEnd = appText.indexOf("this.ui.onLegacyCommand", visualDebugSettingsChangeStart);
 assert.notEqual(visualDebugSettingsChangeStart, -1);
@@ -583,7 +653,10 @@ assert.match(visualDebugRuntimeSettingsBlock, /publishStableFrameCount\(nextSett
 assert.match(visualDebugRuntimeSettingsBlock, /publishScanBeamExclusionMargin\(\s*nextSettings\.beamExclusionMarginMm/s);
 assert.match(visualDebugRuntimeSettingsBlock, /applyVisualDebugBeamExclusionSettings\(nextSettings/);
 assert.match(visualDebugRuntimeSettingsBlock, /publishScanResponseSource\(nextSettings\.scanResponseSource\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /publishExecutionRefineAlgorithm\(\s*nextSettings\.executionRefineAlgorithm/s);
 assert.match(visualDebugRuntimeSettingsBlock, /publishScanLinearCompensation\(nextSettings\.scanLinearCompensation\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /publishBindClassificationMethod\(nextSettings\.bindClassificationMethod\)/);
+assert.match(visualDebugRuntimeSettingsBlock, /publishLedgerRefineAxisThreshold\(nextSettings\.ledgerRefineAxisThresholdMm\)/);
 assert.doesNotMatch(visualDebugRuntimeSettingsBlock, /scheduleBindPathReplan/);
 assert.doesNotMatch(appText, /schedulePseudoSlamBindPathReplan/);
 assert.doesNotMatch(appText, /callReplanPseudoSlamBindPathService\(nextSettings/);
@@ -599,10 +672,29 @@ assert.doesNotMatch(appText, /onVisualDebugTrigger|handleVisualDebugTrigger|VISU
 for (const actionId of ["runSavedS2", "executionVisionOnly", "triggerSingleBind", "startExecution", "startExecutionKeepMemory"]) {
   assert.match(appText, new RegExp(`"${actionId}"`));
 }
+const taskActionSyncBlock = appText.slice(
+  appText.indexOf("if (VISUAL_FRAME_SYNC_TASK_ACTIONS.has(taskAction))"),
+  appText.indexOf("this.taskActionController.handle(taskAction);"),
+);
+assert.match(taskActionSyncBlock, /this\.applyVisualDebugRuntimeSettings\(this\.visualDebugSettings/);
+for (const actionId of ["executionVisionOnly", "triggerSingleBind", "startExecution", "startExecutionKeepMemory"]) {
+  assert.match(
+    appText,
+    new RegExp(`VISUAL_FRAME_SYNC_TASK_ACTIONS[\\s\\S]*"${actionId}"`),
+    `${actionId} 触发前必须同步设置页分类方法，保证 white_box 对执行层视觉生效。`,
+  );
+}
+const controlToggleBlock = appText.slice(
+  appText.indexOf("this.ui.onControlToggle"),
+  appText.indexOf("this.ui.onClearLogs", appText.indexOf("this.ui.onControlToggle")),
+);
+assert.match(controlToggleBlock, /toggleId === "bindClassificationEnabled"/);
+assert.match(controlToggleBlock, /publishBindClassificationMethod\(\s*this\.visualDebugSettings\?\.bindClassificationMethod/s);
 assert.doesNotMatch(appText, /"scanPlan"/);
 assert.match(appText, /VISUAL_FRAME_SYNC_TASK_ACTIONS\.has\(taskAction\)/);
 assert.match(appText, /this\.applyVisualDebugRuntimeSettings\(this\.visualDebugSettings, \{ suppressLog: true \}\)/);
 assert.match(appText, /adaptiveBindGrouping/);
+assert.match(appText, /ledgerRefineAxisThresholdMm/);
 assert.match(appText, /getBindExecutionCabinMinZ/);
 assert.match(appText, /getBindExecutionCabinZMode/);
 assert.doesNotMatch(appText, /bindGroupPointCount/);

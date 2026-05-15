@@ -43,11 +43,11 @@ export const LEGACY_COMMANDS = [
   { id: 15, name: "末端回零", topic: TOPICS.control.moduanMoveZero, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 16, name: "关闭绑扎", topic: TOPICS.control.enableLashing, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 18, name: "急停作业", topic: TOPICS.control.forcedStop, type: MESSAGE_TYPES.float32, group: "末端控制" },
-  { id: 19, name: "设置Z固定高度", topic: TOPICS.algorithm.setHeightThreshold, type: MESSAGE_TYPES.float32, group: "视觉调试" },
   { id: 21, name: "保存绑扎数据", topic: TOPICS.control.saveBindingData, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 22, name: "修正TF外参", topic: TOPICS.tf.setCameraTcpExtrinsic, type: MESSAGE_TYPES.pose, group: "TF标定" },
   { id: 23, name: "设置索驱速度", topic: TOPICS.process.setCabinSpeed, type: MESSAGE_TYPES.float32, group: "流程控制" },
   { id: 24, name: "设置末端速度", topic: TOPICS.control.setModuanSpeed, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 25, name: "停止并回起点", topic: TOPICS.control.handSolveWarn, type: MESSAGE_TYPES.float32, group: "末端控制" },
   { id: 26, name: "切换跳绑黑白棋", topic: TOPICS.control.jumpBindParity, type: MESSAGE_TYPES.int32, group: "末端控制" },
+  { id: 27, name: "开启(关闭)绑扎点分类", topic: TOPICS.algorithm.setBindClassificationEnabled, type: MESSAGE_TYPES.bool, group: "视觉调试" },
 ];

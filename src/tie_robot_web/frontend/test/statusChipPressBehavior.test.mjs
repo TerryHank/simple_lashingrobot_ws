@@ -146,6 +146,46 @@ for (const [statusId, level, shortAction, longAction, label, visibleStatusLabel]
   assert.equal(chip.statusLabel.textContent, visibleStatusLabel, `${statusId}/${level} visible status label`);
 }
 
+for (const [statusId, label, clearAction, restartAction] of [
+  ["chassis", "索驱", "clearChassisLayerAlarm", "restartCabinSubsystem"],
+  ["moduan", "末端", "clearModuanLayerAlarm", "restartModuanSubsystem"],
+  ["visual", "视觉", "clearVisualLayerAlarm", "restartVisualSubsystem"],
+]) {
+  const chip = createFakeStatusChip({ statusId, statusLabelText: label });
+  UIController.prototype.setStatusChipState.call(
+    { rootElement: makeRootForChip(chip) },
+    statusId,
+    "warn",
+    `${label}报警：测试报警`,
+  );
+
+  assert.equal(chip.dataset.statusAction, clearAction);
+  assert.equal(chip.dataset.statusLongAction, restartAction);
+  assert.equal(chip.actionLabel.textContent, "清除");
+  assert.equal(chip.statusLabel.textContent, label);
+  assert.match(chip.title, /短按清除该层报警/);
+}
+
+const visualAlgorithmErrorChip = createFakeStatusChip({ statusId: "visual", statusLabelText: "视觉" });
+UIController.prototype.setStatusChipState.call(
+  { rootElement: makeRootForChip(visualAlgorithmErrorChip) },
+  "visual",
+  "warn",
+  "视觉算法异常：Surface-DP失败",
+);
+assert.equal(visualAlgorithmErrorChip.dataset.statusAction, "clearVisualLayerAlarm");
+assert.equal(visualAlgorithmErrorChip.actionLabel.textContent, "清除");
+
+const chassisTimeoutChip = createFakeStatusChip({ statusId: "chassis", statusLabelText: "索驱" });
+UIController.prototype.setStatusChipState.call(
+  { rootElement: makeRootForChip(chassisTimeoutChip) },
+  "chassis",
+  "warn",
+  "索驱状态超时",
+);
+assert.equal(chassisTimeoutChip.dataset.statusAction, "startCabinSubsystem");
+assert.equal(chassisTimeoutChip.actionLabel.textContent, "启动");
+
 const scheduledTimers = [];
 let clearedTimer = false;
 global.window = {

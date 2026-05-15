@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">视觉调试设置</title>
+  <desc id="desc">展示执行层模式、扫描底图、执行层视觉、分类方法、梁筋过滤、账本微调阈值和 TCP 绑扎范围等视觉调试参数。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .mono { font: 600 13px "JetBrains Mono", "Consolas", monospace; fill: #334155; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .tile { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">视觉调试决定“怎么识别、怎么过滤、怎么下发”</text>
+  <text x="68" y="116" class="sub">这里的多数输入填完即用，会保存到前端设置并热发布到 ROS 参数话题。</text>
+
+  <rect x="70" y="160" width="404" height="540" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">执行与识别模式</text>
+  <rect x="96" y="228" width="330" height="52" rx="16" class="green"/><text x="120" y="261" class="tiny">执行层模式：执行账本 / 账本 + 微调 / 规划路径 + 纯微调</text>
+  <rect x="96" y="292" width="330" height="52" rx="16" class="blue"/><text x="120" y="325" class="tiny">扫描底图：融合实例、Hessian、Frangi、深度梯度、红外响应</text>
+  <rect x="96" y="356" width="330" height="52" rx="16" class="amber"/><text x="120" y="389" class="tiny">执行层视觉：Hough 微调 / 扫描同款 Surface-DP</text>
+  <rect x="96" y="420" width="330" height="52" rx="16" class="red"/><text x="120" y="453" class="tiny">分类方法：深度学习 / 白盒算法</text>
+  <rect x="96" y="500" width="330" height="122" rx="18" class="tile"/>
+  <text x="120" y="534" class="tiny">建议：</text>
+  <text x="120" y="560" class="tiny">现场默认用「账本 + 微调」。</text>
+  <text x="120" y="584" class="tiny">只排查视觉时先用「单点视觉测试」。</text>
+
+  <rect x="506" y="160" width="386" height="540" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="532" y="200" class="body">过滤和阈值</text>
+  <rect x="532" y="228" width="310" height="48" rx="16" class="blue"/><text x="556" y="258" class="tiny">释放帧数</text>
+  <rect x="532" y="286" width="310" height="48" rx="16" class="blue"/><text x="556" y="316" class="tiny">索驱规划 Z</text>
+  <rect x="532" y="344" width="310" height="48" rx="16" class="amber"/><text x="556" y="374" class="tiny">梁筋过滤半径 / 启用梁筋过滤</text>
+  <rect x="532" y="402" width="310" height="48" rx="16" class="green"/><text x="556" y="432" class="tiny">成行 / 成列阈值</text>
+  <rect x="532" y="460" width="310" height="48" rx="16" class="red"/><text x="556" y="490" class="tiny">账本微调 XY 阈值</text>
+  <rect x="532" y="538" width="310" height="86" rx="18" class="tile"/>
+  <text x="556" y="572" class="tiny">账本微调 XY 阈值只控制归格接纳；</text>
+  <text x="556" y="596" class="tiny">Z 仍随视觉结果进入执行点。</text>
+
+  <rect x="924" y="160" width="406" height="540" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="950" y="200" class="body">TCP 绑扎范围与外参</text>
+  <rect x="950" y="228" width="328" height="72" rx="18" class="green"/>
+  <text x="974" y="258" class="mono">X 0-380 mm</text>
+  <text x="974" y="280" class="mono">Y 0-330 mm    Z 0-160 mm</text>
+  <rect x="950" y="320" width="328" height="74" rx="18" class="amber"/>
+  <text x="974" y="350" class="tiny">底层坐标线性补偿</text>
+  <text x="974" y="372" class="tiny">光轴偏移或整体平移补偿</text>
+  <rect x="950" y="414" width="328" height="74" rx="18" class="blue"/>
+  <text x="974" y="444" class="tiny">相机 - TCP 外参</text>
+  <text x="974" y="466" class="tiny">热更新 Scepter_depth_frame -> gripper_frame</text>
+  <rect x="950" y="526" width="328" height="86" rx="18" class="tile"/>
+  <text x="974" y="560" class="tiny">看执行层漏点时，先检查执行视觉底图，</text>
+  <text x="974" y="584" class="tiny">再看这个 TCP 可达盒是否把点过滤掉。</text>
+</svg>

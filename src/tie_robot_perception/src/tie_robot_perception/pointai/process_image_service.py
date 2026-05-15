@@ -46,9 +46,10 @@ from tie_robot_perception.perception.workspace_s2 import (
 from .constants import *
 from .bind_point_classification import (
     append_classification_event,
-    classify_pre_bind_rule,
+    classify_pre_bind_point,
     decisions_to_summary,
     extract_evidence_bundle,
+    filter_unbound_points_for_execution,
     iter_point_messages,
     should_mark_point_as_bound,
 )
@@ -80,13 +81,17 @@ def build_coordinate_snapshot(self, point_coords):
     )
 
 
-def classify_bind_check_points(self, point_coords):
+def classify_points_for_phase(self, point_coords, phase):
     config = getattr(self, "bind_classification_config", None)
     if config is None or getattr(config, "mode", "shadow") == "off":
         self.latest_bind_classification_decisions = []
+        if phase == "execution_refine":
+            self.execution_refine_classification_diagnostic_points = []
         return point_coords
     if not self.has_detected_points(point_coords):
         self.latest_bind_classification_decisions = []
+        if phase == "execution_refine":
+            self.execution_refine_classification_diagnostic_points = []
         return point_coords
 
     ir_image = getattr(self, "image_infrared", None)
@@ -100,6 +105,7 @@ def classify_bind_check_points(self, point_coords):
             depth_image = raw_world_channels[2]
 
     decisions = []
+    model_cache = getattr(self, "bind_classification_model_cache", None)
     for point in iter_point_messages(point_coords):
         bundle = extract_evidence_bundle(
             ir_image=ir_image,
@@ -108,20 +114,21 @@ def classify_bind_check_points(self, point_coords):
             point_idx=int(point.idx),
             pix_coord=point.Pix_coord,
             world_coord=point.World_coord,
-            phase="before",
+            phase=phase,
             config=config,
         )
-        decision = classify_pre_bind_rule(bundle, config)
+        decision = classify_pre_bind_point(bundle, config, model_cache=model_cache)
         decisions.append(decision)
         point.is_shuiguan = bool(should_mark_point_as_bound(decision, config))
         append_classification_event(
             config.event_log_path,
             {
-                "phase": "before",
+                "phase": phase,
                 "point_idx": int(point.idx),
                 "pix_coord": [int(point.Pix_coord[0]), int(point.Pix_coord[1])],
                 "world_coord": [float(value) for value in point.World_coord[:3]],
                 "mode": config.mode,
+                "method": getattr(config, "method", "deep_learning"),
                 "bind_state": decision.label,
                 "bind_score": float(decision.score),
                 "evidence_quality": float(decision.quality),
@@ -134,13 +141,56 @@ def classify_bind_check_points(self, point_coords):
     self.latest_bind_classification_decisions = decisions
     summary = decisions_to_summary(decisions)
     rospy.loginfo(
-        "pointAI绑扎点分类: mode=%s bound=%d unbound=%d uncertain=%d",
+        "pointAI绑扎点分类: mode=%s method=%s phase=%s bound=%d unbound=%d uncertain=%d",
         config.mode,
+        getattr(config, "method", "deep_learning"),
+        phase,
         int(summary.get("bound", 0)),
         int(summary.get("unbound", 0)),
         int(summary.get("uncertain", 0)),
     )
     return point_coords
+
+
+def classify_bind_check_points(self, point_coords):
+    return self.classify_points_for_phase(point_coords, "before")
+
+
+def build_execution_refine_classification_diagnostic_points(self, point_coords):
+    decisions = list(getattr(self, "latest_bind_classification_decisions", []) or [])
+    points = list(getattr(point_coords, "PointCoordinatesArray", []) or [])
+    diagnostic_points = []
+    for point, decision in zip(points, decisions):
+        label = str(getattr(decision, "label", "uncertain") or "uncertain").strip().lower()
+        if label == "bound":
+            status = "classification_bound"
+            text = "BND"
+        elif label == "unbound":
+            status = "classification_unbound"
+            text = "UNB"
+        else:
+            status = "classification_uncertain"
+            text = "UNC"
+        score = float(getattr(decision, "score", 0.0) or 0.0)
+        diagnostic_points.append({
+            "status": status,
+            "pixel": [int(point.Pix_coord[0]), int(point.Pix_coord[1])],
+            "label": f"{text}:{score:.2f}",
+        })
+    return diagnostic_points
+
+
+def classify_execution_refine_points(self, point_coords):
+    classified_points = self.classify_points_for_phase(point_coords, "execution_refine")
+    self.execution_refine_classification_diagnostic_points = (
+        self.build_execution_refine_classification_diagnostic_points(classified_points)
+    )
+    config = getattr(self, "bind_classification_config", None)
+    if config is not None and getattr(config, "mode", "off") == "blocking" and self.has_detected_points(classified_points):
+        kept_points = filter_unbound_points_for_execution(classified_points.PointCoordinatesArray, config)
+        classified_points.PointCoordinatesArray = kept_points
+        classified_points.count = len(kept_points)
+    return classified_points
 
 
 def is_stable_z_window(self, z_snapshots, frame_count=None, tolerance_mm=None):
@@ -222,6 +272,19 @@ def get_request_mode_name(self, request_mode):
     return "default"
 
 
+def get_execution_refine_algorithm(self):
+    algorithm = str(getattr(self, "execution_refine_algorithm", "hough") or "hough").strip()
+    if algorithm in {"hough", "surface_dp"}:
+        return algorithm
+    return "hough"
+
+
+def get_execution_refine_algorithm_label(self):
+    if self.get_execution_refine_algorithm() == "surface_dp":
+        return "扫描同款Surface-DP"
+    return "平面分割+Hough"
+
+
 def build_process_image_timing_message(self, request_mode, response, elapsed_sec, single_frame_elapsed_ms=None):
     single_frame_part = (
         f"单帧耗时={float(single_frame_elapsed_ms):.1f}ms，"
@@ -263,26 +326,31 @@ def build_detection_summary_log(
     out_of_range_reason_counts,
     out_of_range_samples,
 ):
+    if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
+        range_label = "规划工作区过滤"
+        selected_label = "输出候选"
+        range_limit = "按path_points.json规划工作区边界"
+    elif request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+        range_label = "TCP执行盒+全局工作区过滤"
+        selected_label = "区域组点"
+        range_limit = "按TCP执行盒和手动确认全局工作区边界"
+    else:
+        range_label = "可执行范围过滤"
+        selected_label = "2x2选中"
+        range_limit = "按手动工作区或path_points.json规划工作区边界"
+
     lines = [
         "pointAI调试:",
         f"  模式: {self.get_request_mode_name(request_mode)}",
         (
-            ("  规划工作区过滤: " if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY else "  可执行范围过滤: ")
-            +
+            f"  {range_label}: "
             f"原始候选={raw_candidate_count}, "
             f"范围内={in_range_candidate_count}, "
             f"范围外={out_of_range_point_count}, "
-            f"2x2选中={selected_count}, "
+            f"{selected_label}={selected_count}, "
             f"本次输出={output_count}"
         ),
-        (
-            "  范围限制: "
-            + (
-                "按path_points.json规划工作区边界"
-                if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY
-                else "按手动工作区或path_points.json规划工作区边界"
-            )
-        ),
+        f"  范围限制: {range_limit}",
     ]
 
     if out_of_range_point_count > 0:
@@ -301,7 +369,7 @@ def build_detection_summary_log(
             conclusion = "扫描模式当前没有规划工作区内可用点"
     elif request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
         if output_count > 0:
-            conclusion = f"执行微调模式输出{output_count}个相机原始坐标点，不做2x2限制"
+            conclusion = f"执行微调模式输出{output_count}个全局工作区内相机原始坐标点，作为当前区域一组"
         else:
             conclusion = "执行微调模式当前没有可用于局部视觉微调的范围内点"
     elif request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
@@ -375,6 +443,15 @@ def evaluate_point_coords_for_mode(self, point_coords, request_mode):
         return result
 
     if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
+        point_coords = self.classify_execution_refine_points(point_coords)
+        result["point_coords"] = point_coords
+        self.publish_execution_refine_classified_base_image(
+            point_coords,
+            getattr(self, "execution_refine_classification_diagnostic_points", []),
+        )
+        if not self.has_detected_points(point_coords):
+            result["message"] = "执行微调分类后未发现未绑扎点"
+            return result
         result["success"] = True
         result["message"] = (
             f"执行微调模式已满足{getattr(self, 'stable_frame_count', 3)}帧释放，"
@@ -430,6 +507,12 @@ def build_process_image_response(self, success, point_coords=None, message="", o
     )
 
 
+def run_execution_refine_visual_pipeline(self, publish=True):
+    if self.get_execution_refine_algorithm() == "surface_dp":
+        return self.run_execution_refine_surface_dp_pipeline(publish=publish)
+    return self.run_execution_refine_hough_pipeline(publish=publish)
+
+
 def wait_for_stable_point_coords(self, request_mode):
     stable_snapshots = []
     latest_point_coords = None
@@ -447,7 +530,7 @@ def wait_for_stable_point_coords(self, request_mode):
     while not rospy.is_shutdown():
         if self.process_wait_timeout_sec > 0 and time.time() - start_time > self.process_wait_timeout_sec:
             if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-                message = "pointAI视觉服务等待执行微调平面分割+Hough超时"
+                message = f"pointAI视觉服务等待执行微调{self.get_execution_refine_algorithm_label()}超时"
             elif request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
                 message = "pointAI视觉服务等待Surface-DP物理先验扫描超时"
             else:
@@ -474,7 +557,7 @@ def wait_for_stable_point_coords(self, request_mode):
         last_processed_frame_seq = current_frame_seq
 
         if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-            execution_refine_result = self.run_execution_refine_hough_pipeline(publish=True)
+            execution_refine_result = self.run_execution_refine_visual_pipeline(publish=True)
             single_frame_elapsed_ms = execution_refine_result.get("single_frame_elapsed_ms")
             point_coords = execution_refine_result.get("point_coords")
             if not self.has_detected_points(point_coords):
@@ -505,7 +588,8 @@ def wait_for_stable_point_coords(self, request_mode):
                     }
                 rospy.logwarn_throttle(
                     2.0,
-                    "pointAI等待执行微调平面分割+Hough有效点: %s（无点等待%.1fs/%.1fs）",
+                    "pointAI等待执行微调%s有效点: %s（无点等待%.1fs/%.1fs）",
+                    self.get_execution_refine_algorithm_label(),
                     execution_refine_result.get("message", "未知错误"),
                     no_points_elapsed_sec,
                     no_points_timeout_sec,

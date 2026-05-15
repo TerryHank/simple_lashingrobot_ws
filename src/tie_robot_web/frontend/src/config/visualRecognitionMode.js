@@ -45,8 +45,34 @@ export const SCAN_RESPONSE_SOURCE_OPTIONS = Object.freeze([
 
 export const DEFAULT_SCAN_RESPONSE_SOURCE = "depth_gradient";
 
+export const BIND_CLASSIFICATION_METHODS = Object.freeze([
+  { id: "deep_learning", label: "深度学习" },
+  { id: "white_box", label: "白盒算法" },
+]);
+
+export const DEFAULT_BIND_CLASSIFICATION_METHOD = "deep_learning";
+
+export const EXECUTION_REFINE_ALGORITHM_OPTIONS = Object.freeze([
+  { id: "hough", label: "Hough微调" },
+  { id: "surface_dp", label: "扫描同款Surface-DP" },
+]);
+
+export const DEFAULT_EXECUTION_REFINE_ALGORITHM = "hough";
+
 export function normalizeScanResponseSource(value, fallback = DEFAULT_SCAN_RESPONSE_SOURCE) {
   return SCAN_RESPONSE_SOURCE_OPTIONS.some((option) => option.id === value)
+    ? value
+    : fallback;
+}
+
+export function normalizeBindClassificationMethod(value, fallback = DEFAULT_BIND_CLASSIFICATION_METHOD) {
+  return BIND_CLASSIFICATION_METHODS.some((option) => option.id === value)
+    ? value
+    : fallback;
+}
+
+export function normalizeExecutionRefineAlgorithm(value, fallback = DEFAULT_EXECUTION_REFINE_ALGORITHM) {
+  return EXECUTION_REFINE_ALGORITHM_OPTIONS.some((option) => option.id === value)
     ? value
     : fallback;
 }

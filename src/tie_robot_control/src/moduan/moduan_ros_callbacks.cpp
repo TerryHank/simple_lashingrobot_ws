@@ -514,9 +514,20 @@ bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Res
         }
     }
     srv.request.request_mode = kProcessImageModeExecutionRefine;
+    if (!AI_client.exists()) {
+        res.success = false;
+        res.message =
+            "单点绑扎缺少执行微调视觉服务 /pointAI/process_image，疑似 pointAINode 未启动或已掉线";
+        printCurrentTime();
+        ros_log_printf("Moduan_Error: %s\n", res.message.c_str());
+        return true;
+    }
     if (!AI_client.call(srv)) {
         res.success = false;
-        res.message = "调用视觉服务失败";
+        res.message =
+            "单点绑扎调用执行微调视觉服务 /pointAI/process_image 失败，疑似 pointAINode 掉线或服务异常";
+        printCurrentTime();
+        ros_log_printf("Moduan_Error: %s\n", res.message.c_str());
         return true;
     }
 
@@ -553,7 +564,18 @@ bool moduan_bind_service(std_srvs::Trigger::Request& req, std_srvs::Trigger::Res
 
     ros_log_printf("Moduan_log: 子区域内钢筋绑扎点数量:%zu.\n", srv.response.PointCoordinatesArray.size());
     auto sortedArray = srv.response.PointCoordinatesArray;
-    std::vector<tie_robot_msgs::PointCoords> cameraPoints(sortedArray.begin(), sortedArray.end());
+    std::vector<tie_robot_msgs::PointCoords> cameraPoints;
+    cameraPoints.reserve(sortedArray.size());
+    for (const auto& point : sortedArray) {
+        if (point.is_shuiguan) {
+            ros_log_printf(
+                "Moduan_log: 跳过已绑扎视觉点 idx=%d，不下发线性模组。\n",
+                point.idx
+            );
+            continue;
+        }
+        cameraPoints.push_back(point);
+    }
     std::vector<tie_robot_msgs::PointCoords> filteredPoints;
     std::string transform_error;
     if (!transform_scepter_camera_points_to_gripper_points(cameraPoints, filteredPoints, transform_error)) {

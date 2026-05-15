@@ -51,8 +51,6 @@ def initialize_processor_state(self):
     self.auto_cali_move_x = 250
     self.auto_cali_move_y = 0
     self.auto_cali_move_z = 0
-    self.fixed_z_value = 0.0
-    self.height_threshold = 10
     self.cali_matrix_file = os.path.join(str(PERCEPTION_PACKAGE_ROOT), "data", "pose_matrix.npy")
     self.path_points_file = os.path.join(
         str(WORKSPACE_SRC_ROOT),
@@ -70,6 +68,7 @@ def initialize_processor_state(self):
         os.path.join(str(PERCEPTION_PACKAGE_ROOT), "config", "bind_point_classification.yaml"),
     )
     self.bind_classification_config = load_classification_config(self.bind_classification_config_path)
+    self.bind_classification_model_cache = {}
     self.latest_bind_classification_decisions = []
 
     self.image_infrared_copy = np.zeros((480, 640), dtype=np.uint8)
@@ -92,6 +91,10 @@ def initialize_processor_state(self):
     self.scan_beam_exclusion_enabled = bool(rospy.get_param("~scan_beam_exclusion_enabled", False))
     self.scan_beam_exclusion_margin_mm = float(rospy.get_param("~scan_beam_exclusion_margin_mm", 150.0))
     self.scan_response_source = str(rospy.get_param("~scan_response_source", "depth_gradient") or "depth_gradient")
+    self.execution_refine_algorithm = str(rospy.get_param("~execution_refine_algorithm", "hough") or "hough").strip()
+    if self.execution_refine_algorithm not in {"hough", "surface_dp"}:
+        self.execution_refine_algorithm = "hough"
+    self.execution_refine_surface_dp_mode = False
     self.scan_linear_compensation_enabled = bool(rospy.get_param("~scan_linear_compensation_enabled", False))
     self.scan_linear_compensation_reference_z_mm = float(
         rospy.get_param("~scan_linear_compensation_reference_z_mm", 1000.0)

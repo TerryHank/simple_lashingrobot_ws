@@ -91,20 +91,18 @@ export class AreaNavigationController {
       return this.reportResult("pseudo_slam_bind_path.json 没有可切换的工作区域。", "warn");
     }
 
-    const currentOrdinal = this.resolveCurrentAreaOrdinal(areas);
-    if (currentOrdinal < 0) {
+    const targetSelection = this.resolveTargetAreaSelection(areas, normalizedDirection);
+    if (targetSelection.status === "unavailable") {
       return this.reportResult("无法判断当前工作区域，请先确认索驱当前位置或等待区域进度上报。", "warn");
     }
-
-    const targetOrdinal = currentOrdinal + normalizedDirection;
-    if (targetOrdinal < 0) {
+    if (targetSelection.status === "boundary_previous") {
       return this.reportResult("已经是第一个区域，不能再切换到上一个区域。", "warn");
     }
-    if (targetOrdinal >= areas.length) {
+    if (targetSelection.status === "boundary_next") {
       return this.reportResult("已经是最后一个区域，不能再切换到下一个区域。", "warn");
     }
 
-    const targetArea = areas[targetOrdinal];
+    const targetArea = areas[targetSelection.targetOrdinal];
     const takeoverResult = this.rosConnection.publishManualAreaTakeover();
     if (!takeoverResult?.success) {
       return this.reportResult(takeoverResult?.message || "人工接管信号发送失败，已阻止切换区域。", "error");
@@ -131,6 +129,39 @@ export class AreaNavigationController {
       targetArea,
       payload,
     });
+  }
+
+  resolveTargetAreaSelection(areas, direction) {
+    const normalizedDirection = Number(direction) < 0 ? -1 : 1;
+    const progressAreaIndex = normalizeNumber(this.latestAreaProgress?.current_area_index);
+    const readyForNextArea = Boolean(this.latestAreaProgress?.ready_for_next_area);
+
+    if (readyForNextArea && progressAreaIndex !== null) {
+      const targetAreaIndex = normalizedDirection < 0
+        ? progressAreaIndex - 1
+        : progressAreaIndex;
+      const targetOrdinal = targetAreaIndex - 1;
+      if (targetOrdinal < 0) {
+        return { status: "boundary_previous" };
+      }
+      if (targetOrdinal >= areas.length) {
+        return { status: "boundary_next" };
+      }
+      return { status: "ready", targetOrdinal };
+    }
+
+    const currentOrdinal = this.resolveCurrentAreaOrdinal(areas);
+    if (currentOrdinal < 0) {
+      return { status: "unavailable" };
+    }
+    const targetOrdinal = currentOrdinal + normalizedDirection;
+    if (targetOrdinal < 0) {
+      return { status: "boundary_previous" };
+    }
+    if (targetOrdinal >= areas.length) {
+      return { status: "boundary_next" };
+    }
+    return { status: "normal", targetOrdinal };
   }
 
   resolveCurrentAreaOrdinal(areas) {

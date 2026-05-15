@@ -92,7 +92,7 @@ export const CONTROL_TOGGLE_DEFINITIONS = {
     id: "lashingEnabled",
     group: "末端控制",
     stateKey: "enabled",
-    initialValue: true,
+    initialValue: false,
     inactiveLabel: "开启绑扎",
     activeLabel: "关闭绑扎",
     inactiveTone: "green",
@@ -120,6 +120,18 @@ export const CONTROL_TOGGLE_DEFINITIONS = {
     selectedParityCommandId: 26,
     selectedParityInitialValue: 0,
   },
+  bindClassificationEnabled: {
+    id: "bindClassificationEnabled",
+    group: "视觉调试",
+    stateKey: "enabled",
+    initialValue: false,
+    inactiveLabel: "开启分类",
+    activeLabel: "关闭分类",
+    inactiveTone: "blue",
+    activeTone: "amber",
+    commandId: 27,
+    messageType: "std_msgs/Bool",
+  },
   lightEnabled: {
     id: "lightEnabled",
     group: "末端控制",
@@ -135,7 +147,7 @@ export const CONTROL_TOGGLE_DEFINITIONS = {
 };
 
 const CONTROL_PANEL_GROUPS = [
-  { title: "控制开关", items: ["pauseResume", "lashingEnabled", "jumpBindEnabled", "lightEnabled"] },
+  { title: "控制开关", items: ["pauseResume", "lashingEnabled", "jumpBindEnabled", "bindClassificationEnabled", "lightEnabled"] },
 ];
 
 export function getControlToggleDefinition(toggleId) {

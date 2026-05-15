@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">底部快速控制</title>
+  <desc id="desc">展示暂停作业、开启绑扎、跳绑黑白棋、分类和灯光等快速开关，以及机器位置和区域进度读数。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e7eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#3b82f6"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .btn { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">底部快速控制是现场高频开关区</text>
+  <text x="68" y="116" class="sub">这里不负责建账本，只负责把扎丝、跳绑、分类、灯光和暂停恢复这些高频动作快速切开。</text>
+
+  <rect x="70" y="166" width="1260" height="356" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="206" class="body">快速开关条</text>
+
+  <rect x="96" y="242" width="152" height="80" rx="24" class="red"/>
+  <text x="140" y="282" class="body">暂停作业</text>
+  <text x="124" y="302" class="tiny">长按停止并回起点</text>
+
+  <rect x="264" y="242" width="152" height="80" rx="24" class="green"/>
+  <text x="310" y="282" class="body">开启绑扎</text>
+  <text x="298" y="302" class="tiny">控制末端扎丝</text>
+
+  <rect x="432" y="242" width="182" height="80" rx="24" class="amber"/>
+  <text x="459" y="274" class="body">长按开启跳绑</text>
+  <text x="479" y="298" class="tiny">黑棋 / 白棋</text>
+
+  <rect x="630" y="242" width="152" height="80" rx="24" class="blue"/>
+  <text x="675" y="282" class="body">开启分类</text>
+  <text x="660" y="302" class="tiny">过滤已绑 / 未绑</text>
+
+  <rect x="798" y="242" width="152" height="80" rx="24" class="blue"/>
+  <text x="843" y="282" class="body">开启灯光</text>
+  <text x="827" y="302" class="tiny">现场补光观察</text>
+
+  <rect x="966" y="242" width="172" height="80" rx="24" class="btn"/>
+  <text x="1004" y="274" class="body">关闭绑扎</text>
+  <text x="1000" y="298" class="tiny">停止末端执行</text>
+
+  <rect x="1154" y="242" width="152" height="80" rx="24" class="btn"/>
+  <text x="1188" y="274" class="body">关闭灯光</text>
+  <text x="1178" y="298" class="tiny">恢复暗场观察</text>
+
+  <rect x="96" y="350" width="1210" height="124" rx="22" class="btn"/>
+  <text x="122" y="384" class="body">什么时候用</text>
+  <text x="122" y="412" class="tiny">• 跳绑黑白棋适合只绑某一种棋色时使用；</text>
+  <text x="122" y="436" class="tiny">• 分类适合把已绑点从执行层里过滤出去；</text>
+  <text x="122" y="460" class="tiny">• 灯光用于补光观察，不会改变账本。</text>
+
+  <rect x="70" y="548" width="1260" height="170" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="588" class="body">状态读数</text>
+  <rect x="98" y="612" width="260" height="64" rx="20" class="amber"/>
+  <text x="120" y="646" class="tiny">机器位置  X --  Y --  Z --</text>
+  <rect x="374" y="612" width="220" height="64" rx="20" class="blue"/>
+  <text x="396" y="646" class="tiny">区域进度  区域 -- / --</text>
+  <rect x="610" y="612" width="270" height="64" rx="20" class="gray"/>
+  <text x="632" y="638" class="tiny">线模本地  X --  Y --  Z --</text>
+  <text x="632" y="658" class="tiny">线模全局  X --  Y --  Z --</text>
+  <rect x="896" y="612" width="410" height="64" rx="20" class="btn"/>
+  <text x="922" y="646" class="tiny">线模本地支持长按 0.5 秒回零，回零前先看当前末端附近是否安全。</text>
+
+  <path d="M520 322 C520 344, 520 352, 520 350" stroke="#3b82f6" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M884 322 C884 344, 884 352, 884 350" stroke="#3b82f6" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+</svg>

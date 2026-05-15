@@ -1,0 +1,7 @@
+float32 x
+float32 y
+float32 depth
+---
+float32 world_x
+float32 world_y
+float32 world_z

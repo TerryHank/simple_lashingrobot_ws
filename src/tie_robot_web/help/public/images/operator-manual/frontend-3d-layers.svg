@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">3D Scene 与图层控制</title>
+  <desc id="desc">展示 3D 场景中的机器、点云、规划点、索驱路径和线模范围，并对应图层开关、视角切换和点大小透明度控制。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <linearGradient id="scene" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#14213d"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .chip { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">3D Scene 用来一起看模型、点云和绑扎范围</text>
+  <text x="68" y="116" class="sub">想确认账本和执行路径有没有问题，先看 3D 场景，再看图层开关。</text>
+
+  <rect x="70" y="160" width="748" height="536" rx="24" fill="url(#scene)" stroke="#0f172a" stroke-width="2"/>
+  <text x="98" y="198" fill="#f8fafc" style="font:700 18px 'Noto Sans CJK SC','Microsoft YaHei',sans-serif;">3D Scene</text>
+  <path d="M132 574 C250 508, 346 566, 468 486 S708 354, 770 470" stroke="#38bdf8" stroke-width="4" fill="none"/>
+  <path d="M146 412 C256 368, 364 374, 496 324 S662 246, 744 286" stroke="#22c55e" stroke-width="4" fill="none"/>
+  <circle cx="210" cy="402" r="8" fill="#f59e0b"/><circle cx="300" cy="346" r="8" fill="#f59e0b"/><circle cx="396" cy="336" r="8" fill="#f59e0b"/>
+  <circle cx="524" cy="300" r="8" fill="#ef4444"/><circle cx="614" cy="270" r="8" fill="#ef4444"/><circle cx="690" cy="330" r="8" fill="#ef4444"/>
+  <rect x="136" y="612" width="182" height="28" rx="10" fill="#0f172a" stroke="#38bdf8"/>
+  <text x="152" y="631" style="font:600 13px 'JetBrains Mono',Consolas,monospace; fill:#bfdbfe;">gripper_frame 绑扎范围</text>
+  <rect x="434" y="560" width="112" height="58" rx="12" fill="#0f172a" stroke="#60a5fa"/>
+  <text x="458" y="594" style="font:600 13px 'JetBrains Mono',Consolas,monospace; fill:#dbeafe;">TCP box</text>
+  <text x="454" y="612" style="font:600 13px 'JetBrains Mono',Consolas,monospace; fill:#dbeafe;">X/Y/Z</text>
+  <path d="M160 330 L314 330 L334 292 L490 292 L530 242 L708 242" stroke="#e2e8f0" stroke-width="2" fill="none" stroke-dasharray="5 6"/>
+
+  <rect x="846" y="160" width="484" height="264" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="872" y="200" class="body">视角控制</text>
+  <rect x="872" y="224" width="140" height="46" rx="14" class="blue"/><text x="894" y="253" class="tiny">自由视角</text>
+  <rect x="1024" y="224" width="140" height="46" rx="14" class="blue"/><text x="1046" y="253" class="tiny">相机视角</text>
+  <rect x="1176" y="224" width="124" height="46" rx="14" class="blue"/><text x="1198" y="253" class="tiny">俯视视角</text>
+  <rect x="872" y="284" width="180" height="46" rx="14" class="green"/><text x="900" y="313" class="tiny">跟随原点</text>
+  <rect x="1064" y="284" width="236" height="46" rx="14" class="amber"/><text x="1092" y="313" class="tiny">点大小 / 点透明度</text>
+  <text x="872" y="354" class="tiny">看空间结构时先切视角，再看层。</text>
+
+  <rect x="846" y="444" width="484" height="252" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="872" y="484" class="body">图层开关</text>
+  <rect x="872" y="508" width="128" height="40" rx="14" class="chip"/><text x="898" y="534" class="tiny">机器</text>
+  <rect x="1010" y="508" width="128" height="40" rx="14" class="chip"/><text x="1032" y="534" class="tiny">坐标轴</text>
+  <rect x="1148" y="508" width="160" height="40" rx="14" class="chip"/><text x="1174" y="534" class="tiny">点云</text>
+  <rect x="872" y="558" width="128" height="40" rx="14" class="chip"/><text x="888" y="584" class="tiny">规划点</text>
+  <rect x="1010" y="558" width="128" height="40" rx="14" class="chip"/><text x="1022" y="584" class="tiny">2x2 成组</text>
+  <rect x="1148" y="558" width="160" height="40" rx="14" class="chip"/><text x="1170" y="584" class="tiny">索驱路径</text>
+  <rect x="872" y="608" width="162" height="40" rx="14" class="green"/><text x="892" y="634" class="tiny">线模范围区域</text>
+  <rect x="1044" y="608" width="120" height="40" rx="14" class="amber"/><text x="1058" y="634" class="tiny">识别结果</text>
+  <rect x="1174" y="608" width="134" height="40" rx="14" class="red"/><text x="1188" y="634" class="tiny">扫描点</text>
+  <text x="872" y="674" class="tiny">执行前常打开「线模范围区域」，这样一眼就知道点能不能到。</text>
+
+  <rect x="78" y="52" width="240" height="42" rx="16" class="call"/>
+  <text x="98" y="79" class="tiny">先看点云，再看规划，再看可达盒。</text>
+</svg>

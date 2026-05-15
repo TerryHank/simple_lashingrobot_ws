@@ -43,7 +43,10 @@ from tie_robot_perception.perception.workspace_s2 import (
     sort_polygon_points_clockwise,
 )
 from .constants import *
-from .bind_point_classification import load_classification_config
+from .bind_point_classification import (
+    load_classification_config,
+    normalize_classification_method,
+)
 
 def load_runtime_config(self):
     try:
@@ -52,7 +55,14 @@ def load_runtime_config(self):
             self.bind_classification_config_path,
         )
         self.bind_classification_config = load_classification_config(self.bind_classification_config_path)
-        self.height_threshold = float(rospy.get_param("~height_threshold", self.height_threshold))
+        self.bind_classification_config.mode = rospy.get_param(
+            "~bind_classification_mode",
+            self.bind_classification_config.mode,
+        )
+        self.bind_classification_config.method = normalize_classification_method(rospy.get_param(
+            "~bind_classification_method",
+            self.bind_classification_config.method,
+        ))
         self.scan_linear_compensation_enabled = bool(
             rospy.get_param("~scan_linear_compensation_enabled", self.scan_linear_compensation_enabled)
         )
@@ -94,7 +104,14 @@ def load_runtime_config(self):
 
 
 def save_runtime_config(self):
-    rospy.set_param("~height_threshold", float(self.height_threshold))
+    bind_classification_config = getattr(self, "bind_classification_config", None)
+    if bind_classification_config is not None:
+        rospy.set_param("~bind_classification_mode", str(bind_classification_config.mode))
+        rospy.set_param("~bind_classification_method", str(bind_classification_config.method))
+    rospy.set_param(
+        "~execution_refine_algorithm",
+        str(normalize_execution_refine_algorithm(getattr(self, "execution_refine_algorithm", "hough"))),
+    )
     rospy.set_param("~scan_linear_compensation_enabled", bool(self.scan_linear_compensation_enabled))
     rospy.set_param(
         "~scan_linear_compensation_reference_z_mm",
@@ -115,20 +132,6 @@ def save_runtime_config(self):
         "~scan_linear_compensation_max_abs_scale_delta",
         float(self.scan_linear_compensation_max_abs_scale_delta),
     )
-
-
-def fixed_z_value_callback(self, msg):
-    """
-    /fixed_z_value 回调: 若值不为0将在计算点坐标时强制替换z
-    """
-    if msg.data < 20:
-        self.height_threshold = msg.data
-        self.save_runtime_config()
-        rospy.loginfo("pointAI: 设置高度阈值为: %s", self.height_threshold)
-    else:
-        self.fixed_z_value = msg.data
-        rospy.loginfo("pointAI: 接收到固定下探Z值: %s", self.fixed_z_value)
-
 
 def set_stable_frame_count_callback(self, msg):
     self.stable_frame_count = max(1, int(getattr(msg, "data", 1)))
@@ -171,6 +174,38 @@ def set_scan_response_source_callback(self, msg):
     self.scan_response_source = requested_source
     rospy.set_param("~scan_response_source", str(self.scan_response_source))
     rospy.loginfo("pointAI: 扫描底图已设置为: %s", self.scan_response_source)
+
+
+def normalize_execution_refine_algorithm(value):
+    requested_algorithm = str(value or "").strip()
+    if requested_algorithm in {"hough", "surface_dp"}:
+        return requested_algorithm
+    return "hough"
+
+
+def set_execution_refine_algorithm_callback(self, msg):
+    requested_algorithm = normalize_execution_refine_algorithm(getattr(msg, "data", "hough"))
+    self.execution_refine_algorithm = requested_algorithm
+    rospy.set_param("~execution_refine_algorithm", str(self.execution_refine_algorithm))
+    rospy.loginfo("pointAI: 执行层视觉算法已切换为: %s", self.execution_refine_algorithm)
+
+
+def set_bind_classification_enabled_callback(self, msg):
+    enabled = bool(getattr(msg, "data", False))
+    self.bind_classification_config.mode = "blocking" if enabled else "off"
+    rospy.set_param("~bind_classification_mode", self.bind_classification_config.mode)
+    rospy.loginfo(
+        "pointAI: 绑扎点分类已%s，mode=%s。",
+        "开启" if enabled else "关闭",
+        self.bind_classification_config.mode,
+    )
+
+
+def set_bind_classification_method_callback(self, msg):
+    method = normalize_classification_method(getattr(msg, "data", "deep_learning"))
+    self.bind_classification_config.method = method
+    rospy.set_param("~bind_classification_method", method)
+    rospy.loginfo("pointAI: 绑扎点分类方法已切换为: %s", method)
 
 
 def _finite_float_or(value, fallback):

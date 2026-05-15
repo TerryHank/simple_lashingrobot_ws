@@ -101,7 +101,6 @@ ROS 名称必须先表达责任层，再表达实体，再表达动作或数据�
 ```text
 /perception/lashing/set_workspace
 /perception/lashing/config/set_stable_frame_count
-/perception/lashing/config/set_height_threshold
 /perception/lashing/recognize_once
 /perception/lashing/points_camera
 /perception/lashing/points_world

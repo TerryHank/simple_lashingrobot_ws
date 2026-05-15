@@ -1105,7 +1105,12 @@ def _axis_length_from_valid_mask(valid_mask, rectified_geometry):
     return max(1, width), max(1, height)
 
 
-def _physical_lattice_score_metadata(line_families, valid_mask=None, rectified_geometry=None):
+def _physical_lattice_score_metadata(
+    line_families,
+    valid_mask=None,
+    rectified_geometry=None,
+    execution_refine_mode=False,
+):
     if len(line_families or []) < 2:
         return {"accepted": False, "score": -float("inf"), "reject_reason": "insufficient_families"}
     counts = [len(family.get("line_rhos", [])) for family in line_families[:2]]
@@ -1123,7 +1128,8 @@ def _physical_lattice_score_metadata(line_families, valid_mask=None, rectified_g
     visible_physical_aspect = max(visible_physical_aspect, 1e-6)
     count_aspect_error = abs(float(np.log(max(observed_count_aspect, 1e-6) / visible_physical_aspect)))
     count_aspect_tolerance = float(PHYSICAL_LATTICE_ASPECT_BASE_TOLERANCE)
-    if count_aspect_error > count_aspect_tolerance:
+    count_aspect_relaxed = bool(execution_refine_mode and count_aspect_error > count_aspect_tolerance)
+    if count_aspect_error > count_aspect_tolerance and not count_aspect_relaxed:
         return {
             "accepted": False,
             "score": -float("inf"),
@@ -1153,6 +1159,8 @@ def _physical_lattice_score_metadata(line_families, valid_mask=None, rectified_g
         "count_aspect_tolerance": float(count_aspect_tolerance),
         "aspect_score": float(aspect_score),
         "support_score": float(sum(support_scores)),
+        "execution_refine_mode": bool(execution_refine_mode),
+        "count_aspect_relaxed": bool(count_aspect_relaxed),
     }
 
 
@@ -1181,6 +1189,7 @@ def _build_best_physical_axis_aligned_line_families(
     valid_mask,
     rectified_geometry,
     peak_min_ratio=0.18,
+    execution_refine_mode=False,
 ):
     for source_name, response_map in response_candidates:
         if response_map is None:
@@ -1196,6 +1205,7 @@ def _build_best_physical_axis_aligned_line_families(
                 line_families,
                 valid_mask=valid_mask,
                 rectified_geometry=rectified_geometry,
+                execution_refine_mode=execution_refine_mode,
             )
             if float(lattice_metadata.get("score", -float("inf"))) > -float("inf"):
                 physical_source = str(source_name)
@@ -1212,6 +1222,7 @@ def _build_physical_line_family_failure_diagnostics(
     valid_mask,
     rectified_geometry,
     peak_min_ratio=0.18,
+    execution_refine_mode=False,
 ):
     response_source = str(response_source)
     attempts = []
@@ -1238,6 +1249,7 @@ def _build_physical_line_family_failure_diagnostics(
             line_families,
             valid_mask=valid_mask,
             rectified_geometry=rectified_geometry,
+            execution_refine_mode=execution_refine_mode,
         )
         last_counts = [int(count) for count in counts]
         last_reject_reason = str(lattice_metadata.get("reject_reason", ""))
@@ -1329,7 +1341,7 @@ def _build_modalities(result, threshold_percentile, response_source=None):
     }
 
 
-def _build_completed_surface(result, modalities, min_period, max_period):
+def _build_completed_surface(result, modalities, min_period, max_period, execution_refine_mode=False):
     valid_mask = _valid_mask_from_result(result)
     rectified_geometry = result.get("rectified_geometry") or {}
     response_source = normalize_scan_response_source(modalities.get("runtime_response_source"))
@@ -1339,6 +1351,7 @@ def _build_completed_surface(result, modalities, min_period, max_period):
         valid_mask,
         rectified_geometry,
         peak_min_ratio=0.18,
+        execution_refine_mode=execution_refine_mode,
     )
     if len(line_families) < 2:
         line_families = []
@@ -1351,6 +1364,7 @@ def _build_completed_surface(result, modalities, min_period, max_period):
             valid_mask,
             rectified_geometry,
             peak_min_ratio=0.18,
+            execution_refine_mode=execution_refine_mode,
         )
     line_support_mask = draw_line_family_mask(
         modalities["binary_candidate"].shape,
@@ -1372,6 +1386,7 @@ def _build_completed_surface(result, modalities, min_period, max_period):
         "response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
         "runtime_response_source": response_source,
         "failure_diagnostics": failure_diagnostics,
+        "execution_refine_mode": bool(execution_refine_mode),
     }
 
 
@@ -1561,6 +1576,7 @@ def build_scan_surface_dp_result(
     enable_beam_exclusion=False,
     beam_exclusion_margin_mm=DEFAULT_BEAM_EXCLUSION_MARGIN_MM,
     response_source=None,
+    execution_refine_mode=False,
 ):
     valid_mask = _valid_mask_from_result(result)
     requested_response_source = str(response_source or SCAN_RUNTIME_RESPONSE_SOURCE).strip()
@@ -1580,7 +1596,13 @@ def build_scan_surface_dp_result(
         }
 
     modalities = _build_modalities(result, threshold_percentile, selected_response_source)
-    surface = _build_completed_surface(result, modalities, min_period, max_period)
+    surface = _build_completed_surface(
+        result,
+        modalities,
+        min_period,
+        max_period,
+        execution_refine_mode=execution_refine_mode,
+    )
     line_families = surface["completed_line_families"]
     if len(line_families) < 2:
         failure_diagnostics = surface.get("failure_diagnostics") or {}
@@ -1784,10 +1806,14 @@ def build_scan_surface_dp_result(
             "physical_lattice_count_aspect_tolerance": float(
                 physical_lattice.get("count_aspect_tolerance", 0.0)
             ),
+            "physical_lattice_count_aspect_relaxed": bool(
+                physical_lattice.get("count_aspect_relaxed", False)
+            ),
             "base_physical_source": surface.get("base_physical_source"),
             "completed_physical_source": surface.get("completed_physical_source"),
             "scan_runtime_response_policy": SCAN_RUNTIME_RESPONSE_POLICY,
             "scan_runtime_response_source": selected_response_source,
             "scan_runtime_response_source_requested": requested_response_source,
+            "execution_refine_mode": bool(execution_refine_mode),
         },
     }

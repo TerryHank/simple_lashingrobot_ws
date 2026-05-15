@@ -446,6 +446,8 @@ void clear_finishall_flag_if_needed()
     }
 }
 
+bool wait_for_plc_finish_all_clear(std::chrono::milliseconds poll_interval, std::chrono::seconds timeout);
+
 bool wait_for_plc_finish_all(std::chrono::milliseconds poll_interval, std::chrono::seconds timeout)
 {
     auto active_wait_start_time = std::chrono::steady_clock::now();

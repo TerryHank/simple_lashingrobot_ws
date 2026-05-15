@@ -62,6 +62,28 @@ assert.deepEqual(progressCase.calls.map((call) => call.type), [
 ]);
 assert.deepEqual(progressCase.calls.at(-1).payload, { x: 200, y: 0, z: 520, speed: 360 });
 
+const readyCase = buildController();
+readyCase.controller.handleAreaProgressMessage({
+  current_area_index: 2,
+  total_area_count: 3,
+  just_finished_area_index: 1,
+  ready_for_next_area: true,
+});
+const readyNextResult = await readyCase.controller.moveRelative(1);
+assert.equal(readyNextResult.success, true);
+assert.deepEqual(readyCase.calls.at(-1).payload, { x: 100, y: 0, z: 510, speed: 360 });
+
+const readyPreviousCase = buildController();
+readyPreviousCase.controller.handleAreaProgressMessage({
+  current_area_index: 2,
+  total_area_count: 3,
+  just_finished_area_index: 1,
+  ready_for_next_area: true,
+});
+const readyPreviousResult = await readyPreviousCase.controller.moveRelative(-1);
+assert.equal(readyPreviousResult.success, true);
+assert.deepEqual(readyPreviousCase.calls.at(-1).payload, { x: 0, y: 0, z: 500, speed: 360 });
+
 const nearestCase = buildController({ currentPosition: { x: 98, y: 10, z: 500 } });
 const previousResult = await nearestCase.controller.moveRelative(-1);
 assert.equal(previousResult.success, true);

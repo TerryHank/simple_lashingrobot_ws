@@ -153,6 +153,75 @@ assert.match(
   "索驱诊断报警详情应写入前端日志",
 );
 
+statusChanges.length = 0;
+logs.length = 0;
+
+assert.equal(
+  controller.clearLayerAlarmState("moduan"),
+  true,
+  "应支持只清除末端层报警",
+);
+assert.deepEqual(
+  statusChanges.filter((change) => change.statusId === "moduan").at(-1),
+  {
+    statusId: "moduan",
+    level: "success",
+    detail: "末端报警已清除",
+  },
+  "清除末端层报警后，末端胶囊应回到清除态",
+);
+assert.deepEqual(
+  statusChanges.filter((change) => change.statusId === "chassis").at(-1),
+  undefined,
+  "清除末端层报警不应改动索驱胶囊",
+);
+assert.deepEqual(
+  logs.filter((entry) => entry.message.includes("状态变化 moduan")).at(-1),
+  {
+    message: "状态变化 moduan -> 末端报警已清除",
+    level: "success",
+  },
+  "清除末端层报警应写入前端日志",
+);
+
+statusChanges.length = 0;
+logs.length = 0;
+
+diagnosticsTopic.emit({
+  status: [
+    {
+      hardware_id: "tie_robot/chassis_driver",
+      level: 0,
+      message: "索驱驱动已连接",
+      values: [
+        { key: "device_alarm", value: "1" },
+        { key: "internal_calc_error", value: "0" },
+      ],
+    },
+    {
+      hardware_id: "tie_robot/moduan_driver",
+      level: 0,
+      message: "末端驱动已连接",
+      values: [
+        { key: "error_x", value: "1" },
+        { key: "error_y", value: "0" },
+        { key: "error_z", value: "0" },
+        { key: "error_lashing", value: "0" },
+        { key: "error_motor", value: "0" },
+      ],
+    },
+  ],
+});
+assert.deepEqual(
+  statusChanges.filter((change) => change.statusId === "moduan").at(-1),
+  {
+    statusId: "moduan",
+    level: "warn",
+    detail: "末端报警：X轴异常",
+  },
+  "底层仍在上报报警时，下一帧诊断应重新点亮该层报警",
+);
+
 const originalDateNow = Date.now;
 try {
   topicInstances.length = 0;

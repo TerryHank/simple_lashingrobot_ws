@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">相机 SDK 调试</title>
+  <desc id="desc">展示相机 SDK 调试页中的帧率、红外增益、彩色分辨率、动态范围、曝光、滤波、工作模式和点云对齐参数。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .tile { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">相机 SDK 调试页负责“底层出图质量”</text>
+  <text x="68" y="116" class="sub">视觉点数异常时，不只看算法阈值，也要看相机帧率、曝光、滤波和点云对齐。</text>
+
+  <rect x="70" y="160" width="392" height="520" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">采集参数</text>
+  <rect x="96" y="228" width="310" height="52" rx="16" class="blue"/><text x="120" y="261" class="tiny">帧率</text>
+  <rect x="96" y="292" width="310" height="52" rx="16" class="blue"/><text x="120" y="325" class="tiny">红外增益</text>
+  <rect x="96" y="356" width="310" height="52" rx="16" class="green"/><text x="120" y="389" class="tiny">彩色分辨率</text>
+  <rect x="96" y="420" width="310" height="52" rx="16" class="amber"/><text x="120" y="453" class="tiny">动态范围模式</text>
+  <rect x="96" y="484" width="310" height="52" rx="16" class="red"/><text x="120" y="517" class="tiny">深度曝光时间</text>
+
+  <rect x="504" y="160" width="392" height="520" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="530" y="200" class="body">深度与点云滤波</text>
+  <rect x="530" y="228" width="310" height="52" rx="16" class="tile"/><text x="554" y="261" class="tiny">飞点过滤</text>
+  <rect x="530" y="292" width="310" height="52" rx="16" class="tile"/><text x="554" y="325" class="tiny">置信度过滤</text>
+  <rect x="530" y="356" width="310" height="52" rx="16" class="tile"/><text x="554" y="389" class="tiny">时域滤波</text>
+  <rect x="530" y="420" width="310" height="52" rx="16" class="tile"/><text x="554" y="453" class="tiny">空间滤波</text>
+  <rect x="530" y="484" width="310" height="52" rx="16" class="tile"/><text x="554" y="517" class="tiny">空洞填充</text>
+
+  <rect x="938" y="160" width="392" height="520" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="964" y="200" class="body">工作模式与对齐</text>
+  <rect x="964" y="228" width="310" height="52" rx="16" class="green"/><text x="988" y="261" class="tiny">工作模式</text>
+  <rect x="964" y="292" width="310" height="52" rx="16" class="amber"/><text x="988" y="325" class="tiny">软件触发</text>
+  <rect x="964" y="356" width="310" height="52" rx="16" class="blue"/><text x="988" y="389" class="tiny">深度点云</text>
+  <rect x="964" y="420" width="310" height="52" rx="16" class="blue"/><text x="988" y="453" class="tiny">彩色对齐点云</text>
+  <rect x="964" y="510" width="310" height="88" rx="18" class="tile"/>
+  <text x="988" y="546" class="tiny">修改相机底层参数后，先看图像面板，</text>
+  <text x="988" y="570" class="tiny">再决定是否继续调算法阈值。</text>
+</svg>

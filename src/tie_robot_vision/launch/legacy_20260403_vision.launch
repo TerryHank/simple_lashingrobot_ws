@@ -1,0 +1,53 @@
+<launch>
+    <!--
+      20260403 旧展示工作区适配入口。
+
+      旧 chassis_ctrl 使用 fast_image_solve/ProcessImage 类型调用
+      /pointAI/process_image；新版 pointAI 使用 tie_robot_vision/ProcessImage
+      类型。因此这里让新版 pointAI 挂到内部服务
+      /tie_robot_vision/process_image，再由 legacy_fast_image_solve_bridge.py
+      对外暴露旧类型的 /pointAI/process_image 和 /Moduan/process_image。
+
+      旧 chassis_ctrl 的状态消息包名和当前视觉包不同，且旧
+      linear_module_upload 少了 light_state 字段。这里用两个 relay
+      把旧状态转发成 tie_robot_vision 内置消息，避免修改旧控制层。
+    -->
+    <arg name="with_camera" default="true" />
+    <arg name="with_tf" default="true" />
+    <arg name="camera_respawn" default="false" />
+    <arg name="backend_request_mode" default="4" />
+
+    <node name="tie_robot_vision_legacy_chassis_state_relay"
+          pkg="tie_robot_vision"
+          type="legacy_chassis_state_relay.py"
+          output="screen">
+        <param name="input_topic" value="/cabin/cabin_data_upload" />
+        <param name="output_topic" value="/tie_robot_vision/cabin_data_upload" />
+    </node>
+
+    <node name="tie_robot_vision_legacy_moduan_state_relay"
+          pkg="tie_robot_vision"
+          type="legacy_moduan_state_relay.py"
+          output="screen">
+        <param name="input_topic" value="/moduan/moduan_gesture_data" />
+        <param name="output_topic" value="/tie_robot_vision/moduan_gesture_data" />
+    </node>
+
+    <include file="$(find tie_robot_vision)/launch/vision_stack.launch">
+        <arg name="with_camera" value="$(arg with_camera)" />
+        <arg name="with_tf" value="$(arg with_tf)" />
+        <arg name="camera_respawn" value="$(arg camera_respawn)" />
+        <arg name="process_image_service_name" value="/tie_robot_vision/process_image" />
+        <arg name="cabin_state_topic" value="/tie_robot_vision/cabin_data_upload" />
+        <arg name="moduan_state_topic" value="/tie_robot_vision/moduan_gesture_data" />
+    </include>
+
+    <node name="tie_robot_vision_legacy_fast_image_solve_bridge"
+          pkg="tie_robot_vision"
+          type="legacy_fast_image_solve_bridge.py"
+          output="screen">
+        <param name="backend_service_name" value="/tie_robot_vision/process_image" />
+        <param name="backend_request_mode" value="$(arg backend_request_mode)" />
+        <rosparam param="public_service_names">["/pointAI/process_image", "/Moduan/process_image"]</rosparam>
+    </node>
+</launch>

@@ -2,6 +2,711 @@
 
 本文件按时间倒序记录跨会话共享记忆。新条目写在最上方，并保留 `AGENT-MEMORY:` 标记，方便脚本识别。
 
+## 2026-05-15 07:50 - 区域切换进度语义修正
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端区域切换的 AreaProgress 语义需要区分 ready_for_next_area: true 场景；当 ready_for_next_area 为真时，current_area_index 表示下一步要去的区域，AreaNavigationController 不能再按“当前所在区域+方向”二次偏移，否则会点击下个区域时跳过目标区。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/AreaNavigationController.js`
+- `src/tie_robot_web/frontend/test/areaNavigationController.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/areaNavigationController.test.mjs`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 07:35 - 前端绑扎默认关闭并与 is_lashing 对齐
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 前端控制开关的 lashingEnabled 初始值从 true 改为 false，默认显示为开启绑扎，和后端 PLC 的 is_lashing 关闭语义保持一致；补了前端单测锁定默认快照，避免后续回退。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/controlPanelCatalog.js`
+- `src/tie_robot_web/frontend/test/lashingToggleDefaultState.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/lashingToggleDefaultState.test.mjs && node test/jumpBindToggleController.test.mjs && npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 07:27 - 白盒分类接入中心块与凸包诊断
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 将执行层白盒分类从仅靠斜向残差扩展为包含中心紧致块/凸包形状统计、离轴斜丝残差和轴向保护的联合判定。修复了普通十字交叉误判为已绑扎、中心块未被识别为已绑扎的问题，并把白盒融合结果接入模态扫图报告，新增 white_box_multimodal_rule 结果与中心块指标展示。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/bind_point_classification.py`
+- `src/tie_robot_perception/test/test_bind_point_classification.py`
+- `src/tie_robot_perception/tools/bind_point_modality_sweep_report.py`
+- `src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py`
+- `src/tie_robot_web/web/reports/bind_point_classification_modalities_current/summary.json`
+- `src/tie_robot_web/web/reports/bind_point_classification_modalities_current/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest -q src/tie_robot_perception/test/test_bind_point_classification.py src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py`
+- `PYTHONPATH=src/tie_robot_perception/src python3 src/tie_robot_perception/tools/bind_point_modality_sweep_report.py --snapshot-dir .debug_frames/execution_bind_classification_live_20260515_capture --output-dir src/tie_robot_web/web/reports/bind_point_classification_modalities_current`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 07:10 - 执行层Surface-DP ROI对齐Hough
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：执行层扫描同款Surface-DP不再仅使用手动工作区rectified mask作为识别输入；run_execution_refine_surface_dp_pipeline 现在以 execution_refine_roi_mode=True 调用共用Surface-DP管线，prepare_manual_workspace_s2_inputs 会生成 Hough 同款 get_execution_refine_tcp_range_pixel_mask()，用 forward_h 投到 rectified 工作区后裁剪 workspace_mask_crop，从图像域入口对齐线性模组工具坐标系下的绑扎范围。扫描层默认不传该开关，仍使用手动工作区；legacy depth-only 才要求旧 period/phase 预估，Surface-DP 主链不会再被旧 S2 周期门提前拒绝。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_perception.test.test_scan_surface_dp_runtime -> 49 tests OK; ROS环境下 PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg -k manual_workspace_s2 -> 21 tests OK; python3 -m compileall -q changed files -> OK`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 06:46 - 前端header单击清除单层报警
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：前端 header 的索驱、末端、视觉状态胶囊在对应层出现报警/异常 warn 时，短按改为只清除该层前端报警缓存并写日志，长按仍重启对应子系统；未上报/超时等普通 warn 仍保持启动语义。底层若继续通过 diagnostics/telemetry 上报异常，下一帧会重新点亮该层报警。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/controllers/StatusMonitorController.js`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_web/frontend/test/statusMonitorController.test.mjs`
+- `src/tie_robot_web/frontend/test/statusChipPressBehavior.test.mjs`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/statusMonitorController.test.mjs; node test/statusChipPressBehavior.test.mjs; node test/connectionBadgeAlarmBehavior.test.mjs; node test/rosConnectionController.test.mjs; node test/systemControlCatalog.test.mjs; for test_file in test/*.test.mjs; do node "$test_file" || exit 1; done; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 06:43 - 帮助站前端全功能手册扩充配图并发布
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15: 扩充 operator-manual 为全量图文手册, 新增顶部状态、控制面板、快速控制、账本流程、执行流程、图像、视觉调试、设置细分、遥控、3D 图层、日志终端等 15 张 SVG 配图, 并补齐相机 SDK 缺失的 ScepterSDK 入口页以通过构建; GitHub Pages 已发布到 gh-pages 分支。
+
+### 影响范围
+
+- `src/tie_robot_web/help/guide/operator-manual.md`
+- `src/tie_robot_web/help/public/images/operator-manual/*.svg`
+- `src/tie_robot_web/help/camera-sdk/vendor-vzense/zh-cn/ScepterSDK/*.md`
+- `src/tie_robot_web/help/camera-sdk/vendor-vzense/en/ScepterSDK/*.md`
+- `src/tie_robot_web/help/.vitepress/config.mjs`
+- `src/tie_robot_web/help/package.json`
+- `src/tie_robot_web/web/help/*`
+- `docs/agent_memory/current.md`
+- `docs/agent_memory/session_log.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/help && npm run build && npm run build:github && git -C .worktrees/gh-pages push -u origin gh-pages --force`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 06:31 - 修复执行微调分类诊断方法绑定
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- pointAI 的 execution_refine 分类覆盖在 process_image_service.py 中新增 build_execution_refine_classification_diagnostic_points 后，必须在 pointai/processor.py 的 bind_image_processor_methods 中同步绑定到 ImageProcessor；否则 /pointAI/process_image request_mode=4 会在 classify_execution_refine_points 内报 'ImageProcessor' object has no attribute 'build_execution_refine_classification_diagnostic_points'，导致单点绑扎执行微调视觉失败。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+- `src/tie_robot_perception/test/test_bind_point_classification.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_bind_point_classification.BindPointClassificationTest.test_surface_dp_execution_refine_still_uses_execution_refine_classification_phase src.tie_robot_perception.test.test_bind_point_classification.BindPointClassificationTest.test_execution_refine_classification_result_is_republished_to_base_image src.tie_robot_perception.test.test_bind_point_classification.BindPointClassificationTest.test_filter_unbound_points_keeps_default_off_chain_unchanged; python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 - <<'PY' ... # 输出 True/True`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 06:21 - 保存执行/扫描现场模态快照
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 用户在移动机器前要求把当前实验所需的图像模态落盘。已用 export_visual_modalities_snapshot.py 导出当前运行态到 .debug_frames/execution_bind_classification_current_20260515_062033，包含相机原图、worldCoord、pointAI/result_image_raw、/perception/lashing/workspace/quad_pixels、cabin 状态、moduan 状态和 TF；其中 /perception/lashing/scan_surface_dp_base_image 与 /perception/lashing/execution_refine_base_image 在当前抓取窗口内超时未取到，后续若要对这两个执行/扫描底图继续实验，需先让对应 latch topic 再次发布后重新抓取。
+
+### 影响范围
+
+- `.debug_frames/execution_bind_classification_current_20260515_062033`
+- `src/tie_robot_perception/tools/export_visual_modalities_snapshot.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 src/tie_robot_perception/tools/export_visual_modalities_snapshot.py --output-dir .debug_frames/execution_bind_classification_current_20260515_062033 --timeout 3 --topic /perception/lashing/scan_surface_dp_base_image --topic /perception/lashing/execution_refine_base_image`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 04:54 - 执行Surface-DP底图使用runtime_response
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：用户明确执行扫描同款视觉底图采用扫描层同款 runtime_response，不使用 result_image/completed surface。manual_workspace_s2 现在把 Surface-DP runtime_response 随扫描结果返回，执行 Surface-DP 分支归一化后用 inverse_h 投回原始相机画幅，再缓存/发布到 /perception/lashing/execution_refine_base_image，保证执行点和 BND/UNB/UNC 分类标记仍能叠加在正确像素位置。执行候选识别仍按 TCP 执行盒 ROI 与全局工作区过滤。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest -q src/tie_robot_perception/test/test_scan_surface_dp_runtime.py; python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 04:38 - 帮助站新增前端全功能图文手册
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：帮助站新增 /help/guide/operator-manual 浏览器前端全功能图文手册，并挂到首页、顶栏“前端手册”和工程说明侧边栏。手册覆盖顶部 ROS/索驱/末端/视觉/演示模式状态胶囊、控制面板扫描/执行/区域切换、底部快速控制（开启/关闭绑扎、灯光、跳绑黑白棋、分类、暂停/恢复）、账本生成、全局绑扎、记忆续跑、图像话题、3D 图层、设置页各子页、索驱遥控、TCP 线模遥控、日志和终端；配套真实整页截图和标注总览图。
+
+### 影响范围
+
+- `src/tie_robot_web/help/guide/operator-manual.md`
+- `src/tie_robot_web/help/.vitepress/config.mjs`
+- `src/tie_robot_web/help/index.md`
+- `src/tie_robot_web/help/public/images/operator-manual/frontend-live-shell.png`
+- `src/tie_robot_web/help/public/images/operator-manual/frontend-shell.svg`
+- `src/tie_robot_web/web/help/guide/operator-manual.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `cd src/tie_robot_web/help && npm run build；确认 operator-manual.html 与两张图片产物存在；rg 覆盖开启绑扎/灯光/跳绑/分类/执行全局/记忆续跑等关键词。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 04:06 - 执行视觉底图叠加分类结果
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：开启执行层分类后，pointAI 会把 execution_refine 分类结果重新叠加发布到 /perception/lashing/execution_refine_base_image。BND=已绑扎/会被 blocking 过滤，UNB=未绑扎/继续下发，UNC=不确定；Hough 和扫描同款 Surface-DP 执行分支共用该分类诊断覆盖。分类关闭或无点时会清空旧分类 marker，避免底图残留。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+- `src/tie_robot_perception/test/test_bind_point_classification.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py; PYTHONPATH=src/tie_robot_perception/src:devel/lib/python3/dist-packages python3 -m unittest -q src/tie_robot_perception/test/test_bind_point_classification.py src/tie_robot_perception/test/test_scan_surface_dp_runtime.py`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 03:52 - 执行层视觉算法源可切换
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：视觉调试新增执行层视觉算法选择，默认Hough微调，可切扫描同款Surface-DP；前端通过 /web/pointAI/set_execution_refine_algorithm 热发布，pointAI 保持 /pointAI/process_image request_mode=4 不变并在内部按 execution_refine_algorithm 分发。Surface-DP 执行分支复用扫描 Surface-DP 算法结果，但只发布执行层过滤后的点，继续套 TCP 执行盒、全局工作区过滤、TCP蛇形排序和 execution_refine 分类过滤；前端图层文案改为执行视觉底图。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend/src/config/visualRecognitionMode.js`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- `src/tie_robot_web/frontend/src/config/imageTopicCatalog.js`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/manual_workspace_s2.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs && node src/tie_robot_web/frontend/test/imageTopicCatalog.test.mjs; PYTHONPATH=src/tie_robot_perception/src:devel/lib/python3/dist-packages python3 -m unittest -q src/tie_robot_perception/test/test_scan_surface_dp_runtime.py src/tie_robot_perception/test/test_bind_point_classification.py; python3 -m unittest -q src/tie_robot_control/test/test_single_point_bind_chain.py; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 03:22 - 执行层视觉算法切换计划
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：已为前端视觉调试新增执行层视觉算法源选择撰写实现计划，目标是在不改变/pointAI/process_image request_mode=4和控制层调用口径的前提下，通过/web/pointAI/set_execution_refine_algorithm在pointAI内部切换Hough微调或扫描同款Surface-DP。计划文件位于docs/superpowers/plans/2026-05-15-execution-refine-vision-algorithm-switch.md，尚未实现生产代码。
+
+### 影响范围
+
+- `docs/superpowers/plans/2026-05-15-execution-refine-vision-algorithm-switch.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `rg -n 'build_manual_workspace_s2_points_array_from_centers|TODO|待定|后续实现' docs/superpowers/plans/2026-05-15-execution-refine-vision-algorithm-switch.md; git status --short docs/superpowers/plans/2026-05-15-execution-refine-vision-algorithm-switch.md`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 03:10 - 账本微调XY阈值可配置
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：视觉调试页新增账本微调 XY 阈值输入，默认 80 mm，前端保存后发布 /web/cabin/set_ledger_refine_axis_threshold_mm；后端 live_visual/ledger_with_refine 用该热更新值替代写死的 kPseudoSlamCheckerboardAxisThresholdMm 做全局棋盘行列中心归格接纳。该阈值只控制 XY 归格，Z 不参与；TCP 执行盒 XYZ 范围仍由绑扎 X/Y/Z min/max 控制。
+
+### 影响范围
+
+- `CHANGELOG.md`
+- `src/tie_robot_web/frontend/src/ui/UIController.js`
+- `src/tie_robot_web/frontend/src/controllers/RosConnectionController.js`
+- `src/tie_robot_web/frontend/src/config/topicRegistry.js`
+- `src/tie_robot_web/frontend/src/utils/storage.js`
+- `src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js`
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/src/suoqu/pseudo_slam_scan_processing.cpp`
+- `src/tie_robot_process/src/suoqu/suoqu_runtime_internal.hpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node test/visualDebugSettings.test.mjs; python3 -m unittest src/tie_robot_process/test/test_motion_chain_signal_guard.py; npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 02:39 - 白盒分类接入执行层视觉
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：设置页“分类方法=白盒算法”已接到执行层视觉分类。白盒方法现在使用本轮模态扫图最佳的 raw_world Z 深度高度差响应（raw_world_depth_height_response），按中心/环形响应差、局部纹理、峰值和脊线破坏评分；开启“开始分类”后 mode=blocking，bound=已绑扎会置 PointCoords.is_shuiguan=true 并从 MODE_EXECUTION_REFINE 响应中过滤，unbound/uncertain 保留下发。执行层视觉测试、触发单点绑扎(/moduan/sg)和全局执行前都会同步设置页分类方法，点“开启分类”时也会同步当前方法，保证 white_box 对执行层视觉立即生效。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/bind_point_classification.py; src/tie_robot_perception/test/test_bind_point_classification.py; src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py; src/tie_robot_web/frontend/src/app/TieRobotFrontApp.js; src/tie_robot_web/frontend/test/visualDebugSettings.test.mjs; src/tie_robot_web/web`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src/tie_robot_perception/test/test_bind_point_classification.py; PYTHONPATH=src/tie_robot_perception/src python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_bind_check_runs_shadow_classification_before_response src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg.PointAIScanOnlyPrFrpgTest.test_white_box_classification_is_used_by_execution_refine_and_skips_yolo; python3 -m unittest src/tie_robot_control/test/test_single_point_bind_chain.py; cd src/tie_robot_web/frontend && node test/visualDebugSettings.test.mjs && node test/jumpBindToggleController.test.mjs && node test/taskActionController.test.mjs && npm run build`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 02:16 - 移除废弃 pointAI height_threshold 参数入口
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：确认 pointAI 启动日志中的 height_threshold=7.0 已无实际算法/执行用途后，删除主视觉包 tie_robot_perception 与移植包 tie_robot_vision 的 height_threshold ROS 参数、/web/pointAI/set_height_threshold 订阅、fixed_z_value_callback、状态字段和启动日志阈值片段；同步移除前端 topic registry/旧命令目录、ROS 接口规划文档和帮助站中的该入口。执行链和视觉主链保留不变，超高日志仍由 bind_check_max_height_mm 控制。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/node.py; src/tie_robot_perception/src/tie_robot_perception/pointai/ros_interfaces.py; src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py; src/tie_robot_bringup/launch/algorithm_stack.launch; src/tie_robot_web/frontend/src/config/topicRegistry.js; src/tie_robot_web/frontend/src/config/legacyCommandCatalog.js; src/tie_robot_vision/src/tie_robot_vision/pointai/node.py; src/tie_robot_vision/src/tie_robot_vision/pointai/ros_interfaces.py; src/tie_robot_vision/src/tie_robot_vision/pointai/runtime_config.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest ...test_unused_height_threshold_interface_is_removed（tie_robot_perception 与 tie_robot_vision）通过；python3 -m py_compile 修改的 pointai Python 文件通过；主包 scan_linear_compensation 邻近测试在 ROS 环境下通过；npm run build（frontend）与 npm run build（help）通过；rg 检查生产/文档/静态目录仅剩测试断言自身提到 height_threshold/set_height_threshold/fixed_z_value。`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 02:10 - 分类报告中文标签与红色语义
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：绑扎点分类模态扫图报告 PNG 标签里的中文问号根因是 cv2.putText/Hershey 字体不支持中文；src/tie_robot_perception/tools/bind_point_modality_sweep_report.py 已改用 PIL + NotoSansCJK 字体绘制图片标签，并补充测试防止中文退化为问号。当前报告红色圆点/红色 pill 语义是 bound=已绑扎，绿色是 unbound=未绑扎；当前快照 best modality 为 depth_height_response，4 个执行候选均判 bound。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/bind_point_modality_sweep_report.py; src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py; src/tie_robot_web/web/reports/bind_point_classification_modalities_current`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 02:09 - 缺视觉依赖不再停全局链
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：执行全局绑扎时，ledger_with_refine/live_visual 与 planned_path_refine_only 遇到 /pointAI/process_image 或 /moduan/sg 视觉依赖缺失/调用失败时，必须写清楚 Cabin_Error，消息包含 /pointAI/process_image、/moduan/sg 或 pointAINode，但不再 return false 停掉整条全局链；当前策略是跳过当前区域或当前视觉微调步骤、发布区域进度并继续后续区域。/moduan/sg 单点服务本身仍在缺 /pointAI/process_image 时写 Moduan_Error 并返回失败。真正末端未确认完成、长按停止、人工接管等安全失败仍然停链。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard src.tie_robot_control.test.test_single_point_bind_chain; catkin_make --only-pkg-with-deps tie_robot_process tie_robot_control; systemctl is-active tie-robot-backend.service tie-robot-driver-moduan.service tie-robot-driver-camera.service tie-robot-rosbridge.service; rosnode/rosservice checks confirmed /pointAINode`
+- `/pointAI/process_image and /moduan/sg online after restart`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 02:06 - 绑扎点分类默认关闭并接入执行微调
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：前端视觉调试新增绑扎点分类方法选择（深度学习/白盒算法），quickControlGrid新增开启/关闭分类开关；分类默认关闭，方法默认deep_learning。关闭时pointAI不加载YOLO、不标记is_shuiguan、不过滤执行点，现有视觉链路和执行系统保持原行为。开启后/web/pointAI/set_bind_classification_enabled切mode=blocking，MODE_EXECUTION_REFINE视觉识别到点后先分类，PointCoords.is_shuiguan=true表示已绑扎并从执行点中过滤，false/不确定继续下探绑扎；深度学习方法复用5.18auto.py精髓：IR patch按raw_z±75mm深度mask，resize到128x128，CLAHE后走YOLO，class 0=已绑扎/排除，class 1=未绑扎/执行。
+
+### 影响范围
+
+- `src/tie_robot_web/frontend`
+- `src/tie_robot_web/web`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/bind_point_classification.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/process_image_service.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/runtime_config.py`
+- `src/tie_robot_perception/config/bind_point_classification.yaml`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_process/src/suoquNode.cpp`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `node visualDebugSettings/jumpBindToggle tests OK; bind_point_classification unittest OK; single_point_bind_chain OK; motion_chain_signal_guard OK; npm run build OK; full pointai_scan_only_pr_fprg only retains pre-existing height_threshold cleanup assertion failure`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:56 - 执行分类报告改用TCP执行盒找点
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：纠正绑扎点分类模态扫图报告的点源口径。执行层分类测试不能使用 perception_lashing_points_camera.txt 扫描点，也不能把手动画的像素工作区当执行 ROI；必须先用 raw_world_coord 按当前 gripper_frame/TCP 外参转换到线性模组工作盒 X[0,380] Y[0,330] Z[0,160]mm，形成 TCP pixel mask，再在 world_coord 平面分割图上做 Hough 交点并分类。新版报告 src/tie_robot_perception/tools/bind_point_modality_sweep_report.py 已按 TCP ROI + Hough 离线复刻执行微调，并输出 mask/Hough 诊断。当前现场抓帧 .debug_frames/execution_bind_classification_current_20260515_015131 生成报告：TCP mask 44978 像素，Hough 线段 7、交点 5、中心/执行候选 4，最佳无标注代理模态为 depth_height_response，4 个候选均判 bound；旧 slam_v30 快照用当前外参只落入 1 个 TCP mask 像素，不能作为当前执行分类效果依据。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/bind_point_modality_sweep_report.py`
+- `src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py`
+- `src/tie_robot_web/web/reports/bind_point_classification_modalities_current/index.html`
+- `.debug_frames/execution_bind_classification_current_20260515_015131`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m py_compile src/tie_robot_perception/tools/bind_point_modality_sweep_report.py src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py && python3 -m unittest src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py && python3 src/tie_robot_perception/tools/bind_point_modality_sweep_report.py --snapshot-dir .debug_frames/execution_bind_classification_current_20260515_015131 && curl -I http://127.0.0.1:8088/reports/bind_point_classification_modalities_current/index.html`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:47 - 执行链缺视觉服务停链报错
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：执行链缺依赖必须明确写日志。run_live_visual_global_work 与 planned_path_refine_only 的跳绑微调现在通过 call_execution_refine_vision_service 调 /pointAI/process_image，先 AI_client.exists() 检查；缺服务或调用失败时打 Cabin_Error，消息包含 /pointAI/process_image 和 pointAINode，并停止当前执行链，不再当普通区域失败连续跳区。planned_path_refine_only 的 /moduan/sg 单点链也先 sg_live_visual_client.exists()，缺 /moduan/sg 或其内部视觉依赖时打 Cabin_Error。/moduan/sg 服务本身在缺 /pointAI/process_image 或调用失败时打 Moduan_Error，方便直接单点按钮现场排查。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp`
+- `src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+- `src/tie_robot_control/src/moduan/moduan_ros_callbacks.cpp`
+- `src/tie_robot_control/test/test_single_point_bind_chain.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard src.tie_robot_control.test.test_single_point_bind_chain; catkin_make --only-pkg-with-deps tie_robot_process tie_robot_control; systemctl is-active tie-robot-backend.service tie-robot-driver-moduan.service; rosnode list | rg 'bind_task_executor|moduan|pointAI|suoqu|cabin_motion'`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:35 - tie_robot_vision移植文档补齐前提
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：tie_robot_vision移植交接说明已补充视觉运行前提、目标catkin工作区要求、手动工作区manual_workspace_quad.json确认与保存流程、扫描账本生成责任边界、执行层MODE_EXECUTION_REFINE微调输入输出语义，以及移植到类似旧工作区时的验收口径。视觉包只负责相机、world_coord、pointAI扫描/微调、TF、旧服务桥和状态relay；pseudo_slam_points.json、pseudo_slam_bind_path.json、bind_execution_memory.json仍由目标工程流程层消费MODE_SCAN_ONLY=3结果后落盘。文档已同步到旧工作区/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/src/tie_robot_vision，并重新生成artifacts/tie_robot_vision_portable_20260515.zip。
+
+### 影响范围
+
+- `src/tie_robot_vision/docs/移植交接说明.md; /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/src/tie_robot_vision/docs/移植交接说明.md; artifacts/tie_robot_vision_portable_20260515.zip`
+
+### 关键决策
+
+- 见摘要。
+
+### 标签
+
+- `tie_robot_vision`
+- `vision_portable`
+- `handoff`
+
+### 验证证据
+
+- `python3 test/test_tie_robot_vision_package.py -v; unzip -t artifacts/tie_robot_vision_portable_20260515.zip; diff -rq src/tie_robot_vision /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/src/tie_robot_vision; cd /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws && source /opt/ros/noetic/setup.bash && catkin_make --pkg tie_robot_vision`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:24 - live_visual区域切换等待末端空闲
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：修复ledger_with_refine/live_visual模式首区执行后立刻切索驱导致后续区域被“末端绑扎/线性模组正在运动”保护拒绝并跳过的问题。run_live_visual_global_work现在在execute_moduan_bind_points_via_action成功后调用wait_for_moduan_post_bind_idle_guard，等待/moduan_work空闲稳定后再进入下一次索驱移动；超时则停链报错，不再把末端忙保护当普通区域失败连续跳区。已重启tie-robot-backend.service使新bind_task_executor_node生效。
+
+### 影响范围
+
+- `src/tie_robot_process/src/suoquNode.cpp; src/tie_robot_process/test/test_motion_chain_signal_guard.py`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `python3 -m unittest src.tie_robot_process.test.test_motion_chain_signal_guard; catkin_make --only-pkg-with-deps tie_robot_process; sudo systemctl restart tie-robot-backend.service`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:19 - 绑扎点分类模态扫图离线报告
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：新增只读离线工具 src/tie_robot_perception/tools/bind_point_modality_sweep_report.py，用 docs/releases/slam_v30/visual_modalities 当前区域快照和 perception_lashing_points_camera.txt 的 46 个候选点，遍历 IR、原始 depth、raw world Z、world_coord Z、transformedDepth、color、transformedColor、pointAI 及组合/梯度/脊线派生模态做绑扎点已绑/未绑分类测试。工具带只读守卫，不写 pseudo_slam_points.json、pseudo_slam_bind_path.json、bind_execution_memory.json 或 bind_classification_events.jsonl。当前没有结构化红/绿人工标注，因此报告采用无标注代理评分，最佳模态为原始 depth 梯度，Hessian 脊线非常接近；网页为 /reports/bind_point_classification_modalities_current/index.html。
+
+### 影响范围
+
+- `src/tie_robot_perception/tools/bind_point_modality_sweep_report.py;src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py;src/tie_robot_web/web/reports/bind_point_classification_modalities_current/index.html`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 src/tie_robot_perception/test/test_bind_point_modality_sweep_report.py; PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 src/tie_robot_perception/tools/bind_point_modality_sweep_report.py; curl -I http://127.0.0.1:8088/reports/bind_point_classification_modalities_current/index.html; python3 scripts/agent_memory.py check`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:15 - 执行微调全局工作区过滤后整组输出
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：用户确认执行层视觉微调看到全局工作区外点时要先排除；剩余当前区域点作为一组输出，不再要求完整 2x2。pointAI MODE_EXECUTION_REFINE 仍保留 TCP 执行盒作为 Hough 二值图 ROI，候选点生成后按 manual_workspace_quad 的 corner_world_map_frame 多边形过滤，缺失时回退 camera 多边形或 path_points 规划边界；输出点按 TCP 蛇形顺序下发，剩 0 点沿用无点跳过区域逻辑。
+
+### 影响范围
+
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/matrix_selection.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/workspace_masks.py`
+- `src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py`
+- `src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+- `CHANGELOG.md`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m unittest src.tie_robot_perception.test.test_pointai_scan_only_pr_fprg; source /opt/ros/noetic/setup.bash && source devel/setup.bash && PYTHONPATH=src/tie_robot_perception/src:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/home/hyq-/ScepterSDK/3rd-PartyPlugin/ROS/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages:/home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws/devel/lib/python3/dist-packages:/opt/ros/noetic/lib/python3/dist-packages python3 -m py_compile src/tie_robot_perception/src/tie_robot_perception/pointai/workspace_masks.py src/tie_robot_perception/src/tie_robot_perception/pointai/processor.py src/tie_robot_perception/src/tie_robot_perception/pointai/matrix_selection.py src/tie_robot_perception/src/tie_robot_perception/pointai/execution_refine_hough.py src/tie_robot_perception/test/test_pointai_scan_only_pr_fprg.py`
+
+### 后续注意
+
+- 暂无。
+
+## 2026-05-15 01:14 - 视觉链路已提取为 tie_robot_vision 移植包
+
+<!-- AGENT-MEMORY: entry -->
+
+### 摘要
+
+- 2026-05-15：新增自包含 ROS1 包 src/tie_robot_vision，内置当前视觉链路的 Scepter 相机驱动、world_coord 处理、pointAI Surface-DP 扫描、Hough 执行微调、TF 节点、msg/srv/action 和旧 20260403 兼容桥。旧工作区 /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws 已同步 src/tie_robot_vision，并通过 legacy_20260403_vision.launch 以 /tie_robot_vision/process_image 为内部新版服务，再桥接 fast_image_solve/ProcessImage 类型的 /pointAI/process_image 与 /Moduan/process_image；旧 chassis_ctrl 状态通过 legacy_chassis_state_relay.py 和 legacy_moduan_state_relay.py 转为 tie_robot_vision 内置消息。交接文档位于 src/tie_robot_vision/docs/移植交接说明.md，zip 位于 artifacts/tie_robot_vision_portable_20260515.zip。
+
+### 影响范围
+
+- `src/tie_robot_vision;test/test_tie_robot_vision_package.py;docs/superpowers/plans/2026-05-15-tie-robot-vision-portable.md;artifacts/tie_robot_vision_portable_20260515.zip`
+
+### 关键决策
+
+- 见摘要。
+
+### 验证证据
+
+- `当前工程：catkin_make -DCATKIN_WHITELIST_PACKAGES=tie_robot_vision --pkg tie_robot_vision 通过；旧工作区：cd /home/hyq-/simple_lashingrobot_show/simple_lashingrobot_ws20260403/simple_lashingrobot_ws && source /opt/ros/noetic/setup.bash && catkin_make --pkg tie_robot_vision 通过；python3 test/test_tie_robot_vision_package.py -v 4/4 OK；python3 -m py_compile src/tie_robot_vision/scripts/*.py src/tie_robot_vision/src/tie_robot_vision/pointai/*.py src/tie_robot_vision/src/tie_robot_vision/perception/*.py 通过；zip 关键文件检查通过；当前包与旧工作区副本 diff -rq 无差异。`
+
+### 后续注意
+
+- 暂无。
+
 ## 2026-05-15 00:49 - 绑扎点分类 shadow 接入
 
 <!-- AGENT-MEMORY: entry -->

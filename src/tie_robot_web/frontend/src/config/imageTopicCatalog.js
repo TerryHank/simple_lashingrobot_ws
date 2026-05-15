@@ -41,7 +41,7 @@ export const IMAGE_TOPIC_OPTIONS = [
   },
   {
     id: TOPICS.algorithm.executionRefineBaseImage,
-    label: getRegistryLabel(TOPICS.algorithm.executionRefineBaseImage, "执行底图 Hough二值"),
+    label: getRegistryLabel(TOPICS.algorithm.executionRefineBaseImage, "执行视觉底图"),
     overlayCompatible: false,
   },
 ];

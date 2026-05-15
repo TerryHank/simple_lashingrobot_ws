@@ -1718,10 +1718,14 @@ bool classify_live_visual_point_into_checkerboard(
         return false;
     }
 
+    const float axis_threshold_mm = std::max(
+        1.0f,
+        live_visual_refine_axis_threshold_mm.load(std::memory_order_acquire)
+    );
     if (std::fabs(col_axis_value - checkerboard_grid.col_centers_by_global_col.at(global_col)) >
-            kPseudoSlamCheckerboardAxisThresholdMm ||
+            axis_threshold_mm ||
         std::fabs(row_axis_value - checkerboard_grid.row_centers_by_global_row.at(global_row)) >
-            kPseudoSlamCheckerboardAxisThresholdMm) {
+            axis_threshold_mm) {
         return false;
     }
 

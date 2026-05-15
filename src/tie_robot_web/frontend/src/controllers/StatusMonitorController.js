@@ -199,6 +199,22 @@ export class StatusMonitorController {
     return `${monitor.label}报警：${labels.join("、")}`;
   }
 
+  getDiagnosticMonitorByStatusId(statusId) {
+    return STATUS_MONITORS.find((item) => item.id === statusId && item.diagnosticHardwareId) || null;
+  }
+
+  clearLayerAlarmState(statusId) {
+    const monitor = this.getDiagnosticMonitorByStatusId(statusId);
+    if (!monitor) {
+      return false;
+    }
+    [...this.layerAlarmSources.entries()]
+      .filter(([, source]) => source.monitorId === statusId)
+      .forEach(([sourceId]) => this.layerAlarmSources.delete(sourceId));
+    this.emitStatus(statusId, "success", `${monitor.label}报警已清除`, `alarm-cleared:${statusId}`);
+    return true;
+  }
+
   emitDiagnosticMonitorStatus(monitor, now = Date.now()) {
     const layerAlarmLabels = this.getLayerAlarmLabels(monitor.id);
     if (layerAlarmLabels.length > 0) {

@@ -20,10 +20,16 @@ import { DEFAULT_LOG_TOPIC, LOG_TOPIC_OPTIONS, getLogTopicLabel } from "../confi
 import { STATUS_MONITORS } from "../config/statusMonitorCatalog.js";
 import {
   DEFAULT_GLOBAL_EXECUTION_MODE,
+  BIND_CLASSIFICATION_METHODS,
+  DEFAULT_BIND_CLASSIFICATION_METHOD,
+  DEFAULT_EXECUTION_REFINE_ALGORITHM,
+  EXECUTION_REFINE_ALGORITHM_OPTIONS,
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
   GLOBAL_EXECUTION_MODES,
   DEFAULT_SCAN_RESPONSE_SOURCE,
   SCAN_RESPONSE_SOURCE_OPTIONS,
+  normalizeBindClassificationMethod,
+  normalizeExecutionRefineAlgorithm,
   normalizeScanResponseSource,
 } from "../config/visualRecognitionMode.js";
 import {
@@ -32,6 +38,7 @@ import {
 } from "../config/cameraSdkDynamicReconfigure.js";
 import { formatAreaProgressDisplay } from "../utils/areaProgress.js";
 import { normalizeTcpWorkspaceBoundaryMm } from "../utils/tcpWorkspaceOverlay.js";
+import { DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM } from "../utils/storage.js";
 
 const DISPLAY_MODE_LABELS = {
   auto: "自动增强",
@@ -573,6 +580,22 @@ export class UIController {
                           </select>
                         </div>
                         <div class="field">
+                          <label for="visualDebugExecutionRefineAlgorithm">执行层视觉</label>
+                          <select id="visualDebugExecutionRefineAlgorithm">
+                            ${EXECUTION_REFINE_ALGORITHM_OPTIONS.map((option) => `
+                              <option value="${option.id}" ${option.id === DEFAULT_EXECUTION_REFINE_ALGORITHM ? "selected" : ""}>${option.label}</option>
+                            `).join("")}
+                          </select>
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugBindClassificationMethod">分类方法</label>
+                          <select id="visualDebugBindClassificationMethod">
+                            ${BIND_CLASSIFICATION_METHODS.map((option) => `
+                              <option value="${option.id}" ${option.id === DEFAULT_BIND_CLASSIFICATION_METHOD ? "selected" : ""}>${option.label}</option>
+                            `).join("")}
+                          </select>
+                        </div>
+                        <div class="field">
                           <label for="visualDebugStableFrameCount">释放帧数</label>
                           <input id="visualDebugStableFrameCount" type="number" min="1" max="30" step="1" value="3" />
                         </div>
@@ -591,6 +614,10 @@ export class UIController {
                         <div class="field">
                           <label for="visualDebugBindGroupColumnThreshold">成列阈值 (mm)</label>
                           <input id="visualDebugBindGroupColumnThreshold" type="number" min="1" step="1" value="45" />
+                        </div>
+                        <div class="field">
+                          <label for="visualDebugLedgerRefineAxisThreshold">账本微调 XY阈值 (mm)</label>
+                          <input id="visualDebugLedgerRefineAxisThreshold" type="number" min="1" step="1" value="80" />
                         </div>
                       </div>
                       <div class="visual-debug-cabin-z-mode" role="radiogroup" aria-label="索驱规划 Z 模式">
@@ -1281,11 +1308,14 @@ export class UIController {
     this.refs.settingsLayerLogList = this.rootElement.querySelector("#settingsLayerLogList");
     this.refs.visualDebugExecutionModeInputs = [...this.rootElement.querySelectorAll("input[name='visualDebugExecutionMode']")];
     this.refs.visualDebugScanResponseSource = this.rootElement.querySelector("#visualDebugScanResponseSource");
+    this.refs.visualDebugExecutionRefineAlgorithm = this.rootElement.querySelector("#visualDebugExecutionRefineAlgorithm");
+    this.refs.visualDebugBindClassificationMethod = this.rootElement.querySelector("#visualDebugBindClassificationMethod");
     this.refs.visualDebugStableFrameCount = this.rootElement.querySelector("#visualDebugStableFrameCount");
     this.refs.visualDebugBindExecutionCabinMinZ = this.rootElement.querySelector("#visualDebugBindExecutionCabinMinZ");
     this.refs.visualDebugBeamExclusionMargin = this.rootElement.querySelector("#visualDebugBeamExclusionMargin");
     this.refs.visualDebugBindGroupRowThreshold = this.rootElement.querySelector("#visualDebugBindGroupRowThreshold");
     this.refs.visualDebugBindGroupColumnThreshold = this.rootElement.querySelector("#visualDebugBindGroupColumnThreshold");
+    this.refs.visualDebugLedgerRefineAxisThreshold = this.rootElement.querySelector("#visualDebugLedgerRefineAxisThreshold");
     this.refs.visualDebugBindExecutionCabinZModeInputs = Array.from(
       this.rootElement.querySelectorAll("input[name='visualDebugBindExecutionCabinZMode']"),
     );
@@ -2588,6 +2618,10 @@ export class UIController {
       requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
       executionMode: Number.isFinite(executionMode) ? executionMode : DEFAULT_GLOBAL_EXECUTION_MODE,
       scanResponseSource: normalizeScanResponseSource(this.refs.visualDebugScanResponseSource?.value),
+      executionRefineAlgorithm: normalizeExecutionRefineAlgorithm(
+        this.refs.visualDebugExecutionRefineAlgorithm?.value,
+      ),
+      bindClassificationMethod: normalizeBindClassificationMethod(this.refs.visualDebugBindClassificationMethod?.value),
       adaptiveBindGrouping: Boolean(this.refs.visualDebugAdaptiveBindGrouping?.checked),
       enableBeamExclusion: Boolean(this.refs.visualDebugBeamExclusionToggle?.checked),
       beamExclusionMarginMm: Math.max(
@@ -2601,6 +2635,10 @@ export class UIController {
       bindGroupColumnThresholdMm: normalizeBindGroupAxisThreshold(
         this.refs.visualDebugBindGroupColumnThreshold?.value,
         DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+      ),
+      ledgerRefineAxisThresholdMm: normalizeBindGroupAxisThreshold(
+        this.refs.visualDebugLedgerRefineAxisThreshold?.value,
+        DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM,
       ),
       bindExecutionCabinMinZMm: normalizeBindExecutionCabinMinZ(
         this.refs.visualDebugBindExecutionCabinMinZ?.value,
@@ -2634,6 +2672,14 @@ export class UIController {
     if (this.refs.visualDebugScanResponseSource) {
       this.refs.visualDebugScanResponseSource.value = normalizeScanResponseSource(settings?.scanResponseSource);
     }
+    if (this.refs.visualDebugExecutionRefineAlgorithm) {
+      this.refs.visualDebugExecutionRefineAlgorithm.value = normalizeExecutionRefineAlgorithm(
+        settings?.executionRefineAlgorithm,
+      );
+    }
+    if (this.refs.visualDebugBindClassificationMethod) {
+      this.refs.visualDebugBindClassificationMethod.value = normalizeBindClassificationMethod(settings?.bindClassificationMethod);
+    }
     if (this.refs.visualDebugBindExecutionCabinMinZ) {
       this.refs.visualDebugBindExecutionCabinMinZ.value = String(
         normalizeBindExecutionCabinMinZ(settings?.bindExecutionCabinMinZMm),
@@ -2661,6 +2707,14 @@ export class UIController {
         ),
       );
     }
+    if (this.refs.visualDebugLedgerRefineAxisThreshold) {
+      this.refs.visualDebugLedgerRefineAxisThreshold.value = String(
+        normalizeBindGroupAxisThreshold(
+          settings?.ledgerRefineAxisThresholdMm,
+          DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM,
+        ),
+      );
+    }
     const cabinZMode = normalizeBindExecutionCabinZMode(settings?.bindExecutionCabinZMode);
     this.refs.visualDebugBindExecutionCabinZModeInputs?.forEach((input) => {
       input.checked = input.value === cabinZMode;
@@ -2678,6 +2732,7 @@ export class UIController {
       bindExecutionCabinZMode: cabinZMode,
       bindGroupRowThresholdMm: settings?.bindGroupRowThresholdMm,
       bindGroupColumnThresholdMm: settings?.bindGroupColumnThresholdMm,
+      ledgerRefineAxisThresholdMm: settings?.ledgerRefineAxisThresholdMm,
     });
     this.setVisualDebugBindRangeInputs(settings?.linearModuleBindRangeMm);
   }
@@ -3379,11 +3434,14 @@ export class UIController {
     [
       ...this.refs.visualDebugExecutionModeInputs,
       this.refs.visualDebugScanResponseSource,
+      this.refs.visualDebugExecutionRefineAlgorithm,
+      this.refs.visualDebugBindClassificationMethod,
       this.refs.visualDebugStableFrameCount,
       this.refs.visualDebugBindExecutionCabinMinZ,
       this.refs.visualDebugBeamExclusionMargin,
       this.refs.visualDebugBindGroupRowThreshold,
       this.refs.visualDebugBindGroupColumnThreshold,
+      this.refs.visualDebugLedgerRefineAxisThreshold,
       ...this.refs.visualDebugBindExecutionCabinZModeInputs,
       this.refs.visualDebugAdaptiveBindGrouping,
       this.refs.visualDebugBeamExclusionToggle,
@@ -3766,6 +3824,9 @@ export class UIController {
     if (actionId === "toggleDemoMode") {
       return "进入";
     }
+    if (actionId?.startsWith("clear") && actionId.endsWith("LayerAlarm")) {
+      return "清除";
+    }
     if (actionId === "restartRosStack") {
       return "重启ROS";
     }
@@ -3906,6 +3967,7 @@ export class UIController {
     bindExecutionCabinZMode = null,
     bindGroupRowThresholdMm = null,
     bindGroupColumnThresholdMm = null,
+    ledgerRefineAxisThresholdMm = null,
     pointCount = null,
   } = {}) {
     if (!this.refs.visualDebugTimingSummary) {
@@ -3936,8 +3998,12 @@ export class UIController {
       bindGroupColumnThresholdMm ?? settings.bindGroupColumnThresholdMm,
       DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
     );
+    const ledgerRefineAxisThreshold = normalizeBindGroupAxisThreshold(
+      ledgerRefineAxisThresholdMm ?? settings.ledgerRefineAxisThresholdMm,
+      DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM,
+    );
     this.refs.visualDebugTimingSummary.textContent =
-      `单帧=${singleFrameText}ms 服务=${serviceText}ms 释放=${frameCount}帧 Z模式=${zModeText} ${zMinText}mm 行阈=${rowThreshold}mm 列阈=${columnThreshold}mm 点数=${pointText}`;
+      `单帧=${singleFrameText}ms 服务=${serviceText}ms 释放=${frameCount}帧 Z模式=${zModeText} ${zMinText}mm 行阈=${rowThreshold}mm 列阈=${columnThreshold}mm 微调XY阈=${ledgerRefineAxisThreshold}mm 点数=${pointText}`;
   }
 
   setTopicLayerState(state) {
@@ -4302,9 +4368,23 @@ export class UIController {
       moduan: level === "success" ? "关闭" : level === "error" ? "重启" : "启动",
       visual: level === "success" ? "关闭" : "启动",
     };
-    const nextAction = nextActionMap[statusId] || "";
+    const clearAlarmActionMap = {
+      chassis: "clearChassisLayerAlarm",
+      moduan: "clearModuanLayerAlarm",
+      visual: "clearVisualLayerAlarm",
+    };
+    const detailText = String(detail || "");
+    const isLayerAlarm = level === "warn"
+      && Boolean(clearAlarmActionMap[statusId])
+      && /报警|异常/.test(detailText)
+      && !/状态未上报|状态超时/.test(detailText);
+    const nextAction = isLayerAlarm && clearAlarmActionMap[statusId]
+      ? clearAlarmActionMap[statusId]
+      : nextActionMap[statusId] || "";
     const longPressAction = longPressActionMap[statusId] || "";
-    const nextActionLabel = nextActionLabelMap[statusId] || "";
+    const nextActionLabel = isLayerAlarm && clearAlarmActionMap[statusId]
+      ? "清除"
+      : nextActionLabelMap[statusId] || "";
     chip.dataset.statusAction = nextAction;
     chip.dataset.statusLongAction = longPressAction;
     const baseStatusLabel = statusBaseLabelMap[statusId] || statusLabelNode?.textContent || statusId;
@@ -4312,11 +4392,12 @@ export class UIController {
     if (statusLabelNode) {
       statusLabelNode.textContent = visibleStatusLabel;
     }
+    const shortActionHint = isLayerAlarm ? "短按清除该层报警" : `短按${nextActionLabel}`;
     chip.setAttribute("aria-label", longPressAction
-      ? `${visibleStatusLabel}：短按${nextActionLabel}，长按重启`
+      ? `${visibleStatusLabel}：${shortActionHint}，长按重启`
       : `${visibleStatusLabel}：${nextActionLabel}`);
     chip.title = longPressAction
-      ? `${detail || ""}${detail ? "；" : ""}短按${nextActionLabel}，长按0.5秒重启`
+      ? `${detail || ""}${detail ? "；" : ""}${shortActionHint}，长按0.5秒重启`
       : detail || "";
     if (actionLabel) {
       actionLabel.textContent = chip.dataset.pendingActionId

@@ -186,22 +186,39 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("def setup_visual_diagnostics(self):", diagnostics_text)
         self.assertIn("def produce_visual_algorithm_diagnostics(self, stat):", diagnostics_text)
 
-    def test_height_threshold_is_ros_param_not_single_value_json(self):
+    def test_unused_height_threshold_interface_is_removed(self):
         pointai_text = POINTAI_SCRIPT_PATH.read_text(encoding="utf-8")
         ros_interfaces_text = POINTAI_ROS_INTERFACES_PATH.read_text(encoding="utf-8")
         runtime_config_text = POINTAI_RUNTIME_CONFIG_PATH.read_text(encoding="utf-8")
+        state_text = POINTAI_STATE_PATH.read_text(encoding="utf-8")
+        processor_text = (
+            WORKSPACE_ROOT
+            / "tie_robot_perception"
+            / "src"
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
         algorithm_stack_launch = ALGORITHM_STACK_LAUNCH_PATH.read_text(encoding="utf-8")
 
         self.assertFalse(
             LASHING_CONFIG_PATH.exists(),
-            "height_threshold 应该走 pointAINode 私有 ROS 参数，不应再用单值 lashing_config.json",
+            "废弃 height_threshold 不应再回到单值 lashing_config.json",
         )
-        self.assertNotIn("lashing_config.json", pointai_text + ros_interfaces_text + runtime_config_text)
-        self.assertNotIn("cali_offset_file", pointai_text + ros_interfaces_text + runtime_config_text)
-        self.assertIn('rospy.get_param("~height_threshold", self.height_threshold)', runtime_config_text)
-        self.assertIn('rospy.set_param("~height_threshold", float(self.height_threshold))', runtime_config_text)
-        self.assertIn('name="height_threshold" value="7.0"', algorithm_stack_launch)
-        self.assertIn("set_height_threshold", ros_interfaces_text)
+        combined_text = (
+            pointai_text
+            + ros_interfaces_text
+            + runtime_config_text
+            + state_text
+            + processor_text
+            + algorithm_stack_launch
+        )
+        self.assertNotIn("lashing_config.json", combined_text)
+        self.assertNotIn("cali_offset_file", combined_text)
+        self.assertNotIn("height_threshold", combined_text)
+        self.assertNotIn("set_height_threshold", combined_text)
+        self.assertNotIn("fixed_z_value", combined_text)
+        self.assertNotIn("高度阈值", combined_text)
 
     def test_manual_workspace_s2_static_helpers_accept_runtime_arguments(self):
         from tie_robot_perception.pointai import manual_workspace_s2
@@ -355,10 +372,17 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertIn("self.bind_classification_config", state_text)
         self.assertIn("load_classification_config", runtime_config_text)
         self.assertIn("cls.classify_bind_check_points = process_image_service.classify_bind_check_points", processor_text)
+        self.assertIn("cls.classify_execution_refine_points = process_image_service.classify_execution_refine_points", processor_text)
         self.assertIn("def should_mark_point_as_bound(decision, config):", classification_text)
         self.assertIn('mode in {"advisory", "blocking"}', classification_text)
+        self.assertIn("filter_unbound_points_for_execution", classification_text)
         self.assertIn("bind_classification_config_path", launch_text)
         self.assertIn("bind_point_classification.yaml", launch_text)
+        self.assertIn("set_bind_classification_enabled_callback", runtime_config_text)
+        self.assertIn("set_bind_classification_method_callback", runtime_config_text)
+        ros_interfaces_text = POINTAI_NODE_PATH.parent.joinpath("ros_interfaces.py").read_text(encoding="utf-8")
+        self.assertIn("/web/pointAI/set_bind_classification_enabled", ros_interfaces_text)
+        self.assertIn("/web/pointAI/set_bind_classification_method", ros_interfaces_text)
 
         bind_branch_start = service_text.index("if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:")
         bind_branch_end = service_text.index("out_of_height_points = self.find_out_of_height_points", bind_branch_start)
@@ -367,8 +391,48 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             "point_coords = self.classify_bind_check_points(point_coords)",
             bind_branch_text,
         )
+        evaluate_start = service_text.index("def evaluate_point_coords_for_mode(self, point_coords, request_mode):")
+        execution_refine_branch_start = service_text.index(
+            "if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:",
+            evaluate_start,
+        )
+        execution_refine_branch_end = service_text.index("result[\"success\"] = True", execution_refine_branch_start)
+        execution_refine_branch_text = service_text[execution_refine_branch_start:execution_refine_branch_end]
+        self.assertIn(
+            "point_coords = self.classify_execution_refine_points(point_coords)",
+            execution_refine_branch_text,
+        )
         self.assertIn("append_classification_event", service_text)
         self.assertIn("should_mark_point_as_bound", service_text)
+
+    def test_white_box_classification_is_used_by_execution_refine_and_skips_yolo(self):
+        service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+        classification_text = BIND_CLASSIFICATION_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("def classify_pre_bind_white_box(bundle, config):", classification_text)
+        self.assertIn("raw_world_depth_height_response", classification_text)
+        self.assertIn("white_box_depth_height_response", classification_text)
+        white_box_branch = classification_text[
+            classification_text.index("def classify_pre_bind_point("):
+            classification_text.index("def verify_post_bind_rule", classification_text.index("def classify_pre_bind_point("))
+        ]
+        self.assertIn("normalize_classification_method", white_box_branch)
+        self.assertIn("classify_pre_bind_white_box(bundle, config)", white_box_branch)
+        self.assertLess(
+            white_box_branch.index("classify_pre_bind_white_box(bundle, config)"),
+            white_box_branch.index("get_deep_learning_model(config, model_cache)"),
+        )
+        execution_refine_branch_start = service_text.index(
+            "if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:",
+            service_text.index("def evaluate_point_coords_for_mode"),
+        )
+        execution_refine_branch_end = service_text.index(
+            "if request_mode == PROCESS_IMAGE_MODE_BIND_CHECK:",
+            execution_refine_branch_start,
+        )
+        execution_refine_branch = service_text[execution_refine_branch_start:execution_refine_branch_end]
+        self.assertIn("point_coords = self.classify_execution_refine_points(point_coords)", execution_refine_branch)
+        self.assertIn("filter_unbound_points_for_execution", service_text)
 
     def test_scan_only_no_points_returns_current_frame_failure_without_waiting_next_frame(self):
         service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
@@ -1088,8 +1152,6 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         from tie_robot_perception.pointai import manual_workspace_s2
 
         class DummyProcessor:
-            fixed_z_value = 0.0
-
             def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
                 return [123, -456, 1789], [pixel_x, pixel_y], False
 
@@ -1282,8 +1344,6 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         from tie_robot_perception.pointai import manual_workspace_s2
 
         class DummyProcessor:
-            fixed_z_value = 0.0
-
             def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
                 return [float(pixel_x), float(pixel_y), 1000.0], [pixel_x, pixel_y], False
 
@@ -1322,8 +1382,6 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         from tie_robot_perception.pointai import manual_workspace_s2
 
         class DummyProcessor:
-            fixed_z_value = 0.0
-
             def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
                 return [float(pixel_x), float(pixel_y), 1000.0], [pixel_x, pixel_y], False
 
@@ -1404,7 +1462,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             ],
         )
 
-    def test_execution_refine_selects_tcp_origin_nearest_two_by_two_matrix_only(self):
+    def test_execution_refine_outputs_all_workspace_points_as_single_snake_group(self):
         from tie_robot_perception.pointai import matrix_selection
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
@@ -1448,18 +1506,30 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         finally:
             matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
 
-        self.assertEqual(len(ordered_centers), 4)
+        self.assertEqual(len(ordered_centers), 16)
         self.assertEqual(
             [(center[2][0], center[2][1]) for center in ordered_centers],
             [
                 (40.0, 20.0),
                 (40.0, 140.0),
+                (40.0, 260.0),
+                (40.0, 320.0),
+                (160.0, 320.0),
+                (160.0, 260.0),
                 (160.0, 140.0),
                 (160.0, 20.0),
+                (280.0, 20.0),
+                (280.0, 140.0),
+                (280.0, 260.0),
+                (280.0, 320.0),
+                (360.0, 320.0),
+                (360.0, 260.0),
+                (360.0, 140.0),
+                (360.0, 20.0),
             ],
         )
 
-    def test_execution_refine_requires_complete_two_by_two_matrix(self):
+    def test_execution_refine_allows_incomplete_rows_after_workspace_filter(self):
         from tie_robot_perception.pointai import matrix_selection
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
@@ -1497,9 +1567,88 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         finally:
             matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
 
-        self.assertEqual(ordered_centers, [])
+        self.assertEqual(
+            [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (1, 160.0, 40.0),
+                (2, 160.0, 140.0),
+                (3, 160.0, 260.0),
+                (4, 160.0, 320.0),
+            ],
+        )
 
-    def test_execution_refine_uses_nearest_complete_origin_two_by_two_when_nearest_points_are_incomplete(self):
+    def test_execution_refine_outputs_remaining_workspace_points_as_single_snake_group(self):
+        from tie_robot_perception.pointai import matrix_selection
+        from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
+
+        class DummyProcessor:
+            pass
+
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            workspace_filtered_centers = [
+                (1, [40, 20], [40.0, 20.0, 80.0]),
+                (2, [40, 140], [40.0, 140.0, 80.0]),
+                (4, [160, 140], [160.0, 140.0, 80.0]),
+            ]
+
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                DummyProcessor(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                workspace_filtered_centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(
+            [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (1, 40.0, 20.0),
+                (2, 40.0, 140.0),
+                (4, 160.0, 140.0),
+            ],
+        )
+
+    def test_execution_refine_global_workspace_gate_uses_map_polygon_for_camera_points(self):
+        from tie_robot_perception.pointai import workspace_masks
+
+        class DummyProcessor:
+            def load_manual_workspace_quad(self):
+                return {
+                    "corner_pixels": [[0, 0], [9, 0], [9, 9], [0, 9]],
+                    "corner_world_camera_frame": [
+                        [0.0, 0.0, 1000.0],
+                        [1.0, 0.0, 1000.0],
+                        [1.0, 1.0, 1000.0],
+                        [0.0, 1.0, 1000.0],
+                    ],
+                    "corner_world_map_frame": [
+                        [100.0, 200.0, 1000.0],
+                        [200.0, 200.0, 1000.0],
+                        [200.0, 300.0, 1000.0],
+                        [100.0, 300.0, 1000.0],
+                    ],
+                }
+
+            def transform_camera_point_to_map_frame(self, camera_point):
+                return [float(camera_point[0]) + 100.0, float(camera_point[1]) + 200.0, float(camera_point[2])]
+
+        dummy = DummyProcessor()
+
+        self.assertTrue(
+            workspace_masks.is_camera_world_coord_in_global_workspace(dummy, [50.0, 50.0, 1000.0])
+        )
+        self.assertFalse(
+            workspace_masks.is_camera_world_coord_in_global_workspace(dummy, [150.0, 50.0, 1000.0])
+        )
+
+    def test_execution_refine_keeps_nearest_incomplete_points_in_area_group(self):
         from tie_robot_perception.pointai import matrix_selection
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
@@ -1543,6 +1692,9 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         self.assertEqual(
             [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
             [
+                (1, 35.0, 30.0),
+                (2, 45.0, 145.0),
+                (3, 155.0, 30.0),
                 (4, 220.0, 110.0),
                 (5, 220.0, 230.0),
                 (7, 340.0, 230.0),
@@ -1550,7 +1702,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             ],
         )
 
-    def test_execution_refine_prefers_tcp_origin_group_over_center_group(self):
+    def test_execution_refine_no_longer_drops_center_group_when_origin_group_exists(self):
         from tie_robot_perception.pointai import matrix_selection
         from tie_robot_perception.pointai.constants import PROCESS_IMAGE_MODE_EXECUTION_REFINE
 
@@ -1597,8 +1749,12 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             [
                 (1, 40.0, 20.0),
                 (2, 40.0, 140.0),
+                (6, 180.0, 260.0),
+                (5, 180.0, 150.0),
                 (4, 160.0, 140.0),
                 (3, 160.0, 20.0),
+                (7, 300.0, 150.0),
+                (8, 300.0, 260.0),
             ],
         )
 
@@ -1611,12 +1767,21 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             (2, [132, 92], [65.0, 55.0, 801.0]),
         ]
 
-        ordered_centers = matrix_selection.select_output_centers_for_mode(
-            object(),
-            PROCESS_IMAGE_MODE_EXECUTION_REFINE,
-            close_centers,
-            [],
-        )
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            ordered_centers = matrix_selection.select_output_centers_for_mode(
+                object(),
+                PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+                close_centers,
+                [],
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
 
         active_execution_text = "\n".join(
             (
@@ -1641,7 +1806,13 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(ordered_centers, [])
+        self.assertEqual(
+            [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (1, 20.0, 20.0),
+                (2, 65.0, 55.0),
+            ],
+        )
         for forbidden in (
             "filter_close_points_by_origin",
             "filter_candidate_centers_for_request_mode",
@@ -1653,12 +1824,55 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, active_execution_text)
 
+    def test_execution_refine_keeps_legacy_complete_matrix_helper_available_for_other_modes(self):
+        from tie_robot_perception.pointai import matrix_selection
+
+        class DummyProcessor:
+            def get_execution_refine_tcp_roi_bounds(self):
+                return {
+                    "min_x": 0.0,
+                    "max_x": 380.0,
+                    "min_y": 0.0,
+                    "max_y": 330.0,
+                    "min_z": 0.0,
+                    "max_z": 160.0,
+                }
+
+        original_converter = matrix_selection.camera_coord_to_tcp_jaw_coord
+        matrix_selection.camera_coord_to_tcp_jaw_coord = lambda coord: [
+            float(coord[0]),
+            float(coord[1]),
+            float(coord[2]),
+        ]
+        try:
+            centers = [
+                (1, [40, 20], [40.0, 20.0, 80.0]),
+                (2, [40, 140], [40.0, 140.0, 80.0]),
+                (3, [160, 20], [160.0, 20.0, 80.0]),
+                (4, [160, 140], [160.0, 140.0, 80.0]),
+                (5, [180, 150], [180.0, 150.0, 80.0]),
+            ]
+            ordered_centers = matrix_selection.select_nearest_tcp_origin_matrix_points(
+                DummyProcessor(),
+                centers,
+            )
+        finally:
+            matrix_selection.camera_coord_to_tcp_jaw_coord = original_converter
+
+        self.assertEqual(
+            [(center[0], center[2][0], center[2][1]) for center in ordered_centers],
+            [
+                (1, 40.0, 20.0),
+                (2, 40.0, 140.0),
+                (4, 160.0, 140.0),
+                (3, 160.0, 20.0),
+            ],
+        )
+
     def test_manual_workspace_s2_logs_raw_camera_coord_without_cabin_projection(self):
         from tie_robot_perception.pointai import manual_workspace_s2
 
         class DummyProcessor:
-            fixed_z_value = 0.0
-
             def get_valid_world_coord_near_pixel(self, pixel_x, pixel_y):
                 return [30, 40, 1200], [pixel_x, pixel_y], False
 
@@ -2715,7 +2929,7 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
 
         pipeline_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_pipeline(self, publish=False):")
         pipeline_body = manual_workspace_s2_text[pipeline_index:manual_workspace_s2_text.index("def run_manual_workspace_s2(self):", pipeline_index)]
-        surface_index = manual_workspace_s2_text.index("def run_manual_workspace_surface_dp_pipeline(self, publish=False):")
+        surface_index = manual_workspace_s2_text.index("def run_manual_workspace_surface_dp_pipeline(")
         surface_body = manual_workspace_s2_text[surface_index:pipeline_index]
         fallback_index = manual_workspace_s2_text.index("def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):")
         fallback_body = manual_workspace_s2_text[fallback_index:pipeline_index]
@@ -3194,7 +3408,6 @@ class PointAIScanOnlyPrFrpgTest(unittest.TestCase):
         from tie_robot_perception.pointai import runtime_config
 
         class DummyProcessor:
-            height_threshold = 10.0
             scan_linear_compensation_enabled = False
             scan_linear_compensation_reference_z_mm = 1000.0
             scan_linear_compensation_x_per_mm = 0.0

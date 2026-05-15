@@ -635,6 +635,17 @@ export class TieRobotFrontApp {
     this.addLog(result.message || "报警复位信号已发送。", "success");
   }
 
+  handleClearLayerAlarm(statusId) {
+    const cleared = this.statusMonitorController.clearLayerAlarmState(statusId);
+    const labelMap = {
+      chassis: "索驱",
+      moduan: "末端",
+      visual: "视觉",
+    };
+    const label = labelMap[statusId] || statusId;
+    this.addLog(cleared ? `${label}层报警已清除。` : `未识别的报警层：${statusId}`, cleared ? "success" : "warn");
+  }
+
   syncCabinRemoteOperationState() {
     const operationState = this.getCabinRemoteOperationState();
     const ready = this.rosConnectionController?.isReady?.() || false;
@@ -666,7 +677,11 @@ export class TieRobotFrontApp {
       }
       this.systemControlController.handle(actionId);
     });
-    this.ui.onStatusChipAction((_statusId, actionId) => {
+    this.ui.onStatusChipAction((statusId, actionId) => {
+      if (actionId?.startsWith("clear") && actionId.endsWith("LayerAlarm")) {
+        this.handleClearLayerAlarm(statusId);
+        return;
+      }
       this.systemControlController.handle(actionId);
     });
     this.ui.onSystemAction((actionId) => {
@@ -893,6 +908,11 @@ export class TieRobotFrontApp {
         : this.legacyCommandController.handleToggle(toggleId, this.ui.getParameterValues());
       if (nextState) {
         this.ui.setControlToggleState(toggleId, nextState);
+        if (toggleId === "bindClassificationEnabled") {
+          this.rosConnectionController.publishBindClassificationMethod(
+            this.visualDebugSettings?.bindClassificationMethod,
+          );
+        }
         if (toggleId === "jumpBindEnabled") {
           this.sceneView.setJumpBindVisualizationState(nextState);
         }
@@ -1410,13 +1430,19 @@ export class TieRobotFrontApp {
       nextSettings.beamExclusionMarginMm,
     );
     const sourceResult = this.rosConnectionController.publishScanResponseSource(nextSettings.scanResponseSource);
+    const executionRefineAlgorithmResult = this.rosConnectionController.publishExecutionRefineAlgorithm(
+      nextSettings.executionRefineAlgorithm,
+    );
     const scanLinearCompensationResult = this.rosConnectionController.publishScanLinearCompensation(nextSettings.scanLinearCompensation);
+    const classificationMethodResult = this.rosConnectionController.publishBindClassificationMethod(nextSettings.bindClassificationMethod);
+    const ledgerRefineAxisThresholdResult = this.rosConnectionController.publishLedgerRefineAxisThreshold(nextSettings.ledgerRefineAxisThresholdMm);
     this.ui.setVisualDebugTimingSummary({
       releaseFrameCount: nextSettings.stableFrameCount,
       bindExecutionCabinMinZMm: nextSettings.bindExecutionCabinMinZMm,
       bindExecutionCabinZMode: nextSettings.bindExecutionCabinZMode,
       bindGroupRowThresholdMm: nextSettings.bindGroupRowThresholdMm,
       bindGroupColumnThresholdMm: nextSettings.bindGroupColumnThresholdMm,
+      ledgerRefineAxisThresholdMm: nextSettings.ledgerRefineAxisThresholdMm,
     });
     if (frameResult?.success) {
       const message = frameResult.message || `视觉服务最终放行帧数已设置为 ${nextSettings.stableFrameCount} 帧。`;
@@ -1440,8 +1466,23 @@ export class TieRobotFrontApp {
       this.addLog(message, "warn");
       this.addVisualDebugLog(message, "warn");
     }
+    if (!executionRefineAlgorithmResult?.success && !suppressLog) {
+      const message = executionRefineAlgorithmResult?.message || "执行层视觉算法设置同步失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
     if (!scanLinearCompensationResult?.success && !suppressLog) {
       const message = scanLinearCompensationResult?.message || "扫描线性补偿设置同步失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
+    if (!classificationMethodResult?.success && !suppressLog) {
+      const message = classificationMethodResult?.message || "绑扎点分类方法同步失败。";
+      this.addLog(message, "warn");
+      this.addVisualDebugLog(message, "warn");
+    }
+    if (!ledgerRefineAxisThresholdResult?.success && !suppressLog) {
+      const message = ledgerRefineAxisThresholdResult?.message || "账本微调XY阈值同步失败。";
       this.addLog(message, "warn");
       this.addVisualDebugLog(message, "warn");
     }
@@ -1449,7 +1490,10 @@ export class TieRobotFrontApp {
       boundary,
       frameResult,
       sourceResult,
+      executionRefineAlgorithmResult,
       scanLinearCompensationResult,
+      classificationMethodResult,
+      ledgerRefineAxisThresholdResult,
       beamResult,
       beamMarginResult,
     };

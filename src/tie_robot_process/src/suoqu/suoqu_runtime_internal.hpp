@@ -218,6 +218,7 @@ extern bool pseudo_slam_marker_path_origin_valid;
 extern std::atomic<float> pseudo_slam_marker_last_outlier_threshold_mm;
 extern std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_threshold_mm;
 extern std::atomic<float> pseudo_slam_marker_last_outlier_secondary_plane_neighbor_tolerance_mm;
+extern std::atomic<float> live_visual_refine_axis_threshold_mm;
 extern std::atomic<int> global_execution_mode;
 extern std::atomic<bool> cabin_driver_enabled;
 extern std::atomic<double> cabin_driver_last_state_stamp_sec;

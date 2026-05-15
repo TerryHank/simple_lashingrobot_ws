@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">日志和终端</title>
+  <desc id="desc">展示日志面板的来源过滤、终端会话和常见排查顺序。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .chip { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">出问题时先看日志，再决定要不要动手</text>
+  <text x="68" y="116" class="sub">日志面板负责看来源，终端面板负责临时排查；按钮没反应时先看 Web 桥接和 ROS 连接。</text>
+
+  <rect x="70" y="160" width="650" height="520" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">日志面板</text>
+  <rect x="96" y="224" width="108" height="38" rx="12" class="blue"/><text x="118" y="249" class="tiny">全部终端</text>
+  <rect x="210" y="224" width="92" height="38" rx="12" class="chip"/><text x="228" y="249" class="tiny">算法层</text>
+  <rect x="308" y="224" width="74" height="38" rx="12" class="chip"/><text x="330" y="249" class="tiny">索驱</text>
+  <rect x="388" y="224" width="74" height="38" rx="12" class="chip"/><text x="406" y="249" class="tiny">线模</text>
+  <rect x="468" y="224" width="92" height="38" rx="12" class="chip"/><text x="486" y="249" class="tiny">相机驱动</text>
+  <rect x="566" y="224" width="108" height="38" rx="12" class="chip"/><text x="584" y="249" class="tiny">Web 桥接</text>
+
+  <rect x="96" y="286" width="578" height="288" rx="20" fill="#08111f" stroke="#334155" stroke-width="2"/>
+  <text x="120" y="322" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#bfdbfe;">[algorithm] execution_refine ready</text>
+  <text x="120" y="352" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#86efac;">[suoqu] connected to ros master</text>
+  <text x="120" y="382" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#fcd34d;">[camera] depth frame delayed</text>
+  <text x="120" y="412" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#fca5a5;">[web] bridge retry waiting</text>
+  <text x="120" y="442" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#bfdbfe;">[cabin] global work started</text>
+  <text x="120" y="472" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#dbeafe;">[ui] open help operator-manual</text>
+  <rect x="96" y="596" width="578" height="52" rx="16" class="call"/>
+  <text x="118" y="628" class="tiny">扫描失败先看算法层和相机驱动；执行失败先看索驱、线模和算法层。</text>
+
+  <rect x="746" y="160" width="584" height="520" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="772" y="200" class="body">终端面板</text>
+  <rect x="772" y="224" width="108" height="38" rx="12" class="blue"/><text x="794" y="249" class="tiny">Shell 1</text>
+  <rect x="888" y="224" width="108" height="38" rx="12" class="chip"/><text x="910" y="249" class="tiny">Shell 2</text>
+  <rect x="1004" y="224" width="108" height="38" rx="12" class="chip"/><text x="1026" y="249" class="tiny">新建</text>
+  <rect x="1120" y="224" width="132" height="38" rx="12" class="chip"/><text x="1140" y="249" class="tiny">恢复会话</text>
+
+  <rect x="772" y="286" width="526" height="288" rx="20" fill="#08111f" stroke="#334155" stroke-width="2"/>
+  <text x="796" y="322" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#86efac;">$ systemctl status tie-robot-rosbridge.service</text>
+  <text x="796" y="352" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#bfdbfe;">● tie-robot-rosbridge.service loaded active running</text>
+  <text x="796" y="382" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#bfdbfe;">$ rostopic echo /diagnostics</text>
+  <text x="796" y="412" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#fcd34d;">$ tail -f /tmp/tie_robot_web.log</text>
+  <text x="796" y="442" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#dbeafe;">$ git status --short</text>
+  <text x="796" y="472" style="font:600 14px 'JetBrains Mono',Consolas,monospace; fill:#fca5a5;"># 危险命令先确认当前作业已停止</text>
+  <rect x="772" y="596" width="526" height="52" rx="16" class="call"/>
+  <text x="794" y="628" class="tiny">终端适合临时查看 systemctl、rostopic 和日志，不适合在执行中乱改现场状态。</text>
+
+  <rect x="70" y="694" width="1260" height="40" rx="14" class="gray"/>
+  <text x="94" y="720" class="tiny">如果按钮无响应，不要先怀疑浏览器，先看 Web 桥接和顶部 ROS 连接。</text>
+</svg>

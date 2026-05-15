@@ -645,6 +645,139 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
         namespace["set_scan_response_source_callback"](fake_self, invalid_msg)
         self.assertEqual(fake_self.scan_response_source, "depth_gradient")
 
+    def test_execution_refine_algorithm_runtime_setting_is_subscribed_and_dispatches(self):
+        state_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "state.py"
+        ).read_text(encoding="utf-8")
+        runtime_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "runtime_config.py"
+        ).read_text(encoding="utf-8")
+        ros_interfaces_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "ros_interfaces.py"
+        ).read_text(encoding="utf-8")
+        processor_text = (
+            PERCEPTION_SRC
+            / "tie_robot_perception"
+            / "pointai"
+            / "processor.py"
+        ).read_text(encoding="utf-8")
+        process_service_text = PROCESS_IMAGE_SERVICE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("execution_refine_algorithm", state_text)
+        self.assertIn("~execution_refine_algorithm", state_text)
+        self.assertIn("def normalize_execution_refine_algorithm", runtime_text)
+        self.assertIn("set_execution_refine_algorithm_callback", runtime_text)
+        self.assertIn("/web/pointAI/set_execution_refine_algorithm", ros_interfaces_text)
+        self.assertIn("cls.set_execution_refine_algorithm_callback", processor_text)
+        self.assertIn("run_execution_refine_visual_pipeline", process_service_text)
+        self.assertIn("run_execution_refine_surface_dp_pipeline", process_service_text)
+        self.assertIn("run_execution_refine_hough_pipeline", process_service_text)
+
+    def test_execution_refine_surface_dp_reuses_scan_pipeline_and_keeps_execution_gates(self):
+        execution_pipeline_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_execution_refine_surface_dp_pipeline",
+        )
+        manual_pipeline_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_manual_workspace_surface_dp_pipeline",
+        )
+
+        self.assertIn("run_manual_workspace_surface_dp_pipeline", execution_pipeline_source)
+        self.assertIn("is_camera_world_coord_in_execution_refine_tcp_range", execution_pipeline_source)
+        self.assertIn("is_camera_world_coord_in_global_workspace", execution_pipeline_source)
+        self.assertIn("select_output_centers_for_mode", execution_pipeline_source)
+        self.assertIn("PROCESS_IMAGE_MODE_EXECUTION_REFINE", execution_pipeline_source)
+        self.assertIn("execution_refine_base_image_pub", execution_pipeline_source)
+        self.assertIn("execution_surface_dp_bind_point", execution_pipeline_source)
+        self.assertNotIn("points_array_msg.header", execution_pipeline_source)
+        self.assertIn('self.execution_refine_surface_dp_mode = True', execution_pipeline_source)
+        self.assertIn(
+            'self.execution_refine_surface_dp_mode = previous_execution_refine_surface_dp_mode',
+            execution_pipeline_source,
+        )
+        self.assertIn(
+            'execution_refine_mode=bool(getattr(self, "execution_refine_surface_dp_mode", False))',
+            manual_pipeline_source,
+        )
+        self.assertNotIn("run_manual_workspace_s2_depth_only_pipeline", execution_pipeline_source)
+
+    def test_execution_refine_surface_dp_caches_runtime_response_as_base_image(self):
+        pipeline_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_execution_refine_surface_dp_pipeline",
+        )
+
+        self.assertIn('runtime_response = surface_result.get("runtime_response")', pipeline_source)
+        self.assertIn('surface_result.get("modalities", {}).get("runtime_response")', pipeline_source)
+        self.assertIn("normalize_scan_surface_dp_debug_image(runtime_response)", pipeline_source)
+        self.assertIn("cv2.warpPerspective", pipeline_source)
+        self.assertIn('surface_result.get("rectified_geometry")', pipeline_source)
+        self.assertIn('surface_result.get("workspace_shape")', pipeline_source)
+        self.assertIn('encoding="mono8"', pipeline_source)
+        self.assertNotIn('surface_result.get("result_image")', pipeline_source)
+
+    def test_execution_refine_surface_dp_applies_hough_aligned_tcp_roi_before_scan_pipeline(self):
+        prepare_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "prepare_manual_workspace_s2_inputs",
+        )
+        manual_pipeline_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_manual_workspace_surface_dp_pipeline",
+        )
+        execution_pipeline_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_execution_refine_surface_dp_pipeline",
+        )
+
+        self.assertIn("execution_refine_roi_mode=False", prepare_source)
+        self.assertIn("get_execution_refine_tcp_range_pixel_mask()", prepare_source)
+        self.assertIn("execution_tcp_mask", prepare_source)
+        self.assertIn("cv2.warpPerspective", prepare_source)
+        self.assertIn("rectified_valid_mask &= rectified_execution_tcp_mask", prepare_source)
+        self.assertIn(
+            "self.prepare_manual_workspace_s2_inputs(execution_refine_roi_mode=execution_refine_roi_mode)",
+            manual_pipeline_source,
+        )
+        self.assertIn("execution_refine_roi_mode=True", execution_pipeline_source)
+
+    def test_surface_dp_input_preparation_does_not_require_legacy_period_gate(self):
+        prepare_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "prepare_manual_workspace_s2_inputs",
+        )
+        surface_pipeline_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_manual_workspace_surface_dp_pipeline",
+        )
+        depth_only_source = _function_source(
+            MANUAL_WORKSPACE_S2_PATH,
+            "run_manual_workspace_s2_depth_only_pipeline",
+        )
+
+        self.assertIn("require_legacy_period_estimate=False", prepare_source)
+        self.assertIn("if best_variant is None and require_legacy_period_estimate:", prepare_source)
+        self.assertIn("vertical_estimate = None", prepare_source)
+        self.assertIn("horizontal_estimate = None", prepare_source)
+        self.assertIn(
+            "self.prepare_manual_workspace_s2_inputs(execution_refine_roi_mode=execution_refine_roi_mode)",
+            surface_pipeline_source,
+        )
+        self.assertIn(
+            "self.prepare_manual_workspace_s2_inputs(require_legacy_period_estimate=True)",
+            depth_only_source,
+        )
+
     def test_current_scan_report_builds_hidden_sources_offline(self):
         report_source = CURRENT_SCAN_ALL_SOURCES_REPORT_PATH.read_text(encoding="utf-8")
         build_evaluation_source = _function_source(CURRENT_SCAN_ALL_SOURCES_REPORT_PATH, "build_evaluation")
@@ -777,6 +910,33 @@ class ScanSurfaceDpRuntimeTest(unittest.TestCase):
 
         self.assertEqual(families, [])
         self.assertIsNone(source)
+
+    def test_execution_refine_surface_dp_mode_relaxes_count_aspect_mismatch(self):
+        from tie_robot_perception.pointai import scan_surface_dp
+
+        width = 496
+        height = 517
+        vertical_lines = [50.0 + (28.0 * index) for index in range(10)]
+        horizontal_lines = [48.0 + (28.0 * index) for index in range(4)]
+        result = scan_surface_dp.build_scan_surface_dp_result(
+            _build_synthetic_rectified_grid_with_lines(
+                width=width,
+                height=height,
+                vertical_lines=vertical_lines,
+                horizontal_lines=horizontal_lines,
+            ),
+            threshold_percentile=78.0,
+            response_source="hessian_ridge",
+            execution_refine_mode=True,
+        )
+
+        self.assertTrue(result["success"], result.get("message"))
+        self.assertEqual(result["line_counts"], [4, 10])
+        self.assertEqual(len(result["rectified_intersections"]), 40)
+        self.assertGreater(
+            result["diagnostics"]["physical_lattice_count_aspect_error"],
+            result["diagnostics"]["physical_lattice_count_aspect_tolerance"],
+        )
 
     def test_surface_dp_accepts_visible_grid_when_one_axis_loses_some_lines(self):
         from tie_robot_perception.pointai import scan_surface_dp

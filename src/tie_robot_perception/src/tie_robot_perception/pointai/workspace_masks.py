@@ -445,6 +445,51 @@ def is_point_in_scan_workspace(self, world_x, world_y):
     )
 
 
+def is_camera_world_coord_in_global_workspace(self, camera_world_coord):
+    if not _is_valid_camera_world_coord(camera_world_coord):
+        return False
+
+    manual_workspace = self.load_manual_workspace_quad()
+    if manual_workspace is not None:
+        corner_world_map_frame = manual_workspace.get("corner_world_map_frame")
+        if isinstance(corner_world_map_frame, list) and len(corner_world_map_frame) == 4:
+            map_point = self.transform_camera_point_to_map_frame(camera_world_coord)
+            if map_point is not None:
+                polygon_xy = np.array(
+                    [[point[0], point[1]] for point in corner_world_map_frame],
+                    dtype=np.float32,
+                )
+                return cv2.pointPolygonTest(
+                    polygon_xy.reshape((-1, 1, 2)),
+                    (float(map_point[0]), float(map_point[1])),
+                    False,
+                ) >= 0.0
+
+        corner_world_camera_frame = manual_workspace.get("corner_world_camera_frame")
+        if isinstance(corner_world_camera_frame, list) and len(corner_world_camera_frame) == 4:
+            polygon_xy = np.array(
+                [[point[0], point[1]] for point in corner_world_camera_frame],
+                dtype=np.float32,
+            )
+            return cv2.pointPolygonTest(
+                polygon_xy.reshape((-1, 1, 2)),
+                (float(camera_world_coord[0]), float(camera_world_coord[1])),
+                False,
+            ) >= 0.0
+
+    workspace = self.load_scan_planning_workspace()
+    if workspace["min_x"] == workspace["max_x"] and workspace["min_y"] == workspace["max_y"]:
+        return True
+
+    map_point = self.transform_camera_point_to_map_frame(camera_world_coord)
+    if map_point is None:
+        return True
+    return (
+        workspace["min_x"] <= float(map_point[0]) <= workspace["max_x"]
+        and workspace["min_y"] <= float(map_point[1]) <= workspace["max_y"]
+    )
+
+
 def get_frame_space_pixel_mask(self, target_frame, min_x, max_x, min_y, max_y):
     del target_frame, min_x, max_x, min_y, max_y
     return None

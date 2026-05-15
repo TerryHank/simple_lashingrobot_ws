@@ -74,7 +74,6 @@
 ```text
 /web/pointAI/set_workspace_quad
 /web/pointAI/run_workspace_s2
-/web/pointAI/set_height_threshold
 /web/pointAI/set_stable_frame_count
 /web/cabin/set_cabin_speed
 /web/moduan/set_moduan_speed

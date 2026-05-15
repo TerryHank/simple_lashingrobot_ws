@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">Home 点位标定</title>
+  <desc id="desc">展示刷新 Home、当前位置设为 Home、保存 Home 和回 Home，以及 base_link 到相机 TF 信息。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#3b82f6"/>
+    </marker>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .mono { font: 600 14px "JetBrains Mono", "Consolas", monospace; fill: #334155; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .tile { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">Home 点位用于索驱回基准位置</text>
+  <text x="68" y="116" class="sub">Home 标定改的是索驱基准点；`base_link -> 相机` 由 TF 链计算，通常不用人工填写。</text>
+
+  <rect x="70" y="160" width="560" height="520" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">Home 操作</text>
+  <rect x="96" y="228" width="210" height="64" rx="18" class="blue"/><text x="170" y="268" class="tiny">刷新</text>
+  <rect x="330" y="228" width="230" height="64" rx="18" class="green"/><text x="384" y="268" class="tiny">当前位置设为 Home</text>
+  <rect x="96" y="316" width="210" height="64" rx="18" class="amber"/><text x="170" y="356" class="tiny">保存</text>
+  <rect x="330" y="316" width="230" height="64" rx="18" class="red"/><text x="408" y="356" class="tiny">回 Home</text>
+  <rect x="96" y="424" width="464" height="114" rx="20" class="tile"/>
+  <text x="120" y="460" class="tiny">推荐顺序：</text>
+  <text x="120" y="486" class="tiny">刷新 -> 当前位置设为 Home -> 保存 -> 需要时回 Home。</text>
+  <text x="120" y="512" class="tiny">回 Home 前确认索驱路径附近没有障碍。</text>
+
+  <rect x="672" y="160" width="658" height="520" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="698" y="200" class="body">TF 信息</text>
+  <rect x="728" y="244" width="170" height="72" rx="22" class="blue"/>
+  <text x="780" y="284" class="tiny">base_link</text>
+  <rect x="970" y="244" width="170" height="72" rx="22" class="green"/>
+  <text x="1034" y="284" class="tiny">相机</text>
+  <path d="M898 280 L970 280" stroke="#3b82f6" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="810" y="350" class="mono">base_link -> Scepter_depth_frame</text>
+  <rect x="724" y="414" width="540" height="100" rx="20" class="tile"/>
+  <text x="750" y="450" class="tiny">这部分通常由 TF 链计算；如果数值异常，先查 TF 和相机外参，</text>
+  <text x="750" y="476" class="tiny">不要随手改 Home 点位来补偿相机坐标。</text>
+</svg>

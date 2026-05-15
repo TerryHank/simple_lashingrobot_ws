@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" role="img" aria-labelledby="title desc">
+  <title id="title">绑扎机器人浏览器前端区域总览</title>
+  <desc id="desc">标注顶部工具条、3D 场景、控制面板、图像面板、设置面板、日志终端和底部快速控制区的总览图。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="0.46" stop-color="#14213d"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <linearGradient id="scene" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f2937"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.30"/>
+    </filter>
+    <style>
+      .label { font: 700 25px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #f8fafc; }
+      .sub { font: 500 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #cbd5e1; }
+      .tiny { font: 500 14px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #dbeafe; }
+      .mono { font: 600 15px "JetBrains Mono", "Consolas", monospace; fill: #bfdbfe; }
+      .panel { fill: rgba(15,23,42,0.90); stroke: #475569; stroke-width: 2; rx: 16; filter: url(#shadow); }
+      .panel-title { font: 700 21px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #ffffff; }
+      .chip { fill: #1e293b; stroke: #64748b; stroke-width: 1.5; rx: 18; }
+      .green { fill: #14532d; stroke: #22c55e; }
+      .amber { fill: #713f12; stroke: #f59e0b; }
+      .blue { fill: #1e3a8a; stroke: #60a5fa; }
+      .red { fill: #7f1d1d; stroke: #ef4444; }
+      .callout { fill: #e0f2fe; stroke: #38bdf8; stroke-width: 2; rx: 12; }
+      .callout-text { font: 700 18px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .line { stroke: #38bdf8; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#38bdf8"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="860" fill="url(#bg)"/>
+  <rect x="28" y="28" width="1344" height="804" rx="30" fill="url(#scene)" stroke="#334155" stroke-width="2"/>
+
+  <rect x="54" y="52" width="1292" height="66" rx="20" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+  <text x="78" y="92" class="label">绑扎机器人</text>
+  <rect x="242" y="67" width="88" height="36" class="chip blue"/><text x="265" y="91" class="tiny">控制</text>
+  <rect x="340" y="67" width="76" height="36" class="chip blue"/><text x="364" y="91" class="tiny">图像</text>
+  <rect x="426" y="67" width="76" height="36" class="chip blue"/><text x="450" y="91" class="tiny">设置</text>
+  <rect x="512" y="67" width="76" height="36" class="chip"/><text x="536" y="91" class="tiny">终端</text>
+  <rect x="598" y="67" width="76" height="36" class="chip"/><text x="622" y="91" class="tiny">日志</text>
+  <rect x="780" y="66" width="138" height="38" class="chip amber"/><text x="805" y="91" class="tiny">ROS 连接</text>
+  <rect x="928" y="66" width="116" height="38" class="chip amber"/><text x="948" y="91" class="tiny">电压 --V</text>
+  <rect x="1054" y="66" width="78" height="38" class="chip green"/><text x="1077" y="91" class="tiny">索驱</text>
+  <rect x="1142" y="66" width="78" height="38" class="chip green"/><text x="1165" y="91" class="tiny">末端</text>
+  <rect x="1230" y="66" width="78" height="38" class="chip green"/><text x="1253" y="91" class="tiny">视觉</text>
+
+  <g opacity="0.52">
+    <path d="M185 210 C320 130, 536 170, 690 252 S1030 402, 1192 286" stroke="#38bdf8" stroke-width="3" fill="none"/>
+    <path d="M206 542 C382 454, 512 603, 672 512 S948 384, 1168 568" stroke="#22c55e" stroke-width="3" fill="none"/>
+    <circle cx="690" cy="252" r="8" fill="#38bdf8"/>
+    <circle cx="672" cy="512" r="8" fill="#22c55e"/>
+    <circle cx="980" cy="410" r="8" fill="#f59e0b"/>
+  </g>
+  <text x="590" y="368" class="label" opacity="0.88">3D Scene 背景层</text>
+  <text x="520" y="400" class="sub">机器模型、TF、点云、规划点、索驱路径、线模范围</text>
+
+  <rect x="64" y="148" width="334" height="354" class="panel"/>
+  <text x="88" y="184" class="panel-title">控制面板</text>
+  <text x="88" y="214" class="sub">扫描区 / 执行层 / 区域切换</text>
+  <rect x="88" y="240" width="126" height="58" class="chip blue"/><text x="112" y="274" class="tiny">触发扫描视觉</text>
+  <rect x="226" y="240" width="126" height="58" class="chip green"/><text x="252" y="274" class="tiny">执行全局绑扎</text>
+  <rect x="88" y="314" width="126" height="58" class="chip red"/><text x="112" y="348" class="tiny">触发单点绑扎</text>
+  <rect x="226" y="314" width="126" height="58" class="chip amber"/><text x="250" y="348" class="tiny">记忆续跑开始</text>
+  <rect x="88" y="388" width="126" height="58" class="chip blue"/><text x="116" y="422" class="tiny">上一个区域</text>
+  <rect x="226" y="388" width="126" height="58" class="chip blue"/><text x="254" y="422" class="tiny">下一个区域</text>
+
+  <rect x="1002" y="148" width="324" height="314" class="panel"/>
+  <text x="1026" y="184" class="panel-title">设置</text>
+  <text x="1026" y="214" class="sub">话题、工作区、图层、调试、遥控</text>
+  <text x="1028" y="252" class="tiny">话题总览 / 节点日志 / 视觉调试</text>
+  <text x="1028" y="282" class="tiny">相机 SDK / 国标接入 / 网络配置</text>
+  <text x="1028" y="312" class="tiny">工作区选点 / 显示与视角 / Home 点位</text>
+  <text x="1028" y="342" class="tiny">索驱遥控 / TCP 线模遥控</text>
+  <rect x="1028" y="374" width="250" height="52" class="chip blue"/><text x="1050" y="407" class="tiny">确认工作区后自动触发扫描</text>
+
+  <rect x="76" y="530" width="392" height="192" class="panel"/>
+  <text x="100" y="568" class="panel-title">图像</text>
+  <text x="100" y="598" class="sub">红外、彩色、深度、扫描底图、执行视觉底图</text>
+  <rect x="102" y="626" width="330" height="60" fill="#020617" stroke="#64748b" rx="12"/>
+  <text x="128" y="663" class="mono">IR + 工作区角点 + 识别覆盖层</text>
+
+  <rect x="930" y="498" width="390" height="178" class="panel"/>
+  <text x="954" y="536" class="panel-title">日志 / 终端</text>
+  <text x="954" y="566" class="sub">按算法、索驱、线模、相机、Web 桥接过滤日志</text>
+  <text x="954" y="596" class="sub">终端可新建本机 Shell 或恢复会话</text>
+  <rect x="956" y="622" width="306" height="30" fill="#020617" stroke="#64748b" rx="8"/>
+  <text x="974" y="643" class="mono">[Cabin_log] 执行层进行中...</text>
+
+  <rect x="58" y="748" width="1288" height="54" rx="18" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+  <text x="82" y="782" class="tiny">机器位置</text>
+  <text x="210" y="782" class="tiny">区域进度</text>
+  <text x="342" y="782" class="tiny">线模本地 / 全局</text>
+  <rect x="548" y="760" width="110" height="30" class="chip amber"/><text x="572" y="781" class="tiny">暂停作业</text>
+  <rect x="670" y="760" width="112" height="30" class="chip green"/><text x="694" y="781" class="tiny">开启绑扎</text>
+  <rect x="794" y="760" width="150" height="30" class="chip blue"/><text x="814" y="781" class="tiny">长按开启跳绑黑棋</text>
+  <rect x="956" y="760" width="108" height="30" class="chip blue"/><text x="980" y="781" class="tiny">开启分类</text>
+  <rect x="1076" y="760" width="108" height="30" class="chip blue"/><text x="1100" y="781" class="tiny">开启灯光</text>
+
+  <rect x="446" y="134" width="230" height="48" class="callout"/><text x="466" y="165" class="callout-text">顶部：连接与子系统启停</text>
+  <path d="M676 158 L858 96" class="line"/>
+  <rect x="430" y="690" width="270" height="48" class="callout"/><text x="450" y="721" class="callout-text">底部：扎丝、跳绑、灯光</text>
+  <path d="M700 714 L884 776" class="line"/>
+</svg>

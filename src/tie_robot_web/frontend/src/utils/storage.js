@@ -1,8 +1,12 @@
 import {
+  DEFAULT_BIND_CLASSIFICATION_METHOD,
+  DEFAULT_EXECUTION_REFINE_ALGORITHM,
   DEFAULT_GLOBAL_EXECUTION_MODE,
   FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
   GLOBAL_EXECUTION_MODE_OPTIONS,
   DEFAULT_SCAN_RESPONSE_SOURCE,
+  normalizeBindClassificationMethod,
+  normalizeExecutionRefineAlgorithm,
   normalizeScanResponseSource,
 } from "../config/visualRecognitionMode.js";
 import { normalizeCameraSdkSettings } from "../config/cameraSdkDynamicReconfigure.js";
@@ -36,6 +40,7 @@ export const DEFAULT_BIND_EXECUTION_CABIN_Z_MODE = "fixed";
 export const DEFAULT_SCAN_BEAM_EXCLUSION_MARGIN_MM = 150;
 export const DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM = 40;
 export const DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM = 45;
+export const DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM = 80;
 export const DEFAULT_SCAN_LINEAR_COMPENSATION = Object.freeze({
   enabled: false,
   mode: "optical_axis",
@@ -726,12 +731,15 @@ export function loadVisualDebugSettings() {
     stableFrameCount: 3,
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: DEFAULT_GLOBAL_EXECUTION_MODE,
+    executionRefineAlgorithm: DEFAULT_EXECUTION_REFINE_ALGORITHM,
+    bindClassificationMethod: DEFAULT_BIND_CLASSIFICATION_METHOD,
     scanResponseSource: DEFAULT_SCAN_RESPONSE_SOURCE,
     adaptiveBindGrouping: false,
     enableBeamExclusion: false,
     beamExclusionMarginMm: DEFAULT_SCAN_BEAM_EXCLUSION_MARGIN_MM,
     bindGroupRowThresholdMm: DEFAULT_BIND_GROUP_ROW_THRESHOLD_MM,
     bindGroupColumnThresholdMm: DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+    ledgerRefineAxisThresholdMm: DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM,
     scanLinearCompensation: normalizeScanLinearCompensation(),
     bindExecutionCabinMinZMm: DEFAULT_BIND_EXECUTION_CABIN_MIN_Z_MM,
     bindExecutionCabinZMode: DEFAULT_BIND_EXECUTION_CABIN_Z_MODE,
@@ -747,6 +755,14 @@ export function loadVisualDebugSettings() {
       stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(parsed?.stableFrameCount, defaults.stableFrameCount))),
       requestMode: defaults.requestMode,
       executionMode: normalizeGlobalExecutionMode(parsed?.executionMode, defaults.executionMode),
+      executionRefineAlgorithm: normalizeExecutionRefineAlgorithm(
+        parsed?.executionRefineAlgorithm,
+        defaults.executionRefineAlgorithm,
+      ),
+      bindClassificationMethod: normalizeBindClassificationMethod(
+        parsed?.bindClassificationMethod,
+        defaults.bindClassificationMethod,
+      ),
       scanResponseSource: normalizeScanResponseSource(parsed?.scanResponseSource, defaults.scanResponseSource),
       adaptiveBindGrouping: normalizeBoolean(parsed?.adaptiveBindGrouping, defaults.adaptiveBindGrouping),
       enableBeamExclusion: normalizeBoolean(parsed?.enableBeamExclusion, defaults.enableBeamExclusion),
@@ -761,6 +777,10 @@ export function loadVisualDebugSettings() {
       bindGroupColumnThresholdMm: normalizePositiveNumber(
         parsed?.bindGroupColumnThresholdMm,
         defaults.bindGroupColumnThresholdMm,
+      ),
+      ledgerRefineAxisThresholdMm: normalizePositiveNumber(
+        parsed?.ledgerRefineAxisThresholdMm,
+        defaults.ledgerRefineAxisThresholdMm,
       ),
       scanLinearCompensation: normalizeScanLinearCompensation(parsed?.scanLinearCompensation),
       bindExecutionCabinMinZMm: normalizeNonNegativeNumber(
@@ -783,6 +803,8 @@ export function saveVisualDebugSettings(value) {
     stableFrameCount: Math.max(1, Math.round(normalizePositiveNumber(value?.stableFrameCount, 3))),
     requestMode: FRONTEND_VISUAL_RECOGNITION_REQUEST_MODE,
     executionMode: normalizeGlobalExecutionMode(value?.executionMode),
+    executionRefineAlgorithm: normalizeExecutionRefineAlgorithm(value?.executionRefineAlgorithm),
+    bindClassificationMethod: normalizeBindClassificationMethod(value?.bindClassificationMethod),
     scanResponseSource: normalizeScanResponseSource(value?.scanResponseSource, DEFAULT_SCAN_RESPONSE_SOURCE),
     adaptiveBindGrouping: normalizeBoolean(value?.adaptiveBindGrouping, false),
     enableBeamExclusion: normalizeBoolean(value?.enableBeamExclusion, false),
@@ -797,6 +819,10 @@ export function saveVisualDebugSettings(value) {
     bindGroupColumnThresholdMm: normalizePositiveNumber(
       value?.bindGroupColumnThresholdMm,
       DEFAULT_BIND_GROUP_COLUMN_THRESHOLD_MM,
+    ),
+    ledgerRefineAxisThresholdMm: normalizePositiveNumber(
+      value?.ledgerRefineAxisThresholdMm,
+      DEFAULT_LEDGER_REFINE_AXIS_THRESHOLD_MM,
     ),
     scanLinearCompensation: normalizeScanLinearCompensation(value?.scanLinearCompensation),
     bindExecutionCabinMinZMm: normalizeNonNegativeNumber(

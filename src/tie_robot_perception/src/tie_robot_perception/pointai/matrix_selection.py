@@ -693,7 +693,7 @@ def select_output_centers_for_mode(self, request_mode, in_range_centers, selecte
     if request_mode == PROCESS_IMAGE_MODE_SCAN_ONLY:
         return sort_centers_by_image_tcp_axes(in_range_centers)
     if request_mode == PROCESS_IMAGE_MODE_EXECUTION_REFINE:
-        return select_nearest_tcp_origin_matrix_points(self, in_range_centers)
+        return sort_centers_by_tcp_snake_rows(in_range_centers)
     if request_mode == PROCESS_IMAGE_MODE_ADAPTIVE_HEIGHT:
         return self.sort_matrix_points(in_range_centers)
     return list(selected_centers)

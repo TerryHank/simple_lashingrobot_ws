@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">设置页全景</title>
+  <desc id="desc">展示设置面板的各个子页，包括话题总览、节点日志、视觉调试、相机 SDK、国标接入、网络配置、工作区选点、显示与视角、Home 点位和遥控入口。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .tile { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+      .gray { fill: #edf2f7; stroke: #cbd5e1; }
+      .call { fill: #ffffff; stroke: #bfdbfe; stroke-width: 2; rx: 16; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">设置页是算法、遥控和接入配置的总入口</text>
+  <text x="68" y="116" class="sub">这个页面不负责执行，而是负责把话题、视觉、相机、国标、网络和遥控参数统一放在一个地方。</text>
+
+  <rect x="70" y="160" width="342" height="550" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">当前页</text>
+  <rect x="96" y="220" width="290" height="52" rx="16" class="blue"/>
+  <text x="120" y="253" class="tiny">话题总览</text>
+  <rect x="96" y="282" width="290" height="52" rx="16" class="tile"/>
+  <text x="120" y="315" class="tiny">节点日志</text>
+  <rect x="96" y="344" width="290" height="84" rx="16" class="green"/>
+  <text x="120" y="377" class="tiny">视觉调试</text>
+  <text x="120" y="399" class="tiny">执行层模式 / 扫描底图 / 分类</text>
+  <rect x="96" y="438" width="290" height="52" rx="16" class="tile"/>
+  <text x="120" y="471" class="tiny">相机 SDK 调试</text>
+  <rect x="96" y="500" width="290" height="52" rx="16" class="tile"/>
+  <text x="120" y="533" class="tiny">国标接入 / 网络配置</text>
+  <rect x="96" y="562" width="290" height="52" rx="16" class="tile"/>
+  <text x="120" y="595" class="tiny">工作区选点 / 显示与视角</text>
+  <rect x="96" y="624" width="290" height="52" rx="16" class="tile"/>
+  <text x="120" y="657" class="tiny">Home / 索驱遥控 / TCP 线模遥控</text>
+
+  <rect x="444" y="160" width="886" height="220" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="470" y="200" class="body">设置页的使用逻辑</text>
+  <text x="470" y="230" class="tiny">• 先看话题总览，确认数据有没有到。</text>
+  <text x="470" y="254" class="tiny">• 再看节点日志，确认是哪一层在报错。</text>
+  <text x="470" y="278" class="tiny">• 视觉调试负责算法口径和阈值热更新。</text>
+  <text x="470" y="302" class="tiny">• 遥控和网络配置只改参数，不直接启动任务。</text>
+  <text x="470" y="326" class="tiny">• 页面变化尽量热发布，不要频繁切页重来。</text>
+
+  <rect x="444" y="404" width="886" height="306" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="470" y="444" class="body">一张图看各子页</text>
+  <rect x="470" y="474" width="156" height="74" rx="18" class="blue"/><text x="494" y="508" class="tiny">话题总览</text><text x="494" y="528" class="tiny">看数据是否到达</text>
+  <rect x="642" y="474" width="156" height="74" rx="18" class="green"/><text x="666" y="508" class="tiny">视觉调试</text><text x="666" y="528" class="tiny">换算法和阈值</text>
+  <rect x="814" y="474" width="156" height="74" rx="18" class="amber"/><text x="838" y="508" class="tiny">相机 SDK</text><text x="838" y="528" class="tiny">热更新相机参数</text>
+  <rect x="986" y="474" width="156" height="74" rx="18" class="tile"/><text x="1010" y="508" class="tiny">国标 / 网络</text><text x="1010" y="528" class="tiny">外部接入参数</text>
+  <rect x="1158" y="474" width="130" height="74" rx="18" class="tile"/><text x="1180" y="508" class="tiny">遥控入口</text><text x="1180" y="528" class="tiny">索驱 / 线模</text>
+
+  <rect x="470" y="566" width="332" height="96" rx="18" class="red"/>
+  <text x="494" y="600" class="tiny">工作区选点 / 显示与视角 / Home</text>
+  <text x="494" y="624" class="tiny">这几项一起决定你看到什么、怎么查看、回到哪里。</text>
+
+  <rect x="820" y="566" width="332" height="96" rx="18" class="gray"/>
+  <text x="844" y="600" class="tiny">一句话记忆</text>
+  <text x="844" y="624" class="tiny">设置页是“参数入口”，控制面板才是“动作入口”。</text>
+</svg>

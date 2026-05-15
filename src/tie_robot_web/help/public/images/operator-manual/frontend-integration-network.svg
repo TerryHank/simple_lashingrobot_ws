@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" role="img" aria-labelledby="title desc">
+  <title id="title">国标接入与网络配置</title>
+  <desc id="desc">展示 GB28181 上级平台参数、本机 SIP 参数、写入配置按钮，以及索驱上位机 IP、线性模组上位机 IP 和保存并测试动作。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6f9fd"/>
+      <stop offset="1" stop-color="#e6eff8"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#64748b" flood-opacity="0.22"/>
+    </filter>
+    <style>
+      .title { font: 700 30px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 500 16px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .body { font: 700 17px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .tiny { font: 500 13px "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .mono { font: 600 14px "JetBrains Mono", "Consolas", monospace; fill: #334155; }
+      .panel { fill: rgba(255,255,255,0.95); stroke: #d7e0ef; stroke-width: 2; filter: url(#shadow); }
+      .tile { fill: #f8fbff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .blue { fill: #eaf2ff; stroke: #93c5fd; }
+      .green { fill: #e7f8ef; stroke: #86efac; }
+      .amber { fill: #fff5db; stroke: #fcd34d; }
+      .red { fill: #fde8e8; stroke: #fca5a5; }
+    </style>
+  </defs>
+  <rect width="1400" height="800" fill="url(#bg)"/>
+  <rect x="42" y="38" width="1316" height="724" rx="28" class="panel"/>
+  <text x="68" y="86" class="title">国标接入和网络配置是外部连接入口</text>
+  <text x="68" y="116" class="sub">国标接入对接上级平台；网络配置保存索驱和线模上位机 IP，并提供连通性测试。</text>
+
+  <rect x="70" y="160" width="620" height="520" rx="24" fill="#ffffff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="96" y="200" class="body">GB28181 国标接入</text>
+  <rect x="96" y="228" width="240" height="52" rx="16" class="blue"/><text x="120" y="261" class="tiny">上级平台 SIP IP / 端口</text>
+  <rect x="350" y="228" width="240" height="52" rx="16" class="blue"/><text x="374" y="261" class="tiny">平台国标 ID</text>
+  <rect x="96" y="292" width="240" height="52" rx="16" class="green"/><text x="120" y="325" class="tiny">国标域</text>
+  <rect x="350" y="292" width="240" height="52" rx="16" class="green"/><text x="374" y="325" class="tiny">接入密码</text>
+  <rect x="96" y="356" width="240" height="52" rx="16" class="amber"/><text x="120" y="389" class="tiny">本机 SIP IP / 端口</text>
+  <rect x="350" y="356" width="240" height="52" rx="16" class="amber"/><text x="374" y="389" class="tiny">本机设备 ID</text>
+  <rect x="96" y="442" width="494" height="58" rx="18" class="red"/><text x="254" y="478" class="tiny">写入本机配置</text>
+  <rect x="96" y="536" width="494" height="80" rx="18" class="tile"/>
+  <text x="120" y="570" class="tiny">填写后只写本机配置；平台侧接入流程看 GB28181 视频接入文档。</text>
+
+  <rect x="724" y="160" width="606" height="520" rx="24" fill="#f8fbff" stroke="#dbe6f3" stroke-width="2"/>
+  <text x="750" y="200" class="body">网络配置</text>
+  <rect x="750" y="236" width="516" height="78" rx="20" class="blue"/>
+  <text x="776" y="266" class="tiny">索驱上位机 IP</text>
+  <text x="776" y="290" class="mono">默认 192.168.6.62</text>
+  <rect x="750" y="334" width="516" height="78" rx="20" class="green"/>
+  <text x="776" y="364" class="tiny">线性模组上位机 IP</text>
+  <text x="776" y="388" class="mono">默认 192.168.6.167</text>
+  <rect x="750" y="446" width="516" height="58" rx="18" class="amber"/>
+  <text x="914" y="482" class="tiny">保存并测试</text>
+  <rect x="750" y="540" width="516" height="74" rx="18" class="tile"/>
+  <text x="776" y="574" class="tiny">测试不通过时先确认现场网段、网线和上位机电源，</text>
+  <text x="776" y="598" class="tiny">再看驱动日志。</text>
+</svg>

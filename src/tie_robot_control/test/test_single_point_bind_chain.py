@@ -11,7 +11,7 @@ MSGS_DIR = WORKSPACE_ROOT / "tie_robot_msgs"
 
 
 class SinglePointBindChainTest(unittest.TestCase):
-    def test_single_point_bind_uses_execution_refine_hough_and_dispatches_all_points(self):
+    def test_single_point_bind_uses_execution_refine_mode_and_dispatches_all_points(self):
         callbacks = (
             CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
         ).read_text(encoding="utf-8")
@@ -28,10 +28,42 @@ class SinglePointBindChainTest(unittest.TestCase):
         self.assertIn("constexpr uint8_t kProcessImageModeExecutionRefine = 4;", runtime_header)
         self.assertIn("srv.request.request_mode = kProcessImageModeExecutionRefine;", body)
         self.assertNotIn("kProcessImageModeBindCheck", body)
+        self.assertNotIn("execution_refine_algorithm", body)
+        self.assertNotIn("surface_dp", body)
         self.assertIn("std::vector<tie_robot_msgs::PointCoords> filteredPoints", body)
         self.assertIn("execute_bind_points(filteredPoints, res.message", body)
         self.assertNotIn("resize(1)", body)
         self.assertNotIn(".front()", body)
+
+    def test_single_point_bind_logs_missing_vision_service_dependency(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        body_start = callbacks.index("bool moduan_bind_service(")
+        body_end = callbacks.index("\nbool moduan_bind_points_service", body_start)
+        body = callbacks[body_start:body_end]
+
+        self.assertIn("/pointAI/process_image", body)
+        self.assertIn("pointAINode", body)
+        self.assertIn("AI_client.exists()", body)
+        self.assertIn("Moduan_Error", body)
+
+    def test_single_point_bind_filters_bound_classification_points_before_transform_and_execute(self):
+        callbacks = (
+            CONTROL_DIR / "src" / "moduan" / "moduan_ros_callbacks.cpp"
+        ).read_text(encoding="utf-8")
+
+        body_start = callbacks.index("bool moduan_bind_service(")
+        body_end = callbacks.index("\nbool moduan_bind_points_service", body_start)
+        body = callbacks[body_start:body_end]
+
+        self.assertIn("if (point.is_shuiguan)", body)
+        self.assertIn("跳过已绑扎视觉点", body)
+        self.assertLess(
+            body.index("if (point.is_shuiguan)"),
+            body.index("transform_scepter_camera_points_to_gripper_points"),
+        )
 
     def test_single_point_bind_transforms_camera_points_to_gripper_before_execution(self):
         callbacks = (

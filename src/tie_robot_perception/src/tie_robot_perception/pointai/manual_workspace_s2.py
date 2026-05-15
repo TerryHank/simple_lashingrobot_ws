@@ -51,7 +51,7 @@ CORNER_WORLD_MAP_KEY = "corner_world_map_frame"
 LEGACY_CORNER_WORLD_KEY = "corner_world_" + "cabin" + "_frame"
 
 
-def prepare_manual_workspace_s2_inputs(self):
+def prepare_manual_workspace_s2_inputs(self, execution_refine_roi_mode=False, require_legacy_period_estimate=False):
     manual_workspace = self.load_manual_workspace_quad()
     workspace_mask = self.get_manual_workspace_pixel_mask()
     if manual_workspace is None or workspace_mask is None:
@@ -59,6 +59,17 @@ def prepare_manual_workspace_s2_inputs(self):
 
     if not self.ensure_raw_world_channels():
         return None
+
+    raw_depth = self.depth_v.astype(np.float32)
+    valid_mask = np.isfinite(raw_depth) & (raw_depth != 0.0)
+    execution_tcp_mask = None
+    if bool(execution_refine_roi_mode):
+        execution_tcp_mask = self.get_execution_refine_tcp_range_pixel_mask()
+        if execution_tcp_mask is None:
+            return None
+        execution_tcp_mask = np.asarray(execution_tcp_mask, dtype=np.uint8)
+        if execution_tcp_mask.shape[:2] != raw_depth.shape[:2]:
+            return None
 
     corner_world_for_rectification = manual_workspace.get(CORNER_WORLD_MAP_KEY)
     if corner_world_for_rectification is None:
@@ -72,8 +83,6 @@ def prepare_manual_workspace_s2_inputs(self):
     if rectified_geometry is None:
         return None
 
-    raw_depth = self.depth_v.astype(np.float32)
-    valid_mask = np.isfinite(raw_depth) & (raw_depth != 0.0)
     if np.count_nonzero(valid_mask & workspace_mask.astype(bool)) < 100:
         return None
 
@@ -93,6 +102,15 @@ def prepare_manual_workspace_s2_inputs(self):
         rectified_size,
         flags=cv2.INTER_NEAREST,
     ).astype(bool)
+    rectified_execution_tcp_mask = None
+    if execution_tcp_mask is not None:
+        rectified_execution_tcp_mask = cv2.warpPerspective(
+            (execution_tcp_mask > 0).astype(np.uint8),
+            rectified_geometry["forward_h"],
+            rectified_size,
+            flags=cv2.INTER_NEAREST,
+        ).astype(bool)
+        rectified_valid_mask &= rectified_execution_tcp_mask
     if np.count_nonzero(rectified_valid_mask) < 100:
         return None
 
@@ -122,10 +140,13 @@ def prepare_manual_workspace_s2_inputs(self):
     ]
     rectified_mask_uint8 = rectified_valid_mask.astype(np.uint8)
 
+    fallback_response = None
     best_variant = None
     for response_variant in depth_response_variants:
         response_variant = response_variant.astype(np.float32)
         normalized_response = self.normalize_workspace_s2_response(response_variant, rectified_valid_mask)
+        if fallback_response is None:
+            fallback_response = normalized_response
         vertical_profile = self.build_workspace_s2_axis_profile(normalized_response, rectified_mask_uint8, axis=0)
         horizontal_profile = self.build_workspace_s2_axis_profile(normalized_response, rectified_mask_uint8, axis=1)
         vertical_estimate = self.estimate_workspace_s2_period_and_phase(vertical_profile, min_period=10, max_period=30)
@@ -144,8 +165,20 @@ def prepare_manual_workspace_s2_inputs(self):
                 "combined_score": combined_score,
             }
 
-    if best_variant is None:
+    if best_variant is None and require_legacy_period_estimate:
         return None
+    if best_variant is None:
+        response_crop = fallback_response
+        vertical_profile = self.build_workspace_s2_axis_profile(response_crop, rectified_mask_uint8, axis=0)
+        horizontal_profile = self.build_workspace_s2_axis_profile(response_crop, rectified_mask_uint8, axis=1)
+        vertical_estimate = None
+        horizontal_estimate = None
+    else:
+        response_crop = best_variant["response"]
+        vertical_profile = best_variant["vertical_profile"]
+        horizontal_profile = best_variant["horizontal_profile"]
+        vertical_estimate = best_variant["vertical_estimate"]
+        horizontal_estimate = best_variant["horizontal_estimate"]
 
     return {
         "manual_workspace": manual_workspace,
@@ -155,12 +188,15 @@ def prepare_manual_workspace_s2_inputs(self):
         "rectified_depth": rectified_depth,
         "filled_depth": filled_depth,
         "rectified_ir": rectified_ir,
-        "response_crop": best_variant["response"],
+        "response_crop": response_crop,
         "workspace_mask_crop": rectified_valid_mask.astype(np.uint8),
-        "vertical_profile": best_variant["vertical_profile"],
-        "horizontal_profile": best_variant["horizontal_profile"],
-        "vertical_estimate": best_variant["vertical_estimate"],
-        "horizontal_estimate": best_variant["horizontal_estimate"],
+        "execution_tcp_mask": (
+            None if rectified_execution_tcp_mask is None else rectified_execution_tcp_mask.astype(np.uint8)
+        ),
+        "vertical_profile": vertical_profile,
+        "horizontal_profile": horizontal_profile,
+        "vertical_estimate": vertical_estimate,
+        "horizontal_estimate": horizontal_estimate,
     }
 
 
@@ -573,9 +609,9 @@ def build_manual_workspace_s2_points_array(
     return points_array_msg, display_points
 
 
-def run_manual_workspace_surface_dp_pipeline(self, publish=False):
+def run_manual_workspace_surface_dp_pipeline(self, publish=False, execution_refine_roi_mode=False):
     start_time = time.perf_counter()
-    s2_inputs = self.prepare_manual_workspace_s2_inputs()
+    s2_inputs = self.prepare_manual_workspace_s2_inputs(execution_refine_roi_mode=execution_refine_roi_mode)
     if s2_inputs is None:
         return {
             "success": False,
@@ -599,6 +635,7 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
         enable_beam_exclusion=bool(getattr(self, "scan_beam_exclusion_enabled", False)),
         beam_exclusion_margin_mm=float(getattr(self, "scan_beam_exclusion_margin_mm", 150.0)),
         response_source=getattr(self, "scan_response_source", "depth_gradient"),
+        execution_refine_mode=bool(getattr(self, "execution_refine_surface_dp_mode", False)),
     )
     if not surface_result.get("success", False):
         return {
@@ -673,15 +710,198 @@ def run_manual_workspace_surface_dp_pipeline(self, publish=False):
         "point_count": points_array_msg.count,
         "point_coords": points_array_msg,
         "result_image": result_image,
+        "runtime_response": surface_result.get("modalities", {}).get("runtime_response"),
+        "rectified_geometry": rectified_geometry,
+        "workspace_shape": tuple(s2_inputs["workspace_mask"].shape[:2]),
         "single_frame_elapsed_ms": elapsed_ms,
         "algorithm": surface_result.get("variant_id", "surface_dp_lattice_intersection"),
         "surface_dp_diagnostics": surface_result.get("diagnostics", {}),
     }
 
 
+def run_execution_refine_surface_dp_pipeline(self, publish=True):
+    start_time = time.perf_counter()
+    previous_execution_refine_surface_dp_mode = bool(
+        getattr(self, "execution_refine_surface_dp_mode", False)
+    )
+    self.execution_refine_surface_dp_mode = True
+    try:
+        surface_result = self.run_manual_workspace_surface_dp_pipeline(
+            publish=False,
+            execution_refine_roi_mode=True,
+        )
+    finally:
+        self.execution_refine_surface_dp_mode = previous_execution_refine_surface_dp_mode
+    point_coords = surface_result.get("point_coords")
+    if not surface_result.get("success", False) or not self.has_detected_points(point_coords):
+        elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+        return {
+            "success": False,
+            "message": "执行微调扫描同款Surface-DP未返回扫描点：{}".format(
+                surface_result.get("message", "未知错误")
+            ),
+            "point_coords": point_coords,
+            "single_frame_elapsed_ms": elapsed_ms,
+        }
+
+    in_range_centers = []
+    out_of_range_count = 0
+    out_of_range_reason_counts = {}
+    out_of_range_samples = []
+    for source_idx, point in enumerate(point_coords.PointCoordinatesArray):
+        try:
+            camera_coord = [float(value) for value in point.World_coord[:3]]
+            pixel_coord = [int(point.Pix_coord[0]), int(point.Pix_coord[1])]
+        except (TypeError, ValueError, IndexError):
+            out_of_range_count += 1
+            out_of_range_reason_counts["无效相机坐标"] = out_of_range_reason_counts.get("无效相机坐标", 0) + 1
+            continue
+
+        is_in_tcp_range = self.is_camera_world_coord_in_execution_refine_tcp_range(camera_coord)
+        is_in_global_workspace = self.is_camera_world_coord_in_global_workspace(camera_coord)
+        center_record = (source_idx, pixel_coord, camera_coord)
+        if is_in_tcp_range and is_in_global_workspace:
+            in_range_centers.append(center_record)
+            continue
+
+        out_of_range_count += 1
+        reasons = []
+        if not is_in_global_workspace:
+            reasons.append("超出全局工作区")
+        if not is_in_tcp_range:
+            reasons.append("超出TCP执行范围")
+        reason = "+".join(reasons) or "超出执行范围"
+        out_of_range_reason_counts[reason] = out_of_range_reason_counts.get(reason, 0) + 1
+        if len(out_of_range_samples) < 5:
+            out_of_range_samples.append(
+                "idx={},pix=({},{}),coord=({:.1f},{:.1f},{:.1f}),原因={}".format(
+                    source_idx,
+                    pixel_coord[0],
+                    pixel_coord[1],
+                    camera_coord[0],
+                    camera_coord[1],
+                    camera_coord[2],
+                    reason,
+                )
+            )
+
+    output_centers = self.select_output_centers_for_mode(
+        PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+        in_range_centers,
+        [],
+    )
+    points_array_msg = PointsArray()
+    points_array_msg.PointCoordinatesArray = []
+    for output_idx, (_source_idx, pixel_coord, camera_coord) in enumerate(output_centers, start=1):
+        point_msg = PointCoords()
+        point_msg.is_shuiguan = False
+        point_msg.Angle = -45
+        point_msg.idx = output_idx
+        point_msg.Pix_coord = [int(pixel_coord[0]), int(pixel_coord[1])]
+        point_msg.World_coord = [
+            float(camera_coord[0]),
+            float(camera_coord[1]),
+            float(camera_coord[2]),
+        ]
+        points_array_msg.PointCoordinatesArray.append(point_msg)
+    points_array_msg.count = len(points_array_msg.PointCoordinatesArray)
+
+    elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+    self.result_display_points = self.build_matrix_display_points(output_centers)
+    self.execution_refine_classification_diagnostic_points = []
+    runtime_response = surface_result.get("runtime_response")
+    if runtime_response is None:
+        runtime_response = surface_result.get("modalities", {}).get("runtime_response")
+    runtime_response_image = None
+    if runtime_response is not None:
+        runtime_response_image = normalize_scan_surface_dp_debug_image(runtime_response)
+        rectified_geometry = surface_result.get("rectified_geometry")
+        workspace_shape = surface_result.get("workspace_shape")
+        inverse_h = None
+        if isinstance(rectified_geometry, dict):
+            inverse_h = rectified_geometry.get("inverse_h")
+        if (
+            runtime_response_image is not None
+            and inverse_h is not None
+            and isinstance(workspace_shape, (tuple, list))
+            and len(workspace_shape) >= 2
+        ):
+            workspace_height = int(workspace_shape[0])
+            workspace_width = int(workspace_shape[1])
+            if workspace_height > 0 and workspace_width > 0:
+                runtime_response_image = cv2.warpPerspective(
+                    runtime_response_image,
+                    inverse_h,
+                    (workspace_width, workspace_height),
+                    flags=cv2.INTER_LINEAR,
+                    borderValue=0,
+                )
+    self.cache_execution_refine_base_image_for_classification(
+        runtime_response_image,
+        "Scepter_depth_frame",
+        [],
+    )
+    self.last_detection_debug = {
+        "algorithm": "surface_dp",
+        "candidate_points": int(getattr(point_coords, "count", 0)),
+        "in_range_candidates": len(in_range_centers),
+        "selected_points": len(output_centers),
+        "out_of_range_points": out_of_range_count,
+        "output_points": points_array_msg.count,
+    }
+    rospy.loginfo(
+        "执行微调Surface-DP统计：候选点=%d，范围内候选=%d，范围外点=%d，输出点=%d",
+        self.last_detection_debug["candidate_points"],
+        self.last_detection_debug["in_range_candidates"],
+        self.last_detection_debug["out_of_range_points"],
+        self.last_detection_debug["output_points"],
+    )
+    rospy.logwarn_throttle(
+        1.0,
+        self.build_detection_summary_log(
+            request_mode=PROCESS_IMAGE_MODE_EXECUTION_REFINE,
+            raw_candidate_count=int(getattr(point_coords, "count", 0)),
+            in_range_candidate_count=len(in_range_centers),
+            out_of_range_point_count=out_of_range_count,
+            selected_count=len(output_centers),
+            output_count=points_array_msg.count,
+            out_of_range_reason_counts=out_of_range_reason_counts,
+            out_of_range_samples=out_of_range_samples,
+        ),
+    )
+
+    if publish:
+        self.coordinate_publisher.publish(points_array_msg)
+        if runtime_response_image is not None and getattr(self, "execution_refine_base_image_pub", None) is not None:
+            result_image_msg = self.bridge.cv2_to_imgmsg(runtime_response_image, encoding="mono8")
+            result_image_msg.header.stamp = rospy.Time.now()
+            result_image_msg.header.frame_id = "Scepter_depth_frame"
+            self.execution_refine_base_image_pub.publish(result_image_msg)
+        if getattr(self, "lashing_points_camera_pub", None) is not None:
+            self.lashing_points_camera_pub.publish(points_array_msg)
+        previous_prefix = getattr(self, "raw_bind_point_tf_child_prefix", "surface_dp_bind_point")
+        self.raw_bind_point_tf_child_prefix = "execution_surface_dp_bind_point"
+        self.publish_raw_camera_bind_point_transforms(points_array_msg)
+        self.raw_bind_point_tf_child_prefix = previous_prefix
+
+    if points_array_msg.count <= 0:
+        return {
+            "success": False,
+            "message": "执行微调扫描同款Surface-DP没有输出执行范围内点",
+            "point_coords": points_array_msg,
+            "single_frame_elapsed_ms": elapsed_ms,
+        }
+    return {
+        "success": True,
+        "message": "执行微调扫描同款Surface-DP输出{}个相机原始坐标点".format(points_array_msg.count),
+        "point_coords": points_array_msg,
+        "single_frame_elapsed_ms": elapsed_ms,
+    }
+
+
 def run_manual_workspace_s2_depth_only_pipeline(self, publish=False):
     start_time = time.perf_counter()
-    s2_inputs = self.prepare_manual_workspace_s2_inputs()
+    s2_inputs = self.prepare_manual_workspace_s2_inputs(require_legacy_period_estimate=True)
     if s2_inputs is None:
         return {
             "success": False,

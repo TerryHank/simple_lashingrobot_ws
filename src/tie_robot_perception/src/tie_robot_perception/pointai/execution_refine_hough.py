@@ -41,6 +41,27 @@ EXECUTION_REFINE_DIAGNOSTIC_STYLES = {
         "thickness": 2,
         "draw_label": True,
     },
+    "classification_bound": {
+        "color": (0, 0, 255),
+        "label": "BND",
+        "radius": 11,
+        "thickness": 2,
+        "draw_label": True,
+    },
+    "classification_unbound": {
+        "color": (0, 220, 0),
+        "label": "UNB",
+        "radius": 11,
+        "thickness": 2,
+        "draw_label": True,
+    },
+    "classification_uncertain": {
+        "color": (255, 160, 0),
+        "label": "UNC",
+        "radius": 11,
+        "thickness": 2,
+        "draw_label": True,
+    },
 }
 
 EXECUTION_REFINE_DIAGNOSTIC_LEGEND = (
@@ -48,6 +69,9 @@ EXECUTION_REFINE_DIAGNOSTIC_LEGEND = (
     ("zero_world", "ZERO coord"),
     ("out_of_range", "TCP range"),
     ("selected", "Output"),
+    ("classification_bound", "Class bound"),
+    ("classification_unbound", "Class unbound"),
+    ("classification_uncertain", "Class uncertain"),
 )
 
 
@@ -221,11 +245,26 @@ def _publish_execution_refine_base_image(
     else:
         overlay_image = np.array(binary_image, copy=True)
 
-    for diagnostic_point in diagnostic_points or []:
+    diagnostic_points = list(diagnostic_points or [])
+    classification_points = [
+        point
+        for point in diagnostic_points
+        if str(point.get("status", "")).startswith("classification_")
+    ]
+    gate_points = [
+        point
+        for point in diagnostic_points
+        if not str(point.get("status", "")).startswith("classification_")
+    ]
+
+    for diagnostic_point in gate_points:
         _draw_execution_refine_diagnostic_marker(overlay_image, diagnostic_point)
 
     for point in point_array_msg.PointCoordinatesArray:
         _draw_execution_refine_selected_point(overlay_image, point)
+
+    for diagnostic_point in classification_points:
+        _draw_execution_refine_diagnostic_marker(overlay_image, diagnostic_point)
 
     _draw_execution_refine_diagnostic_legend(overlay_image)
 
@@ -233,6 +272,44 @@ def _publish_execution_refine_base_image(
     image_msg.header.stamp = rospy.Time.now()
     image_msg.header.frame_id = frame_id
     publisher.publish(image_msg)
+
+
+def cache_execution_refine_base_image_for_classification(
+    self,
+    base_image,
+    frame_id,
+    diagnostic_points=None,
+):
+    if base_image is None:
+        return
+    self.execution_refine_base_image_for_classification = np.array(base_image, copy=True)
+    self.execution_refine_base_image_frame_id = frame_id
+    self.execution_refine_base_diagnostic_points = list(diagnostic_points or [])
+
+
+def publish_execution_refine_classified_base_image(
+    self,
+    point_array_msg=None,
+    classification_diagnostic_points=None,
+):
+    base_image = getattr(self, "execution_refine_base_image_for_classification", None)
+    if base_image is None:
+        return
+
+    if point_array_msg is None:
+        point_array_msg = PointsArray()
+        point_array_msg.PointCoordinatesArray = []
+        point_array_msg.count = 0
+
+    diagnostic_points = list(getattr(self, "execution_refine_base_diagnostic_points", []) or [])
+    diagnostic_points.extend(list(classification_diagnostic_points or []))
+    _publish_execution_refine_base_image(
+        self,
+        base_image,
+        point_array_msg,
+        getattr(self, "execution_refine_base_image_frame_id", "Scepter_depth_frame"),
+        diagnostic_points,
+    )
 
 
 def _build_execution_refine_binary(self):
@@ -340,6 +417,7 @@ def run_execution_refine_hough_pipeline(self, publish=True):
     self.current_result_request_mode = PROCESS_IMAGE_MODE_EXECUTION_REFINE
     self.result_display_points = []
     self.execution_refine_diagnostic_points = []
+    self.execution_refine_classification_diagnostic_points = []
     self.execution_refine_tcp_range_pixel_mask = None
     self.last_detection_debug = {}
     self.ensure_raw_world_channels()
@@ -458,6 +536,9 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         is_in_tcp_range = self.is_camera_world_coord_in_execution_refine_tcp_range(
             calibrated_world_coord
         )
+        is_in_global_workspace = self.is_camera_world_coord_in_global_workspace(
+            calibrated_world_coord
+        )
         is_in_tcp_range_pixel_mask = (
             execution_refine_pixel_mask is None
             or self.is_point_in_matrix_selection_pixel_mask(
@@ -466,13 +547,18 @@ def run_execution_refine_hough_pipeline(self, publish=True):
                 execution_refine_pixel_mask,
             )
         )
-        if is_in_tcp_range and is_in_tcp_range_pixel_mask:
+        if is_in_tcp_range and is_in_tcp_range_pixel_mask and is_in_global_workspace:
             in_range_centers.append(center_record)
             continue
 
         out_of_range_count += 1
         out_of_range_records.append(center_record)
-        out_of_range_reason = "超出TCP执行范围"
+        out_of_range_reasons = []
+        if not is_in_global_workspace:
+            out_of_range_reasons.append("超出全局工作区")
+        if not is_in_tcp_range or not is_in_tcp_range_pixel_mask:
+            out_of_range_reasons.append("超出TCP执行范围")
+        out_of_range_reason = "+".join(out_of_range_reasons) or "超出执行范围"
         out_of_range_reason_counts[out_of_range_reason] = (
             out_of_range_reason_counts.get(out_of_range_reason, 0) + 1
         )
@@ -502,6 +588,11 @@ def run_execution_refine_hough_pipeline(self, publish=True):
         hough_raw_pixels,
         zero_world_records,
         out_of_range_records,
+    )
+    self.cache_execution_refine_base_image_for_classification(
+        self.Depth_image_Raw_binary,
+        "Scepter_depth_frame",
+        self.execution_refine_diagnostic_points,
     )
 
     self.last_detection_debug = {

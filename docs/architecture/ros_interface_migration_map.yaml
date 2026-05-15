@@ -173,11 +173,6 @@ interfaces:
       type: service
       owner: tie_robot_perception
       status: planned
-    - legacy: /web/pointAI/set_height_threshold
-      canonical: /perception/lashing/config/set_height_threshold
-      type: service
-      owner: tie_robot_perception
-      status: planned
     - legacy: /web/pointAI/move_to_workspace_center_scan_pose
       canonical: /process/scan/move_to_workspace_center
       type: service
